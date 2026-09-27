@@ -283,7 +283,8 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
 
   const mcpServers: Options['mcpServers'] = {};
   if (opts.browserTesting) {
-    const args = ['-y', '@playwright/mcp@latest', '--headless', '--isolated'];
+    // browser-init.js keeps pages from taking the real mouse with pointer lock (headless Chrome does on Windows).
+    const args = ['-y', '@playwright/mcp@latest', '--headless', '--isolated', '--init-script', path.join(import.meta.dirname, 'browser-init.js')];
     mcpServers.playwright = process.platform === 'win32' ? { command: 'cmd', args: ['/c', 'npx', ...args] } : { command: 'npx', args };
   }
   if (opts.office) mcpServers.office = opts.office.server;
