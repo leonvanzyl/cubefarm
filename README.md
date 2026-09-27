@@ -113,6 +113,32 @@ Disconnecting a floor never deletes anything on GitHub, and it leaves the clone 
 
 In the manager's console, each floor can **link** to other connected repos. Agents on that floor get read access to the linked repos' clones (for example, a frontend team that needs to read the API repo) and are told about them in their instructions.
 
+## Floor previews
+
+Every floor can run its app so you can open and use it from the office. The server side:
+
+- `POST /api/repos/:repo/preview` starts it on the default branch, or `{ "pr": 12 }` on an open pull request (and restarts it when it is already running on another ref). `DELETE /api/repos/:repo/preview` stops it. One preview per floor.
+- It runs in its own worktree, `workspaces/<owner>__<repo>/desks/preview` (branch `swarm-preview`), never in the floor's main checkout.
+- Its port is reserved for the floor: **6300 + floor number** (moved up by 100 if that clashes with the office's own `SWARM_PORT` or another preview). It never uses 4317, 5317 or the agents' 5200-5899 range. If something else already holds the port, the preview reports an error and leaves that program alone.
+- Statuses: `preparing` (checkout) → `installing` (`npm ci` with a lockfile, else `npm install`; skipped when `package.json` and the lockfile haven't changed since the last install) → `starting` → `running` (once the port accepts connections; 3 minute timeout), or `error` / `stopped`. The repo's `preview` field carries the status, URL, ref, short commit, start time, error and the last 40 log lines, and is pushed over the websocket.
+- Previews stop when their floor is disconnected and when the server gets SIGINT/SIGTERM; anything left over from a hard kill is cleaned up at the next start, and every preview reads `stopped` after a restart.
+
+**Configuring it** (`PATCH /api/repos/:repo` with `previewCommand` and `previewEnv`, or the CEO's `set_floor_profile` tool with `preview_command` / `preview_env`):
+
+- `previewCommand`: a shell command run from the worktree root (`cmd.exe` on Windows). `null` or `""` means the default: `npm run dev`, else `npm run start`, else `npm run preview`. Plain `vite` scripts get `-- --port {port} --strictPort` appended, since Vite ignores `PORT`. No command and no `package.json` means `unconfigured`.
+- `previewEnv`: extra environment variables (string values). `ANTHROPIC_*` / `CLAUDE_*` names are refused.
+- Placeholders, replaced in the command and in env values: `{port}` is the floor's preview port; `{tmp}` is a scratch folder inside the preview worktree (`.preview-tmp`, kept out of git status).
+- `PORT={port}` is always set. The app gets the office's environment minus `ANTHROPIC_*`, `CLAUDE_*` and the office's own `SWARM_*` variables.
+
+Example, this repo previewing itself (a demo office on the floor's port, with its state in the scratch folder):
+
+```json
+{ "previewCommand": "npm run build && node --import tsx server/index.ts --demo",
+  "previewEnv": { "SWARM_PORT": "{port}", "SWARM_HOME": "{tmp}" } }
+```
+
+In `--demo` mode no git or npm runs: starting a preview serves a small placeholder page ("<floor> app · <ref>", with a click counter) on the floor's port.
+
 ## Architecture
 
 ```
@@ -124,6 +150,8 @@ server/  Node + Express + ws
   agentRunner.ts  one Claude Agent SDK session per agent; turns its stream into terminal lines
   github.ts       everything GitHub, via the gh CLI
   workspace.ts    clones + per-agent git worktrees
+  previews.ts     one preview per floor: ports, statuses, start / stop
+  previewRunner.ts  checkout, install and run a floor's app in its preview worktree
   demo.ts         fake GitHub and fake agents for `npm run demo`
 shared/types.ts   the websocket / REST contract
 ```

@@ -360,7 +360,7 @@ export function createDemoBackend(): Backend {
 function placeholderPage(title: string, hue: number) {
   const safe = title.replace(/[<>&"]/g, '');
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe}</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe}</title><link rel="icon" href="data:,">
 <style>
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
   main { text-align: center; padding: 32px 40px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
