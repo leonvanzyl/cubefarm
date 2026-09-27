@@ -24,6 +24,8 @@ function issue(n: number, title: string, body: string, fullName: string, labels:
 }
 
 const repos = new Map<string, FakeRepo>();
+/** Repos made in the demo (new projects, published folders): empty, so no package.json for the preview to fall back on. */
+const bareRepos = new Set<string>();
 
 function seed(fullName: string, description: string, titles: [string, string][]) {
   const r: FakeRepo = { fullName, description, issues: [], pulls: [], nextNumber: 1 };
@@ -266,7 +268,10 @@ export function createDemoBackend(): Backend {
   addFolder('recipe-notes', null, false);
   const newRepo = (name: string, description = '') => {
     const fullName = `demo-co/${name}`;
-    if (!repos.has(fullName)) repos.set(fullName, { fullName, description, issues: [], pulls: [], nextNumber: 1 });
+    if (!repos.has(fullName)) {
+      repos.set(fullName, { fullName, description, issues: [], pulls: [], nextNumber: 1 });
+      bareRepos.add(fullName);
+    }
     addFolder(name, fullName);
     return fullName;
   };
@@ -386,9 +391,16 @@ function placeholderPage(title: string, hue: number) {
 </body></html>`;
 }
 
-/** No git, no npm: short fake delays through the real statuses, then a placeholder page on the floor's port. */
+/** Programs the demo pretends to have, so a bogus preview command fails the way it would for real. */
+const DEMO_PROGRAMS = ['npm', 'npx', 'node', 'pnpm', 'yarn', 'bun', 'deno', 'vite', 'next', 'python', 'python3', 'py', 'php', 'ruby', 'go', 'cargo', 'dotnet'];
+
+/**
+ * No git, no npm: short fake delays through the real statuses, then a placeholder page on the floor's port.
+ * Floors made in the demo have nothing to run until they get a command, and a command whose program isn't in
+ * DEMO_PROGRAMS fails, so the viewer's unconfigured and error states can be tried out.
+ */
 const demoPreviews: PreviewBackend = {
-  hasDefault: async () => true,
+  hasDefault: async (fullName) => !bareRepos.has(fullName),
   start(job, cb) {
     let stopped = false;
     let server: http.Server | null = null;
@@ -406,12 +418,26 @@ const demoPreviews: PreviewBackend = {
     later(700, () => {
       cb.commit(sha);
       cb.log([`HEAD is now at ${sha} (${job.pr ? `PR #${job.pr}` : job.defaultBranch})`]);
+      if (!job.command && bareRepos.has(job.fullName)) {
+        stopped = true;
+        cb.failed('Nothing to run: this floor has no preview command and no package.json.', true);
+        return;
+      }
       cb.status('installing');
       cb.log(['$ npm ci', 'added 214 packages in 1s (demo)']);
     });
     later(1600, () => {
       cb.status('starting');
       cb.log([`$ ${job.command ?? 'npm run dev'}`.replaceAll('{port}', String(job.port))]);
+      const program = job.command?.trim().split(/\s+/)[0] ?? 'npm';
+      if (!DEMO_PROGRAMS.includes(program.toLowerCase())) {
+        later(400, () => {
+          cb.log([`'${program}' is not recognized as an internal or external command,`, 'operable program or batch file.']);
+          stopped = true;
+          cb.failed(`The app exited (code 1) before it listened on port ${job.port}.`);
+        });
+        return;
+      }
       server = http.createServer((req, res) => {
         if (req.url !== '/' && !req.url?.startsWith('/?')) return void res.writeHead(404).end('Not found');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
