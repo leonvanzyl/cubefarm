@@ -14,3 +14,39 @@ export function blockers(body: string, open: Set<number>) {
   }
   return [...out];
 }
+
+/**
+ * How much of the backlog each open issue holds up: the longest chain of open issues waiting on it (`chain`) and how
+ * many wait on it directly or indirectly (`waiting`). Starting the issues with the most behind them first lets the
+ * most work run in parallel later.
+ */
+export function holdUps(issues: { number: number; body: string }[]) {
+  const open = new Set(issues.map((i) => i.number));
+  const waiters = new Map<number, number[]>();
+  for (const i of issues) for (const b of blockers(i.body, open)) waiters.set(b, [...(waiters.get(b) ?? []), i.number]);
+  const chains = new Map<number, number>();
+  const visiting = new Set<number>();
+  const chain = (n: number): number => {
+    const known = chains.get(n);
+    if (known !== undefined) return known;
+    if (visiting.has(n)) return 0; // a dependency cycle
+    visiting.add(n);
+    const longest = Math.max(0, ...(waiters.get(n) ?? []).map((w) => chain(w) + 1));
+    visiting.delete(n);
+    chains.set(n, longest);
+    return longest;
+  };
+  const out = new Map<number, { chain: number; waiting: number }>();
+  for (const i of issues) {
+    const seen = new Set<number>();
+    const stack = [...(waiters.get(i.number) ?? [])];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n === i.number || seen.has(n)) continue;
+      seen.add(n);
+      stack.push(...(waiters.get(n) ?? []));
+    }
+    out.set(i.number, { chain: chain(i.number), waiting: seen.size });
+  }
+  return out;
+}

@@ -82,6 +82,7 @@ app.post(
 app.patch('/api/repos/:repo', route((req) => swarm.updateRepo(repoId(req), req.body ?? {})));
 app.delete('/api/repos/:repo', route((req) => swarm.disconnectRepo(repoId(req))));
 app.post('/api/repos/:repo/sync', route((req) => swarm.syncRepo(repoId(req))));
+app.post('/api/repos/:repo/sync-folder', route((req) => swarm.syncFolderNow(repoId(req))));
 app.post(
   '/api/repos/:repo/issues',
   route(async (req) => ({

@@ -13,7 +13,8 @@ export interface Backend {
   listIssues(fullName: string): Promise<IssueInfo[]>;
   listPulls(fullName: string): Promise<PullInfo[]>;
   createIssue(fullName: string, title: string, body: string, labels?: string[]): Promise<number>;
-  mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase'): Promise<void>;
+  mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void>;
+  updateBranch(fullName: string, number: number): Promise<void>;
   closePull(fullName: string, number: number): Promise<void>;
   prForBranch(fullName: string, branch: string): Promise<{ number: number; url: string } | null>;
   prDetails(fullName: string, number: number): Promise<github.PrDetails>;
@@ -21,6 +22,8 @@ export interface Backend {
   commentPull(fullName: string, number: number, body: string): Promise<string>;
   uploadEvidence(fullName: string, filePath: string, data: Buffer): Promise<string>;
   ensureClone(fullName: string): Promise<void>;
+  /** Fast-forward the floor's main checkout to GitHub when that is safe; returns its status. */
+  syncMain(fullName: string, defaultBranch: string, opts: { touch: boolean }): Promise<string | null>;
   /** Point a floor at the user's own project folder (null: a clone the office manages). */
   setLocalPath(fullName: string, dir: string | null): void;
   scanProjects(root: string): Promise<workspace.LocalFolder[]>;
@@ -47,6 +50,7 @@ export const realBackend: Backend = {
   listPulls: github.listPulls,
   createIssue: github.createIssue,
   mergePull: github.mergePull,
+  updateBranch: github.updateBranch,
   closePull: github.closePull,
   prForBranch: github.prForBranch,
   prDetails: github.prDetails,
@@ -54,6 +58,7 @@ export const realBackend: Backend = {
   commentPull: github.commentPull,
   uploadEvidence: github.uploadEvidence,
   ensureClone: workspace.ensureClone,
+  syncMain: workspace.syncMain,
   setLocalPath: workspace.setLocalPath,
   scanProjects: workspace.scanProjects,
   inspectFolder: workspace.inspectFolder,

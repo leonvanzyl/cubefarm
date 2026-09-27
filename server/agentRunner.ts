@@ -46,6 +46,8 @@ export interface SessionCallbacks {
   screenshot(data: Buffer, mime: string): void;
   /** The final text of each turn: the reply to the prompt and to every message sent while it ran. */
   turn?(text: string): void;
+  /** Claude turned the session away for the subscription's usage limit (epoch ms when it resets, if known). */
+  limited?(resetsAt: number | null): void;
   finished(result: SessionResult): void;
 }
 
@@ -91,7 +93,7 @@ const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 const BLOCKED_COMMANDS: { re: RegExp; why: string }[] = [
   { re: /\bgit\s+push\b[^\n]*(\s--force\b|\s-f\b|\s--force-with-lease\b|\s\+\S)/, why: 'force-pushing is not allowed' },
-  { re: /\bgh\s+pr\s+merge\b/, why: 'the manager merges pull requests, not agents' },
+  { re: /\bgh\s+pr\s+merge\b/, why: 'the office merges pull requests once QA and the checks pass, not agents' },
   { re: /\bgh\s+(repo\s+(delete|edit|rename|archive)|secret|auth|release\s+delete|api\s+-X\s*DELETE)\b/, why: 'repository administration is off-limits' },
   { re: /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(\/|~|[A-Za-z]:[\\/]?)(\s|$)/, why: 'deleting a filesystem root is not allowed' },
   { re: /\b(shutdown|format\s+[a-z]:|mkfs|Remove-Item\s+[^\n]*-Recurse[^\n]*[A-Za-z]:\\\s*$)/i, why: 'destructive system command' },
@@ -340,6 +342,8 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
         if (info.status !== 'allowed') {
           const when = info.resetsAt ? new Date(info.resetsAt * 1000).toLocaleTimeString() : 'later';
           cb.log([{ kind: 'error', text: `⚠ Subscription usage ${info.status === 'rejected' ? 'limit reached' : 'warning'} (${info.rateLimitType ?? 'limit'}) · resets ${when}` }]);
+          const overage = info.isUsingOverage || info.overageStatus === 'allowed' || info.overageStatus === 'allowed_warning';
+          if (info.status === 'rejected' && !overage) cb.limited?.(info.resetsAt ? info.resetsAt * 1000 : null);
         }
         break;
       }

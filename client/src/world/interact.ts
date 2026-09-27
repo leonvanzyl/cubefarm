@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { Focus } from '../store';
 
-// Objects the player can aim at and press E on. The player raycasts against these roots.
+// Objects the player can aim at and press E (or left click) on. The player raycasts against these roots.
 
 export const interactables = new Map<THREE.Object3D, Focus & { range: number }>();
 

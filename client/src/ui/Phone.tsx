@@ -184,8 +184,8 @@ function Chat() {
         ? 'typing…'
         : `busy: ${info.job?.label ?? 'working'}`
       : chatQueued
-        ? running >= settings.maxConcurrent
-          ? `will reply when a session slot frees up (${running}/${settings.maxConcurrent} busy)`
+        ? settings.sessionLimit && running >= settings.sessionLimit
+          ? `will reply when a session slot frees up (${running}/${settings.sessionLimit} busy)`
           : 'reading your message…'
         : info.queue.length
           ? `next up: ${info.queue[0].label}`
@@ -287,7 +287,13 @@ function useCompany() {
     if (pending) report.push({ icon: '📄', text: `${pending} hiring decision${pending === 1 ? ' is' : 's are'} waiting in Hires.`, tone: 'warn' });
     report.push({
       icon: '⚙️',
-      text: running ? `${running} of ${settings.maxConcurrent} session slots are busy right now.` : `Nobody is working at the moment (${settings.maxConcurrent} session slots free).`,
+      text: settings.sessionLimit
+        ? running
+          ? `${running} of ${settings.sessionLimit} session slots are busy right now.`
+          : `Nobody is working at the moment (${settings.sessionLimit} session slots free).`
+        : running
+          ? `${running} session${running === 1 ? ' is' : 's are'} running right now.`
+          : 'Nobody is working at the moment.',
     });
     for (const f of floors) {
       if (f.issues > 0 && !f.repo.autoAssign && f.working === 0 && f.idleDevs > 0) {
@@ -310,7 +316,7 @@ function useCompany() {
       });
     }
     if (floors.length === 0) report.splice(0, report.length, { icon: '👋', text: "No projects yet. Connect a repo in the manager's office (lobby, back left) and the CEO will staff it." });
-    return { floors, staff: staff.length, running, max: settings.maxConcurrent, issues: sum('issues'), prs: sum('prs'), report };
+    return { floors, staff: staff.length, running, max: settings.sessionLimit, issues: sum('issues'), prs: sum('prs'), report };
   }, [repos, agents, qa, requests, settings, info]);
 }
 
@@ -322,7 +328,7 @@ function Company() {
     ['📋', c.issues, 'open issues'],
     ['🔀', c.prs, 'open PRs'],
     ['👥', c.staff, 'on staff'],
-    ['⚙️', `${c.running}/${c.max}`, 'working now'],
+    ['⚙️', c.max ? `${c.running}/${c.max}` : `${c.running}`, 'working now'],
   ];
   return (
     <div className="phone-scroll">
@@ -414,7 +420,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     ['company', '📊', 'Company', 0],
   ];
   return (
-    <div className="overlay phone-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay(true)}>
+    <div className="overlay phone-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
       <div className="phone">
         <div className="phone-status">
           <span>{clock(now)}</span>
