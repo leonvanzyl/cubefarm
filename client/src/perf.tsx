@@ -48,20 +48,27 @@ export function FrameWhilePaused({ paused }: { paused: boolean }) {
   return null;
 }
 
+// Low/high fps bounds relative to the display's refresh rate, so a 60 Hz screen holding ~55 fps still
+// counts as healthy. The monitor reports the highest rate it has ever measured, and a burst of catch-up
+// frames can overshoot it (and then nothing ever counts as recovered), so snap it to a common display rate.
+function fpsBounds(measured: number): [number, number] {
+  const hz = measured > 130 ? 144 : measured > 100 ? 120 : 60;
+  return [Math.round(hz * 0.6), Math.round(hz * 0.9)];
+}
+
 /**
  * Lives inside the Canvas. Steps the pixel ratio down toward 1 while the frame rate stays low, and
- * back up toward MAX_DPR once it recovers. Bounds are relative to the display's refresh rate, so a
- * 60 Hz screen that holds ~55 fps still counts as healthy.
+ * back up toward MAX_DPR once it recovers. No flip-flop limit: drei's fallback would stop monitoring and
+ * leave the view at its lowest resolution for the rest of the day after one busy spell (a build, a test
+ * run). The gap between the low and high bounds keeps it from bouncing between steps.
  */
 export function AdaptiveResolution({ onChange }: { onChange: (maxDpr: number) => void }) {
   return (
     <PerformanceMonitor
       factor={1}
       step={0.25}
-      flipflops={8}
-      bounds={(refresh) => [Math.round(refresh * 0.6), Math.round(refresh * 0.9)]}
+      bounds={fpsBounds}
       onChange={({ factor }) => onChange(Math.round((1 + (MAX_DPR - 1) * factor) * 100) / 100)}
-      onFallback={() => onChange(1)}
     />
   );
 }
