@@ -66,6 +66,39 @@ export interface RepoView {
   pulls: PullInfo[]; // open + recently merged PRs
   lastSync: number | null;
   syncError?: string;
+  previewConfig: PreviewConfig;
+  preview: PreviewView;
+}
+
+/**
+ * How a floor's app is run for the preview monitor. {port} and {tmp} are replaced in the command and env values;
+ * PORT={port} is always set. command null: npm run dev, else start, else preview from package.json.
+ */
+export interface PreviewConfig {
+  command: string | null;
+  env: Record<string, string>;
+}
+
+export type PreviewStatus =
+  | 'unconfigured' // no command and no package.json
+  | 'stopped'
+  | 'preparing' // checking out the ref in the preview worktree
+  | 'installing' // npm ci / npm install
+  | 'starting' // command started, waiting for the port
+  | 'running'
+  | 'error';
+
+/** The floor's running app, served from its own worktree on a port reserved for the floor. */
+export interface PreviewView {
+  status: PreviewStatus;
+  port: number;
+  url: string | null; // set while running
+  ref: string | null; // the default branch's name, or "PR #n"
+  pr: number | null;
+  commit: string | null; // short sha
+  startedAt: number | null;
+  error: string | null;
+  logTail: string[]; // the last 40 lines of install / app output
 }
 
 /** A folder in the manager's projects folder, as offered when adding a floor. */

@@ -7,6 +7,8 @@ import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, jobLabel, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { HttpError } from './httpError.ts';
+import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { blockers, issueSpecialty } from '../shared/issues.ts';
 import { CEO_ID } from '../shared/types.ts';
 import type {
@@ -21,6 +23,8 @@ import type {
   IssueInfo,
   LogLine,
   PhoneMessage,
+  PreviewConfig,
+  PreviewView,
   ProjectFolderView,
   PullInfo,
   QaCheck,
@@ -48,6 +52,7 @@ interface PersistedRepo {
   mission: string;
   summary: string;
   qaBrief: string;
+  preview: PreviewConfig; // how the floor's app runs for the preview monitor
   addedAt: number;
 }
 
@@ -298,14 +303,7 @@ function parseReport(result: SessionResult): QaReport | null {
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
 const ICON = { pass: '✅', fail: '❌', skip: '⏭️' } as const;
 
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { HttpError };
 
 export class Swarm {
   private state: Persisted = {
@@ -349,8 +347,17 @@ export class Swarm {
   private saveTimer: NodeJS.Timeout | null = null;
   private flushTimer: NodeJS.Timeout | null = null;
   private logSeq = 1;
+  private previews: Previews;
 
-  constructor(private backend: Backend) {}
+  constructor(private backend: Backend) {
+    this.previews = new Previews(backend, {
+      emit: (id) => {
+        const r = this.state.repos.find((x) => x.id === id);
+        if (r && this.repoRt.has(id)) this.emitRepo(r);
+      },
+      pulls: (id) => this.repoRt.get(id)?.pulls ?? [],
+    });
+  }
 
   // ---------- lifecycle ----------
 
@@ -360,7 +367,15 @@ export class Swarm {
       const loaded = JSON.parse(raw) as Partial<Persisted>;
       this.state = {
         settings: { ...this.state.settings, ...loaded.settings },
-        repos: (loaded.repos ?? []).map((r) => ({ ...r, links: r.links ?? [], mission: r.mission ?? '', summary: r.summary ?? '', qaBrief: r.qaBrief ?? '', localPath: r.localPath ?? null })),
+        repos: (loaded.repos ?? []).map((r) => ({
+          ...r,
+          links: r.links ?? [],
+          mission: r.mission ?? '',
+          summary: r.summary ?? '',
+          qaBrief: r.qaBrief ?? '',
+          localPath: r.localPath ?? null,
+          preview: { command: r.preview?.command ?? null, env: { ...r.preview?.env } },
+        })),
         agents: (loaded.agents ?? []).map((a) => ({
           ...a,
           effort: a.effort ?? '',
@@ -423,13 +438,15 @@ export class Swarm {
 
     for (const r of this.state.repos) void this.cloneRepo(r.id);
     await Promise.all(this.state.repos.map((r) => this.syncRepo(r.id)));
-    // Nothing is running yet, so anything still alive in a desk is left over from before the restart.
-    await Promise.all(
-      this.state.agents.map((a) => {
+    // Nothing is running yet, so anything still alive in a desk (or a preview) is left over from before the restart.
+    await Promise.all([
+      ...this.state.agents.map((a) => {
         const repo = this.state.repos.find((r) => r.id === a.repoId);
         return repo ? this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a)).catch(() => undefined) : undefined;
       }),
-    );
+      this.previews.clearOrphans(this.state.repos),
+    ]);
+    for (const r of this.state.repos) void this.previews.refreshDefault(r);
     this.recover(interrupted);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
@@ -482,6 +499,8 @@ export class Swarm {
       pulls: rt.pulls,
       lastSync: rt.lastSync,
       syncError: rt.syncError,
+      previewConfig: r.preview,
+      preview: this.previews.view(r),
     };
   }
 
@@ -693,6 +712,7 @@ export class Swarm {
       mission: (opts.mission ?? '').trim().slice(0, 4000),
       summary: '',
       qaBrief: '',
+      preview: { ...DEFAULT_PREVIEW, env: {} },
       addedAt: Date.now(),
     };
     this.backend.setLocalPath(repo.fullName, folder);
@@ -770,6 +790,7 @@ export class Swarm {
       this.decide(r, { status: 'rejected', note: 'The floor was disconnected.', decidedBy: null });
     }
     for (const a of this.state.agents.filter((x) => x.repoId === id)) this.fireAgent(a.id, true);
+    void this.previews.remove({ ...repo });
     this.state.repos = this.state.repos.filter((r) => r.id !== id);
     for (const q of this.state.qa.filter((x) => x.repoId === id)) this.broadcast({ type: 'qaRemoved', repoId: id, prNumber: q.prNumber });
     this.state.qa = this.state.qa.filter((q) => q.repoId !== id);
@@ -784,8 +805,14 @@ export class Swarm {
     this.toast('info', repo.localPath ? `${repo.fullName} left the building. Your folder ${repo.localPath} is untouched.` : `${repo.fullName} disconnected (its clone stays on disk)`);
   }
 
-  updateRepo(id: string, patch: Partial<Pick<PersistedRepo, 'autoAssign' | 'browserTesting' | 'color' | 'links' | 'mission' | 'summary' | 'qaBrief'>>) {
+  updateRepo(
+    id: string,
+    patch: Partial<Pick<PersistedRepo, 'autoAssign' | 'browserTesting' | 'color' | 'links' | 'mission' | 'summary' | 'qaBrief'>> & { previewCommand?: unknown; previewEnv?: unknown },
+  ) {
     const repo = this.repo(id);
+    const preview = parsePreviewPatch(patch.previewCommand, patch.previewEnv);
+    repo.preview = { ...repo.preview, ...preview };
+    if (preview.command === null) void this.previews.refreshDefault(repo);
     if (patch.autoAssign !== undefined) repo.autoAssign = !!patch.autoAssign;
     if (patch.browserTesting !== undefined) repo.browserTesting = !!patch.browserTesting;
     if (patch.color && /^#[0-9a-f]{6}$/i.test(patch.color)) repo.color = patch.color;
@@ -799,6 +826,23 @@ export class Swarm {
     return this.repoView(repo);
   }
 
+  // ---------- the floor's app (preview monitor) ----------
+
+  /** Run the floor's app from its preview worktree: the default branch, or an open PR. Replaces what it is running now. */
+  async startPreview(id: string, pr?: number | null): Promise<PreviewView> {
+    const repo = this.repo(id);
+    return this.previews.start(repo, `${repo.fullName.split('/')[1]} app`, pr);
+  }
+
+  stopPreview(id: string): Promise<PreviewView> {
+    return this.previews.stop(this.repo(id));
+  }
+
+  /** Server shutdown: stop every floor's app so nothing is left holding a preview port. */
+  shutdown(): Promise<void> {
+    return this.previews.stopAll(this.state.repos);
+  }
+
   private async cloneRepo(id: string) {
     const repo = this.state.repos.find((r) => r.id === id);
     const rt = this.repoRt.get(id);
@@ -809,6 +853,7 @@ export class Swarm {
     try {
       await this.backend.ensureClone(repo.fullName);
       rt.cloneStatus = 'ready';
+      void this.previews.refreshDefault(repo);
     } catch (err) {
       rt.cloneStatus = 'error';
       rt.cloneError = (err as Error).message;
@@ -2126,6 +2171,7 @@ export class Swarm {
           brief: r.mission || null,
           profile: r.summary || null,
           qaBrief: r.qaBrief || null,
+          preview: { command: r.preview.command, env: r.preview.env, status: this.previews.view(r).status },
           autoAssign: r.autoAssign,
           team: this.state.agents
             .filter((a) => a.repoId === r.id)
@@ -2187,10 +2233,13 @@ export class Swarm {
     );
   }
 
-  private setFloorProfile(x: { floor: number; summary?: string; qa_brief?: string }) {
+  private setFloorProfile(x: { floor: number; summary?: string; qa_brief?: string; preview_command?: string; preview_env?: Record<string, string> }) {
     const r = this.floorRepo(x.floor);
+    const preview = parsePreviewPatch(x.preview_command, x.preview_env);
     if (x.summary !== undefined) r.summary = String(x.summary).trim().slice(0, 140);
     if (x.qa_brief !== undefined) r.qaBrief = String(x.qa_brief).trim().slice(0, 2500);
+    r.preview = { ...r.preview, ...preview };
+    if (preview.command === null) void this.previews.refreshDefault(r);
     this.emitRepo(r);
     this.save();
     return `Saved floor ${r.floor}'s profile.`;

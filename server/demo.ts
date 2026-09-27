@@ -1,5 +1,7 @@
+import http from 'node:http';
 import path from 'node:path';
 import type { Backend } from './backend.ts';
+import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
@@ -349,8 +351,99 @@ export function createDemoBackend(): Backend {
     removeDesk: async () => undefined,
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => (opts.role === 'ceo' ? ceoSession(opts, cb) : fakeSession(opts, cb, deskRepo.get(opts.cwd) ?? [...repos.keys()][0])),
+    previews: demoPreviews,
   };
 }
+
+// ---------- the demo preview ----------
+
+function placeholderPage(title: string, hue: number) {
+  const safe = title.replace(/[<>&"]/g, '');
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe}</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
+  main { text-align: center; padding: 32px 40px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
+  h1 { margin: 0 0 6px; font-size: 26px; color: hsl(${hue},60%,38%); }
+  p { margin: 0 0 22px; color: #666; }
+  button { font: inherit; font-size: 18px; padding: 10px 26px; border: 0; border-radius: 999px; background: hsl(${hue},70%,55%); color: #fff; cursor: pointer; }
+  button:active { transform: scale(.97); }
+  #count { display: block; margin-top: 16px; font-size: 15px; color: #444; }
+</style></head>
+<body><main>
+  <h1>${safe}</h1>
+  <p>A placeholder app served by the demo office.</p>
+  <button id="btn" type="button">Click me</button>
+  <span id="count">Clicked 0 times</span>
+</main>
+<script>
+  let n = 0;
+  document.getElementById('btn').addEventListener('click', () => {
+    n++;
+    document.getElementById('count').textContent = 'Clicked ' + n + (n === 1 ? ' time' : ' times');
+  });
+</script>
+</body></html>`;
+}
+
+/** No git, no npm: short fake delays through the real statuses, then a placeholder page on the floor's port. */
+const demoPreviews: PreviewBackend = {
+  hasDefault: async () => true,
+  start(job, cb) {
+    let stopped = false;
+    let server: http.Server | null = null;
+    const timers: NodeJS.Timeout[] = [];
+    const later = (ms: number, fn: () => void) => timers.push(setTimeout(() => !stopped && fn(), ms));
+    const hue = [...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+    const sha = (job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr)?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
+      .split('')
+      .reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381)
+      .toString(16)
+      .padStart(7, '0')
+      .slice(0, 7);
+
+    cb.status('preparing');
+    later(700, () => {
+      cb.commit(sha);
+      cb.log([`HEAD is now at ${sha} (${job.pr ? `PR #${job.pr}` : job.defaultBranch})`]);
+      cb.status('installing');
+      cb.log(['$ npm ci', 'added 214 packages in 1s (demo)']);
+    });
+    later(1600, () => {
+      cb.status('starting');
+      cb.log([`$ ${job.command ?? 'npm run dev'}`.replaceAll('{port}', String(job.port))]);
+      server = http.createServer((req, res) => {
+        if (req.url !== '/' && !req.url?.startsWith('/?')) return void res.writeHead(404).end('Not found');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(placeholderPage(job.title, hue));
+      });
+      server.once('error', (err) => {
+        if (stopped) return;
+        stopped = true;
+        cb.failed(`Could not listen on port ${job.port}: ${err.message}`);
+      });
+      server.listen(job.port, '127.0.0.1', () => {
+        if (stopped) return void server?.close();
+        later(500, () => {
+          cb.log([`  ➜  Local:   http://localhost:${job.port}/`]);
+          cb.status('running');
+        });
+      });
+    });
+
+    return {
+      async stop() {
+        stopped = true;
+        timers.forEach(clearTimeout);
+        const s = server;
+        server = null;
+        if (!s?.listening) return;
+        s.closeAllConnections();
+        await new Promise<void>((resolve) => s.close(() => resolve()));
+      },
+    };
+  },
+};
 
 // ---------- the demo CEO ----------
 

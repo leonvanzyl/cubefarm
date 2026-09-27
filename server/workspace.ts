@@ -38,7 +38,8 @@ async function exists(p: string) {
 }
 
 // Tool droppings that should never be committed from a desk (shared by all worktrees of the clone).
-const LOCAL_EXCLUDES = ['.playwright-mcp/'];
+// .preview-tmp/ is the preview worktree's {tmp} scratch folder.
+const LOCAL_EXCLUDES = ['.playwright-mcp/', '.preview-tmp/'];
 
 async function addLocalExcludes(main: string) {
   const file = path.join(main, '.git', 'info', 'exclude');
@@ -48,6 +49,9 @@ async function addLocalExcludes(main: string) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, `${current && !current.endsWith('\n') ? '\n' : ''}# added by Office Swarm\n${missing.join('\n')}\n`);
 }
+
+/** Make sure the floor's worktrees keep LOCAL_EXCLUDES out of git status. */
+export const ensureLocalExcludes = (fullName: string) => addLocalExcludes(mainDir(fullName));
 
 export function ensureClone(fullName: string): Promise<void> {
   return withRepoLock(fullName, async () => {

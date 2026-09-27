@@ -17,7 +17,7 @@ export interface CeoJob {
 /** What the CEO's tools do. Implemented by the swarm; errors are returned to the CEO as tool errors. */
 export interface OfficeHandlers {
   companyStatus(): string;
-  setFloorProfile(a: { floor: number; summary?: string; qa_brief?: string }): string;
+  setFloorProfile(a: { floor: number; summary?: string; qa_brief?: string; preview_command?: string; preview_env?: Record<string, string> }): string;
   updateJob(a: { agent_id: string; title?: string; specialty?: string; job_description?: string }): string;
   proposeHire(a: {
     floor: number;
@@ -58,11 +58,22 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
     ),
     tool(
       'set_floor_profile',
-      "Record your read of a floor's project: a one-line summary (kind of project and stack) and the QA brief that tells QA testers what to check for this kind of project.",
+      "Record your read of a floor's project: a one-line summary (kind of project and stack), the QA brief that tells QA testers what to check for this kind of project, and how to run the app for the floor's preview monitor.",
       {
         floor: z.number().int().describe('Floor number'),
         summary: z.string().max(140).optional().describe('e.g. "3D browser game · Three.js + Vite + TypeScript"'),
         qa_brief: z.string().max(2500).optional().describe('What QA must check on every PR for this project, as short bullet points'),
+        preview_command: z
+          .string()
+          .max(2000)
+          .optional()
+          .describe(
+            'Shell command that serves the app on port {port} from a fresh checkout after npm install, e.g. "npm run dev -- --port {port} --strictPort". PORT={port} is always set. {tmp} is a scratch folder. Empty string: back to the default (npm run dev, else start, else preview). Only set it when the default would not serve the app on PORT.',
+          ),
+        preview_env: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe('Extra environment variables for the preview; {port} and {tmp} are replaced in the values. Replaces the whole set.'),
       },
       (a) => run(() => h.setFloorProfile(a)),
     ),
@@ -167,7 +178,7 @@ export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: stri
       return [
         `Floor ${floor.floor} (${floor.fullName}) just joined the company. Its read-only clone is at ${floor.clone}.`,
         'Study it: README, package manifest, source layout, tests, and how far along it is. Then:',
-        '1. set_floor_profile with a one-line summary and a QA brief for this project.',
+        "1. set_floor_profile with a one-line summary and a QA brief for this project. If npm run dev / start / preview wouldn't serve the app on PORT, also set preview_command (and preview_env) so the floor's preview monitor can run it.",
         '2. update_job for the people already on the floor so their titles, specialties and job descriptions fit this project (every floor starts with a generalist QA tester).',
         '3. Propose the hires this project needs. Usually two to four developers with distinct specialties is plenty.',
         floor.mission

@@ -1,6 +1,7 @@
 import * as github from './github.ts';
 import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
+import { realPreviews, type PreviewBackend } from './previewRunner.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
 /** Everything the swarm needs from the outside world. The demo backend fakes all of it. */
@@ -33,6 +34,8 @@ export interface Backend {
   /** Stop processes an agent left running (dev servers on its port, anything started in its desk). */
   releaseDesk(fullName: string, agentSlug: string, port: number): Promise<void>;
   startSession(opts: SessionOptions, cb: SessionCallbacks, defaultBranch: string): SessionHandle;
+  /** Run a floor's app for the preview monitor (its own worktree, its own port). */
+  previews: PreviewBackend;
 }
 
 export const realBackend: Backend = {
@@ -62,4 +65,5 @@ export const realBackend: Backend = {
   removeDesk: workspace.removeDesk,
   releaseDesk: workspace.releaseDesk,
   startSession,
+  previews: realPreviews,
 };

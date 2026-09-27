@@ -1,5 +1,5 @@
 import { useStore } from './store';
-import type { GhRepoSummary, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
+import type { GhRepoSummary, PreviewView, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
 
 async function call<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -37,8 +37,20 @@ export const api = {
     call<SwarmSettings>('POST', '/api/setup', body),
   updateRepo: (
     repoId: string,
-    patch: { autoAssign?: boolean; browserTesting?: boolean; color?: string; links?: string[]; mission?: string; summary?: string; qaBrief?: string },
+    patch: {
+      autoAssign?: boolean;
+      browserTesting?: boolean;
+      color?: string;
+      links?: string[];
+      mission?: string;
+      summary?: string;
+      qaBrief?: string;
+      previewCommand?: string | null;
+      previewEnv?: Record<string, string>;
+    },
   ) => call('PATCH', r(repoId), patch),
+  startPreview: (repoId: string, pr?: number) => call<PreviewView>('POST', `${r(repoId)}/preview`, pr ? { pr } : {}),
+  stopPreview: (repoId: string) => call<PreviewView>('DELETE', `${r(repoId)}/preview`),
   disconnectRepo: (repoId: string) => call('DELETE', r(repoId)),
   syncRepo: (repoId: string) => call('POST', `${r(repoId)}/sync`),
   createIssue: (repoId: string, title: string, body: string, assignTo?: string, specialty?: string) =>

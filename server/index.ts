@@ -90,6 +90,16 @@ app.post(
 );
 app.post('/api/repos/:repo/plan', route((req) => swarm.planFloor(repoId(req), typeof req.body?.mission === 'string' ? req.body.mission : undefined)));
 app.post('/api/repos/:repo/onboard', route((req) => swarm.onboardFloor(repoId(req))));
+// The floor's app, for the preview monitor
+app.post(
+  '/api/repos/:repo/preview',
+  route((req) => {
+    const pr = req.body?.pr;
+    if (pr !== undefined && pr !== null && (typeof pr !== 'number' || !Number.isInteger(pr) || pr <= 0)) throw new HttpError(400, 'pr must be a positive integer');
+    return swarm.startPreview(repoId(req), pr ?? null);
+  }),
+);
+app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(req))));
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
@@ -143,7 +153,9 @@ if (fs.existsSync(dist)) {
 }
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  const status = err instanceof HttpError ? err.status : 500;
+  // express.json() flags malformed bodies with a 4xx status of its own.
+  const parserStatus = (err as { status?: unknown })?.status;
+  const status = err instanceof HttpError ? err.status : typeof parserStatus === 'number' && parserStatus >= 400 && parserStatus < 500 ? parserStatus : 500;
   const message = err instanceof Error ? err.message : String(err);
   if (status >= 500) console.error(err);
   res.status(status).json({ error: message });
@@ -158,3 +170,21 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`     state: ${STATE_FILE}`);
   console.log(`     workspaces: ${WORKSPACE_ROOT}\n`);
 });
+
+// Floors' apps don't outlive the office. (A hard kill skips this; the next start clears the orphans.)
+let closing = false;
+const shutdown = (signal: string) => {
+  if (closing) return;
+  closing = true;
+  console.log(`\n  ${signal}: stopping floor previews…`);
+  const force = setTimeout(() => process.exit(0), 15_000);
+  void swarm
+    .shutdown()
+    .catch((err) => console.error(err))
+    .finally(() => {
+      clearTimeout(force);
+      process.exit(0);
+    });
+};
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
