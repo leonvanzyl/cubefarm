@@ -176,7 +176,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
 
     // what are we looking at?
     if (++frame.current % 3 !== 0) return;
-    if (s.overlay || s.travel) {
+    if (s.overlay || s.travel || isConfirmOpen()) {
       if (s.focus) s.setFocus(null);
       return;
     }
