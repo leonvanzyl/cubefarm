@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { BallCollider, CapsuleCollider, CuboidCollider, Physics, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
+import { BallCollider, CapsuleCollider, CuboidCollider, interactionGroups, Physics, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import { useStore } from '../../store';
 import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
@@ -10,13 +10,26 @@ import { setToySource } from './probe';
 
 const STEP = 1 / 60;
 
+// Collision groups: the elevator doorway only stops toys, so the player's pusher can follow the player into the cabin.
+const G = { building: 0, doorway: 1, pusher: 2, toys: 3 };
+const DOORWAY_GROUPS = interactionGroups(G.doorway, [G.toys]);
+const PUSHER_GROUPS = interactionGroups(G.pusher, [G.building, G.toys]);
+const TOY_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.pusher, G.toys]);
+const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
+const DOOR = elevatorDoorway();
+
 /** Fixed colliders generated from layout.ts: floor, ceiling, walls, cabin and furniture, each at its own height. */
 function Building({ floor }: { floor: ToyFloor }) {
-  const rects = useMemo<Rect[]>(() => [...(floor === 'office' ? officeColliders() : lobbyColliders()), { ...elevatorDoorway(), h: WALL_H }], [floor]);
+  const rects = useMemo<Rect[]>(() => (floor === 'office' ? officeColliders() : lobbyColliders()), [floor]);
   return (
     <RigidBody type="fixed" colliders={false}>
-      <CuboidCollider args={[HALF_W + 1, 0.5, HALF_D + 4]} position={[0, -0.5, 2]} friction={0.8} restitution={0.5} />
-      <CuboidCollider args={[HALF_W + 1, 0.5, HALF_D + 4]} position={[0, WALL_H + 0.5, 2]} />
+      <CuboidCollider args={[HALF_W + 1, 0.5, HALF_D + 4]} position={[0, -0.5, 2]} friction={0.8} restitution={0.5} collisionGroups={BUILDING_GROUPS} />
+      <CuboidCollider args={[HALF_W + 1, 0.5, HALF_D + 4]} position={[0, WALL_H + 0.5, 2]} collisionGroups={BUILDING_GROUPS} />
+      <CuboidCollider
+        args={[(DOOR.maxX - DOOR.minX) / 2, WALL_H / 2, (DOOR.maxZ - DOOR.minZ) / 2]}
+        position={[(DOOR.minX + DOOR.maxX) / 2, WALL_H / 2, (DOOR.minZ + DOOR.maxZ) / 2]}
+        collisionGroups={DOORWAY_GROUPS}
+      />
       {rects.map((r, i) => {
         const h = r.h ?? WALL_H;
         return (
@@ -26,6 +39,7 @@ function Building({ floor }: { floor: ToyFloor }) {
             position={[(r.minX + r.maxX) / 2, h / 2, (r.minZ + r.maxZ) / 2]}
             friction={0.6}
             restitution={0.5}
+            collisionGroups={BUILDING_GROUPS}
           />
         );
       })}
@@ -33,38 +47,74 @@ function Building({ floor }: { floor: ToyFloor }) {
   );
 }
 
-// The player as the physics world sees them: a kinematic capsule from the floor to head height that follows the
-// camera. It shoves balls (harder when running, because it moves faster) but nothing ever pushes back: the
-// player keeps moving with collide() exactly as before.
-const PUSHER = { half: 0.6, y: 0.9 };
+const ZERO = { x: 0, y: 0, z: 0 };
+
+// The player as the physics world sees them: a capsule from just above the floor to head height that chases the
+// camera. It shoves balls (harder when running, because it moves faster) but nothing ever pushes back on the
+// player, who keeps moving with collide() exactly as before.
+// It's a dynamic body steered with force-limited impulses rather than a kinematic one: a kinematic body always
+// wins, so pinning a ball against a wall would squeeze the ball into the wall. This one gives way instead.
+const PUSHER = { half: 0.62, y: 0.95, mass: 4, maxSpeed: 12, maxImpulse: 600 * STEP, teleport: 1.5 };
 
 function Pusher() {
   const camera = useThree((s) => s.camera);
   const body = useRef<RapierRigidBody>(null);
-  const next = useMemo(() => ({ x: 0, y: PUSHER.y, z: 0 }), []);
+  const at = useMemo(() => ({ x: 0, y: PUSHER.y, z: 0 }), []);
+  const push = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
   const last = useRef({ x: NaN, z: NaN });
   useBeforePhysicsStep(() => {
     const b = body.current;
     if (!b) return;
     const { x, z } = camera.position;
     const l = last.current;
-    if (x === l.x && z === l.z) return; // standing still: let the capsule sleep
-    next.x = x;
-    next.z = z;
-    // A spawn or floor change is a teleport, not a very fast step that would launch every ball.
-    if (Math.abs(x - l.x) < 1 && Math.abs(z - l.z) < 1) b.setNextKinematicTranslation(next);
-    else b.setTranslation(next, true);
+    const still = x === l.x && z === l.z;
     l.x = x;
     l.z = z;
+    if (still && b.isSleeping()) return;
+    const p = b.translation();
+    const dx = x - p.x;
+    const dz = z - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d > PUSHER.teleport) {
+      // a spawn or floor change: jump there instead of charging across the room
+      at.x = x;
+      at.z = z;
+      b.setTranslation(at, true);
+      b.setLinvel(ZERO, true);
+      return;
+    }
+    if (still && d < 0.002) {
+      b.setLinvel(ZERO, false); // arrived: let it fall asleep
+      return;
+    }
+    // Aim to close the gap this step (capped at maxSpeed), with a capped impulse to get there. Falling far
+    // behind the camera means something is in the way (a ball pinned against a wall), so ease off rather than crush it.
+    const limit = PUSHER.maxImpulse * Math.min(1, Math.max(0.1, (0.7 - d) / 0.4));
+    const k = d > 0 ? Math.min(1 / STEP, PUSHER.maxSpeed / d) : 0;
+    const v = b.linvel();
+    push.x = PUSHER.mass * (dx * k - v.x);
+    push.z = PUSHER.mass * (dz * k - v.z);
+    const j = Math.hypot(push.x, push.z);
+    if (j > limit) {
+      push.x *= limit / j;
+      push.z *= limit / j;
+    }
+    b.applyImpulse(push, true);
   });
   return (
-    <RigidBody ref={body} type="kinematicPosition" colliders={false} position={[camera.position.x, PUSHER.y, camera.position.z]}>
-      <CapsuleCollider args={[PUSHER.half, PLAYER_RADIUS]} restitution={0} friction={0.4} />
+    <RigidBody
+      ref={body}
+      colliders={false}
+      position={[camera.position.x, PUSHER.y, camera.position.z]}
+      gravityScale={0}
+      enabledTranslations={[true, false, true]}
+      lockRotations
+    >
+      <CapsuleCollider args={[PUSHER.half, PLAYER_RADIUS]} mass={PUSHER.mass} restitution={0} friction={0.2} collisionGroups={PUSHER_GROUPS} />
     </RigidBody>
   );
 }
 
-const ZERO = { x: 0, y: 0, z: 0 };
 const UPRIGHT = { x: 0, y: 0, z: 0, w: 1 };
 
 function respawn(b: RapierRigidBody, def: BallDef) {
@@ -115,7 +165,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       ccd
       userData={{ toy: d.id }}
     >
-      <BallCollider args={[d.r]} restitution={d.restitution} friction={0.7} density={d.density} />
+      <BallCollider args={[d.r]} restitution={d.restitution} friction={0.7} density={d.density} collisionGroups={TOY_GROUPS} />
       <BallLook def={d} />
     </RigidBody>
   ));
@@ -124,7 +174,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
 function ToyWorld({ floor }: { floor: ToyFloor }) {
   const paused = useStore((s) => s.travel !== null);
   return (
-    <Physics timeStep={STEP} paused={paused}>
+    <Physics timeStep={STEP} paused={paused} numSolverIterations={8}>
       <Building floor={floor} />
       <Pusher />
       <Balls floor={floor} />
