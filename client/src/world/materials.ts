@@ -26,6 +26,17 @@ export function toon(color: string, opts: { emissive?: string; emissiveIntensity
   return m;
 }
 
+/** A toon material that shows a texture (e.g. the beach ball's stripes), cached by key. */
+export function toonMap(key: string, map: THREE.Texture) {
+  const k = `map|${key}`;
+  let m = cache.get(k);
+  if (!m) {
+    m = new THREE.MeshToonMaterial({ map, gradientMap: ramp });
+    cache.set(k, m);
+  }
+  return m;
+}
+
 export function glow(color: string) {
   const key = `glow|${color}`;
   let m = cache.get(key);

@@ -11,6 +11,7 @@ import { DESK_ROWS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, deskPosition
 import { shade } from './materials';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { Shell } from './Shell';
+import { Toys } from './toys';
 
 export function WallSign({
   position,
@@ -78,6 +79,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <KanbanBoard repo={repo} agents={agents} />
       <AppMonitor repo={repo} agents={agents} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
+      <Toys floor="office" />
 
       <WallSign
         position={[-4.6, 1.95, HALF_D - 0.03]}

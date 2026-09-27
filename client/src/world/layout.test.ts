@@ -87,7 +87,7 @@ describe('collide', () => {
   it('mounts the app monitor on the north wall, clear of the whiteboard and everything else', () => {
     const a = APP_SCREEN;
     const shell = shellColliders();
-    const monitor = rect(a.x, -HALF_D + a.depth / 2, a.w + a.bezel * 2, a.depth);
+    const monitor = rect(a.x, -HALF_D + a.depth / 2, a.w + a.bezel * 2, a.depth, a.y + a.h / 2 + a.bezel);
     const office = officeColliders();
     expect(office).toContainEqual(monitor);
     expect(monitor.maxX).toBeLessThan(-BOARD.w / 2 - 0.5);

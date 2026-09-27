@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type HireRequestView, type LogLine, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
-import { chirp } from './ui/sfx';
+import { chirp, cue } from './ui/sfx';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -140,6 +140,9 @@ export const useStore = create<State>((set, get) => ({
   toasts: [],
 
   apply(ev) {
+    // Cues compare the old state with the new, so each change sounds once; snapshots (page load,
+    // reconnect) never do, and nothing sounds before the first snapshot.
+    const live = get().loaded;
     switch (ev.type) {
       case 'snapshot': {
         const d: WorldSnapshot = ev.data;
@@ -177,6 +180,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
       case 'repo': {
+        const before = get().repos.find((r) => r.id === ev.repo.id);
+        const wasOpen = new Set(before?.pulls.filter((p) => p.state === 'OPEN').map((p) => p.number));
+        if (live && ev.repo.pulls.some((p) => p.state === 'MERGED' && wasOpen.has(p.number))) cue('merged');
         const repos = get().repos.filter((r) => r.id !== ev.repo.id);
         repos.push(ev.repo);
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
@@ -188,9 +194,13 @@ export const useStore = create<State>((set, get) => ({
         set({ repos, floor });
         break;
       }
-      case 'agent':
+      case 'agent': {
+        const prev = get().agents[ev.agent.id];
+        if (live && !prev && ev.agent.role !== 'ceo') cue('welcome');
+        if (live && prev && prev.status !== 'error' && ev.agent.status === 'error') cue('error');
         set({ agents: { ...get().agents, [ev.agent.id]: ev.agent } });
         break;
+      }
       case 'agentRemoved': {
         const { [ev.agentId]: _gone, ...agents } = get().agents;
         set({ agents });
@@ -210,9 +220,14 @@ export const useStore = create<State>((set, get) => ({
         });
         break;
       }
-      case 'qa':
+      case 'qa': {
+        const prev = get().qa[qaKey(ev.qa.repoId, ev.qa.prNumber)]?.status;
+        const failed = (st?: QaView['status']) => st === 'failed' || st === 'needs-human';
+        if (live && ev.qa.status === 'passed' && prev !== 'passed') cue('ready');
+        if (live && failed(ev.qa.status) && !failed(prev)) cue('qaFailed');
         set({ qa: { ...get().qa, [qaKey(ev.qa.repoId, ev.qa.prNumber)]: ev.qa } });
         break;
+      }
       case 'qaRemoved': {
         const { [qaKey(ev.repoId, ev.prNumber)]: _gone, ...qa } = get().qa;
         set({ qa });
@@ -222,6 +237,8 @@ export const useStore = create<State>((set, get) => ({
         set({ settings: ev.settings });
         break;
       case 'request': {
+        const prev = get().requests.find((r) => r.id === ev.request.id);
+        if (live && ev.request.kind === 'hire' && ev.request.status === 'approved' && prev?.status === 'pending') cue('welcome');
         const requests = get().requests.filter((r) => r.id !== ev.request.id);
         requests.push(ev.request);
         set({ requests: requests.sort((a, b) => a.createdAt - b.createdAt) });
@@ -294,6 +311,12 @@ export const agentsOnRepo = (agents: Record<string, Agent>, repoId: string) =>
   Object.values(agents)
     .filter((a) => a.repoId === repoId)
     .sort((a, b) => (a.role === b.role ? a.desk - b.desk : a.role === 'dev' ? -1 : 1));
+
+/**
+ * Panels that hide the whole office (the wide ones: Kanban, terminals and the manager's console), so the
+ * 3D view can stop drawing behind them. The phone, help, elevator panel and confirm dialogs are see-through.
+ */
+export const coversView = (o: Overlay | null) => o?.kind === 'kanban' || o?.kind === 'terminal' || o?.kind === 'manager';
 
 export const isBusy = (a: Agent) => a.status === 'preparing' || a.status === 'working';
 

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { useStore } from '../store';
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
@@ -8,6 +8,7 @@ import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
+import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
 
 // Closing a panel leaves the mouse free: the next click on the view only grabs it again, so it
 // can't also act on whatever the crosshair lands on.
@@ -55,6 +56,23 @@ export function Panel({
   );
 }
 
+/** Office volume and mute; saved in this browser. */
+export function SoundControls() {
+  const { volume, muted } = useSyncExternalStore(subscribeAudio, getAudioPrefs);
+  return (
+    <div className="row wrap sound">
+      <label className="toggle">
+        <input type="checkbox" checked={!muted} onChange={(e) => setAudioPrefs({ muted: !e.target.checked })} /> {muted ? '🔇' : '🔊'} Sound
+      </label>
+      <label className="sound-volume">
+        <span className="muted small">Volume</span>
+        <input type="range" min={0} max={100} step={5} value={volume} disabled={muted} aria-label="Volume" onChange={(e) => setAudioPrefs({ volume: Number(e.target.value) })} />
+        <span className="small sound-pct">{volume}%</span>
+      </label>
+    </div>
+  );
+}
+
 function MouseSettings() {
   const { sensitivity, invertY, set } = useLookPrefs();
   return (
@@ -88,6 +106,11 @@ function Help() {
           <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse.
         </p>
         <MouseSettings />
+        <h3>Sound</h3>
+        <p>
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. <kbd>M</kbd> mutes or unmutes anywhere.
+        </p>
+        <SoundControls />
         <h3>The building</h3>
         <p>
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
