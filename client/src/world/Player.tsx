@@ -28,6 +28,13 @@ export function runFocusAction(focus: Focus) {
   s.openOverlay(focus.action);
 }
 
+/** The shared E / left-click interaction: act on whatever the crosshair is on, unless something blocks it. */
+function interact() {
+  const s = useStore.getState();
+  if (s.overlay || !s.started || s.travel || !s.focus) return;
+  runFocusAction(s.focus);
+}
+
 const isTyping = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
@@ -64,11 +71,26 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       camera.position.set(x, EYE_HEIGHT, z);
       look.current = { yaw: (yawDeg * Math.PI) / 180, pitch: (pitchDeg * Math.PI) / 180 };
     };
+    // Dev helper for the captured left-click path, which headless browsers can't reach: __swarmClick()
+    // Behaves like a left click while the mouse is captured. Aim with __swarmCam first; returns the focus it acted on.
+    (window as unknown as Record<string, unknown>).__swarmClick = () => {
+      const focus = useStore.getState().focus;
+      interact();
+      return focus?.label ?? null;
+    };
   }, [camera]);
 
   useEffect(() => {
     canvasEl = gl.domElement;
-    const onClick = () => requestLook();
+    const isLocked = () => document.pointerLockElement === gl.domElement;
+    // Captured: a left press acts like E. Uncaptured: the click only grabs the mouse, so the click that
+    // brings you back after closing a panel can never reopen it. mousedown never repeats while held.
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 0 && isLocked()) interact();
+    };
+    const onClick = (e: MouseEvent) => {
+      if (e.button === 0 && !isLocked()) requestLook();
+    };
     const onLockChange = () => useStore.getState().setLocked(document.pointerLockElement === gl.domElement);
     const onMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== gl.domElement) return;
@@ -80,7 +102,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       const s = useStore.getState();
       if (s.overlay || !s.started) return;
       keys.current.add(e.code);
-      if (e.code === 'KeyE' && s.focus) runFocusAction(s.focus);
+      if (e.code === 'KeyE') interact();
       if (e.code === 'KeyH') s.openOverlay({ kind: 'help' });
       if (e.code === 'KeyP') {
         e.preventDefault(); // don't type the "p" into the phone's message box
@@ -89,6 +111,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     };
     const onKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
     const onBlur = () => keys.current.clear();
+    gl.domElement.addEventListener('mousedown', onMouseDown);
     gl.domElement.addEventListener('click', onClick);
     document.addEventListener('pointerlockchange', onLockChange);
     document.addEventListener('mousemove', onMove);
@@ -96,6 +119,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     return () => {
+      gl.domElement.removeEventListener('mousedown', onMouseDown);
       gl.domElement.removeEventListener('click', onClick);
       document.removeEventListener('pointerlockchange', onLockChange);
       document.removeEventListener('mousemove', onMove);

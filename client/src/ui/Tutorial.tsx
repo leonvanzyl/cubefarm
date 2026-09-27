@@ -55,7 +55,7 @@ const STEPS: Step[] = [
     title: 'Visit the CEO',
     body: (c) => (
       <>
-        {c.ceo}'s corner office is at the back right of the lobby, under the purple sign. Walk in and press <kbd>E</kbd> on the desk to see what {c.ceo} is up to.
+        {c.ceo}'s corner office is at the back right of the lobby, under the purple sign. Walk in and press <kbd>E</kbd> (or click) on the desk to see what {c.ceo} is up to.
       </>
     ),
     done: (s) => (s.overlay?.kind === 'terminal' && s.overlay.agentId === CEO_ID) || (s.overlay?.kind === 'manager' && s.overlay.tab === 'ceo'),
@@ -64,7 +64,7 @@ const STEPS: Step[] = [
     title: 'Candidates',
     body: (c) => (
       <>
-        When {c.ceo} wants to hire someone, the candidate waits on the green chairs along the east wall. Press <kbd>E</kbd> on them to read their resume, then hire or decline. It all works from your phone too.
+        When {c.ceo} wants to hire someone, the candidate waits on the green chairs along the east wall. Press <kbd>E</kbd> (or click) on them to read their resume, then hire or decline. It all works from your phone too.
       </>
     ),
     done: (s) => s.requests.some((r) => r.status !== 'pending' && r.decidedBy === 'manager'),
@@ -74,7 +74,7 @@ const STEPS: Step[] = [
     body: (c) =>
       c.repo ? (
         <>
-          {c.repo} has its own floor. Walk into the elevator in the middle of the south wall, or press <kbd>E</kbd> on the directory beside it.
+          {c.repo} has its own floor. Walk into the elevator in the middle of the south wall, or press <kbd>E</kbd> (or click) on the directory beside it.
         </>
       ) : (
         <>
@@ -87,7 +87,7 @@ const STEPS: Step[] = [
     title: 'The whiteboard',
     body: () => (
       <>
-        The whiteboard at the front of every floor is its Kanban board. Press <kbd>E</kbd> on it to hand out issues, send pull requests to QA and merge them.
+        The whiteboard at the front of every floor is its Kanban board. Press <kbd>E</kbd> (or click) on it to hand out issues, send pull requests to QA and merge them.
       </>
     ),
     done: (s) => s.overlay?.kind === 'kanban',
@@ -96,7 +96,7 @@ const STEPS: Step[] = [
     title: 'Watch the team',
     body: () => (
       <>
-        Walk up behind anyone to watch their screen, or press <kbd>E</kbd> on a desk for their full terminal. The testers in lab coats along the east wall check every pull request before you merge.
+        Walk up behind anyone to watch their screen, or press <kbd>E</kbd> (or click) on a desk for their full terminal. The testers in lab coats along the east wall check every pull request before you merge.
       </>
     ),
     done: (s) => s.overlay?.kind === 'terminal' && s.overlay.agentId !== CEO_ID,

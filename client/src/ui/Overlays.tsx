@@ -48,7 +48,7 @@ function Help() {
           <kbd>W</kbd>
           <kbd>A</kbd>
           <kbd>S</kbd>
-          <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> interact with whatever the crosshair is on · <kbd>Esc</kbd> frees the mouse.
+          <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on · <kbd>Esc</kbd> frees the mouse.
         </p>
         <h3>The building</h3>
         <p>
@@ -66,7 +66,7 @@ function Help() {
         </p>
         <h3>Your team</h3>
         <p>
-          Each agent is its own Claude Code session (Claude Agent SDK) working in its own git worktree. Walk up behind them to read their laptop, or press <kbd>E</kbd> on a desk to open the full terminal, send them instructions, stop them or hand them another issue. Aim at an empty desk and press <kbd>E</kbd> to hire.
+          Each agent is its own Claude Code session (Claude Agent SDK) working in its own git worktree. Walk up behind them to read their laptop, or press <kbd>E</kbd> (or click) on a desk to open the full terminal, send them instructions, stop them or hand them another issue. Aim at an empty desk and press <kbd>E</kbd> or click to hire.
         </p>
         <h3>The QA lab</h3>
         <p>
@@ -75,7 +75,7 @@ function Help() {
         </p>
         <h3>The whiteboard</h3>
         <p>
-          <b>Backlog</b>: open issues nobody has picked up. <b>In progress</b>: developers at work. <b>In QA</b>: being tested or fixed. <b>Ready to merge</b>: QA passed, waiting for you. Press <kbd>E</kbd> on the board to
+          <b>Backlog</b>: open issues nobody has picked up. <b>In progress</b>: developers at work. <b>In QA</b>: being tested or fixed. <b>Ready to merge</b>: QA passed, waiting for you. Press <kbd>E</kbd> or click the board to
           assign, send to QA, merge and file new issues.
         </p>
       </div>

@@ -39,11 +39,11 @@ For a single-process build: `npm run build && npm start`, then open http://local
 | `W A S D` / arrows | walk |
 | `Shift` | run |
 | mouse | look (click the view to capture the mouse) |
-| `E` | interact with whatever the crosshair is on |
+| `E` / left click | interact with whatever the crosshair is on (a click only captures the mouse if it is not captured yet) |
 | `H` | help |
 | `Esc` | release the mouse / close a panel |
 
-Things you can press `E` on:
+Things you can press `E` (or click) on:
 - agent desks: open the full terminal, message the agent, stop, assign, or let them go
 - empty desks and QA stations: hire
 - the whiteboard: the interactive Kanban
