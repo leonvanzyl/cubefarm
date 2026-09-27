@@ -8,6 +8,7 @@ import type { PrDetails } from './github.ts';
 import { HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, jobLabel, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { HttpError } from './httpError.ts';
+import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { CEO_ID } from '../shared/types.ts';
@@ -229,11 +230,6 @@ const ERROR_COOLDOWN_MS = 2 * 60_000;
 const MAX_ISSUE_FAILURES = 2;
 // How long the office waits after Claude's usage limit is hit when Claude doesn't say when it resets.
 const LIMIT_PAUSE_MS = 15 * 60_000;
-// Auto-merge: fixes for failing checks or conflicts before a PR needs the manager, how long checks may run before
-// the manager hears about it, and how long to wait before retrying a merge GitHub refused.
-const MAX_MERGE_FIXES = 3;
-const CHECKS_ALERT_MS = 30 * 60_000;
-const MERGE_RETRY_MS = 10 * 60_000;
 // The running office's own folder: syncing it would restart the server mid-work, so it's only reported.
 const OFFICE_DIR = path.resolve(import.meta.dirname, '..');
 const isSamePath = (a: string, b: string) => (process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
@@ -929,36 +925,28 @@ export class Swarm {
 
   /** One step toward merging a QA-passed PR. Returns true when it merged. */
   private async advanceMerge(repo: PersistedRepo, rec: QaRecord, pr: PullInfo): Promise<boolean> {
-    if (pr.isDraft) return this.mergeNote(rec, 'a draft: waiting');
-    if (pr.mergeable === 'UNKNOWN' || pr.mergeState === 'UNKNOWN') {
+    let step = mergeStep(pr, rec, Date.now(), { base: repo.defaultBranch });
+    if (step.do === 'details') {
       // GitHub works mergeability out lazily and lists often say UNKNOWN; asking about the PR itself gets an answer.
       const d = await this.backend.prDetails(repo.fullName, pr.number);
       pr = { ...pr, headSha: d.headSha, mergeable: d.mergeable, mergeState: d.mergeState };
+      step = mergeStep(pr, rec, Date.now(), { base: repo.defaultBranch, detailed: true });
     }
-    rec.passedSha ??= pr.headSha; // signed off before the office tracked commits
-    if (pr.headSha !== rec.passedSha) {
+    Object.assign(rec, step.set);
+    if (step.do === 'requeue') {
       // Commits arrived after QA's sign-off: they get tested too.
       this.setQa(rec, { status: 'queued', round: rec.round + 1, retests: rec.retests + 1, mergeNote: null, pendingSince: null });
       setTimeout(() => this.schedule(), 200);
       return false;
     }
-    if (pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY') {
-      return this.sendBack(repo, rec, 'conflict', `It conflicts with ${repo.defaultBranch}.`);
-    }
-    if (pr.checks === 'failing') {
-      return this.sendBack(repo, rec, 'checks', pr.failedChecks.map((c) => `- ${c.name}${c.url ? `: ${c.url}` : ''}`).join('\n'));
-    }
-    if (pr.checks === 'pending') {
-      rec.pendingSince ??= Date.now();
-      if (Date.now() - rec.pendingSince > CHECKS_ALERT_MS && !rec.alerted) {
-        rec.alerted = true;
+    if (step.do === 'send-back') return this.sendBack(repo, rec, step.reason, step.instructions, step.needsHuman);
+    if (step.do === 'wait') {
+      if (step.alert) {
         this.postMessage('office', `⏳ PR #${pr.number} on ${repo.fullName} passed QA, but its checks (${pr.pendingChecks.join(', ')}) have been running for over ${CHECKS_ALERT_MS / 60_000} minutes. It merges as soon as they finish.`);
       }
-      return this.mergeNote(rec, `waiting for checks: ${pr.pendingChecks.join(', ') || 'running'}`);
+      return step.note === undefined ? false : this.mergeNote(rec, step.note);
     }
-    rec.pendingSince = null;
-    if (pr.mergeable === 'UNKNOWN') return this.mergeNote(rec, 'GitHub is checking it can merge');
-    if (pr.mergeState === 'BEHIND') {
+    if (step.do === 'update-branch') {
       // The repo only merges up-to-date branches. GitHub merges the base in cleanly (or refuses); CI checks the result.
       this.mergeNote(rec, `updating the branch with ${repo.defaultBranch}`);
       await this.backend.updateBranch(repo.fullName, pr.number);
@@ -966,12 +954,12 @@ export class Swarm {
       this.setQa(rec, { passedSha: details.headSha });
       return false;
     }
-    if (rec.mergeRetryAt && Date.now() < rec.mergeRetryAt) return false;
+    if (step.do !== 'merge') return false;
     this.mergeNote(rec, 'merging…');
     let error = '';
     for (const method of ['squash', 'merge', 'rebase'] as const) {
       try {
-        await this.backend.mergePull(repo.fullName, pr.number, method, rec.passedSha);
+        await this.backend.mergePull(repo.fullName, pr.number, method, rec.passedSha ?? pr.headSha);
         error = '';
         break;
       } catch (err) {
@@ -1002,8 +990,8 @@ export class Swarm {
   }
 
   /** QA passed, but the PR can't merge as it is: a developer fixes it, and QA re-tests if the code changed. */
-  private sendBack(repo: PersistedRepo, rec: QaRecord, reason: 'checks' | 'conflict', fixInstructions: string) {
-    if (rec.mergeFixes >= MAX_MERGE_FIXES) {
+  private sendBack(repo: PersistedRepo, rec: QaRecord, reason: 'checks' | 'conflict', fixInstructions: string, needsHuman: boolean) {
+    if (needsHuman) {
       this.setQa(rec, { status: 'needs-human', mergeNote: null });
       this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} still ${reason === 'conflict' ? `conflicts with ${repo.defaultBranch}` : 'fails its checks'} after ${MAX_MERGE_FIXES} fixes, so it needs you.`);
       return false;
