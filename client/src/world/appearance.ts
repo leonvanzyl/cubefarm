@@ -26,8 +26,8 @@ export interface Appearance {
 
 export const ACCENTS = ['#ffffff', '#ffd166', '#ef476f', '#06d6a0', '#118ab2', '#2b2d42'] as const;
 
-/** Styles that sit on top of the head and would poke through a beanie or cap. */
-const TALL_HAIR: HairStyle[] = ['quiff', 'afro', 'bun'];
+/** Styles that sit on top of or bulge out from the head and would poke through a beanie or cap. */
+const TALL_HAIR: HairStyle[] = ['quiff', 'afro', 'bun', 'curls'];
 
 type Weighted<T> = [T, number][];
 

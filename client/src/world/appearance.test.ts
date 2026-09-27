@@ -49,7 +49,7 @@ describe('appearanceFor', () => {
     for (const a of [...all('masculine'), ...all('feminine')]) {
       if (a.headphones) expect(a.headwear).toBe('none');
       if (a.headphones) expect(a.hair).not.toBe('afro');
-      if (a.headwear !== 'none') expect(['quiff', 'afro', 'bun']).not.toContain(a.hair);
+      if (a.headwear !== 'none') expect(['quiff', 'afro', 'bun', 'curls']).not.toContain(a.hair);
     }
   });
 
