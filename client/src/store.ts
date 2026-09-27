@@ -21,8 +21,11 @@ export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string };
 }
+
+/** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
+export type Held = { kind: 'ball'; id: string };
 
 export interface Toast {
   id: number;
@@ -56,11 +59,17 @@ interface State {
   locked: boolean;
   started: boolean;
   toasts: Toast[];
+  held: Held | null;
+  /** performance.now() when the player started charging a throw; null when they aren't. */
+  chargeAt: number | null;
 
   apply(ev: ServerEvent): void;
   setConnected(v: boolean): void;
   openOverlay(o: Overlay | null): void;
   setFocus(f: Focus | null): void;
+  /** Pick something up (or swap), or let go of it with null. Always ends a charge. */
+  setHeld(h: Held | null): void;
+  setCharge(at: number | null): void;
   setLocked(v: boolean): void;
   start(): void;
   goToFloor(n: number): void;
@@ -138,6 +147,8 @@ export const useStore = create<State>((set, get) => ({
   locked: false,
   started: false,
   toasts: [],
+  held: null,
+  chargeAt: null,
 
   apply(ev) {
     // Cues compare the old state with the new, so each change sounds once; snapshots (page load,
@@ -270,7 +281,8 @@ export const useStore = create<State>((set, get) => ({
 
   setConnected: (connected) => set({ connected }),
   openOverlay(overlay) {
-    set({ overlay, focus: overlay ? null : get().focus });
+    // Opening any panel drops whatever you're carrying, so nothing is left floating behind it.
+    set(overlay ? { overlay, focus: null, held: null, chargeAt: null } : { overlay });
     if (overlay && document.pointerLockElement) document.exitPointerLock();
   },
   setFocus: (focus) => {
@@ -278,6 +290,8 @@ export const useStore = create<State>((set, get) => ({
     if (cur?.id === focus?.id && cur?.label === focus?.label) return;
     set({ focus });
   },
+  setHeld: (held) => set({ held, chargeAt: null }),
+  setCharge: (chargeAt) => set({ chargeAt }),
   setLocked: (locked) => set({ locked }),
   start: () => set({ started: true }),
   goToFloor(n) {
@@ -285,7 +299,7 @@ export const useStore = create<State>((set, get) => ({
       set({ overlay: null });
       return;
     }
-    set({ overlay: null, travel: { to: n, phase: 'closing' } });
+    set({ overlay: null, held: null, chargeAt: null, travel: { to: n, phase: 'closing' } });
   },
   finishTravel(phase) {
     const t = get().travel;

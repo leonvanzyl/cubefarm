@@ -395,6 +395,39 @@ input.inline:focus {
   white-space: nowrap;
   pointer-events: none;
 }
+/* Carrying something: sits under the interact hint. */
+.hud-held {
+  bottom: calc(22% - 56px);
+  font-size: 0.95rem;
+}
+/* Throw charge, just under the crosshair. */
+.charge {
+  position: absolute;
+  top: calc(50% + 14px);
+  left: 50%;
+  width: 56px;
+  height: 9px;
+  margin-left: -28px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--paper);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.1s;
+  pointer-events: none;
+}
+.charge-on {
+  opacity: 1;
+}
+.charge-fill {
+  height: 100%;
+  background: #ffd166;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.charge-full .charge-fill {
+  background: #ff8a5b;
+}
 .hud-resume {
   position: absolute;
   top: calc(50% + 26px);

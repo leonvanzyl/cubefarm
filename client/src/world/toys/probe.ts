@@ -1,5 +1,7 @@
 // window.__swarmToys: a read-only peek at the toys, for QA and Playwright (pointer lock doesn't work headless).
-// Each read returns a fresh snapshot. Later toys (held item, hoop score, darts, roomba) add fields here.
+// Each read returns a fresh snapshot. Later toys (hoop score, darts, roomba) add fields here.
+
+import { useStore, type Held } from '../../store';
 
 export interface ToyBallState {
   id: string;
@@ -13,9 +15,13 @@ export interface ToysSnapshot {
   balls: ToyBallState[];
   /** Rigid bodies in the current physics world (building + player pusher + toys). */
   bodies: number;
+  /** What the player is carrying, e.g. { kind: 'ball', id: 'beach-ball' }. */
+  held: Held | null;
+  /** Whether a throw is being charged right now. */
+  charging: boolean;
 }
 
-type Source = () => ToysSnapshot;
+type Source = () => Omit<ToysSnapshot, 'held' | 'charging'>;
 
 let source: Source | null = null;
 
@@ -25,12 +31,14 @@ export function setToySource(s: Source | null) {
 }
 
 function snapshot(): ToysSnapshot {
+  const { held, chargeAt } = useStore.getState();
+  const hands = { held, charging: chargeAt !== null };
   try {
-    if (source) return source();
+    if (source) return { ...source(), ...hands };
   } catch {
     // the world is being torn down; report it as empty
   }
-  return { balls: [], bodies: 0 };
+  return { balls: [], bodies: 0, ...hands };
 }
 
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmToys')) {
