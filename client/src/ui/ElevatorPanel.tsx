@@ -1,21 +1,28 @@
 import { useEffect } from 'react';
 import { useStore } from '../store';
+import { requestLook } from '../world/Player';
 import { Panel } from './Overlays';
+
+/** Choose a floor and grab the mouse again, so you can look and walk as soon as the doors open.
+ *  Must run inside the click/keydown handler: pointer lock needs a user gesture. */
+function chooseFloor(n: number) {
+  useStore.getState().goToFloor(n); // clears the overlay first; requestLook refuses while one is open
+  requestLook(); // if the browser refuses, the "Click to look around" hint remains
+}
 
 export function ElevatorPanel() {
   const repos = useStore((s) => s.repos);
   const agents = useStore((s) => s.agents);
   const floor = useStore((s) => s.floor);
-  const goToFloor = useStore((s) => s.goToFloor);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === 'g' || e.key === '0') goToFloor(0);
-      else if (/^[1-9]$/.test(e.key) && repos.some((r) => r.floor === Number(e.key))) goToFloor(Number(e.key));
+      if (e.key.toLowerCase() === 'g' || e.key === '0') chooseFloor(0);
+      else if (/^[1-9]$/.test(e.key) && repos.some((r) => r.floor === Number(e.key))) chooseFloor(Number(e.key));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [repos, goToFloor]);
+  }, [repos]);
 
   const floors = [...repos].sort((a, b) => b.floor - a.floor);
   return (
@@ -26,7 +33,7 @@ export function ElevatorPanel() {
           const busy = team.filter((a) => a.status === 'working' || a.status === 'preparing').length;
           const prs = r.pulls.filter((p) => p.state === 'OPEN').length;
           return (
-            <button key={r.id} className={`floor-btn ${r.floor === floor ? 'floor-btn-here' : ''}`} style={{ ['--accent' as string]: r.color }} onClick={() => goToFloor(r.floor)}>
+            <button key={r.id} className={`floor-btn ${r.floor === floor ? 'floor-btn-here' : ''}`} style={{ ['--accent' as string]: r.color }} onClick={() => chooseFloor(r.floor)}>
               <span className="floor-btn-num">{r.floor}</span>
               <span className="floor-btn-name">{r.fullName}</span>
               <span className="floor-btn-meta">
@@ -35,7 +42,7 @@ export function ElevatorPanel() {
             </button>
           );
         })}
-        <button className={`floor-btn ${floor === 0 ? 'floor-btn-here' : ''}`} style={{ ['--accent' as string]: '#ff8a5b' }} onClick={() => goToFloor(0)}>
+        <button className={`floor-btn ${floor === 0 ? 'floor-btn-here' : ''}`} style={{ ['--accent' as string]: '#ff8a5b' }} onClick={() => chooseFloor(0)}>
           <span className="floor-btn-num">G</span>
           <span className="floor-btn-name">Lobby &amp; manager's office</span>
           <span className="floor-btn-meta">connect repos · hire · file issues</span>
