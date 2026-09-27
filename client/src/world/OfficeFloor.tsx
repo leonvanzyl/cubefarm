@@ -66,7 +66,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
         return <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={[x, 0, z]} />;
       })}
       <WallSign
-        position={[HALF_W - 0.03, 3.2, -2]}
+        position={[HALF_W - 0.03, 3.25, -2]}
         rotationY={-Math.PI / 2}
         size={[3.2, 0.55]}
         px={[768, 132]}
