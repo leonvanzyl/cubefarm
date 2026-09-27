@@ -17,6 +17,7 @@ export interface CeoJob {
 /** What the CEO's tools do. Implemented by the swarm; errors are returned to the CEO as tool errors. */
 export interface OfficeHandlers {
   companyStatus(): string;
+  agentDetail(a: { agent_id: string }): string;
   setFloorProfile(a: { floor: number; summary?: string; qa_brief?: string; preview_command?: string; preview_env?: Record<string, string> }): string;
   updateJob(a: { agent_id: string; title?: string; specialty?: string; job_description?: string }): string;
   proposeHire(a: {
@@ -55,6 +56,12 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
       'Everything about the company right now: settings, every floor (repo, clone path, brief, profile, QA brief), its team, backlog, pull requests and QA, pending proposals and recent decisions by the manager. Call this first.',
       {},
       () => run(() => h.companyStatus()),
+    ),
+    tool(
+      'agent_detail',
+      "One agent in full: title, specialty, role, status, current task, model and effort, and their complete job description (company_status shortens long ones). Read it before rewriting someone's job description.",
+      { agent_id: z.string().describe('An id (or name) from company_status') },
+      (a) => run(() => h.agentDetail(a)),
     ),
     tool(
       'set_floor_profile',
@@ -160,6 +167,7 @@ export function ceoSystemPrompt(o: {
     '- Read the repositories through their clone paths with Read, Glob and Grep. They are read-only to you. You cannot run shell commands.',
     `- Keep durable notes about the company in ${o.notesFile}: read it at the start, and update it at the end with decisions and anything worth remembering next time.`,
     '- Change things only through the mcp__office__ tools.',
+    "- Before update_job rewrites someone's job description, read the full one with mcp__office__agent_detail and keep what still applies, especially its safety rules.",
     '',
     'Rules:',
     '- Every floor keeps at least one QA tester.',

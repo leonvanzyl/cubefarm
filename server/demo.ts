@@ -592,7 +592,12 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       await think(`${p.summary}. Let me shape the team around that.`);
       await use('set_floor_profile', { floor, summary: p.summary, qa_brief: p.qa });
       const qa = f.team.find((a) => a.role === 'qa');
-      if (qa) await use('update_job', { agent_id: qa.id, title: p.qaTitle, job_description: p.qaJob });
+      if (qa) {
+        await step([{ kind: 'tool', tool: 'mcp__office__agent_detail', text: `⏺ ${describeOfficeTool('agent_detail', { agent_id: qa.id })}` }]);
+        const d = JSON.parse(await office.call('agent_detail', { agent_id: qa.id })) as { title: string; jobDescription: string | null };
+        cb.log([{ kind: 'result', text: `  ⎿ ${d.title} · job description ${d.jobDescription?.length ?? 0} chars` }]);
+        await use('update_job', { agent_id: qa.id, title: p.qaTitle, job_description: p.qaJob });
+      }
       const dev = f.team.find((a) => a.role === 'dev' && !a.specialty);
       if (dev) await use('update_job', { agent_id: dev.id, title: p.devTitle, specialty: p.devSpecialty, job_description: p.devJob });
       const proposed: string[] = [];

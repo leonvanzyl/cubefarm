@@ -331,6 +331,7 @@ export class Swarm {
   };
   private office: OfficeTools = createOfficeTools({
     companyStatus: () => this.companyStatus(),
+    agentDetail: (a) => this.agentDetail(a),
     setFloorProfile: (a) => this.setFloorProfile(a),
     updateJob: (a) => this.updateJob(a),
     proposeHire: (a) => this.proposeHire(a),
@@ -2154,10 +2155,19 @@ export class Swarm {
     return a;
   }
 
+  private agentDoing(a: PersistedAgent) {
+    return !BUSY.includes(a.status) ? null : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `issue #${a.issueNumber}`;
+  }
+
   private companyStatus() {
     const s = this.state.settings;
-    const doing = (a: PersistedAgent) =>
-      !BUSY.includes(a.status) ? null : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `issue #${a.issueNumber}`;
+    const doing = (a: PersistedAgent) => this.agentDoing(a);
+    // Keep the status compact, but make the cut visible so the CEO knows to read agent_detail before rewriting.
+    const jobDescription = (brief: string) => {
+      if (brief.length <= 400) return brief;
+      const mark = `… (truncated, ${brief.length} chars; see agent_detail)`;
+      return brief.slice(0, 400 - mark.length).trimEnd() + mark;
+    };
     const floors = [...this.state.repos]
       .sort((x, y) => x.floor - y.floor)
       .map((r) => {
@@ -2184,7 +2194,7 @@ export class Swarm {
               status: a.status,
               doing: doing(a),
               hiredBy: a.hiredBy,
-              jobDescription: a.brief ? a.brief.slice(0, 400) : null,
+              jobDescription: a.brief ? jobDescription(a.brief) : null,
             })),
           backlog: rt.issues.map((i) => ({
             number: i.number,
@@ -2227,6 +2237,32 @@ export class Swarm {
         floors,
         pendingProposals: this.state.requests.filter((r) => r.status === 'pending').map(req),
         recentDecisions: this.state.requests.filter((r) => r.status !== 'pending').slice(-10).map(req),
+      },
+      null,
+      1,
+    );
+  }
+
+  private agentDetail(x: { agent_id: string }) {
+    const a = this.agentByRef(x.agent_id);
+    const repo = this.state.repos.find((r) => r.id === a.repoId);
+    const ceo = a.role === 'ceo';
+    return JSON.stringify(
+      {
+        id: a.id,
+        name: a.name,
+        floor: repo?.floor ?? null,
+        role: a.role,
+        title: a.title || (a.role === 'qa' ? 'QA tester' : a.role === 'dev' ? 'Developer' : 'CEO'),
+        specialty: a.specialty || null,
+        status: a.status,
+        doing: this.agentDoing(a),
+        issue: a.issueNumber ? { number: a.issueNumber, title: a.issueTitle } : null,
+        pullRequest: a.prNumber ? { number: a.prNumber, url: a.prUrl } : null,
+        model: a.model || (ceo ? CEO_MODEL : this.state.settings.defaultModel),
+        effort: a.effort || (ceo ? CEO_EFFORT : this.state.settings.defaultEffort),
+        hiredBy: a.hiredBy,
+        jobDescription: a.brief || null,
       },
       null,
       1,

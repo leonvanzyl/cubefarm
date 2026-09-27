@@ -199,6 +199,8 @@ export function describeOfficeTool(action: string, input: Record<string, unknown
   switch (action) {
     case 'company_status':
       return '🏢 company_status';
+    case 'agent_detail':
+      return `🔎 agent_detail ${String(input.agent_id ?? '')}`;
     case 'set_floor_profile':
       return `🗂️ set_floor_profile${floor}${input.summary ? `: ${clip(String(input.summary), 90)}` : ''}`;
     case 'update_job':
