@@ -55,6 +55,12 @@ export function deskPosition(slot: number) {
 
 export const BOARD = { w: 12, h: 3.0, y: 0.45, z: -HALF_D + 0.06 };
 
+// The floor's app monitor: a wall-mounted screen on the north wall, west of the whiteboard. x and y are picked
+// for the clearest line of sight from the elevator past the desks' monitors and name tags (lined up with the
+// west desk column, the front row's desk hides it). y is the centre of the picture; depth is how far the bezel
+// sticks out from the wall.
+export const APP_SCREEN = { x: -13.7, y: 2.25, w: 3.2, h: 1.8, bezel: 0.09, depth: 0.12 };
+
 // The QA lab: test stations along the east wall. Testers face the wall, with their backs to the room.
 export const QA_LAB = { x: HALF_W - 2.0, stations: [-5.2, -2.0, 1.2] };
 export const QA_ROTATION = -Math.PI / 2;
@@ -72,6 +78,8 @@ export function officeColliders(): Rect[] {
     out.push(rect(QA_LAB.x - 0.8, z, 0.6, 0.7)); // chair + tester
   }
   out.push(rect(0, -HALF_D + 0.25, BOARD.w + 0.4, 0.5)); // whiteboard + marker tray
+  const a = APP_SCREEN;
+  out.push(rect(a.x, -HALF_D + a.depth / 2, a.w + a.bezel * 2, a.depth)); // app monitor
   out.push(rect(-HALF_W + 0.9, 6.5, 1.1, 3.2)); // couch
   out.push(rect(-HALF_W + 2.6, 6.5, 0.9, 1.4)); // coffee table
   out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5)); // kitchenette counter + fridge
