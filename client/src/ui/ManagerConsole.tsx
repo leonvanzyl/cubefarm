@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
 import { CEO_ID, type EffortLevel, type RepoView } from '../../../shared/types';
 import { confirmDialog } from './Confirm';
@@ -25,6 +26,7 @@ async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
 function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
   const agents = useStore((s) => s.agents);
   const goToFloor = useStore((s) => s.goToFloor);
+  const openOverlay = useStore((s) => s.openOverlay);
   const team = agentsOnRepo(agents, repo.id);
   const others = all.filter((r) => r.id !== repo.id);
   const patch = (p: Parameters<typeof api.updateRepo>[1]) => void attempt(() => api.updateRepo(repo.id, p));
@@ -89,6 +91,23 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
           ))}
         </div>
       )}
+      <details className="small preview-details">
+        <summary>
+          🖥️ App preview · <PreviewPill status={repo.preview.status} />
+          {repo.previewConfig.command ? (
+            <>
+              {' '}
+              <code>{repo.previewConfig.command}</code>
+            </>
+          ) : (
+            ' auto-detected command'
+          )}
+        </summary>
+        <PreviewSettings repo={repo} />
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'app', repoId: repo.id })}>
+          Open the app viewer
+        </button>
+      </details>
     </div>
   );
 }

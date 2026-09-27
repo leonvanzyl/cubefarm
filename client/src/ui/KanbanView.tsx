@@ -113,6 +113,19 @@ export function KanbanView({ repoId }: { repoId: string }) {
     );
     if (ok) void act(c.key, () => api.mergePull(repo.id, c.number));
   };
+  const previewButton = (c: KanbanCard) => (
+    <button
+      className="btn btn-small"
+      title={`Run PR #${c.number} and open it in the app viewer`}
+      onClick={() => {
+        openOverlay({ kind: 'app', repoId: repo.id });
+        const already = repo.preview.pr === c.number && repo.preview.status !== 'stopped' && repo.preview.status !== 'error' && repo.preview.status !== 'unconfigured';
+        if (!already) void api.startPreview(repo.id, c.number).catch(() => undefined);
+      }}
+    >
+      Preview
+    </button>
+  );
   const terminalButton = (c: KanbanCard) =>
     c.agent && (
       <button className="btn btn-small" onClick={() => openOverlay({ kind: 'terminal', agentId: c.agent!.id })}>
@@ -168,6 +181,9 @@ export function KanbanView({ repoId }: { repoId: string }) {
           ⚡ Auto-assign backlog to free developers
         </label>
         <span className="spacer" />
+        <button className="btn" onClick={() => openOverlay({ kind: 'app', repoId: repo.id })} title="Open this floor's running app">
+          🖥️ View app
+        </button>
         <span className="muted small">{repo.lastSync ? `Synced ${new Date(repo.lastSync).toLocaleTimeString()}` : 'Syncing…'}</span>
         <button className="btn" disabled={pending === 'sync'} onClick={() => act('sync', () => api.syncRepo(repo.id))}>
           ⟳ Sync
@@ -226,6 +242,7 @@ export function KanbanView({ repoId }: { repoId: string }) {
                 <span className="muted small">{c.note}</span>
                 <span className="spacer" />
                 <QaLink card={c} />
+                {previewButton(c)}
                 {(st === 'testing' || st === 'fixing') && terminalButton(c)}
                 {(!st || st === 'needs-human') && (
                   <button className="btn btn-small btn-good" disabled={pending === c.key} onClick={() => act(c.key, () => api.sendToQa(repo.id, c.number))}>
@@ -257,6 +274,7 @@ export function KanbanView({ repoId }: { repoId: string }) {
                 </span>
                 <span className="spacer" />
                 <QaLink card={c} />
+                {previewButton(c)}
                 <button className="btn btn-small btn-good" disabled={pending === c.key || pr?.isDraft} onClick={() => merge(c)}>
                   Merge
                 </button>

@@ -10,6 +10,7 @@ export type PhoneTab = 'chat' | 'hires' | 'company';
 export type Overlay =
   | { kind: 'terminal'; agentId: string }
   | { kind: 'kanban'; repoId: string }
+  | { kind: 'app'; repoId: string }
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string }
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
