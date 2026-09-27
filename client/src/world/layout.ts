@@ -18,9 +18,14 @@ export interface Rect {
   maxX: number;
   minZ: number;
   maxZ: number;
+  /** Height of the solid for the toy physics (collide() ignores it). Missing means full wall height. */
+  h?: number;
 }
 
-export const rect = (cx: number, cz: number, w: number, d: number): Rect => ({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2 });
+export const rect = (cx: number, cz: number, w: number, d: number, h?: number): Rect => ({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, h });
+
+// How tall the furniture is, so toys can bounce off it (and land on it).
+const SOLID_H = { desk: 0.78, seated: 1.3, board: 3.45, couch: 0.95, coffeeTable: 0.5, kitchen: 2, cooler: 1.5, bookshelf: 2.2, cabinet: 2.1, reception: 1.13, glass: 2.8 };
 
 /** The shell every floor shares: outer walls (with the elevator doorway) and the elevator cabin. */
 export function shellColliders(): Rect[] {
@@ -37,6 +42,9 @@ export function shellColliders(): Rect[] {
     { minX: -cabinHalf, maxX: cabinHalf, minZ: HALF_D + depth, maxZ: HALF_D + depth + t }, // cabin back
   ];
 }
+
+/** Fills the elevator doorway for toys only, so nothing rolls into the cabin. The player walks straight through. */
+export const elevatorDoorway = (): Rect => ({ minX: -ELEVATOR.doorHalf, maxX: ELEVATOR.doorHalf, minZ: HALF_D, maxZ: HALF_D + 0.4 });
 
 // ---------- office floors ----------
 
@@ -64,18 +72,18 @@ export function officeColliders(): Rect[] {
   const out = shellColliders();
   for (let s = 0; s < MAX_DESKS; s++) {
     const { x, z } = deskPosition(s);
-    out.push(rect(x, z, DESK.w + 0.1, DESK.d + 0.1));
-    out.push(rect(x, z + 0.8, 0.7, 0.6)); // chair + occupant
+    out.push(rect(x, z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
+    out.push(rect(x, z + 0.8, 0.7, 0.6, SOLID_H.seated)); // chair + occupant
   }
   for (const z of QA_LAB.stations) {
-    out.push(rect(QA_LAB.x, z, DESK.d + 0.1, DESK.w + 0.1)); // rotated desk
-    out.push(rect(QA_LAB.x - 0.8, z, 0.6, 0.7)); // chair + tester
+    out.push(rect(QA_LAB.x, z, DESK.d + 0.1, DESK.w + 0.1, SOLID_H.desk)); // rotated desk
+    out.push(rect(QA_LAB.x - 0.8, z, 0.6, 0.7, SOLID_H.seated)); // chair + tester
   }
-  out.push(rect(0, -HALF_D + 0.25, BOARD.w + 0.4, 0.5)); // whiteboard + marker tray
-  out.push(rect(-HALF_W + 0.9, 6.5, 1.1, 3.2)); // couch
-  out.push(rect(-HALF_W + 2.6, 6.5, 0.9, 1.4)); // coffee table
-  out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5)); // kitchenette counter + fridge
-  out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7)); // water cooler
+  out.push(rect(0, -HALF_D + 0.25, BOARD.w + 0.4, 0.5, SOLID_H.board)); // whiteboard + marker tray
+  out.push(rect(-HALF_W + 0.9, 6.5, 1.1, 3.2, SOLID_H.couch)); // couch
+  out.push(rect(-HALF_W + 2.6, 6.5, 0.9, 1.4, SOLID_H.coffeeTable)); // coffee table
+  out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5, SOLID_H.kitchen)); // kitchenette counter + fridge
+  out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7, SOLID_H.cooler)); // water cooler
   return out;
 }
 
@@ -95,23 +103,23 @@ export function lobbyColliders(): Rect[] {
   const out = shellColliders();
   const m = MANAGER_ROOM;
   const t = 0.12;
-  out.push({ minX: m.maxX - t, maxX: m.maxX + t, minZ: m.minZ, maxZ: m.maxZ }); // glass east wall
-  out.push({ minX: m.minX, maxX: m.doorMinX, minZ: m.maxZ - t, maxZ: m.maxZ + t }); // glass south wall, west of door
-  out.push({ minX: m.doorMaxX, maxX: m.maxX, minZ: m.maxZ - t, maxZ: m.maxZ + t }); // east of door
+  out.push({ minX: m.maxX - t, maxX: m.maxX + t, minZ: m.minZ, maxZ: m.maxZ, h: SOLID_H.glass }); // glass east wall
+  out.push({ minX: m.minX, maxX: m.doorMinX, minZ: m.maxZ - t, maxZ: m.maxZ + t, h: SOLID_H.glass }); // glass south wall, west of door
+  out.push({ minX: m.doorMaxX, maxX: m.maxX, minZ: m.maxZ - t, maxZ: m.maxZ + t, h: SOLID_H.glass }); // east of door
   const c = CEO_ROOM;
-  out.push({ minX: c.minX - t, maxX: c.minX + t, minZ: c.minZ, maxZ: c.maxZ }); // CEO glass west wall
-  out.push({ minX: c.minX, maxX: c.doorMinX, minZ: c.maxZ - t, maxZ: c.maxZ + t }); // south wall, west of door
-  out.push({ minX: c.doorMaxX, maxX: c.maxX, minZ: c.maxZ - t, maxZ: c.maxZ + t }); // east of door
-  out.push(rect(CEO_DESK.x, CEO_DESK.z, DESK.w + 0.1, DESK.d + 0.1));
-  out.push(rect(CEO_DESK.x, CEO_DESK.z + 0.8, 0.7, 0.6)); // CEO chair
-  for (const z of WAITING.seats) out.push(rect(WAITING.x, z, 0.7, 0.7));
-  out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z, MANAGER_DESK.w, MANAGER_DESK.d));
-  out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z - 1.1, 0.8, 0.8)); // manager chair
-  out.push(rect(-HALF_W + 0.4, -8, 0.8, 5)); // bookshelf
-  out.push(rect(RECEPTION.x, RECEPTION.z, RECEPTION.w, RECEPTION.d));
-  out.push(rect(11.5, 4, 3.2, 1)); // sofa
-  out.push(rect(11.5, 6.2, 1.6, 0.9)); // table
-  out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1)); // trophy cabinet
+  out.push({ minX: c.minX - t, maxX: c.minX + t, minZ: c.minZ, maxZ: c.maxZ, h: SOLID_H.glass }); // CEO glass west wall
+  out.push({ minX: c.minX, maxX: c.doorMinX, minZ: c.maxZ - t, maxZ: c.maxZ + t, h: SOLID_H.glass }); // south wall, west of door
+  out.push({ minX: c.doorMaxX, maxX: c.maxX, minZ: c.maxZ - t, maxZ: c.maxZ + t, h: SOLID_H.glass }); // east of door
+  out.push(rect(CEO_DESK.x, CEO_DESK.z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
+  out.push(rect(CEO_DESK.x, CEO_DESK.z + 0.8, 0.7, 0.6, SOLID_H.seated)); // CEO chair
+  for (const z of WAITING.seats) out.push(rect(WAITING.x, z, 0.7, 0.7, SOLID_H.seated));
+  out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z, MANAGER_DESK.w, MANAGER_DESK.d, SOLID_H.desk));
+  out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z - 1.1, 0.8, 0.8, SOLID_H.seated)); // manager chair
+  out.push(rect(-HALF_W + 0.4, -8, 0.8, 5, SOLID_H.bookshelf)); // bookshelf
+  out.push(rect(RECEPTION.x, RECEPTION.z, RECEPTION.w, RECEPTION.d, SOLID_H.reception));
+  out.push(rect(11.5, 4, 3.2, 1, SOLID_H.couch)); // sofa
+  out.push(rect(11.5, 6.2, 1.6, 0.9, SOLID_H.coffeeTable)); // table
+  out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1, SOLID_H.cabinet)); // trophy cabinet
   return out;
 }
 

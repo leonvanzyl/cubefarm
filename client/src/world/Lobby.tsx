@@ -14,6 +14,7 @@ import { WallSign } from './OfficeFloor';
 import { Bookshelf, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
 import { Shell } from './Shell';
 import { Ball, Box, Cyl } from './Toon';
+import { Toys } from './toys';
 
 const ACCENT = '#ff8a5b';
 const CEO_ACCENT = '#9b5de5';
@@ -452,6 +453,7 @@ export function Lobby() {
       <CeoOffice />
       <WaitingRoom />
       <Elevator floorLabel="▲ G · Lobby" accent={ACCENT} />
+      <Toys floor="lobby" />
       <Directory />
       <TrophyCabinet />
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
