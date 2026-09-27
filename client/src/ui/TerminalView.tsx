@@ -3,6 +3,7 @@ import { api } from '../api';
 import { isBusy, kanbanFor, agentsOnRepo, useStore } from '../store';
 import { confirmDialog } from './Confirm';
 import { Markdown } from './Markdown';
+import { MessageBox } from './MessageBox';
 import { closeOverlay, Panel } from './Overlays';
 import { toolVerb } from '../world/draw';
 
@@ -176,15 +177,17 @@ export function TerminalView({ agentId }: { agentId: string }) {
         className="term-input"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!text.trim()) return;
-          const t = text;
+          const t = text.trim();
+          if (!t) return;
           setText('');
           void run(() => api.message(agent.id, t));
         }}
       >
-        <input
+        <MessageBox
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={setText}
+          aria-label={`Message ${agent.name}`}
+          title="Enter sends · Shift+Enter adds a new line"
           placeholder={
             working ? `Tell ${agent.name} something while they work…` : canMessage ? `Ask ${agent.name} for a follow-up (resumes their session)…` : `Assign an issue to get ${agent.name} started`
           }

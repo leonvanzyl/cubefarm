@@ -118,7 +118,8 @@ function Help() {
         </p>
         <h3>Your phone</h3>
         <p>
-          Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, and see every project at a glance. The red badge counts decisions and messages waiting for you.
+          Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, and see every project at a glance. The red badge counts decisions and messages waiting for you. In the chat, and in an agent's
+          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.
         </p>
         <h3>Who's working</h3>
         <p>
