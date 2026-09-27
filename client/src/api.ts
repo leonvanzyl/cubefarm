@@ -39,6 +39,7 @@ export const api = {
     repoId: string,
     patch: {
       autoAssign?: boolean;
+      autoMerge?: boolean;
       browserTesting?: boolean;
       color?: string;
       links?: string[];
@@ -53,6 +54,7 @@ export const api = {
   stopPreview: (repoId: string) => call<PreviewView>('DELETE', `${r(repoId)}/preview`),
   disconnectRepo: (repoId: string) => call('DELETE', r(repoId)),
   syncRepo: (repoId: string) => call('POST', `${r(repoId)}/sync`),
+  syncFolder: (repoId: string) => call<{ folderSync: string | null }>('POST', `${r(repoId)}/sync-folder`),
   createIssue: (repoId: string, title: string, body: string, assignTo?: string, specialty?: string) =>
     call<{ number: number }>('POST', `${r(repoId)}/issues`, { title, body, assignTo, specialty }),
   planFloor: (repoId: string, mission?: string) => call('POST', `${r(repoId)}/plan`, { mission }),

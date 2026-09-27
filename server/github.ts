@@ -61,17 +61,25 @@ interface RawPull {
   mergedAt: string | null;
   additions: number;
   deletions: number;
-  statusCheckRollup: { status?: string; conclusion?: string; state?: string }[] | null;
+  headRefOid: string;
+  mergeStateStatus: string;
+  // check runs (GitHub Actions…) carry name/status/conclusion/detailsUrl; commit statuses (Vercel…) carry context/state/targetUrl
+  statusCheckRollup: { name?: string; context?: string; status?: string; conclusion?: string; state?: string; detailsUrl?: string; targetUrl?: string }[] | null;
 }
 
 const PR_FIELDS =
-  'number,title,url,headRefName,state,isDraft,mergeable,reviewDecision,closingIssuesReferences,createdAt,mergedAt,additions,deletions,statusCheckRollup';
+  'number,title,url,headRefName,headRefOid,state,isDraft,mergeable,mergeStateStatus,reviewDecision,closingIssuesReferences,createdAt,mergedAt,additions,deletions,statusCheckRollup';
+
+type Check = NonNullable<RawPull['statusCheckRollup']>[number];
+const BAD = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
+const failed = (c: Check) => BAD.includes(c.conclusion ?? '') || BAD.includes(c.state ?? '');
+const pending = (c: Check) => (!!c.status && c.status !== 'COMPLETED') || c.state === 'PENDING' || c.state === 'EXPECTED';
+const checkName = (c: Check) => c.name || c.context || 'check';
 
 function checksOf(rollup: RawPull['statusCheckRollup']): PullInfo['checks'] {
   if (!rollup || rollup.length === 0) return 'none';
-  const bad = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'];
-  if (rollup.some((c) => bad.includes(c.conclusion ?? '') || bad.includes(c.state ?? ''))) return 'failing';
-  if (rollup.some((c) => (c.status && c.status !== 'COMPLETED') || c.state === 'PENDING' || c.state === 'EXPECTED')) return 'pending';
+  if (rollup.some(failed)) return 'failing';
+  if (rollup.some(pending)) return 'pending';
   return 'passing';
 }
 
@@ -91,6 +99,10 @@ function toPull(p: RawPull): PullInfo {
     additions: p.additions,
     deletions: p.deletions,
     checks: checksOf(p.statusCheckRollup),
+    headSha: p.headRefOid,
+    mergeState: p.mergeStateStatus || 'UNKNOWN',
+    failedChecks: (p.statusCheckRollup ?? []).filter(failed).map((c) => ({ name: checkName(c), url: c.detailsUrl || c.targetUrl || null })),
+    pendingChecks: (p.statusCheckRollup ?? []).filter(pending).map(checkName),
   };
 }
 
@@ -122,13 +134,19 @@ export async function createIssue(fullName: string, title: string, body: string,
   return Number(match[1]);
 }
 
-export async function mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase'): Promise<void> {
+/** Merge a PR. With headSha, GitHub refuses if anything was pushed after that commit (e.g. after QA signed it off). */
+export async function mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void> {
   const pr = await ghJson<{ headRefName: string; isCrossRepository: boolean }>(['pr', 'view', String(number), '-R', fullName, '--json', 'headRefName,isCrossRepository']);
-  await gh(['pr', 'merge', String(number), '-R', fullName, `--${method}`], { timeoutMs: 60_000 });
+  await gh(['pr', 'merge', String(number), '-R', fullName, `--${method}`, ...(headSha ? ['--match-head-commit', headSha] : [])], { timeoutMs: 60_000 });
   // Tidy up the swarm branch on the remote; the local worktree is cleaned when the agent takes its next issue.
   if (!pr.isCrossRepository && pr.headRefName.startsWith('swarm/')) {
     await gh(['api', '-X', 'DELETE', `repos/${fullName}/git/refs/heads/${pr.headRefName}`]).catch(() => undefined);
   }
+}
+
+/** Merge the base branch into a PR's branch on GitHub, for repos that only merge up-to-date branches. */
+export async function updateBranch(fullName: string, number: number): Promise<void> {
+  await gh(['pr', 'update-branch', String(number), '-R', fullName], { timeoutMs: 60_000 });
 }
 
 export async function closePull(fullName: string, number: number): Promise<void> {
@@ -152,6 +170,8 @@ export interface PrDetails {
   isCrossRepository: boolean;
   closesIssues: number[];
   state: 'OPEN' | 'CLOSED' | 'MERGED';
+  mergeable: string;
+  mergeState: string;
 }
 
 export async function prDetails(fullName: string, number: number): Promise<PrDetails> {
@@ -165,7 +185,9 @@ export async function prDetails(fullName: string, number: number): Promise<PrDet
     isCrossRepository: boolean;
     closingIssuesReferences: { number: number }[] | null;
     state: PrDetails['state'];
-  }>(['pr', 'view', String(number), '-R', fullName, '--json', 'number,title,body,url,headRefName,headRefOid,isCrossRepository,closingIssuesReferences,state']);
+    mergeable: string;
+    mergeStateStatus: string;
+  }>(['pr', 'view', String(number), '-R', fullName, '--json', 'number,title,body,url,headRefName,headRefOid,isCrossRepository,closingIssuesReferences,state,mergeable,mergeStateStatus']);
   return {
     number: raw.number,
     title: raw.title,
@@ -176,6 +198,8 @@ export async function prDetails(fullName: string, number: number): Promise<PrDet
     isCrossRepository: raw.isCrossRepository,
     closesIssues: (raw.closingIssuesReferences ?? []).map((r) => r.number),
     state: raw.state,
+    mergeable: raw.mergeable,
+    mergeState: raw.mergeStateStatus || 'UNKNOWN',
   };
 }
 

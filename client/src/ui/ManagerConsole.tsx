@@ -45,6 +45,10 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
           </div>
           <div className="muted small" title={repo.localPath ? 'Your own project folder' : 'A clone the office manages'}>
             📁 <code>{repo.checkoutPath}</code>
+            {repo.folderSync && ` · ${repo.folderSync}`}{' '}
+            <button className="btn btn-small btn-ghost" title="Fast-forward it to GitHub's default branch, when that's safe" onClick={() => void attempt(() => api.syncFolder(repo.id))}>
+              ⟳ Sync now
+            </button>
           </div>
           {repo.cloneError && <div className="term-error small">clone failed: {repo.cloneError}</div>}
           {repo.syncError && <div className="term-error small">sync failed: {repo.syncError}</div>}
@@ -57,6 +61,9 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
       <div className="row wrap">
         <label className="toggle">
           <input type="checkbox" checked={repo.autoAssign} onChange={(e) => patch({ autoAssign: e.target.checked })} /> ⚡ Auto-assign issues
+        </label>
+        <label className="toggle" title="Merge a PR as soon as QA has signed off on its latest commit and GitHub's checks are green">
+          <input type="checkbox" checked={repo.autoMerge} onChange={(e) => patch({ autoMerge: e.target.checked })} /> 🔀 Auto-merge
         </label>
         <label className="toggle">
           <input type="checkbox" checked={repo.browserTesting} onChange={(e) => patch({ browserTesting: e.target.checked })} /> 🌐 Browser testing (Playwright MCP)
@@ -562,10 +569,13 @@ function SettingsTab() {
           </select>
         </label>
         <label className="field">
-          <span>Max concurrent sessions</span>
-          <input type="number" min={1} max={32} defaultValue={settings.maxConcurrent} onBlur={(e) => set({ maxConcurrent: Number(e.target.value) })} />
+          <span>Session limit</span>
+          <input type="number" min={0} placeholder="No limit" defaultValue={settings.sessionLimit || ''} onBlur={(e) => set({ sessionLimit: Number(e.target.value) || 0 })} />
         </label>
-        <p className="muted small">Every agent shares your Claude subscription's usage limits, so more parallel sessions burn through them faster.</p>
+        <p className="muted small">
+          Leave empty so every agent with work runs at once. They all share your Claude subscription's usage limits, and each one is its own Claude Code process on this PC, so set a limit if you hit
+          either.
+        </p>
         <h3>🧠 The CEO</h3>
         <label className="toggle block">
           <input type="radio" checked={settings.hiring === 'approve'} onChange={() => set({ hiring: 'approve' })} />

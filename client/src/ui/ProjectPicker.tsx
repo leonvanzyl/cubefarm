@@ -113,7 +113,7 @@ function FolderMode({ floor, onDone }: { floor: FloorOptions; onDone: (r: RepoVi
         ))}
       </div>
       <p className="muted small">
-        Your folder stays exactly as it is: the office only fetches into it. Each agent works in its own git worktree of it, kept outside your project (so your dev server and linters never see them).
+        The office never touches your work in progress: after a merge it only fast-forwards your folder when it's on the default branch with no local changes (and runs npm install if dependencies changed). Each agent works in its own git worktree of it, kept outside your project (so your dev server and linters never see them).
       </p>
     </div>
   );

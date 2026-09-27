@@ -180,6 +180,10 @@ export function KanbanView({ repoId }: { repoId: string }) {
           <input type="checkbox" checked={repo.autoAssign} onChange={(e) => void api.updateRepo(repo.id, { autoAssign: e.target.checked }).catch(() => undefined)} />
           ⚡ Auto-assign backlog to free developers
         </label>
+        <label className="toggle" title="Merge a PR as soon as QA has signed off on its latest commit and GitHub's checks are green">
+          <input type="checkbox" checked={repo.autoMerge} onChange={(e) => void api.updateRepo(repo.id, { autoMerge: e.target.checked }).catch(() => undefined)} />
+          🔀 Auto-merge when QA and checks pass
+        </label>
         <span className="spacer" />
         <button className="btn" onClick={() => openOverlay({ kind: 'app', repoId: repo.id })} title="Open this floor's running app">
           🖥️ View app

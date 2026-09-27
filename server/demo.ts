@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import type { Backend } from './backend.ts';
@@ -26,6 +27,21 @@ function issue(n: number, title: string, body: string, fullName: string, labels:
 const repos = new Map<string, FakeRepo>();
 /** Repos made in the demo (new projects, published folders): empty, so no package.json for the preview to fall back on. */
 const bareRepos = new Set<string>();
+const mergedSinceSync = new Map<string, number>(); // merges the fake project folder hasn't pulled yet
+
+const fakeSha = () => crypto.randomBytes(20).toString('hex');
+
+/** Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. */
+function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
+  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [] });
+  setTimeout(() => {
+    Object.assign(pr, {
+      checks: fail ? 'failing' : 'passing',
+      pendingChecks: [],
+      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url}/checks` }] : [],
+    });
+  }, 12_000 + Math.random() * 10_000);
+}
 
 function seed(fullName: string, description: string, titles: [string, string][]) {
   const r: FakeRepo = { fullName, description, issues: [], pulls: [], nextNumber: 1 };
@@ -142,7 +158,7 @@ function fixScript(pr: number): Step[] {
 function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: string): SessionHandle {
   const timers: NodeJS.Timeout[] = [];
   let stopped = false;
-  const kind = opts.role === 'qa' ? 'qa' : /FAILED|taking over pull request/.test(opts.prompt) ? 'fix' : 'issue';
+  const kind = opts.role === 'qa' ? 'qa' : /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
   const prMatch = opts.prompt.match(/pull request #(\d+)(?::\s*(.+))?/);
   const issueMatch = opts.prompt.match(/#(\d+):\s*(.+)/);
   const number = Number((kind === 'issue' ? issueMatch?.[1] : prMatch?.[1]) ?? 0);
@@ -193,7 +209,14 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
       return;
     }
     if (kind === 'fix') {
-      cb.log([{ kind: 'text', text: `● Fixed the mobile overflow on PR #${number} and pushed. Ready for another QA round.` }]);
+      const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
+      if (pr) {
+        pr.headSha = fakeSha();
+        pr.mergeState = 'CLEAN';
+        pr.mergeable = 'MERGEABLE';
+        runChecks(pr, false);
+      }
+      cb.log([{ kind: 'text', text: `● Fixed PR #${number} and pushed. Ready for another QA round.` }]);
       cb.finished({ ok: true, text: '', costUsd, turns, errors: [] });
       return;
     }
@@ -216,8 +239,13 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
         mergedAt: null,
         additions: 40 + ((number * 13) % 200),
         deletions: (number * 7) % 40,
-        checks: 'passing',
+        checks: 'pending',
+        headSha: fakeSha(),
+        mergeState: 'CLEAN',
+        failedChecks: [],
+        pendingChecks: [],
       });
+      runChecks(repo.pulls[0]);
       cb.log([{ kind: 'result', text: `  ⎿ ${url}` }]);
     }
     cb.log([{ kind: 'text', text: `● Opened ${url || 'the pull request'}. It closes #${number} and includes tests.` }]);
@@ -310,13 +338,21 @@ export function createDemoBackend(): Backend {
       r.issues.push(issue(n, title, body, fullName, labels));
       return n;
     },
-    mergePull: async (fullName, number) => {
+    mergePull: async (fullName, number, _method, headSha) => {
       const r = repos.get(fullName);
       const pr = r?.pulls.find((p) => p.number === number);
       if (!r || !pr) throw new Error('Unknown PR');
+      if (headSha && pr.headSha !== headSha) throw new Error('Head branch was modified. Review and try the merge again.');
+      mergedSinceSync.set(fullName, (mergedSinceSync.get(fullName) ?? 0) + 1);
       pr.state = 'MERGED';
       pr.mergedAt = now();
       r.issues = r.issues.filter((i) => !pr.closesIssues.includes(i.number));
+    },
+    updateBranch: async (fullName, number) => {
+      const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
+      if (!pr) throw new Error('Unknown PR');
+      Object.assign(pr, { headSha: fakeSha(), mergeState: 'CLEAN' });
+      runChecks(pr, false);
     },
     closePull: async (fullName, number) => {
       const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
@@ -332,10 +368,12 @@ export function createDemoBackend(): Backend {
         body: `Implements the change.\n\nCloses #${pr.closesIssues[0] ?? '?'}`,
         url: pr.url,
         headRefName: pr.headRefName,
-        headSha: '3f2a91c',
+        headSha: pr.headSha,
         isCrossRepository: false,
         closesIssues: pr.closesIssues,
         state: pr.state,
+        mergeable: pr.mergeable,
+        mergeState: pr.mergeState,
       };
     },
     issueDetails: async (fullName, number) => {
@@ -345,6 +383,13 @@ export function createDemoBackend(): Backend {
     commentPull: async (fullName, number) => `https://github.com/${fullName}/pull/${number}#issuecomment-${Date.now()}`,
     uploadEvidence: async (fullName, filePath) => `https://github.com/${fullName}/raw/swarm-qa-evidence/${filePath}`,
     ensureClone: async () => new Promise((r) => setTimeout(r, 400)),
+    syncMain: async (fullName, _branch, { touch }) => {
+      const behind = mergedSinceSync.get(fullName) ?? 0;
+      if (behind === 0) return 'in sync';
+      if (!touch) return `update ready (${behind} commit${behind === 1 ? '' : 's'})`;
+      mergedSinceSync.set(fullName, 0);
+      return `updated to ${fakeSha().slice(0, 7)}`;
+    },
     mainDir: (fullName) => `/demo/${fullName}/main`,
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
     prepareDesk: async (fullName, _base, slug) => {
@@ -618,7 +663,12 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       await think(`${p.summary}. Let me shape the team around that.`);
       await use('set_floor_profile', { floor, summary: p.summary, qa_brief: p.qa });
       const qa = f.team.find((a) => a.role === 'qa');
-      if (qa) await use('update_job', { agent_id: qa.id, title: p.qaTitle, job_description: p.qaJob });
+      if (qa) {
+        await step([{ kind: 'tool', tool: 'mcp__office__agent_detail', text: `⏺ ${describeOfficeTool('agent_detail', { agent_id: qa.id })}` }]);
+        const d = JSON.parse(await office.call('agent_detail', { agent_id: qa.id })) as { title: string; jobDescription: string | null };
+        cb.log([{ kind: 'result', text: `  ⎿ ${d.title} · job description ${d.jobDescription?.length ?? 0} chars` }]);
+        await use('update_job', { agent_id: qa.id, title: p.qaTitle, job_description: p.qaJob });
+      }
       const dev = f.team.find((a) => a.role === 'dev' && !a.specialty);
       if (dev) await use('update_job', { agent_id: dev.id, title: p.devTitle, specialty: p.devSpecialty, job_description: p.devJob });
       const proposed: string[] = [];

@@ -9,7 +9,7 @@ import { HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_
 import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, jobLabel, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { HttpError } from './httpError.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
-import { blockers, issueSpecialty } from '../shared/issues.ts';
+import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { CEO_ID } from '../shared/types.ts';
 import type {
   AgentLook,
@@ -46,6 +46,7 @@ interface PersistedRepo {
   floor: number;
   color: string;
   autoAssign: boolean;
+  autoMerge: boolean; // PRs merge themselves once QA passes and GitHub's checks are green
   browserTesting: boolean;
   links: string[]; // other connected repos this floor's agents may read
   localPath: string | null; // the manager's own project folder (null: a clone under WORKSPACE_ROOT)
@@ -94,6 +95,14 @@ interface QaRecord extends QaView {
   devSessionId: string | null; // the dev's Claude Code session, resumed to fix QA findings
   fixInstructions: string | null;
   sessionFailures: number;
+  testedSha: string | null; // the head commit QA is testing
+  passedSha: string | null; // the head commit QA signed off on: auto-merge merges exactly that
+  fixReason: 'qa' | 'checks' | 'conflict' | null; // why it was last sent back to a developer
+  mergeFixes: number; // times it went back for failing checks or conflicts
+  retests: number; // QA rounds caused by merge fixes or new commits rather than by QA failing it
+  pendingSince: number | null; // when auto-merge started waiting on its checks
+  mergeRetryAt: number | null; // GitHub refused the merge: try again after this
+  alerted: boolean; // the manager has been told it's stuck
 }
 
 /** Choices made when a project moves into the office. */
@@ -145,6 +154,10 @@ interface RepoRuntime {
   syncing: boolean;
   cloneStatus: RepoView['cloneStatus'];
   cloneError?: string;
+  fetchedAt?: number; // when the latest issues/PRs fetch started
+  lastMergedAt: string | null; // newest merge seen: a newer one means the folder needs a sync
+  folderSync: string | null;
+  merging: boolean;
 }
 
 interface QaReport {
@@ -210,6 +223,21 @@ const slugify = (s: string) =>
 
 const BUSY: AgentStatus[] = ['preparing', 'working'];
 const FREE: AgentStatus[] = ['idle', 'done'];
+// An agent whose session failed sits out this long before taking new work, so a broken setup can't burn through the queue.
+const ERROR_COOLDOWN_MS = 2 * 60_000;
+// Auto-assign stops retrying an issue after this many failed sessions; the manager can still assign it by hand.
+const MAX_ISSUE_FAILURES = 2;
+// How long the office waits after Claude's usage limit is hit when Claude doesn't say when it resets.
+const LIMIT_PAUSE_MS = 15 * 60_000;
+// Auto-merge: fixes for failing checks or conflicts before a PR needs the manager, how long checks may run before
+// the manager hears about it, and how long to wait before retrying a merge GitHub refused.
+const MAX_MERGE_FIXES = 3;
+const CHECKS_ALERT_MS = 30 * 60_000;
+const MERGE_RETRY_MS = 10 * 60_000;
+// The running office's own folder: syncing it would restart the server mid-work, so it's only reported.
+const OFFICE_DIR = path.resolve(import.meta.dirname, '..');
+const isSamePath = (a: string, b: string) => (process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
+const oneLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split(/\r?\n/)[0].slice(0, 200);
 
 // The latest browser screenshot per agent is kept on disk so monitors survive a server restart.
 const SCREENS_DIR = path.join(HOME_DIR, 'screens');
@@ -308,7 +336,7 @@ export { HttpError };
 export class Swarm {
   private state: Persisted = {
     settings: {
-      maxConcurrent: 4,
+      sessionLimit: 0,
       defaultModel: DEFAULT_MODEL,
       defaultEffort: 'medium',
       permissionMode: 'guarded',
@@ -329,14 +357,21 @@ export class Swarm {
     messages: [],
     phoneReadAt: 0,
   };
-  private office: OfficeTools = createOfficeTools({
-    companyStatus: () => this.companyStatus(),
-    setFloorProfile: (a) => this.setFloorProfile(a),
-    updateJob: (a) => this.updateJob(a),
-    proposeHire: (a) => this.proposeHire(a),
-    proposeLetGo: (a) => this.proposeLetGo(a),
-    fileIssue: (a) => this.fileIssue(a),
-  });
+  /**
+   * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
+   * a shared one left the next session connected but without any tools while an earlier session still held it.
+   */
+  private officeTools(): OfficeTools {
+    return createOfficeTools({
+      companyStatus: () => this.companyStatus(),
+      agentDetail: (a) => this.agentDetail(a),
+      setFloorProfile: (a) => this.setFloorProfile(a),
+      updateJob: (a) => this.updateJob(a),
+      proposeHire: (a) => this.proposeHire(a),
+      proposeLetGo: (a) => this.proposeLetGo(a),
+      fileIssue: (a) => this.fileIssue(a),
+    });
+  }
   private ceoIssues = { filed: 0, repos: new Set<string>() }; // issues filed during the current CEO job
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
@@ -369,6 +404,7 @@ export class Swarm {
         settings: { ...this.state.settings, ...loaded.settings },
         repos: (loaded.repos ?? []).map((r) => ({
           ...r,
+          autoMerge: r.autoMerge ?? true,
           links: r.links ?? [],
           mission: r.mission ?? '',
           summary: r.summary ?? '',
@@ -387,7 +423,18 @@ export class Swarm {
           look: a.look ?? lookFor(a.name),
           task: a.task ?? (a.issueNumber ? 'issue' : null),
         })),
-        qa: loaded.qa ?? [],
+        qa: (loaded.qa ?? []).map((q) => ({
+          ...q,
+          testedSha: q.testedSha ?? null,
+          passedSha: q.passedSha ?? null,
+          fixReason: q.fixReason ?? null,
+          mergeFixes: q.mergeFixes ?? 0,
+          retests: q.retests ?? 0,
+          pendingSince: q.pendingSince ?? null,
+          mergeRetryAt: q.mergeRetryAt ?? null,
+          alerted: q.alerted ?? false,
+          mergeNote: null,
+        })),
         requests: loaded.requests ?? [],
         ceo: { ...this.state.ceo, ...loaded.ceo },
         messages: loaded.messages ?? [],
@@ -396,6 +443,12 @@ export class Swarm {
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!this.state.settings.defaultModel) this.state.settings.defaultModel = DEFAULT_MODEL;
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
+      // "Max concurrent sessions" (default 4) became an optional session limit. The old default goes; a limit the manager chose stays.
+      const old = this.state.settings as SwarmSettings & { maxConcurrent?: number };
+      if (old.maxConcurrent !== undefined) {
+        if (loaded.settings?.sessionLimit === undefined) old.sessionLimit = old.maxConcurrent === 4 ? 0 : old.maxConcurrent;
+        delete old.maxConcurrent;
+      }
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -415,7 +468,7 @@ export class Swarm {
         interrupted.push(a);
       }
     }
-    for (const r of this.state.repos) this.repoRt.set(r.id, { issues: [], pulls: [], lastSync: null, syncing: false, cloneStatus: 'pending' });
+    for (const r of this.state.repos) this.repoRt.set(r.id, { issues: [], pulls: [], lastSync: null, syncing: false, cloneStatus: 'pending', lastMergedAt: null, folderSync: null, merging: false });
 
     try {
       this.user = await this.backend.user();
@@ -466,7 +519,7 @@ export class Swarm {
         this.clearTask(a);
         continue;
       }
-      if (this.running() >= this.state.settings.maxConcurrent) continue; // stays 'stopped'; the manager can resume it later
+      if (this.slotsFull()) continue; // stays 'stopped'; the manager can resume it later
       void this.message(a.id, 'The office server restarted while you were working. Check the state of your worktree and continue where you left off.').catch((err) =>
         console.warn(`could not resume ${a.name}`, err),
       );
@@ -486,6 +539,8 @@ export class Swarm {
       floor: r.floor,
       color: r.color,
       autoAssign: r.autoAssign,
+      autoMerge: r.autoMerge,
+      folderSync: rt.folderSync,
       browserTesting: r.browserTesting,
       links: r.links,
       mission: r.mission,
@@ -553,6 +608,7 @@ export class Swarm {
       summary: q.summary,
       checks: q.checks,
       commentUrl: q.commentUrl,
+      mergeNote: q.mergeNote,
       updatedAt: q.updatedAt,
     };
   }
@@ -672,6 +728,12 @@ export class Swarm {
     return this.state.agents.filter((a) => BUSY.includes(a.status)).length;
   }
 
+  /** True when the manager has set a session limit and every slot is taken. */
+  private slotsFull() {
+    const limit = this.state.settings.sessionLimit;
+    return limit > 0 && this.running() >= limit;
+  }
+
   private agentSlug(a: PersistedAgent) {
     return `${slugify(a.name)}-${a.id.slice(0, 4)}`;
   }
@@ -706,6 +768,7 @@ export class Swarm {
       floor,
       color: FLOOR_COLORS[(floor - 1) % FLOOR_COLORS.length],
       autoAssign: !!opts.autoAssign,
+      autoMerge: true,
       browserTesting: true,
       links: [],
       localPath: folder,
@@ -717,7 +780,7 @@ export class Swarm {
     };
     this.backend.setLocalPath(repo.fullName, folder);
     this.state.repos.push(repo);
-    this.repoRt.set(repo.id, { issues: [], pulls: [], lastSync: null, syncing: false, cloneStatus: 'pending' });
+    this.repoRt.set(repo.id, { issues: [], pulls: [], lastSync: null, syncing: false, cloneStatus: 'pending', lastMergedAt: null, folderSync: null, merging: false });
     this.save();
     this.emitRepo(repo);
     this.toast('success', `${repo.fullName} moved into floor ${floor}`);
@@ -807,13 +870,17 @@ export class Swarm {
 
   updateRepo(
     id: string,
-    patch: Partial<Pick<PersistedRepo, 'autoAssign' | 'browserTesting' | 'color' | 'links' | 'mission' | 'summary' | 'qaBrief'>> & { previewCommand?: unknown; previewEnv?: unknown },
+    patch: Partial<Pick<PersistedRepo, 'autoAssign' | 'autoMerge' | 'browserTesting' | 'color' | 'links' | 'mission' | 'summary' | 'qaBrief'>> & { previewCommand?: unknown; previewEnv?: unknown },
   ) {
     const repo = this.repo(id);
     const preview = parsePreviewPatch(patch.previewCommand, patch.previewEnv);
     repo.preview = { ...repo.preview, ...preview };
     if (preview.command === null) void this.previews.refreshDefault(repo);
     if (patch.autoAssign !== undefined) repo.autoAssign = !!patch.autoAssign;
+    if (patch.autoMerge !== undefined) {
+      repo.autoMerge = !!patch.autoMerge;
+      if (repo.autoMerge) void this.syncRepo(repo.id);
+    }
     if (patch.browserTesting !== undefined) repo.browserTesting = !!patch.browserTesting;
     if (patch.color && /^#[0-9a-f]{6}$/i.test(patch.color)) repo.color = patch.color;
     if (Array.isArray(patch.links)) repo.links = patch.links.filter((l) => l !== id && this.state.repos.some((r) => r.id === l));
@@ -824,6 +891,149 @@ export class Swarm {
     this.emitRepo(repo);
     setTimeout(() => this.schedule(), 200);
     return this.repoView(repo);
+  }
+
+  // ---------- auto-merge ----------
+
+  /**
+   * Auto-merge (floors with it on): a swarm PR merges itself once QA has signed off on its latest commit and GitHub's
+   * checks are green. Failing checks and merge conflicts go back to a developer; new commits after QA's sign-off send
+   * it back to QA. Merging deletes the remote branch, and the floor's folder then fast-forwards (syncRepo sees the merge).
+   */
+  private async advanceMerges(repo: PersistedRepo) {
+    const rt = this.repoRt.get(repo.id);
+    if (!rt || !repo.autoMerge || rt.merging) return;
+    rt.merging = true;
+    let merged = false;
+    try {
+      for (const rec of this.state.qa.filter((q) => q.repoId === repo.id && q.status === 'passed')) {
+        const pr = rt.pulls.find((p) => p.number === rec.prNumber && p.state === 'OPEN');
+        if (!pr || !pr.headRefName.startsWith('swarm/')) continue; // people's own PRs are theirs to merge
+        // Only act on PR data fetched after the record last changed (a fix may have just pushed).
+        if ((rt.fetchedAt ?? 0) < rec.updatedAt) continue;
+        try {
+          if (await this.advanceMerge(repo, rec, pr)) merged = true;
+        } catch (err) {
+          console.warn(`auto-merge of ${repo.fullName}#${pr.number} failed`, err);
+          this.mergeNote(rec, `auto-merge hit a problem: ${oneLine(err)}`);
+        }
+      }
+    } finally {
+      rt.merging = false;
+    }
+    if (merged) {
+      await this.syncRepo(repo.id);
+      setTimeout(() => this.schedule(), 200);
+    }
+  }
+
+  /** One step toward merging a QA-passed PR. Returns true when it merged. */
+  private async advanceMerge(repo: PersistedRepo, rec: QaRecord, pr: PullInfo): Promise<boolean> {
+    if (pr.isDraft) return this.mergeNote(rec, 'a draft: waiting');
+    if (pr.mergeable === 'UNKNOWN' || pr.mergeState === 'UNKNOWN') {
+      // GitHub works mergeability out lazily and lists often say UNKNOWN; asking about the PR itself gets an answer.
+      const d = await this.backend.prDetails(repo.fullName, pr.number);
+      pr = { ...pr, headSha: d.headSha, mergeable: d.mergeable, mergeState: d.mergeState };
+    }
+    rec.passedSha ??= pr.headSha; // signed off before the office tracked commits
+    if (pr.headSha !== rec.passedSha) {
+      // Commits arrived after QA's sign-off: they get tested too.
+      this.setQa(rec, { status: 'queued', round: rec.round + 1, retests: rec.retests + 1, mergeNote: null, pendingSince: null });
+      setTimeout(() => this.schedule(), 200);
+      return false;
+    }
+    if (pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY') {
+      return this.sendBack(repo, rec, 'conflict', `It conflicts with ${repo.defaultBranch}.`);
+    }
+    if (pr.checks === 'failing') {
+      return this.sendBack(repo, rec, 'checks', pr.failedChecks.map((c) => `- ${c.name}${c.url ? `: ${c.url}` : ''}`).join('\n'));
+    }
+    if (pr.checks === 'pending') {
+      rec.pendingSince ??= Date.now();
+      if (Date.now() - rec.pendingSince > CHECKS_ALERT_MS && !rec.alerted) {
+        rec.alerted = true;
+        this.postMessage('office', `⏳ PR #${pr.number} on ${repo.fullName} passed QA, but its checks (${pr.pendingChecks.join(', ')}) have been running for over ${CHECKS_ALERT_MS / 60_000} minutes. It merges as soon as they finish.`);
+      }
+      return this.mergeNote(rec, `waiting for checks: ${pr.pendingChecks.join(', ') || 'running'}`);
+    }
+    rec.pendingSince = null;
+    if (pr.mergeable === 'UNKNOWN') return this.mergeNote(rec, 'GitHub is checking it can merge');
+    if (pr.mergeState === 'BEHIND') {
+      // The repo only merges up-to-date branches. GitHub merges the base in cleanly (or refuses); CI checks the result.
+      this.mergeNote(rec, `updating the branch with ${repo.defaultBranch}`);
+      await this.backend.updateBranch(repo.fullName, pr.number);
+      const details = await this.backend.prDetails(repo.fullName, pr.number);
+      this.setQa(rec, { passedSha: details.headSha });
+      return false;
+    }
+    if (rec.mergeRetryAt && Date.now() < rec.mergeRetryAt) return false;
+    this.mergeNote(rec, 'merging…');
+    let error = '';
+    for (const method of ['squash', 'merge', 'rebase'] as const) {
+      try {
+        await this.backend.mergePull(repo.fullName, pr.number, method, rec.passedSha);
+        error = '';
+        break;
+      } catch (err) {
+        error = oneLine(err).replace(/^gh .*? failed: /, '');
+        if (!/not allowed/i.test(error)) break; // only a merge method the repo turned off is worth another try
+      }
+    }
+    if (error && /head (branch|commit)/i.test(error)) return this.mergeNote(rec, 'new commits arrived; QA checks them first'); // the next sync re-queues it
+    if (error) {
+      rec.mergeRetryAt = Date.now() + MERGE_RETRY_MS;
+      if (!rec.alerted) {
+        rec.alerted = true;
+        this.postMessage('office', `⚠️ PR #${pr.number} on ${repo.fullName} passed QA and its checks, but GitHub won't merge it: ${error}. The office retries every ${MERGE_RETRY_MS / 60_000} minutes; merge it yourself, or change the repo's merge rules, if it keeps failing.`);
+      }
+      return this.mergeNote(rec, `merge blocked: ${error}`);
+    }
+    this.toast('success', `🔀 Merged PR #${pr.number} into ${repo.defaultBranch}: ${pr.title}`);
+    return true;
+  }
+
+  /** Show where auto-merge stands on a PR's card. Doesn't count as a change to the record. */
+  private mergeNote(rec: QaRecord, text: string | null) {
+    if (rec.mergeNote !== text) {
+      rec.mergeNote = text;
+      this.broadcast({ type: 'qa', qa: this.qaView(rec) });
+    }
+    return false;
+  }
+
+  /** QA passed, but the PR can't merge as it is: a developer fixes it, and QA re-tests if the code changed. */
+  private sendBack(repo: PersistedRepo, rec: QaRecord, reason: 'checks' | 'conflict', fixInstructions: string) {
+    if (rec.mergeFixes >= MAX_MERGE_FIXES) {
+      this.setQa(rec, { status: 'needs-human', mergeNote: null });
+      this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} still ${reason === 'conflict' ? `conflicts with ${repo.defaultBranch}` : 'fails its checks'} after ${MAX_MERGE_FIXES} fixes, so it needs you.`);
+      return false;
+    }
+    this.setQa(rec, { status: 'failed', fixReason: reason, fixInstructions, mergeFixes: rec.mergeFixes + 1, mergeNote: null, pendingSince: null });
+    setTimeout(() => this.schedule(), 200);
+    return false;
+  }
+
+  /** Fast-forward the floor's main checkout (usually your own project folder) and report how it stands. */
+  private async syncFolder(repo: PersistedRepo) {
+    const rt = this.repoRt.get(repo.id);
+    if (!rt || rt.cloneStatus !== 'ready') return rt?.folderSync ?? null;
+    const own = isSamePath(this.backend.mainDir(repo.fullName), OFFICE_DIR); // updating the running office restarts it mid-work
+    const status = await this.backend.syncMain(repo.fullName, repo.defaultBranch, { touch: !own }).catch((err) => `sync failed: ${oneLine(err)}`);
+    if (!this.repoRt.has(repo.id)) return null;
+    const before = rt.folderSync;
+    rt.folderSync = status;
+    this.emitRepo(repo);
+    if (status && status !== before) {
+      const name = repo.localPath ? path.basename(repo.localPath) : repo.fullName;
+      if (status.startsWith('updated')) this.toast('success', `📁 ${name}: ${status}`);
+      else if (/behind|diverged|failed/.test(status)) this.toast('info', `📁 ${name} wasn't updated: ${status}`);
+    }
+    return status;
+  }
+
+  /** The manager's "Sync now". */
+  async syncFolderNow(repoId: string) {
+    return { folderSync: await this.syncFolder(this.repo(repoId)) };
   }
 
   // ---------- the floor's app (preview monitor) ----------
@@ -868,12 +1078,21 @@ export class Swarm {
     if (!repo || !rt || rt.syncing) return;
     rt.syncing = true;
     try {
+      const started = Date.now();
       const [issues, pulls] = await Promise.all([this.backend.listIssues(repo.fullName), this.backend.listPulls(repo.fullName)]);
       rt.issues = issues;
       rt.pulls = pulls;
       rt.lastSync = Date.now();
+      rt.fetchedAt = started;
       rt.syncError = undefined;
       this.reconcilePulls(repo, pulls);
+      // Something was merged since the last look (by the office or anyone else): bring the folder up to date.
+      const newest = pulls.reduce<string | null>((m, p) => (p.mergedAt && (!m || p.mergedAt > m) ? p.mergedAt : m), null);
+      if (newest !== rt.lastMergedAt) {
+        rt.lastMergedAt = newest;
+        void this.syncFolder(repo);
+      }
+      void this.advanceMerges(repo);
     } catch (err) {
       rt.syncError = (err as Error).message;
     } finally {
@@ -888,6 +1107,10 @@ export class Swarm {
       if (a.repoId !== repo.id || a.role !== 'dev' || a.prNumber == null || BUSY.includes(a.status) || a.status === 'idle') continue;
       const pr = pulls.find((p) => p.number === a.prNumber);
       if (!pr || pr.state === 'OPEN') continue;
+      if (a.task === 'qa') {
+        this.clearTask(a); // they only tested it
+        continue;
+      }
       this.appendLog(a, [{ kind: 'done', text: pr.state === 'MERGED' ? `🎉 PR #${pr.number} was merged. Ready for the next issue.` : `PR #${pr.number} was closed without merging.` }]);
       this.clearTask(a);
     }
@@ -905,7 +1128,7 @@ export class Swarm {
     for (const pr of pulls) {
       if (pr.state !== 'OPEN' || pr.isDraft || !pr.headRefName.startsWith('swarm/')) continue;
       if (this.state.qa.some((q) => q.repoId === repo.id && q.prNumber === pr.number)) continue;
-      const dev = this.state.agents.find((a) => a.repoId === repo.id && a.role === 'dev' && (a.prNumber === pr.number || a.branch === pr.headRefName));
+      const dev = this.state.agents.find((a) => a.repoId === repo.id && a.role === 'dev' && a.task !== 'qa' && (a.prNumber === pr.number || a.branch === pr.headRefName));
       this.queueQa(repo, pr.number, dev ?? null, pr.closesIssues[0] ?? null);
     }
     this.save();
@@ -1097,14 +1320,14 @@ export class Swarm {
   }
 
   private issueTaken(repo: PersistedRepo, n: number) {
-    if (this.state.agents.some((a) => a.repoId === repo.id && a.role === 'dev' && a.issueNumber === n && a.status !== 'idle')) return true;
+    if (this.state.agents.some((a) => a.repoId === repo.id && a.role === 'dev' && a.task !== 'qa' && a.issueNumber === n && a.status !== 'idle' && a.status !== 'error')) return true;
     const pulls = this.repoRt.get(repo.id)?.pulls ?? [];
     return pulls.some((p) => p.state === 'OPEN' && (p.closesIssues.includes(n) || p.headRefName.startsWith(`swarm/issue-${n}-`)));
   }
 
   private ensureSlot() {
-    if (this.running() >= this.state.settings.maxConcurrent) {
-      throw new HttpError(429, `All ${this.state.settings.maxConcurrent} concurrent session slots are busy. Raise the limit in the manager's office or wait.`);
+    if (this.slotsFull()) {
+      throw new HttpError(429, `All ${this.state.settings.sessionLimit} session slots are busy. Raise or clear the session limit in the manager's console, or wait.`);
     }
   }
 
@@ -1136,7 +1359,7 @@ export class Swarm {
     const push = fixing ? `git push origin HEAD:${fixing.headRef}` : `git push -u origin ${branch}`;
     return [
       `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a software engineer'} on an autonomous agent team ("Office Swarm"). Several teammates work in parallel on other issues of the same repository, each in their own git worktree. Nobody is watching live to answer questions, so make sensible decisions yourself and record assumptions in the PR description. The manager may occasionally send you messages; follow their instructions.`,
-      'Every pull request is tested by a QA teammate before the manager merges it. If they find problems you will receive their report; fix the problems on the same branch.',
+      `Every pull request is reviewed and tested by a QA teammate. ${repo.autoMerge ? "Once they sign off and GitHub's checks pass, the office merges it by itself" : 'Once they sign off, the manager merges it'}. If they find problems, or checks fail, or it conflicts with the default branch, you will get the details; fix them on the same branch.`,
       a.brief ? `\nYour job description:\n${a.brief}` : '',
       '',
       `Repository: ${repo.fullName} (default branch: ${repo.defaultBranch})`,
@@ -1161,7 +1384,7 @@ export class Swarm {
         : `6. Open a pull request with the GitHub CLI: gh pr create --base ${repo.defaultBranch} --head ${branch} --title "<concise title>" --body "<what changed, how you verified it, assumptions>". The body must contain "Closes #<issue number>".`,
       fixing ? '' : '7. End your final message with the pull request URL on its own line.',
       '',
-      'Rules: never push to the default branch, never force-push, never merge pull requests (the manager reviews and merges), and never edit files outside your worktree. If you cannot finish, open a draft PR (gh pr create --draft) explaining what is left and why.',
+      'Rules: never push to the default branch, never force-push, never merge pull requests yourself (the office merges them once QA and the checks pass), and never edit files outside your worktree. If you cannot finish, open a draft PR (gh pr create --draft) explaining what is left and why.',
     ]
       .filter((l) => l !== '')
       .join('\n');
@@ -1200,6 +1423,7 @@ export class Swarm {
     } catch (err) {
       if (a.status !== 'preparing') return null;
       a.status = 'error';
+      a.endedAt = Date.now();
       a.lastError = (err as Error).message;
       this.appendLog(a, [{ kind: 'error', text: `✗ ${a.lastError}` }]);
       this.emitAgent(a);
@@ -1255,7 +1479,7 @@ export class Swarm {
         browserTesting: repo.browserTesting,
         permissionMode: this.state.settings.permissionMode,
         additionalDirectories: this.linkedRepos(repo).map((r) => this.backend.mainDir(r.fullName)),
-        role: a.role,
+        role: a.task === 'qa' ? 'qa' : a.role, // a developer covering QA works under QA's rules
         outputSchema,
         resumeSessionId,
       },
@@ -1284,6 +1508,7 @@ export class Swarm {
             .then(() => fs.writeFile(screenFile(a.id, mime), data))
             .catch((err) => console.warn('could not save screenshot', err));
         },
+        limited: (at) => this.pauseForLimit(at),
         finished: (result) => void this.onFinished(a, repo, result),
       },
       repo.defaultBranch,
@@ -1337,7 +1562,11 @@ export class Swarm {
     }
 
     if (a.status === 'stopped') return; // the manager already logged the stop
-    if (!result.ok) return this.fail(a, result, `#${a.issueNumber}`);
+    if (!result.ok) {
+      this.issueFailed(repo, a.issueNumber);
+      return this.fail(a, result, `#${a.issueNumber}`);
+    }
+    this.issueFailures.delete(`${repo.id}#${a.issueNumber}`);
     a.status = 'done';
     this.appendLog(a, [{ kind: 'done', text: `✔ Finished in ${this.minutes(a)}m · ${a.turns} turns${a.prNumber ? ` · PR #${a.prNumber}` : ' · no PR found'}` }]);
     if (a.prNumber) {
@@ -1345,8 +1574,29 @@ export class Swarm {
       this.appendLog(a, [{ kind: 'system', text: `📨 Handed PR #${a.prNumber} to QA.` }]);
       this.toast('success', `${a.name} opened PR #${a.prNumber} for #${a.issueNumber}; it's off to QA`);
     } else {
-      this.toast('success', `${a.name} finished #${a.issueNumber}`);
+      this.noPullRequest(a, repo);
     }
+  }
+
+  /**
+   * An issue session ended without a PR, which would leave the issue "taken" with nobody on it. The same developer,
+   * who has the context and the worktree, is asked once to finish; after that the issue goes back on the board.
+   */
+  private noPullRequest(a: PersistedAgent, repo: PersistedRepo) {
+    const key = `${repo.id}#${a.issueNumber}`;
+    if (this.nudged.has(key)) return this.releaseIssue(a, repo);
+    this.nudged.add(key);
+    // message() starts the session before its first await, so the scheduler can't hand this developer other work first.
+    void this.message(
+      a.id,
+      `You finished without opening a pull request for #${a.issueNumber}. Finish the remaining steps now: commit, push your branch and open the PR with "Closes #${a.issueNumber}". If the issue can't be done, open a draft PR that explains why.`,
+    ).catch(() => this.releaseIssue(a, repo));
+  }
+
+  private releaseIssue(a: PersistedAgent, repo: PersistedRepo) {
+    const n = a.issueNumber;
+    this.clearTask(a);
+    this.postMessage('office', `⚠️ ${a.name} finished #${n} on ${repo.fullName} without opening a pull request, so it's back on the board for anyone.`);
   }
 
   // ---------- QA ----------
@@ -1372,6 +1622,15 @@ export class Swarm {
         devSessionId: dev && dev.prNumber === prNumber ? dev.sessionId : null,
         fixInstructions: null,
         sessionFailures: 0,
+        mergeNote: null,
+        testedSha: null,
+        passedSha: null,
+        fixReason: null,
+        mergeFixes: 0,
+        retests: 0,
+        pendingSince: null,
+        mergeRetryAt: null,
+        alerted: false,
       };
       this.state.qa.push(rec);
       this.setQa(rec, {});
@@ -1391,15 +1650,16 @@ export class Swarm {
       rec.round += 1;
       rec.sessionFailures = 0;
     }
-    const dev = this.state.agents.find((a) => a.repoId === repo.id && a.role === 'dev' && (a.prNumber === prNumber || a.branch === pr.headRefName));
+    const dev = this.state.agents.find((a) => a.repoId === repo.id && a.role === 'dev' && a.task !== 'qa' && (a.prNumber === prNumber || a.branch === pr.headRefName));
     this.queueQa(repo, prNumber, dev ?? null, pr.closesIssues[0] ?? null);
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
   private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails) {
     return [
-      `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("Office Swarm"). Developers open pull requests; you independently verify that each one really works before the manager merges it. Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
+      `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("Office Swarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
       ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
+      ...(a.role === 'dev' ? ['', "You're a developer covering for the QA lab while its testers are busy. You didn't write this pull request: test it as an independent QA engineer would."] : []),
       '',
       `Repository: ${repo.fullName} (default branch: ${repo.defaultBranch})`,
       ...(repo.summary ? [`Project: ${repo.summary}`] : []),
@@ -1410,7 +1670,7 @@ export class Swarm {
       '',
       'How to test:',
       '1. Read the PR description and the linked issue, and work out the acceptance criteria.',
-      `2. Review what changed: git diff origin/${repo.defaultBranch}...HEAD`,
+      `2. Review the code as a careful reviewer would: git diff origin/${repo.defaultBranch}...HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.`,
       "3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).",
       repo.browserTesting
         ? `4. If the project has a UI, start it in the background on port ${this.port(a)} (reserved for you) and exercise the change in a real browser with the Playwright tools: navigate, click, type, resize to a phone size, try edge cases, and check the console for errors. Take a screenshot with browser_take_screenshot of every important state: the screenshots are attached to the PR as evidence. Stop the server afterwards.`
@@ -1438,9 +1698,11 @@ export class Swarm {
       const issueNumber = rec.issueNumber ?? pr.closesIssues[0] ?? null;
       if (issueNumber) issue = await this.backend.issueDetails(repo.fullName, issueNumber).catch(() => null);
       Object.assign(a, { issueTitle: pr.title, prUrl: pr.url });
+      rec.testedSha = pr.headSha;
       this.emitAgent(a);
     } catch (err) {
       a.status = 'error';
+      a.endedAt = Date.now();
       a.lastError = (err as Error).message;
       this.appendLog(a, [{ kind: 'error', text: `✗ ${a.lastError}` }]);
       this.setQa(rec, { status: 'queued', qaAgentId: null });
@@ -1466,7 +1728,13 @@ export class Swarm {
       `Please QA pull request #${pr.number}: ${pr.title}`,
       `URL: ${pr.url}`,
       `Author: ${dev ? `${dev.name} (developer agent)` : 'a teammate'} · QA round ${rec.round}`,
-      rec.round > 1 && rec.summary ? `\nThis is a re-test after fixes. Last round's findings:\n${rec.summary}\n${rec.fixInstructions ?? ''}\nCheck those first, then re-check everything else.` : '',
+      rec.fixReason === 'conflict'
+        ? `\nQA passed it before, but since then the branch was updated with ${repo.defaultBranch} to resolve merge conflicts. Re-check everything, especially where this change meets the newly merged work.`
+        : rec.fixReason === 'checks'
+          ? '\nQA passed it before, but since then the developer changed the code to fix failing GitHub checks. Re-check everything.'
+          : rec.round > 1 && rec.summary
+            ? `\nThis is a re-test after fixes. Last round's findings:\n${rec.summary}\n${rec.fixInstructions ?? ''}\nCheck those first, then re-check everything else.`
+            : '',
       '',
       'PR description:',
       pr.body.trim() || '(empty)',
@@ -1486,7 +1754,7 @@ export class Swarm {
     if (a.status === 'stopped' || !report) {
       if (a.status !== 'stopped') this.fail(a, { ...result, errors: result.errors.length ? result.errors : ['QA finished without a usable report'] }, `QA of PR #${a.prNumber}`);
       if (rec) {
-        const failures = rec.sessionFailures + 1;
+        const failures = rec.sessionFailures + (this.limited() ? 0 : 1); // the usage limit isn't the PR's fault
         this.setQa(rec, {
           status: a.status === 'stopped' || failures >= 2 ? 'needs-human' : 'queued',
           qaAgentId: null,
@@ -1512,7 +1780,8 @@ export class Swarm {
       } catch (err) {
         this.appendLog(a, [{ kind: 'error', text: `  ⎿ Could not post the QA report: ${(err as Error).message}` }]);
       }
-      const nextStatus = pass ? 'passed' : rec.round >= MAX_QA_ROUNDS ? 'needs-human' : 'failed';
+      const qaRounds = rec.round - rec.retests; // rounds QA itself asked for
+      const nextStatus = pass ? 'passed' : qaRounds >= MAX_QA_ROUNDS ? 'needs-human' : 'failed';
       this.setQa(rec, {
         status: nextStatus,
         summary: report.summary,
@@ -1520,13 +1789,19 @@ export class Swarm {
         commentUrl: commentUrl ?? rec.commentUrl,
         fixInstructions: report.fixInstructions ?? report.checks.filter((c) => c.result === 'fail').map((c) => `${c.name}: ${c.details}`).join('\n'),
         sessionFailures: 0,
+        fixReason: pass ? null : 'qa',
+        passedSha: pass ? rec.testedSha : null,
+        mergeNote: null,
+        pendingSince: null,
+        mergeRetryAt: null,
+        alerted: false,
       });
       this.toast(
         pass ? 'success' : 'error',
         pass
-          ? `✅ ${a.name} passed PR #${rec.prNumber}: ready to merge`
+          ? `✅ ${a.name} passed PR #${rec.prNumber}${repo.autoMerge ? "; it merges once GitHub's checks are green" : ': ready to merge'}`
           : nextStatus === 'needs-human'
-            ? `❌ PR #${rec.prNumber} failed QA ${rec.round} times and needs a human`
+            ? `❌ PR #${rec.prNumber} failed QA ${qaRounds} times and needs a human`
             : `❌ ${a.name} failed PR #${rec.prNumber}; sending it back to the developer`,
       );
     }
@@ -1567,7 +1842,8 @@ export class Swarm {
     if (!pass && report.fixInstructions) lines.push('', '### 🔧 What needs fixing', '', report.fixInstructions);
     if (images.length) lines.push('', '### 📸 Evidence', '', ...images.flatMap((img) => [img, '']));
     else lines.push('', '_No browser screenshots were taken in this round._');
-    lines.push('', `<sub>Posted by Office Swarm · ${pass ? 'ready for the manager to merge' : rec.round >= MAX_QA_ROUNDS ? 'needs a human decision' : 'sent back to the developer for fixes'}</sub>`);
+    const merge = repo.autoMerge ? "merges automatically once GitHub's checks pass" : 'ready for the manager to merge';
+    lines.push('', `<sub>Posted by Office Swarm · ${pass ? merge : rec.round - rec.retests >= MAX_QA_ROUNDS ? 'needs a human decision' : 'sent back to the developer for fixes'}</sub>`);
     return lines.join('\n');
   }
 
@@ -1581,7 +1857,7 @@ export class Swarm {
     this.beginTask(
       dev,
       { task: 'fix', issueNumber: rec.issueNumber, issueTitle: pull?.title ?? `PR #${rec.prNumber}`, branch: headRef, prNumber: rec.prNumber, prUrl: pull?.url ?? null },
-      `Fixing PR #${rec.prNumber} after QA round ${rec.round}`,
+      rec.fixReason === 'conflict' ? `Resolving conflicts on PR #${rec.prNumber}` : rec.fixReason === 'checks' ? `Fixing checks on PR #${rec.prNumber}` : `Fixing PR #${rec.prNumber} after QA round ${rec.round}`,
       `Checking out PR #${rec.prNumber}…`,
     );
     const cwd = await this.prepare(dev, repo, { pr: rec.prNumber }, headRef);
@@ -1590,7 +1866,26 @@ export class Swarm {
       return;
     }
     const failed = rec.checks.filter((c) => c.result === 'fail');
-    const prompt = [
+    const takeover = original ? '' : ' A teammate wrote it, so read the PR and the linked issue first.';
+    const push = `push to the same branch: git push origin HEAD:${headRef}`;
+    const mergeFix =
+      rec.fixReason === 'conflict'
+        ? [
+            `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but it now conflicts with ${repo.defaultBranch} because other work was merged first.${takeover}`,
+            '',
+            `Bring it up to date: git fetch origin && git merge origin/${repo.defaultBranch}. Resolve the conflicts so both this change and the newly merged work keep working, run the project's checks, and ${push}`,
+          ]
+        : rec.fixReason === 'checks'
+          ? [
+              `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but GitHub checks failed on it.${takeover}`,
+              '',
+              `Failed checks:\n${rec.fixInstructions ?? ''}`,
+              '',
+              `Read the logs with gh pr checks ${rec.prNumber} -R ${repo.fullName} (for GitHub Actions: gh run view <run id> -R ${repo.fullName} --log-failed). Fix the cause, run the same checks locally where you can, and ${push}`,
+              `If a failure clearly has nothing to do with this change (a flaky test or a service outage), re-run it instead with gh run rerun <run id> -R ${repo.fullName} --failed, and say so.`,
+            ]
+          : null;
+    const qaFix = [
       original
         ? `QA tester ${qaAgent?.name ?? 'QA'} tested your pull request #${rec.prNumber} and it FAILED (round ${rec.round}).`
         : `You are taking over pull request #${rec.prNumber} (${pull?.url ?? ''}), written by a teammate, because QA failed it (round ${rec.round}). Read the PR and the linked issue first.`,
@@ -1602,9 +1897,9 @@ export class Swarm {
       '',
       `Fix these problems, re-run the relevant checks, and push to the same branch: git push origin HEAD:${headRef}`,
       'Then reply with a short summary of what you changed. Do not open a new pull request; QA will re-test automatically.',
-    ]
-      .filter((l) => l !== '')
-      .join('\n');
+    ];
+    const mergeEnd = 'Then reply with a short summary of what you did. Do not open a new pull request; the office merges it once the checks pass, after another QA round if the code changed.';
+    const prompt = (mergeFix ? [...mergeFix, '', mergeEnd] : qaFix).filter((l) => l !== '').join('\n');
     const resume = original && rec.devSessionId ? rec.devSessionId : undefined;
     this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }), resume);
   }
@@ -1617,10 +1912,19 @@ export class Swarm {
     }
     if (!result.ok) {
       this.fail(a, result, `the fix for PR #${a.prNumber}`);
-      if (rec) this.setQa(rec, { status: 'needs-human' });
+      // Someone else gets a go before it lands on the manager.
+      const failures = rec ? rec.sessionFailures + (this.limited() ? 0 : 1) : 0;
+      if (rec) this.setQa(rec, { status: failures >= 2 ? 'needs-human' : 'failed', sessionFailures: failures });
       return;
     }
     a.status = 'done';
+    if (rec && (rec.fixReason === 'checks' || rec.fixReason === 'conflict')) {
+      // Back in line to merge: new commits go through QA again first, a re-run of flaky checks doesn't.
+      this.appendLog(a, [{ kind: 'done', text: `✔ PR #${a.prNumber} fixed in ${this.minutes(a)}m. Back in line to merge.` }]);
+      this.setQa(rec, { status: 'passed', devSessionId: a.sessionId ?? rec.devSessionId, mergeNote: 'waiting for fresh checks' });
+      this.toast('info', `${a.name} fixed PR #${rec.prNumber}; it merges once it passes again`);
+      return;
+    }
     this.appendLog(a, [{ kind: 'done', text: `✔ Fix pushed for PR #${a.prNumber} in ${this.minutes(a)}m. Back to QA.` }]);
     if (rec) {
       this.setQa(rec, { status: 'queued', round: rec.round + 1, devSessionId: a.sessionId ?? rec.devSessionId });
@@ -1641,7 +1945,7 @@ export class Swarm {
     }
     if (a.role === 'qa') throw new HttpError(409, `${a.name} isn't testing anything right now. Send a PR to QA from the Kanban board.`);
     if (a.status === 'preparing') throw new HttpError(409, `${a.name} is still setting up; try again in a moment`);
-    if (!a.sessionId || !a.branch) throw new HttpError(409, `${a.name} has no session to continue. Assign an issue instead.`);
+    if (!a.sessionId || !a.branch || a.task === 'qa') throw new HttpError(409, `${a.name} has no session to continue. Assign an issue instead.`);
     this.ensureSlot();
     this.appendLog(a, [{ kind: 'manager', text: `▶ Manager: ${text}` }]);
     const cwd = this.backend.deskDir(repo.fullName, this.agentSlug(a));
@@ -1654,7 +1958,7 @@ export class Swarm {
 
   updateSettings(patch: Partial<SwarmSettings>) {
     const s = this.state.settings;
-    if (patch.maxConcurrent !== undefined) s.maxConcurrent = Math.max(1, Math.min(32, Math.round(Number(patch.maxConcurrent)) || 1));
+    if (patch.sessionLimit !== undefined) s.sessionLimit = Math.max(0, Math.round(Number(patch.sessionLimit)) || 0);
     if (patch.defaultModel !== undefined) s.defaultModel = String(patch.defaultModel).trim() || DEFAULT_MODEL;
     if (patch.defaultEffort !== undefined && EFFORTS.includes(patch.defaultEffort)) s.defaultEffort = patch.defaultEffort;
     if (patch.permissionMode === 'guarded' || patch.permissionMode === 'bypass') s.permissionMode = patch.permissionMode;
@@ -1688,26 +1992,82 @@ export class Swarm {
 
   // ---------- scheduling ----------
 
-  private free(repo: PersistedRepo, role: AgentRole) {
-    return this.state.agents.filter((a) => a.repoId === repo.id && a.role === role && FREE.includes(a.status)).sort((x, y) => x.desk - y.desk);
+  /**
+   * Agents on a floor who can take work now. One whose last session failed sits out a short cooldown, then gets work
+   * like everyone else instead of waiting for the manager to reset them.
+   */
+  private available(repo: PersistedRepo, role: AgentRole) {
+    const now = Date.now();
+    return this.state.agents
+      .filter((a) => a.repoId === repo.id && a.role === role && (FREE.includes(a.status) || (a.status === 'error' && now - (a.endedAt ?? 0) >= ERROR_COOLDOWN_MS)))
+      .sort((x, y) => x.desk - y.desk);
   }
 
   private scheduleOffset = 0;
+  private issueFailures = new Map<string, number>(); // `${repoId}#${issue}` → failed sessions on it
+  private nudged = new Set<string>(); // `${repoId}#${issue}`: its developer was asked once to finish the missing PR
+  private pausedUntil = 0; // Claude's usage limit was hit: nothing new starts before this
 
-  /** Start QA on the oldest waiting PR, or send a failed PR back to its developer. Returns true if work started. */
+  /** Backlog issues that can start now, most urgent first: the ones holding up the longest chain of other issues, then the oldest. */
+  private readyIssues(repo: PersistedRepo) {
+    const issues = this.repoRt.get(repo.id)!.issues;
+    const open = new Set(issues.map((i) => i.number));
+    const weight = holdUps(issues);
+    return issues
+      .filter(
+        (i) =>
+          !i.labels.some((l) => /^(swarm:skip|wontfix|question)$/i.test(l)) &&
+          !this.issueTaken(repo, i.number) &&
+          blockers(i.body, open).length === 0 &&
+          (this.issueFailures.get(`${repo.id}#${i.number}`) ?? 0) < MAX_ISSUE_FAILURES,
+      )
+      .map((issue) => ({ issue, want: issueSpecialty(issue.labels), ...weight.get(issue.number)! }))
+      .sort((x, y) => y.chain - x.chain || y.waiting - x.waiting || x.issue.number - y.issue.number);
+  }
+
+  /**
+   * The free developer to put on a job: one it `suits` first, then whoever is least needed elsewhere (fewest ready
+   * issues in their specialty, then the least open work in it), so specialists stay free for their own lane.
+   */
+  private pickDev(repo: PersistedRepo, devs: PersistedAgent[], suits: (a: PersistedAgent) => boolean) {
+    if (devs.length <= 1) return devs[0];
+    const ready = this.readyIssues(repo).map((r) => r.want);
+    const open = this.repoRt.get(repo.id)!.issues.map((i) => issueSpecialty(i.labels));
+    const rank = (a: PersistedAgent) => {
+      const s = a.specialty.toLowerCase();
+      return [suits(a) ? 0 : 1, ready.filter((w) => w === s).length, open.filter((w) => w === s).length, a.desk];
+    };
+    return devs
+      .map((a) => ({ a, r: rank(a) }))
+      .sort((x, y) => x.r[0] - y.r[0] || x.r[1] - y.r[1] || x.r[2] - y.r[2] || x.r[3] - y.r[3])[0].a;
+  }
+
+  /**
+   * Finish work in flight: test queued PRs (oldest first) and get failed ones fixed. Returns true if work started.
+   * QA testers test; when they're all busy, a free developer who didn't write the PR covers for them, so QA never
+   * holds up the floor. A failed PR goes back to its author when they're free, and otherwise to any free developer.
+   */
   private startPipelineWork(repo: PersistedRepo): boolean {
-    const queued = this.state.qa.filter((q) => q.repoId === repo.id && q.status === 'queued').sort((x, y) => x.updatedAt - y.updatedAt)[0];
-    const tester = queued && this.free(repo, 'qa')[0];
-    if (queued && tester) {
-      void this.runQa(tester, repo, queued);
+    const devs = this.available(repo, 'dev');
+    const testers = this.available(repo, 'qa');
+    const waiting = (status: QaRecord['status']) => this.state.qa.filter((q) => q.repoId === repo.id && q.status === status).sort((x, y) => x.updatedAt - y.updatedAt);
+    for (const rec of waiting('queued')) {
+      const tester =
+        testers[0] ??
+        this.pickDev(
+          repo,
+          devs.filter((a) => a.id !== rec.devAgentId),
+          (a) => /test|qa/i.test(a.specialty),
+        );
+      if (!tester) continue;
+      void this.runQa(tester, repo, rec);
       return true;
     }
-    const failed = this.state.qa.filter((q) => q.repoId === repo.id && q.status === 'failed').sort((x, y) => x.updatedAt - y.updatedAt);
-    for (const rec of failed) {
-      const original = rec.devAgentId ? this.state.agents.find((x) => x.id === rec.devAgentId) : undefined;
-      // Prefer the author; only hand it to someone else if the author has left the floor.
-      const dev = original ? (FREE.includes(original.status) ? original : undefined) : this.free(repo, 'dev')[0];
-      if (!dev) continue;
+    for (const rec of waiting('failed')) {
+      const issue = this.repoRt.get(repo.id)!.issues.find((i) => i.number === rec.issueNumber);
+      const want = issue ? issueSpecialty(issue.labels) : null;
+      const dev = devs.find((a) => a.id === rec.devAgentId) ?? this.pickDev(repo, devs, (a) => a.specialty.toLowerCase() === want);
+      if (!dev) break;
       void this.runFix(dev, repo, rec);
       return true;
     }
@@ -1716,27 +2076,46 @@ export class Swarm {
 
   /**
    * Give a free developer the next backlog issue (auto-assign floors only). Returns true if work started.
-   * Issues labelled swarm:<specialty> wait for that specialist when the floor has one; issues that say
-   * "Depends on #N" wait until #N is closed.
+   * Issues that say "Depends on #N" wait until #N is closed; the rest go in readyIssues() order. A swarm:<specialty>
+   * label is a preference, not a lock: a free specialist gets first pick, and otherwise the issue goes to whichever
+   * free developer is least needed elsewhere, so nobody sits idle while there is work that can start.
    */
   private startIssueWork(repo: PersistedRepo): boolean {
-    const rt = this.repoRt.get(repo.id)!;
     if (!repo.autoAssign) return false;
-    const free = this.free(repo, 'dev');
-    if (free.length === 0) return false;
-    const specialties = new Set(this.state.agents.filter((a) => a.repoId === repo.id && a.role === 'dev' && a.specialty).map((a) => a.specialty));
-    const open = new Set(rt.issues.map((i) => i.number));
-    for (const issue of rt.issues) {
-      if (issue.labels.some((l) => /^(swarm:skip|wontfix|question)$/i.test(l)) || this.issueTaken(repo, issue.number)) continue;
-      if (blockers(issue.body, open).length) continue;
-      const want = issueSpecialty(issue.labels);
-      const agent = want && specialties.has(want) ? free.find((a) => a.specialty === want) : (free.find((a) => !a.specialty) ?? free[0]);
-      if (!agent) continue;
-      // assign() flips the agent to 'preparing' synchronously, so the next pass sees it as busy.
-      void this.assign(agent.id, issue.number).catch((err) => console.warn('auto-assign failed', err));
-      return agent.status === 'preparing';
+    const free = this.available(repo, 'dev');
+    const ready = free.length ? this.readyIssues(repo) : [];
+    if (ready.length === 0) return false;
+    const fits = (a: PersistedAgent, want: string) => a.specialty.toLowerCase() === want;
+    // Of the issues holding up the most, take one a free specialist fits.
+    const pick = ready.find((r) => r.chain === ready[0].chain && free.some((a) => fits(a, r.want))) ?? ready[0];
+    const agent = this.pickDev(repo, free, (a) => fits(a, pick.want))!;
+    // assign() flips the agent to 'preparing' synchronously, so the next pass sees it as busy.
+    void this.assign(agent.id, pick.issue.number).catch((err) => console.warn('auto-assign failed', err));
+    return agent.status === 'preparing';
+  }
+
+  private limited() {
+    return Date.now() < this.pausedUntil;
+  }
+
+  /** Claude turned a session away for the usage limit: start nothing new until it resets, rather than failing agent after agent. */
+  private pauseForLimit(resetsAt: number | null) {
+    const until = (resetsAt ?? Date.now() + LIMIT_PAUSE_MS) + 30_000;
+    if (until <= this.pausedUntil) return;
+    const fresh = Date.now() >= this.pausedUntil;
+    this.pausedUntil = until;
+    if (fresh) this.postMessage('office', `⏸ Claude's usage limit was reached. The office starts no new work until ${new Date(until).toLocaleTimeString()}; sessions already running carry on.`);
+  }
+
+  /** A failed session releases its issue for someone else; an issue that keeps failing waits for the manager. */
+  private issueFailed(repo: PersistedRepo, n: number | null) {
+    if (n == null || this.limited()) return; // the usage limit isn't the issue's fault
+    const key = `${repo.id}#${n}`;
+    const failures = (this.issueFailures.get(key) ?? 0) + 1;
+    this.issueFailures.set(key, failures);
+    if (failures === MAX_ISSUE_FAILURES) {
+      this.postMessage('office', `⚠️ Issue #${n} on ${repo.fullName} failed ${failures} sessions in a row, so auto-assign skips it now. Assign it to someone by hand once it's sorted.`);
     }
-    return false;
   }
 
   /**
@@ -1745,6 +2124,7 @@ export class Swarm {
    * so no repo can hog the slots.
    */
   private schedule() {
+    if (this.limited()) return;
     // Management first: the CEO's jobs are short and shape everyone else's work.
     this.maybeHeartbeat();
     this.startCeoWork();
@@ -1760,7 +2140,7 @@ export class Swarm {
       while (progress) {
         progress = false;
         for (const repo of order) {
-          if (this.running() >= this.state.settings.maxConcurrent) return;
+          if (this.slotsFull()) return;
           if (start(repo)) progress = true;
         }
       }
@@ -1865,7 +2245,7 @@ export class Swarm {
     const a = this.state.agents.find((x) => x.id === CEO_ID);
     const c = this.state.ceo;
     if (!a || BUSY.includes(a.status) || c.job || c.queue.length === 0) return;
-    if (this.running() >= this.state.settings.maxConcurrent) return;
+    if (this.slotsFull()) return;
     const rank: Record<CeoJob['kind'], number> = { chat: 0, onboard: 1, plan: 1, review: 2 };
     // A floor's jobs wait for its clone and first sync, so the CEO has something to read.
     const ready = (j: CeoJob) => {
@@ -1922,7 +2302,7 @@ export class Swarm {
           company: s.companyName,
           manager: s.managerName,
           notesFile: path.join(CEO_DIR, 'NOTES.md'),
-          maxConcurrent: s.maxConcurrent,
+          sessionLimit: s.sessionLimit,
           teamCap: s.teamCap,
           hiring: s.hiring,
         }),
@@ -1932,7 +2312,7 @@ export class Swarm {
         permissionMode: s.permissionMode,
         additionalDirectories: this.state.repos.filter((r) => this.repoRt.get(r.id)?.cloneStatus === 'ready').map((r) => this.backend.mainDir(r.fullName)),
         role: 'ceo',
-        office: this.office,
+        office: this.officeTools(),
         // A chat carries on from the CEO's last session, so "why did you propose that?" has an answer.
         resumeSessionId: job.kind === 'chat' ? (a.sessionId ?? undefined) : undefined,
       },
@@ -1949,6 +2329,7 @@ export class Swarm {
         browserUrl: () => undefined,
         screenshot: () => undefined,
         turn: (text) => this.postMessage('ceo', text),
+        limited: (at) => this.pauseForLimit(at),
         finished: (result) => this.onCeoFinished(a, result),
       },
       '',
@@ -2154,10 +2535,19 @@ export class Swarm {
     return a;
   }
 
+  private agentDoing(a: PersistedAgent) {
+    return !BUSY.includes(a.status) ? null : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `issue #${a.issueNumber}`;
+  }
+
   private companyStatus() {
     const s = this.state.settings;
-    const doing = (a: PersistedAgent) =>
-      !BUSY.includes(a.status) ? null : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `issue #${a.issueNumber}`;
+    const doing = (a: PersistedAgent) => this.agentDoing(a);
+    // Keep the status compact, but make the cut visible so the CEO knows to read agent_detail before rewriting.
+    const jobDescription = (brief: string) => {
+      if (brief.length <= 400) return brief;
+      const mark = `… (truncated, ${brief.length} chars; see agent_detail)`;
+      return brief.slice(0, 400 - mark.length).trimEnd() + mark;
+    };
     const floors = [...this.state.repos]
       .sort((x, y) => x.floor - y.floor)
       .map((r) => {
@@ -2173,6 +2563,15 @@ export class Swarm {
           qaBrief: r.qaBrief || null,
           preview: { command: r.preview.command, env: r.preview.env, status: this.previews.view(r).status },
           autoAssign: r.autoAssign,
+          autoMerge: r.autoMerge,
+          folderSync: rt.folderSync,
+          capacity: {
+            developers: this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev').length,
+            developersFree: this.available(r, 'dev').length,
+            issuesReadyToStart: this.readyIssues(r).length,
+            issuesWaitingOnOthers: rt.issues.filter((i) => blockers(i.body, open).length > 0).length,
+            longestDependencyChain: Math.max(0, ...[...holdUps(rt.issues).values()].map((w) => w.chain)),
+          },
           team: this.state.agents
             .filter((a) => a.repoId === r.id)
             .map((a) => ({
@@ -2184,7 +2583,7 @@ export class Swarm {
               status: a.status,
               doing: doing(a),
               hiredBy: a.hiredBy,
-              jobDescription: a.brief ? a.brief.slice(0, 400) : null,
+              jobDescription: a.brief ? jobDescription(a.brief) : null,
             })),
           backlog: rt.issues.map((i) => ({
             number: i.number,
@@ -2197,7 +2596,7 @@ export class Swarm {
             .filter((p) => p.state === 'OPEN')
             .map((p) => {
               const q = this.state.qa.find((x) => x.repoId === r.id && x.prNumber === p.number);
-              return { number: p.number, title: p.title, qa: q ? `${q.status}${q.round > 1 ? ` (round ${q.round})` : ''}` : 'not tested' };
+              return { number: p.number, title: p.title, qa: q ? `${q.status}${q.round > 1 ? ` (round ${q.round})` : ''}` : 'not tested', merge: q?.mergeNote ?? null, checks: p.checks };
             }),
           mergedRecently: rt.pulls.filter((p) => p.state === 'MERGED').map((p) => `#${p.number} ${p.title}`),
         };
@@ -2220,13 +2619,39 @@ export class Swarm {
           ceo: this.ceo().name,
           hiring: s.hiring === 'auto' ? `auto-approved while a floor has fewer than ${s.teamCap} people` : 'the manager approves every proposal',
           teamCap: s.teamCap,
-          maxConcurrentSessions: s.maxConcurrent,
+          sessionLimit: s.sessionLimit || 'none',
           sessionsRunning: this.running(),
           deskLimits: { dev: MAX_DESKS.dev, qa: MAX_DESKS.qa },
         },
         floors,
         pendingProposals: this.state.requests.filter((r) => r.status === 'pending').map(req),
         recentDecisions: this.state.requests.filter((r) => r.status !== 'pending').slice(-10).map(req),
+      },
+      null,
+      1,
+    );
+  }
+
+  private agentDetail(x: { agent_id: string }) {
+    const a = this.agentByRef(x.agent_id);
+    const repo = this.state.repos.find((r) => r.id === a.repoId);
+    const ceo = a.role === 'ceo';
+    return JSON.stringify(
+      {
+        id: a.id,
+        name: a.name,
+        floor: repo?.floor ?? null,
+        role: a.role,
+        title: a.title || (a.role === 'qa' ? 'QA tester' : a.role === 'dev' ? 'Developer' : 'CEO'),
+        specialty: a.specialty || null,
+        status: a.status,
+        doing: this.agentDoing(a),
+        issue: a.issueNumber ? { number: a.issueNumber, title: a.issueTitle } : null,
+        pullRequest: a.prNumber ? { number: a.prNumber, url: a.prUrl } : null,
+        model: a.model || (ceo ? CEO_MODEL : this.state.settings.defaultModel),
+        effort: a.effort || (ceo ? CEO_EFFORT : this.state.settings.defaultEffort),
+        hiredBy: a.hiredBy,
+        jobDescription: a.brief || null,
       },
       null,
       1,

@@ -42,6 +42,10 @@ export interface PullInfo {
   additions: number;
   deletions: number;
   checks: 'pending' | 'passing' | 'failing' | 'none';
+  headSha: string;
+  mergeState: string; // GitHub's mergeStateStatus: CLEAN | BEHIND | BLOCKED | DIRTY | UNSTABLE | DRAFT | UNKNOWN …
+  failedChecks: { name: string; url: string | null }[];
+  pendingChecks: string[];
 }
 
 export interface RepoView {
@@ -53,6 +57,8 @@ export interface RepoView {
   floor: number; // 1-based floor number in the building
   color: string; // accent color for the floor
   autoAssign: boolean;
+  autoMerge: boolean; // PRs merge themselves once QA passes and GitHub's checks are green
+  folderSync: string | null; // how the floor's main checkout stands against GitHub: "in sync", "updated to abc1234", "2 behind: local changes" …
   browserTesting: boolean;
   links: string[]; // ids of related repos this floor's agents can read for context
   mission: string; // the manager's brief: what this floor is building
@@ -183,11 +189,12 @@ export interface QaView {
   summary: string | null; // latest QA summary
   checks: QaCheck[];
   commentUrl: string | null; // the PR comment with the latest QA report
+  mergeNote: string | null; // where auto-merge stands once QA passed, e.g. "waiting for checks: Vercel"
   updatedAt: number;
 }
 
 export interface SwarmSettings {
-  maxConcurrent: number; // cap on simultaneously running Claude Code sessions
+  sessionLimit: number; // most Claude Code sessions running at once; 0 = no limit
   defaultModel: string;
   defaultEffort: EffortLevel;
   permissionMode: 'guarded' | 'bypass';

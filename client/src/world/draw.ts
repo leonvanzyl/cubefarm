@@ -374,11 +374,13 @@ export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, age
           : `${agent.name} · ${agent.title || 'QA'}`
         : busy && agent.task === 'fix' && agent.prNumber
           ? `${agent.name} · 🔧 PR #${agent.prNumber}`
-          : busy && agent.issueNumber
-            ? `${agent.name} · #${agent.issueNumber}`
-            : agent.title
-              ? `${agent.name} · ${agent.title}`
-              : agent.name;
+          : busy && agent.task === 'qa' && agent.prNumber
+            ? `${agent.name} · 🧪 PR #${agent.prNumber}`
+            : busy && agent.issueNumber
+              ? `${agent.name} · #${agent.issueNumber}`
+              : agent.title
+                ? `${agent.name} · ${agent.title}`
+                : agent.name;
   while (label.length > 4 && ctx.measureText(label).width > w - 96) label = `${label.slice(0, -2)}…`;
   ctx.fillText(label, 78, h / 2 + 2);
 }

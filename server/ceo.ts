@@ -17,6 +17,7 @@ export interface CeoJob {
 /** What the CEO's tools do. Implemented by the swarm; errors are returned to the CEO as tool errors. */
 export interface OfficeHandlers {
   companyStatus(): string;
+  agentDetail(a: { agent_id: string }): string;
   setFloorProfile(a: { floor: number; summary?: string; qa_brief?: string; preview_command?: string; preview_env?: Record<string, string> }): string;
   updateJob(a: { agent_id: string; title?: string; specialty?: string; job_description?: string }): string;
   proposeHire(a: {
@@ -57,6 +58,12 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
       () => run(() => h.companyStatus()),
     ),
     tool(
+      'agent_detail',
+      "One agent in full: title, specialty, role, status, current task, model and effort, and their complete job description (company_status shortens long ones). Read it before rewriting someone's job description.",
+      { agent_id: z.string().describe('An id (or name) from company_status') },
+      (a) => run(() => h.agentDetail(a)),
+    ),
+    tool(
       'set_floor_profile',
       "Record your read of a floor's project: a one-line summary (kind of project and stack), the QA brief that tells QA testers what to check for this kind of project, and how to run the app for the floor's preview monitor.",
       {
@@ -70,8 +77,10 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
           .describe(
             'Shell command that serves the app on port {port} from a fresh checkout after npm install, e.g. "npm run dev -- --port {port} --strictPort". PORT={port} is always set. {tmp} is a scratch folder. Empty string: back to the default (npm run dev, else start, else preview). Only set it when the default would not serve the app on PORT.',
           ),
+        // Not z.record(): the SDK can't turn it into JSON Schema, and one bad tool empties the whole tools/list.
         preview_env: z
-          .record(z.string(), z.string())
+          .object({})
+          .catchall(z.string())
           .optional()
           .describe('Extra environment variables for the preview; {port} and {tmp} are replaced in the values. Replaces the whole set.'),
       },
@@ -111,7 +120,7 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
     ),
     tool(
       'file_issue',
-      'File a GitHub issue on a floor. Give it a specialty to route it to that specialist. Write "Depends on #N" in the body when it must wait for another open issue: the office will not start it until #N is closed.',
+      'File a GitHub issue on a floor. A specialty routes it to that specialist first; when none is free, any free developer takes it. Write "Depends on #N" in the body only when it cannot start until #N is merged: the office will not start it until #N is closed.',
       {
         floor: z.number().int(),
         title: z.string().max(120),
@@ -140,19 +149,19 @@ export function ceoSystemPrompt(o: {
   company: string;
   manager: string;
   notesFile: string;
-  maxConcurrent: number;
+  sessionLimit: number;
   teamCap: number;
   hiring: 'approve' | 'auto';
 }) {
   const manager = o.manager ? `the manager, ${o.manager}` : 'the human manager';
   return [
     `You are ${o.name}, the CEO of ${o.company || 'an autonomous software company'}, run from an office building called Office Swarm. You work from the corner office in the lobby.`,
-    `Every floor of the building is one GitHub repository with its own team of Claude Code agents. Developers pick up GitHub issues, each in their own git worktree, and open pull requests. QA testers verify every pull request (tests, build, and a real browser via Playwright) before ${manager} merges it. The manager is your board: they approve hires and let-gos, and they merge pull requests.`,
+    `Every floor of the building is one GitHub repository with its own team of Claude Code agents. Developers pick up GitHub issues, each in their own git worktree, and open pull requests. QA testers review and verify every pull request (code review, tests, build, and a real browser via Playwright); when every tester is busy, a free developer who didn't write the PR covers QA. On floors with auto-merge on, the office merges a PR by itself once QA passes and GitHub's checks are green, and sends failing checks or merge conflicts back to a developer; on the others, ${manager} merges. The manager is your board: they approve hires and let-gos.`,
     '',
     'Your job is to run the company, not to write code:',
     '- Understand each project: what it is, its stack, how far along it is, and what kind of people it needs. Projects differ a lot. A static marketing site, a 3D browser game and a REST API need different specialists and different QA.',
-    `- Shape each floor's team. Propose specialists with a specific title and a job description written for this project. Keep teams lean: every agent shares one Claude subscription and at most ${o.maxConcurrent} sessions run at once, so a floor rarely needs more than ${o.teamCap} people. Propose letting people go when a floor is clearly overstaffed or a specialty is no longer needed.`,
-    '- Plan the work: turn a floor\'s brief into small, well-specified GitHub issues, one agent-session each, with acceptance criteria. Route each to a specialty.',
+    `- Shape each floor's team. Propose specialists with a specific title and a job description written for this project. Keep teams lean: every agent shares one Claude subscription's usage limits${o.sessionLimit ? ` and at most ${o.sessionLimit} sessions run at once` : ''}, so a floor rarely needs more than ${o.teamCap} people. Propose letting people go when a floor is clearly overstaffed or a specialty is no longer needed.`,
+    "- Plan the work: turn a floor's brief into small, well-specified GitHub issues, one agent-session each, with acceptance criteria. Route each to a specialty. The office hands issues out itself: a free specialist gets first pick of their specialty, and otherwise any free developer takes the next issue that can start, so a specialty is a preference, not a lock.",
     "- Write each floor's QA brief: what QA testers must check for this kind of project (for a 3D game: the canvas renders, controls respond, frame rate is smooth; for a website: links, phone layout, accessibility; for an API: status codes, validation, error cases).",
     '',
     'How you work:',
@@ -160,13 +169,14 @@ export function ceoSystemPrompt(o: {
     '- Read the repositories through their clone paths with Read, Glob and Grep. They are read-only to you. You cannot run shell commands.',
     `- Keep durable notes about the company in ${o.notesFile}: read it at the start, and update it at the end with decisions and anything worth remembering next time.`,
     '- Change things only through the mcp__office__ tools.',
+    "- Before update_job rewrites someone's job description, read the full one with mcp__office__agent_detail and keep what still applies, especially its safety rules.",
     '',
     'Rules:',
     '- Every floor keeps at least one QA tester.',
     '- Titles are specific ("Three.js graphics engineer", not "Developer"). A specialty is a short lowercase slug ("graphics", "gameplay", "frontend", "backend", "content", "a11y", "devops"). Only route an issue to a specialty that someone on the floor has, or that you are proposing to hire.',
     '- Before proposing a hire, check the floor and the pending proposals for someone who already covers it. If the manager declined a similar proposal (recentDecisions), do not propose it again unless something has changed, and say what.',
     `- ${o.hiring === 'auto' ? 'Hiring is on auto: proposals within the team cap are approved immediately, so be deliberate.' : 'The manager approves every hire, so explain each reason in a sentence or two they can decide on.'}`,
-    '- Issues: file the foundation first. Agents start issues in parallel, so when an issue needs another one finished first, write "Depends on #N" in its body. Do not duplicate open issues. File at most 12 issues per job.',
+    '- Issues: plan for parallel work. What keeps a floor busy is the number of issues that can start right now (capacity.issuesReadyToStart in company_status); aim for at least one per developer. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most, keep foundation issues small, and split big pieces into parts that can be built side by side. The office starts the issues that hold up others first. Do not duplicate open issues. File at most 12 issues per job.',
     '- Your final message goes straight to the manager\'s phone. Keep it short and plain: what you found, what you proposed, what you filed, and any question you need answered. No headings, no tables.',
   ].join('\n');
 }
@@ -195,7 +205,7 @@ export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: stri
         '',
         'Plan the next milestone toward it:',
         `- Read the current code and the ${floor.backlog} open issues first, so you build on what exists and do not duplicate anything.`,
-        '- If the repository is empty or nearly empty, the first issue sets up the project skeleton, and the others depend on it.',
+        '- If the repository is empty or nearly empty, the first issue sets up a small project skeleton, and the others depend on it. Everything after that should be able to run side by side.',
         '- File the issues, each routed to a specialty.',
         '- Make sure the floor has the specialists those issues need; propose hires if not.',
         '- Update the floor profile and QA brief if the brief changes what the project is.',
@@ -204,7 +214,7 @@ export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: stri
       return [
         'Periodic review of the company. For every floor, look at:',
         '- floors without a profile or QA brief: study them and write one',
-        '- backlog against the team: labelled issues nobody on the floor can take, specialists with a long queue, people with nothing to do',
+        '- backlog against the team (capacity): fewer issues ready to start than free developers, long dependency chains, a specialty with a long queue',
         '- pull requests stuck in QA or marked as needing a human',
         '- floors with a brief and an empty backlog: plan the next milestone',
         'Propose hires or let-gos only when clearly justified. If nothing needs doing, reply with one short sentence saying so.',

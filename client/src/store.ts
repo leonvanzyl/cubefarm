@@ -108,7 +108,7 @@ export const useStore = create<State>((set, get) => ({
   workspaceRoot: '',
   // Until the server's snapshot arrives; setupDone stays true so the wizard doesn't flash while loading.
   settings: {
-    maxConcurrent: 4,
+    sessionLimit: 0,
     defaultModel: 'claude-opus-5-5',
     defaultEffort: 'medium',
     permissionMode: 'guarded',
@@ -364,7 +364,15 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
       ready.push({
         ...base,
         agent: dev,
-        note: p.mergeable === 'CONFLICTING' ? 'QA ✓ · conflicts' : p.checks === 'failing' ? 'QA ✓ · CI failing' : '✅ QA passed',
+        note: rec.mergeNote
+          ? `QA ✓ · ${rec.mergeNote}`
+          : p.mergeable === 'CONFLICTING'
+            ? 'QA ✓ · conflicts'
+            : p.checks === 'failing'
+              ? 'QA ✓ · CI failing'
+              : repo.autoMerge && p.checks === 'pending'
+                ? 'QA ✓ · waiting for checks'
+                : '✅ QA passed',
         tone: p.mergeable === 'CONFLICTING' || p.checks === 'failing' ? 'warn' : 'good',
       });
       continue;

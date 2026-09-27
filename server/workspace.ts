@@ -4,7 +4,7 @@ import { WORKSPACE_ROOT } from './config.ts';
 import { gh, git, run } from './exec.ts';
 
 // Layout on disk:
-//   <your projects folder>/<repo>                    the floor's main checkout: your own folder, only ever fetched
+//   <your projects folder>/<repo>                    the floor's main checkout: your own folder, only fetched and fast-forwarded (syncMain)
 //   <WORKSPACE_ROOT>/<owner>__<repo>/desks/<agent>   one git worktree per agent, reused from task to task
 // Desks stay outside your project so its dev server, tsc and linters never see them.
 // Floors connected before project folders existed keep their clone at <WORKSPACE_ROOT>/<owner>__<repo>/main.
@@ -65,6 +65,66 @@ export function ensureClone(fullName: string): Promise<void> {
     }
     await addLocalExcludes(dir);
   });
+}
+
+const installs = new Map<string, Promise<unknown>>();
+
+/** npm install in a folder, one at a time per folder. */
+function npmInstall(dir: string) {
+  const prev = installs.get(dir) ?? Promise.resolve();
+  const opts = { cwd: dir, timeoutMs: 600_000 };
+  const next = prev
+    .catch(() => undefined)
+    .then(() => (process.platform === 'win32' ? run('cmd.exe', ['/d', '/s', '/c', 'npm install --no-audit --no-fund'], opts) : run('npm', ['install', '--no-audit', '--no-fund'], opts)));
+  installs.set(dir, next);
+  return next;
+}
+
+/**
+ * Bring a floor's main checkout up to date with GitHub. It only ever fast-forwards, and only when the checkout is on
+ * the default branch with no local changes: nothing is stashed, reset or discarded, and anything else leaves the
+ * folder as it is. Installs dependencies when package.json or the lockfile changed. With `touch: false` it only
+ * reports (the office's own folder). Returns the checkout's status, e.g. "in sync", "updated to abc1234" or
+ * "2 behind: local changes"; null when there is no checkout yet.
+ */
+export async function syncMain(fullName: string, defaultBranch: string, opts: { touch: boolean }): Promise<string | null> {
+  const dir = mainDir(fullName);
+  const result = await withRepoLock(fullName, async () => {
+    if (!(await exists(path.join(dir, '.git')))) return null;
+    const g = (args: string[], timeoutMs?: number) => git(args, { cwd: dir, timeoutMs });
+    try {
+      await g(['fetch', 'origin', '--prune'], 180_000);
+      const target = `origin/${defaultBranch}`;
+      const behind = Number(await g(['rev-list', '--count', `HEAD..${target}`]));
+      const commits = `${behind} commit${behind === 1 ? '' : 's'}`;
+      const branch = await g(['symbolic-ref', '--short', '-q', 'HEAD']).catch(() => '');
+      if (branch !== defaultBranch) return { status: `on ${branch ? `branch ${branch}` : 'a detached HEAD'}${behind ? ` (${defaultBranch} is ${commits} ahead)` : ''}` };
+      if (behind === 0) return { status: 'in sync' };
+      if (Number(await g(['rev-list', '--count', `${target}..HEAD`])) > 0) return { status: `diverged: local commits, and ${commits} to pull` };
+      if (!opts.touch) return { status: `update ready (${commits})` };
+      if (await g(['status', '--porcelain', '--untracked-files=no'])) return { status: `${behind} behind: local changes` };
+      const before = await g(['rev-parse', 'HEAD']);
+      try {
+        await g(['merge', '--ff-only', target], 120_000);
+      } catch {
+        return { status: `${behind} behind: local files are in the way` };
+      }
+      const changed = (await g(['diff', '--name-only', before, 'HEAD'])).split(/\r?\n/);
+      const install = changed.some((f) => f === 'package.json' || f === 'package-lock.json') && (await exists(path.join(dir, 'package.json')));
+      return { status: `updated to ${await g(['rev-parse', '--short', 'HEAD'])}`, install };
+    } catch (err) {
+      return { status: `sync failed: ${(err as Error).message.split(/\r?\n/)[0].slice(0, 160)}` };
+    }
+  });
+  if (!result?.install) return result?.status ?? null;
+  // Outside the repo lock: agents' worktrees don't wait for npm.
+  try {
+    await npmInstall(dir);
+    return `${result.status} · dependencies installed`;
+  } catch (err) {
+    console.warn(`npm install in ${dir} failed:`, (err as Error).message);
+    return `${result.status} · npm install failed`;
+  }
 }
 
 // ---------- your projects folder ----------

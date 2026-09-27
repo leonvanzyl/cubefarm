@@ -22,6 +22,9 @@ export function confirmDialog(ask: Ask): Promise<boolean> {
   });
 }
 
+/** True while a question is on screen; the player shouldn't walk or interact behind it. */
+export const isConfirmOpen = () => useConfirm.getState().ask !== null;
+
 function answer(ok: boolean) {
   const ask = useConfirm.getState().ask;
   if (!ask) return;

@@ -42,7 +42,7 @@ function useOfficeStats() {
     const inQa = qaList.filter((q) => q.status !== 'passed').length;
     const readyToMerge = qaList.filter((q) => q.status === 'passed').length;
     const pending = pendingRequests(requests).length;
-    return { repos: repos.length, agents: list.length, working, openPrs, inQa, readyToMerge, merged, issues, floors, max: settings.maxConcurrent, pending };
+    return { repos: repos.length, agents: list.length, working, openPrs, inQa, readyToMerge, merged, issues, floors, max: settings.sessionLimit, pending };
   }, [repos, agents, settings, qa, requests]);
 }
 
@@ -65,7 +65,7 @@ function ManagerComputer() {
       const rows: [string, string][] = [
         ['Floors (repos)', `${stats.repos}`],
         ['Agents on staff', `${stats.agents}`],
-        ['Sessions running', `${stats.working} / ${stats.max}`],
+        ['Sessions running', stats.max ? `${stats.working} / ${stats.max}` : `${stats.working}`],
         ['Open issues', `${stats.issues}`],
         ['PRs in QA / ready to merge', `${stats.inQa} / ${stats.readyToMerge}`],
         ['📄 Hiring decisions waiting', `${stats.pending}`],
@@ -86,7 +86,7 @@ function ManagerComputer() {
       });
       ctx.fillStyle = '#7CFFB2';
       ctx.font = `600 32px ${SANS}`;
-      ctx.fillText('Press E to manage floors, team & issues', 50, 592);
+      ctx.fillText('Press E or click to manage floors, team & issues', 50, 592);
     },
     [stats],
   );

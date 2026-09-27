@@ -5,24 +5,64 @@ import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Foc
 import { api } from '../api';
 import { EYE_HEIGHT, SPAWN, collide, type Rect } from './layout';
 import { interactables } from './interact';
+import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
+import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 
 let canvasEl: HTMLCanvasElement | null = null;
+
+// After an action, mouse presses are swallowed for a moment, so the second half of a double click
+// (or a click right after E) can't land on the panel's backdrop and close it, or confirm a hire.
+const QUIET_MS = 400;
+let quietUntil = 0;
+const QUIET_EVENTS = ['mousedown', 'mouseup', 'click', 'dblclick'] as const;
 
 /** Grab the mouse for looking around. Must be called from a click handler. */
 export function requestLook() {
   const s = useStore.getState();
-  if (!canvasEl || s.overlay || !s.started) return;
-  canvasEl.requestPointerLock?.()?.catch?.(() => undefined);
+  if (!canvasEl || s.overlay || !s.started || isConfirmOpen()) return;
+  const el = canvasEl;
+  // Raw (unadjusted) input skips the OS mouse path that produces bogus spikes on Windows.
+  // Browsers that can't do it reject with NotSupportedError (Firefox ignores the option).
+  lockPointer(el, { unadjustedMovement: true })?.catch?.((err: unknown) => {
+    if (err instanceof DOMException && err.name === 'NotSupportedError') lockPointer(el)?.catch?.(() => undefined);
+  });
 }
 
-export function runFocusAction(focus: Focus) {
+function lockPointer(el: HTMLCanvasElement, options?: PointerLockOptions): Promise<void> | undefined {
+  try {
+    return el.requestPointerLock?.(options);
+  } catch {
+    return undefined; // older browsers throw instead of rejecting
+  }
+}
+
+/** Spike counters, readable from the console as __swarmLook. */
+const lookDiag = { dropped: 0, skipped: 0 };
+(window as unknown as Record<string, unknown>).__swarmLook = lookDiag;
+
+export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   const s = useStore.getState();
+  quietUntil = performance.now() + QUIET_MS;
   if (focus.action.kind === 'hire') {
-    const role = focus.action.role;
-    api
-      .hireAgent(focus.action.repoId, { role })
-      .then(() => s.pushToast('success', role === 'qa' ? 'New QA tester hired! They will take the next free station in the QA lab.' : 'New teammate hired! They will sit at the next free desk.'))
-      .catch(() => undefined);
+    const { repoId, role } = focus.action;
+    const hire = () =>
+      api
+        .hireAgent(repoId, { role })
+        .then(() => s.pushToast('success', role === 'qa' ? 'New QA tester hired! They will take the next free station in the QA lab.' : 'New teammate hired! They will sit at the next free desk.'))
+        .catch(() => undefined);
+    if (via === 'key') {
+      void hire();
+      return;
+    }
+    // A click is easier to make by accident than E, so hiring by click asks first.
+    if (document.pointerLockElement) document.exitPointerLock();
+    void confirmDialog({
+      icon: role === 'qa' ? '🔍' : '🪑',
+      title: role === 'qa' ? 'Hire a QA tester for this station?' : 'Hire an agent for this desk?',
+      confirm: 'Hire',
+    }).then((ok) => {
+      if (ok) void hire();
+    });
     return;
   }
   s.openOverlay(focus.action);
@@ -41,6 +81,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   const ray = useMemo(() => new THREE.Raycaster(), []);
   const center = useMemo(() => new THREE.Vector2(0, 0), []);
   const frame = useRef(0);
+  const lookFilter = useMemo(createLookFilter, []);
 
   // Arrive at the elevator whenever the floor changes; after a page reload, return to the remembered spot.
   const restored = useRef(false);
@@ -68,19 +109,40 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
 
   useEffect(() => {
     canvasEl = gl.domElement;
-    const onClick = () => requestLook();
-    const onLockChange = () => useStore.getState().setLocked(document.pointerLockElement === gl.domElement);
+    // Left button only. If the mouse is already captured, act on the crosshair's target (like E);
+    // otherwise this press just captures the mouse, so the click that locks never also acts.
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      if (document.pointerLockElement !== gl.domElement) return requestLook();
+      const s = useStore.getState();
+      if (s.started && !s.overlay && !s.travel && s.focus && !isConfirmOpen()) runFocusAction(s.focus, 'click');
+    };
+    const onQuietMouse = (e: MouseEvent) => {
+      if (performance.now() >= quietUntil) return;
+      e.stopPropagation();
+      e.preventDefault();
+    };
+    const onLockChange = () => {
+      resetLookFilter(lookFilter);
+      useStore.getState().setLocked(document.pointerLockElement === gl.domElement);
+    };
     const onMove = (e: MouseEvent) => {
-      if (document.pointerLockElement !== gl.domElement) return;
-      look.current.yaw -= e.movementX * 0.0022;
-      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - e.movementY * 0.0022));
+      if (document.pointerLockElement !== gl.domElement || !document.hasFocus()) return;
+      const d = filterLookDelta(lookFilter, e.movementX, e.movementY, e.timeStamp);
+      lookDiag.dropped = lookFilter.dropped;
+      lookDiag.skipped = lookFilter.skipped;
+      if (!d) return;
+      const { sensitivity, invertY } = useLookPrefs.getState();
+      const k = LOOK_RADIANS_PER_PX * sensitivity;
+      look.current.yaw -= d[0] * k;
+      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
       const s = useStore.getState();
-      if (s.overlay || !s.started) return;
+      if (s.overlay || !s.started || isConfirmOpen()) return;
       keys.current.add(e.code);
-      if (e.code === 'KeyE' && s.focus) runFocusAction(s.focus);
+      if (e.code === 'KeyE' && !e.repeat && s.focus) runFocusAction(s.focus);
       if (e.code === 'KeyH') s.openOverlay({ kind: 'help' });
       if (e.code === 'KeyP') {
         e.preventDefault(); // don't type the "p" into the phone's message box
@@ -89,26 +151,28 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     };
     const onKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
     const onBlur = () => keys.current.clear();
-    gl.domElement.addEventListener('click', onClick);
+    gl.domElement.addEventListener('mousedown', onMouseDown);
+    for (const type of QUIET_EVENTS) window.addEventListener(type, onQuietMouse, true);
     document.addEventListener('pointerlockchange', onLockChange);
     document.addEventListener('mousemove', onMove);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     return () => {
-      gl.domElement.removeEventListener('click', onClick);
+      gl.domElement.removeEventListener('mousedown', onMouseDown);
+      for (const type of QUIET_EVENTS) window.removeEventListener(type, onQuietMouse, true);
       document.removeEventListener('pointerlockchange', onLockChange);
       document.removeEventListener('mousemove', onMove);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [gl]);
+  }, [gl, lookFilter]);
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
     const s = useStore.getState();
-    if (s.overlay) keys.current.clear();
+    if (s.overlay || isConfirmOpen()) keys.current.clear();
 
     // movement
     const k = keys.current;
@@ -140,7 +204,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
 
     // what are we looking at?
     if (++frame.current % 3 !== 0) return;
-    if (s.overlay || s.travel) {
+    if (s.overlay || s.travel || isConfirmOpen()) {
       if (s.focus) s.setFocus(null);
       return;
     }

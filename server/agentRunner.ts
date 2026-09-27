@@ -46,6 +46,8 @@ export interface SessionCallbacks {
   screenshot(data: Buffer, mime: string): void;
   /** The final text of each turn: the reply to the prompt and to every message sent while it ran. */
   turn?(text: string): void;
+  /** Claude turned the session away for the subscription's usage limit (epoch ms when it resets, if known). */
+  limited?(resetsAt: number | null): void;
   finished(result: SessionResult): void;
 }
 
@@ -91,7 +93,7 @@ const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 const BLOCKED_COMMANDS: { re: RegExp; why: string }[] = [
   { re: /\bgit\s+push\b[^\n]*(\s--force\b|\s-f\b|\s--force-with-lease\b|\s\+\S)/, why: 'force-pushing is not allowed' },
-  { re: /\bgh\s+pr\s+merge\b/, why: 'the manager merges pull requests, not agents' },
+  { re: /\bgh\s+pr\s+merge\b/, why: 'the office merges pull requests once QA and the checks pass, not agents' },
   { re: /\bgh\s+(repo\s+(delete|edit|rename|archive)|secret|auth|release\s+delete|api\s+-X\s*DELETE)\b/, why: 'repository administration is off-limits' },
   { re: /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(\/|~|[A-Za-z]:[\\/]?)(\s|$)/, why: 'deleting a filesystem root is not allowed' },
   { re: /\b(shutdown|format\s+[a-z]:|mkfs|Remove-Item\s+[^\n]*-Recurse[^\n]*[A-Za-z]:\\\s*$)/i, why: 'destructive system command' },
@@ -199,6 +201,8 @@ export function describeOfficeTool(action: string, input: Record<string, unknown
   switch (action) {
     case 'company_status':
       return '🏢 company_status';
+    case 'agent_detail':
+      return `🔎 agent_detail ${String(input.agent_id ?? '')}`;
     case 'set_floor_profile':
       return `🗂️ set_floor_profile${floor}${input.summary ? `: ${clip(String(input.summary), 90)}` : ''}`;
     case 'update_job':
@@ -281,7 +285,8 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
 
   const mcpServers: Options['mcpServers'] = {};
   if (opts.browserTesting) {
-    const args = ['-y', '@playwright/mcp@latest', '--headless', '--isolated'];
+    // browser-init.js keeps pages from taking the real mouse with pointer lock (headless Chrome does on Windows).
+    const args = ['-y', '@playwright/mcp@latest', '--headless', '--isolated', '--init-script', path.join(import.meta.dirname, 'browser-init.js')];
     mcpServers.playwright = process.platform === 'win32' ? { command: 'cmd', args: ['/c', 'npx', ...args] } : { command: 'npx', args };
   }
   if (opts.office) mcpServers.office = opts.office.server;
@@ -318,7 +323,32 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
     ...(opts.outputSchema ? { outputFormat: { type: 'json_schema' as const, schema: opts.outputSchema } } : {}),
   };
 
+  // The office's prompts are answered one result each. See the 'result' case for results that answer none of them.
+  let emptyTurn: NodeJS.Timeout | undefined;
+  const answered = (msg: Extract<SDKMessage, { type: 'result' }>) => {
+    pendingTurns -= 1;
+    if (pendingTurns > 0) return;
+    input.close();
+    const ok = msg.subtype === 'success' && !msg.is_error;
+    cb.finished({
+      ok,
+      text: msg.subtype === 'success' ? msg.result : '',
+      costUsd: lastCost,
+      turns: lastTurns,
+      errors: msg.subtype === 'success' ? [] : msg.errors,
+      structured: msg.subtype === 'success' ? msg.structured_output : undefined,
+    });
+  };
+
   const handle = (msg: SDKMessage) => {
+    clearTimeout(emptyTurn);
+    if (done && msg.type === 'assistant' && !stopped) {
+      // The office already treated this session as finished, so it can't approve anything the session does.
+      stopped = true;
+      cb.log([{ kind: 'system', text: '■ This session kept working after it had finished, so it was stopped.' }]);
+      abort.abort();
+      return;
+    }
     switch (msg.type) {
       case 'system': {
         if (msg.subtype === 'init') {
@@ -340,6 +370,8 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
         if (info.status !== 'allowed') {
           const when = info.resetsAt ? new Date(info.resetsAt * 1000).toLocaleTimeString() : 'later';
           cb.log([{ kind: 'error', text: `⚠ Subscription usage ${info.status === 'rejected' ? 'limit reached' : 'warning'} (${info.rateLimitType ?? 'limit'}) · resets ${when}` }]);
+          const overage = info.isUsingOverage || info.overageStatus === 'allowed' || info.overageStatus === 'allowed_warning';
+          if (info.status === 'rejected' && !overage) cb.limited?.(info.resetsAt ? info.resetsAt * 1000 : null);
         }
         break;
       }
@@ -396,20 +428,15 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
       case 'result': {
         lastCost = msg.total_cost_usd;
         lastTurns = msg.num_turns;
-        pendingTurns -= 1;
-        if (msg.subtype === 'success' && !msg.is_error && msg.result.trim()) cb.turn?.(msg.result.trim());
-        if (pendingTurns <= 0) {
-          input.close();
-          const ok = msg.subtype === 'success' && !msg.is_error;
-          cb.finished({
-            ok,
-            text: msg.subtype === 'success' ? msg.result : '',
-            costUsd: lastCost,
-            turns: lastTurns,
-            errors: msg.subtype === 'success' ? [] : msg.errors,
-            structured: msg.subtype === 'success' ? msg.structured_output : undefined,
-          });
+        if (msg.subtype === 'success' && !msg.is_error && msg.num_turns === 0) {
+          // A resumed session can first replay a turn left over from before an office restart: an empty "success"
+          // that answers none of our prompts, with the real turn right behind it. Counting it ended the session
+          // while the real turn ran on without its permission channel. If nothing follows, it was the answer.
+          emptyTurn = setTimeout(() => answered(msg), 30_000);
+          break;
         }
+        if (msg.subtype === 'success' && !msg.is_error && msg.result.trim()) cb.turn?.(msg.result.trim());
+        answered(msg);
         break;
       }
     }
@@ -435,6 +462,7 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks, 
     },
     stop() {
       stopped = true;
+      clearTimeout(emptyTurn);
       input.close();
       abort.abort();
     },
