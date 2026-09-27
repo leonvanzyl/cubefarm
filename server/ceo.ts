@@ -17,6 +17,7 @@ export interface CeoJob {
 /** What the CEO's tools do. Implemented by the swarm; errors are returned to the CEO as tool errors. */
 export interface OfficeHandlers {
   companyStatus(): string;
+  agentDetail(a: { agent_id: string }): string;
   setFloorProfile(a: { floor: number; summary?: string; qa_brief?: string; preview_command?: string; preview_env?: Record<string, string> }): string;
   updateJob(a: { agent_id: string; title?: string; specialty?: string; job_description?: string }): string;
   proposeHire(a: {
@@ -57,6 +58,12 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
       () => run(() => h.companyStatus()),
     ),
     tool(
+      'agent_detail',
+      "One agent in full: title, specialty, role, status, current task, model and effort, and their complete job description (company_status shortens long ones). Read it before rewriting someone's job description.",
+      { agent_id: z.string().describe('An id (or name) from company_status') },
+      (a) => run(() => h.agentDetail(a)),
+    ),
+    tool(
       'set_floor_profile',
       "Record your read of a floor's project: a one-line summary (kind of project and stack), the QA brief that tells QA testers what to check for this kind of project, and how to run the app for the floor's preview monitor.",
       {
@@ -70,8 +77,10 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
           .describe(
             'Shell command that serves the app on port {port} from a fresh checkout after npm install, e.g. "npm run dev -- --port {port} --strictPort". PORT={port} is always set. {tmp} is a scratch folder. Empty string: back to the default (npm run dev, else start, else preview). Only set it when the default would not serve the app on PORT.',
           ),
+        // Not z.record(): the SDK can't turn it into JSON Schema, and one bad tool empties the whole tools/list.
         preview_env: z
-          .record(z.string(), z.string())
+          .object({})
+          .catchall(z.string())
           .optional()
           .describe('Extra environment variables for the preview; {port} and {tmp} are replaced in the values. Replaces the whole set.'),
       },
@@ -160,6 +169,7 @@ export function ceoSystemPrompt(o: {
     '- Read the repositories through their clone paths with Read, Glob and Grep. They are read-only to you. You cannot run shell commands.',
     `- Keep durable notes about the company in ${o.notesFile}: read it at the start, and update it at the end with decisions and anything worth remembering next time.`,
     '- Change things only through the mcp__office__ tools.',
+    "- Before update_job rewrites someone's job description, read the full one with mcp__office__agent_detail and keep what still applies, especially its safety rules.",
     '',
     'Rules:',
     '- Every floor keeps at least one QA tester.',

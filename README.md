@@ -152,6 +152,19 @@ Example, this repo previewing itself (a demo office on the floor's port, with it
 
 In `--demo` mode no git or npm runs: starting a preview serves a small placeholder page ("<floor> app · <ref>", with a click counter) on the floor's port.
 
+## Testing
+
+```bash
+npm test             # run every test once (Vitest)
+npm run test:watch   # re-run tests as you edit
+npm run typecheck
+npm run build
+```
+
+- Tests sit next to the code they cover as `*.test.ts`, anywhere under `client/`, `server/` or `shared/` (e.g. `shared/issues.test.ts`). Vitest finds them through `vitest.config.ts`; `tsc` type-checks them and the Vite build leaves them out, since nothing in the app imports them.
+- Keep them fast and offline: no network, no GitHub (`gh`), no Claude sessions and no real `~/.office-swarm`. Test pure logic directly, fake anything that would spend usage, and use a temp `SWARM_HOME` and random free ports for anything that needs a server. `npm test` already points `SWARM_HOME` at a temp folder.
+- GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test` and `npm run build` on Ubuntu and Windows for every pull request and every push to `main`. It needs no secrets.
+
 ## Architecture
 
 ```

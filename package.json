@@ -7,12 +7,14 @@
   "scripts": {
     "dev": "concurrently -k -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "demo": "concurrently -k -n server,client -c magenta,cyan \"npm:demo:server\" \"npm:dev:client\"",
-    "dev:server": "node --import tsx --watch server/index.ts",
-    "demo:server": "node --import tsx --watch server/index.ts --demo",
+    "dev:server": "node scripts/dev-server.mjs",
+    "demo:server": "node scripts/dev-server.mjs --demo",
     "dev:client": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "start": "node --import tsx server/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.283",
@@ -39,6 +41,7 @@
     "concurrently": "^10.0.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
   }
 }
