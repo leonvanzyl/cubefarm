@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
+import { WorkersPanel } from './WorkersPanel';
 
 /** The phone in your pocket: always one key (or click) away, with a badge when the CEO is waiting on you. */
 function PhoneButton() {
@@ -69,6 +70,8 @@ export function HUD() {
         {user && <span className="pill">🐙 {user}</span>}
       </div>
 
+      <WorkersPanel />
+
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
       {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
@@ -80,7 +83,7 @@ export function HUD() {
       {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>Tab</kbd> workers · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
         </div>
       )}
 

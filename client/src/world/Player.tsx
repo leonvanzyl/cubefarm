@@ -5,6 +5,7 @@ import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Foc
 import { api } from '../api';
 import { EYE_HEIGHT, SPAWN, collide, type Rect } from './layout';
 import { interactables } from './interact';
+import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { footstepsFollow, getAudioPrefs, toggleMute } from '../ui/sfx';
 
@@ -20,8 +21,25 @@ const QUIET_EVENTS = ['mousedown', 'mouseup', 'click', 'dblclick'] as const;
 export function requestLook() {
   const s = useStore.getState();
   if (!canvasEl || s.overlay || !s.started || isConfirmOpen()) return;
-  canvasEl.requestPointerLock?.()?.catch?.(() => undefined);
+  const el = canvasEl;
+  // Raw (unadjusted) input skips the OS mouse path that produces bogus spikes on Windows.
+  // Browsers that can't do it reject with NotSupportedError (Firefox ignores the option).
+  lockPointer(el, { unadjustedMovement: true })?.catch?.((err: unknown) => {
+    if (err instanceof DOMException && err.name === 'NotSupportedError') lockPointer(el)?.catch?.(() => undefined);
+  });
 }
+
+function lockPointer(el: HTMLCanvasElement, options?: PointerLockOptions): Promise<void> | undefined {
+  try {
+    return el.requestPointerLock?.(options);
+  } catch {
+    return undefined; // older browsers throw instead of rejecting
+  }
+}
+
+/** Spike counters, readable from the console as __swarmLook. */
+const lookDiag = { dropped: 0, skipped: 0 };
+(window as unknown as Record<string, unknown>).__swarmLook = lookDiag;
 
 export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   const s = useStore.getState();
@@ -64,6 +82,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   const ray = useMemo(() => new THREE.Raycaster(), []);
   const center = useMemo(() => new THREE.Vector2(0, 0), []);
   const frame = useRef(0);
+  const lookFilter = useMemo(createLookFilter, []);
 
   // Arrive at the elevator whenever the floor changes; after a page reload, return to the remembered spot.
   const restored = useRef(false);
@@ -104,11 +123,20 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       e.stopPropagation();
       e.preventDefault();
     };
-    const onLockChange = () => useStore.getState().setLocked(document.pointerLockElement === gl.domElement);
+    const onLockChange = () => {
+      resetLookFilter(lookFilter);
+      useStore.getState().setLocked(document.pointerLockElement === gl.domElement);
+    };
     const onMove = (e: MouseEvent) => {
-      if (document.pointerLockElement !== gl.domElement) return;
-      look.current.yaw -= e.movementX * 0.0022;
-      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - e.movementY * 0.0022));
+      if (document.pointerLockElement !== gl.domElement || !document.hasFocus()) return;
+      const d = filterLookDelta(lookFilter, e.movementX, e.movementY, e.timeStamp);
+      lookDiag.dropped = lookFilter.dropped;
+      lookDiag.skipped = lookFilter.skipped;
+      if (!d) return;
+      const { sensitivity, invertY } = useLookPrefs.getState();
+      const k = LOOK_RADIANS_PER_PX * sensitivity;
+      look.current.yaw -= d[0] * k;
+      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
@@ -144,7 +172,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [gl]);
+  }, [gl, lookFilter]);
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05);

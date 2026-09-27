@@ -357,14 +357,21 @@ export class Swarm {
     messages: [],
     phoneReadAt: 0,
   };
-  private office: OfficeTools = createOfficeTools({
-    companyStatus: () => this.companyStatus(),
-    setFloorProfile: (a) => this.setFloorProfile(a),
-    updateJob: (a) => this.updateJob(a),
-    proposeHire: (a) => this.proposeHire(a),
-    proposeLetGo: (a) => this.proposeLetGo(a),
-    fileIssue: (a) => this.fileIssue(a),
-  });
+  /**
+   * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
+   * a shared one left the next session connected but without any tools while an earlier session still held it.
+   */
+  private officeTools(): OfficeTools {
+    return createOfficeTools({
+      companyStatus: () => this.companyStatus(),
+      agentDetail: (a) => this.agentDetail(a),
+      setFloorProfile: (a) => this.setFloorProfile(a),
+      updateJob: (a) => this.updateJob(a),
+      proposeHire: (a) => this.proposeHire(a),
+      proposeLetGo: (a) => this.proposeLetGo(a),
+      fileIssue: (a) => this.fileIssue(a),
+    });
+  }
   private ceoIssues = { filed: 0, repos: new Set<string>() }; // issues filed during the current CEO job
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
@@ -1567,8 +1574,29 @@ export class Swarm {
       this.appendLog(a, [{ kind: 'system', text: `📨 Handed PR #${a.prNumber} to QA.` }]);
       this.toast('success', `${a.name} opened PR #${a.prNumber} for #${a.issueNumber}; it's off to QA`);
     } else {
-      this.toast('success', `${a.name} finished #${a.issueNumber}`);
+      this.noPullRequest(a, repo);
     }
+  }
+
+  /**
+   * An issue session ended without a PR, which would leave the issue "taken" with nobody on it. The same developer,
+   * who has the context and the worktree, is asked once to finish; after that the issue goes back on the board.
+   */
+  private noPullRequest(a: PersistedAgent, repo: PersistedRepo) {
+    const key = `${repo.id}#${a.issueNumber}`;
+    if (this.nudged.has(key)) return this.releaseIssue(a, repo);
+    this.nudged.add(key);
+    // message() starts the session before its first await, so the scheduler can't hand this developer other work first.
+    void this.message(
+      a.id,
+      `You finished without opening a pull request for #${a.issueNumber}. Finish the remaining steps now: commit, push your branch and open the PR with "Closes #${a.issueNumber}". If the issue can't be done, open a draft PR that explains why.`,
+    ).catch(() => this.releaseIssue(a, repo));
+  }
+
+  private releaseIssue(a: PersistedAgent, repo: PersistedRepo) {
+    const n = a.issueNumber;
+    this.clearTask(a);
+    this.postMessage('office', `⚠️ ${a.name} finished #${n} on ${repo.fullName} without opening a pull request, so it's back on the board for anyone.`);
   }
 
   // ---------- QA ----------
@@ -1977,6 +2005,7 @@ export class Swarm {
 
   private scheduleOffset = 0;
   private issueFailures = new Map<string, number>(); // `${repoId}#${issue}` → failed sessions on it
+  private nudged = new Set<string>(); // `${repoId}#${issue}`: its developer was asked once to finish the missing PR
   private pausedUntil = 0; // Claude's usage limit was hit: nothing new starts before this
 
   /** Backlog issues that can start now, most urgent first: the ones holding up the longest chain of other issues, then the oldest. */
@@ -2283,7 +2312,7 @@ export class Swarm {
         permissionMode: s.permissionMode,
         additionalDirectories: this.state.repos.filter((r) => this.repoRt.get(r.id)?.cloneStatus === 'ready').map((r) => this.backend.mainDir(r.fullName)),
         role: 'ceo',
-        office: this.office,
+        office: this.officeTools(),
         // A chat carries on from the CEO's last session, so "why did you propose that?" has an answer.
         resumeSessionId: job.kind === 'chat' ? (a.sessionId ?? undefined) : undefined,
       },
@@ -2506,10 +2535,19 @@ export class Swarm {
     return a;
   }
 
+  private agentDoing(a: PersistedAgent) {
+    return !BUSY.includes(a.status) ? null : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `issue #${a.issueNumber}`;
+  }
+
   private companyStatus() {
     const s = this.state.settings;
-    const doing = (a: PersistedAgent) =>
-      !BUSY.includes(a.status) ? null : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `issue #${a.issueNumber}`;
+    const doing = (a: PersistedAgent) => this.agentDoing(a);
+    // Keep the status compact, but make the cut visible so the CEO knows to read agent_detail before rewriting.
+    const jobDescription = (brief: string) => {
+      if (brief.length <= 400) return brief;
+      const mark = `… (truncated, ${brief.length} chars; see agent_detail)`;
+      return brief.slice(0, 400 - mark.length).trimEnd() + mark;
+    };
     const floors = [...this.state.repos]
       .sort((x, y) => x.floor - y.floor)
       .map((r) => {
@@ -2545,7 +2583,7 @@ export class Swarm {
               status: a.status,
               doing: doing(a),
               hiredBy: a.hiredBy,
-              jobDescription: a.brief ? a.brief.slice(0, 400) : null,
+              jobDescription: a.brief ? jobDescription(a.brief) : null,
             })),
           backlog: rt.issues.map((i) => ({
             number: i.number,
@@ -2588,6 +2626,32 @@ export class Swarm {
         floors,
         pendingProposals: this.state.requests.filter((r) => r.status === 'pending').map(req),
         recentDecisions: this.state.requests.filter((r) => r.status !== 'pending').slice(-10).map(req),
+      },
+      null,
+      1,
+    );
+  }
+
+  private agentDetail(x: { agent_id: string }) {
+    const a = this.agentByRef(x.agent_id);
+    const repo = this.state.repos.find((r) => r.id === a.repoId);
+    const ceo = a.role === 'ceo';
+    return JSON.stringify(
+      {
+        id: a.id,
+        name: a.name,
+        floor: repo?.floor ?? null,
+        role: a.role,
+        title: a.title || (a.role === 'qa' ? 'QA tester' : a.role === 'dev' ? 'Developer' : 'CEO'),
+        specialty: a.specialty || null,
+        status: a.status,
+        doing: this.agentDoing(a),
+        issue: a.issueNumber ? { number: a.issueNumber, title: a.issueTitle } : null,
+        pullRequest: a.prNumber ? { number: a.prNumber, url: a.prUrl } : null,
+        model: a.model || (ceo ? CEO_MODEL : this.state.settings.defaultModel),
+        effort: a.effort || (ceo ? CEO_EFFORT : this.state.settings.defaultEffort),
+        hiredBy: a.hiredBy,
+        jobDescription: a.brief || null,
       },
       null,
       1,

@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { useStore } from '../store';
+import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { ElevatorPanel } from './ElevatorPanel';
 import { KanbanView } from './KanbanView';
@@ -57,6 +58,27 @@ export function SoundControls() {
   );
 }
 
+function MouseSettings() {
+  const { sensitivity, invertY, set } = useLookPrefs();
+  return (
+    <div className="mouse-settings">
+      <label className="mouse-sens">
+        <span>Mouse sensitivity</span>
+        <input type="range" min={SENSITIVITY_MIN} max={SENSITIVITY_MAX} step={0.05} value={sensitivity} onChange={(e) => set({ sensitivity: Number(e.target.value) })} />
+        <b>{sensitivity.toFixed(2)}×</b>
+        {sensitivity !== 1 && (
+          <button className="btn btn-ghost btn-small" onClick={() => set({ sensitivity: 1 })}>
+            Reset
+          </button>
+        )}
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={invertY} onChange={(e) => set({ invertY: e.target.checked })} /> Invert Y (push the mouse forward to look down)
+      </label>
+    </div>
+  );
+}
+
 function Help() {
   return (
     <Panel title="How the office works">
@@ -68,6 +90,7 @@ function Help() {
           <kbd>S</kbd>
           <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse.
         </p>
+        <MouseSettings />
         <h3>Sound</h3>
         <p>
           The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. <kbd>M</kbd> mutes or unmutes anywhere.
@@ -81,6 +104,11 @@ function Help() {
         <h3>Your phone</h3>
         <p>
           Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, and see every project at a glance. The red badge counts decisions and messages waiting for you.
+        </p>
+        <h3>Who's working</h3>
+        <p>
+          The list at the top right shows everyone who is working right now (on this floor, or on every floor from the lobby) with their latest thought, reply or tool call. Click someone to watch their screen. <kbd>Tab</kbd>{' '}
+          shows or hides it.
         </p>
         <h3>The CEO</h3>
         <p>

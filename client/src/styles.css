@@ -390,6 +390,184 @@ input.inline:focus {
   text-shadow: 0 2px 0 var(--ink), 0 0 6px var(--ink);
   pointer-events: none;
 }
+/* Who's working: top right under the status pills. */
+.workers {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - 180px);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--ink);
+  overflow: hidden;
+}
+.workers-closed {
+  width: auto;
+}
+.wk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.wk-head b {
+  color: #1e9e45;
+}
+.wk-chevron {
+  color: var(--muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.wk-list {
+  overflow-y: auto;
+  padding: 0 6px 6px;
+}
+.wk-empty {
+  padding: 4px 10px 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.wk-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px 5px 26px;
+  font-family: var(--font);
+  color: var(--ink);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.wk-row:hover {
+  background: rgba(31, 29, 43, 0.06);
+}
+.wk-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+}
+.wk-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wk-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wk-task {
+  margin-left: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.wk-line {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.wk-last {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wk-last-text {
+  font-family: var(--font);
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+.wk-last-thinking {
+  font-style: italic;
+}
+.wk-last-error {
+  color: var(--bad);
+}
+.wk-ago {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.wk-group + .wk-group {
+  margin-top: 4px;
+}
+.wk-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px 2px;
+  font-family: var(--font);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.wk-group-head:hover {
+  color: var(--ink);
+}
+.wk-group-arrow {
+  width: 10px;
+}
+.wk-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+}
+.wk-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.wk-group-count {
+  margin-left: auto;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(31, 29, 43, 0.08);
+  color: var(--ink);
+}
+@media (max-width: 700px) {
+  .workers {
+    display: none;
+  }
+}
 .hud-help {
   position: absolute;
   bottom: 14px;
@@ -592,6 +770,31 @@ input.inline:focus {
 .help p {
   margin: 0;
   line-height: 1.55;
+}
+.mouse-settings {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: #fff8ef;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mouse-sens {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.92rem;
+}
+.mouse-sens input[type='range'] {
+  flex: 1;
+  max-width: 260px;
+  accent-color: var(--accent, #ff8a5b);
+}
+.mouse-sens b {
+  min-width: 3.4em;
+  font-variant-numeric: tabular-nums;
 }
 
 .sound {

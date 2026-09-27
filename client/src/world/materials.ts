@@ -54,3 +54,8 @@ export function shade(hex: string, amt: number) {
   c.setHSL(hsl.h, hsl.s, Math.max(0, Math.min(1, hsl.l + amt)));
   return `#${c.getHexString()}`;
 }
+
+/** Blend two hex colours: t = 0 gives a, t = 1 gives b. */
+export function mix(a: string, b: string, t: number) {
+  return `#${new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString()}`;
+}
