@@ -568,7 +568,7 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
         '3. Hire only where the backlog is piling up',
         '',
         '```bash',
-        'SWARM_HOME=/tmp/office-swarm-demo node --import tsx server/index.ts --demo --port 5260',
+        'SWARM_HOME=/tmp/office-swarm-demo SWARM_PORT=5260 node --import tsx server/index.ts --demo',
         '```',
         '',
         `> I'm the demo CEO, so I can't act on "${short(text)}", but the real one would. See the [Claude Code docs](https://docs.claude.com/en/docs/claude-code/overview).`,

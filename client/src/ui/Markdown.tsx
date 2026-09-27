@@ -53,7 +53,7 @@ const remarkPlugins = [remarkGfm, remarkHtmlAsText, remarkBreaks];
 
 export function Markdown({ text, className }: { text: string; className?: string }) {
   return (
-    <div className={`md ${className ?? ''}`}>
+    <div className={className ? `md ${className}` : 'md'}>
       <ReactMarkdown remarkPlugins={remarkPlugins} components={components} urlTransform={safeUrl}>
         {text}
       </ReactMarkdown>

@@ -1555,8 +1555,9 @@ input.inline:focus {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.bubble-md {
-  min-width: 0;
+/* code blocks and tables don't size the bubble (see .md pre), so give them its full width */
+.bubble:has(.md pre, .md-table) {
+  width: 86%;
 }
 
 /* markdown (ui/Markdown.tsx): agent-written prose in bubbles, resumes and job descriptions.
@@ -1633,8 +1634,14 @@ input.inline:focus {
   border-radius: 5px;
   padding: 0.1em 0.3em;
 }
-.md pre {
+/* Scroll sideways instead of stretching: contain keeps their width out of the layout above
+   (otherwise a long line widens the phone overlay's grid track past a 390px screen). */
+.md pre,
+.md-table {
+  contain: inline-size;
   overflow-x: auto;
+}
+.md pre {
   background: rgba(31, 29, 43, 0.08);
   border-radius: 8px;
   padding: 7px 9px;
@@ -1656,9 +1663,6 @@ input.inline:focus {
   border-top: 1.5px solid rgba(31, 29, 43, 0.15);
   margin: 0.6em 0;
 }
-.md-table {
-  overflow-x: auto;
-}
 .md table {
   border-collapse: collapse;
   font-size: 0.9em;
@@ -1672,6 +1676,9 @@ input.inline:focus {
 }
 .md th {
   background: rgba(31, 29, 43, 0.06);
+}
+.md td code {
+  white-space: nowrap;
 }
 .md input[type='checkbox'] {
   margin: 0 4px 0 0;
