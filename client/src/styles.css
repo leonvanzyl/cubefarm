@@ -363,6 +363,31 @@ input.inline:focus {
   font-weight: 600;
   max-width: 90vw;
 }
+/* The office updating itself: under the floor card, out of the way; opens the console. */
+.office-chip {
+  position: absolute;
+  top: 100px;
+  left: 16px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 5px 12px;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: #ffe8a3;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 0 3px 0 var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.office-chip:hover {
+  transform: translateY(-1px);
+}
+.office-chip:focus-visible {
+  outline: 3px solid var(--accent, #ff8a5b);
+  outline-offset: 2px;
+}
 .crosshair {
   position: absolute;
   top: 50%;
@@ -1486,6 +1511,35 @@ input.inline:focus {
   font-weight: 700;
   flex: none;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+.office-card {
+  border-left: 12px solid var(--ink);
+}
+.office-badge {
+  background: #fff3c4;
+  text-shadow: none;
+}
+.office-card .grow {
+  min-width: 190px; /* narrow screens: the buttons wrap below instead of squeezing the status */
+}
+.office-state {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.office-state-ok {
+  color: #1b873a;
+}
+.office-state-busy {
+  color: #9a5b00;
+}
+.office-state-bad {
+  color: #c0223b;
+}
+.office-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
 }
 .repo-list {
   max-height: 260px;
