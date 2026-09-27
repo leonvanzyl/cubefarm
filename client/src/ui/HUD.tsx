@@ -74,13 +74,13 @@ export function HUD() {
       {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
       {started && !overlay && focus && (
         <div className="hud-hint">
-          <kbd>E</kbd> {focus.label}
+          <kbd>E</kbd> / <kbd>Click</kbd> {focus.label}
         </div>
       )}
       {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> interact · <kbd>P</kbd> phone · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
         </div>
       )}
 

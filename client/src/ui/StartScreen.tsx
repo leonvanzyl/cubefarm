@@ -35,7 +35,7 @@ export function StartScreen() {
           </li>
           <li>{waiting ? `📱 ${waiting} thing${waiting === 1 ? '' : 's'} waiting on your phone. Press P once you're in.` : '📱 Press P anywhere for your phone.'}</li>
           <li>
-            💻 Walk up behind anyone to watch their screen, or press <kbd>E</kbd> on things to use them. <kbd>H</kbd> for help.
+            💻 Walk up behind anyone to watch their screen, or press <kbd>E</kbd> (or click) on things to use them. <kbd>H</kbd> for help.
           </li>
         </ul>
         <button className="btn btn-big" onClick={enter} disabled={!loaded}>

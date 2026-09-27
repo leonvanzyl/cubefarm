@@ -86,7 +86,7 @@ function ManagerComputer() {
       });
       ctx.fillStyle = '#7CFFB2';
       ctx.font = `600 32px ${SANS}`;
-      ctx.fillText('Press E to manage floors, team & issues', 50, 592);
+      ctx.fillText('Press E or click to manage floors, team & issues', 50, 592);
     },
     [stats],
   );

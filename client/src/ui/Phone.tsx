@@ -413,7 +413,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     ['company', '📊', 'Company', 0],
   ];
   return (
-    <div className="overlay phone-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay(true)}>
+    <div className="overlay phone-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
       <div className="phone">
         <div className="phone-status">
           <span>{clock(now)}</span>
