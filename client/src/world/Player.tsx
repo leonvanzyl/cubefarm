@@ -6,6 +6,7 @@ import { api } from '../api';
 import { EYE_HEIGHT, SPAWN, collide, type Rect } from './layout';
 import { interactables } from './interact';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
+import { footstepsFollow, getAudioPrefs, toggleMute } from '../ui/sfx';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -112,6 +113,10 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
       const s = useStore.getState();
+      if (e.code === 'KeyM' && !e.repeat && !isConfirmOpen()) {
+        toggleMute();
+        s.pushToast('info', getAudioPrefs().muted ? '🔇 Sound off (M to turn it back on)' : '🔊 Sound on');
+      }
       if (s.overlay || !s.started || isConfirmOpen()) return;
       keys.current.add(e.code);
       if (e.code === 'KeyE' && !e.repeat && s.focus) runFocusAction(s.focus);
@@ -166,6 +171,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     }
     bob.current += moving ? dt * speed * 2.2 : 0;
     camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
+    footstepsFollow(bob.current, moving, speed > 5);
     camera.rotation.set(pitch, yaw, 0, 'YXZ');
 
     const now = performance.now();

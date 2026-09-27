@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { repoOnFloor, useStore } from '../store';
-import { ding } from '../ui/sfx';
+import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
@@ -14,6 +14,7 @@ function Travel() {
   const finish = useStore((s) => s.finishTravel);
   useEffect(() => {
     if (!travel) return;
+    if (travel.phase === 'closing') whoosh(0.75);
     const t = setTimeout(
       () => {
         if (travel.phase === 'closing') {

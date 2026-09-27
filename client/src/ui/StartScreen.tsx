@@ -2,6 +2,7 @@ import { usePhoneBadge, useStore } from '../store';
 import { requestLook } from '../world/Player';
 import { CEO_ID } from '../../../shared/types';
 import { SetupWizard } from './SetupWizard';
+import { unlockAudio } from './sfx';
 
 export function StartScreen() {
   const started = useStore((s) => s.started);
@@ -18,6 +19,7 @@ export function StartScreen() {
 
   const enter = () => {
     start();
+    unlockAudio();
     requestLook();
   };
   const ceo = agents[CEO_ID];
