@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { useStore } from '../store';
+import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { ElevatorPanel } from './ElevatorPanel';
 import { KanbanView } from './KanbanView';
@@ -39,6 +40,27 @@ export function Panel({ title, children, wide, accent, onClose }: { title: React
   );
 }
 
+function MouseSettings() {
+  const { sensitivity, invertY, set } = useLookPrefs();
+  return (
+    <div className="mouse-settings">
+      <label className="mouse-sens">
+        <span>Mouse sensitivity</span>
+        <input type="range" min={SENSITIVITY_MIN} max={SENSITIVITY_MAX} step={0.05} value={sensitivity} onChange={(e) => set({ sensitivity: Number(e.target.value) })} />
+        <b>{sensitivity.toFixed(2)}×</b>
+        {sensitivity !== 1 && (
+          <button className="btn btn-ghost btn-small" onClick={() => set({ sensitivity: 1 })}>
+            Reset
+          </button>
+        )}
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={invertY} onChange={(e) => set({ invertY: e.target.checked })} /> Invert Y (push the mouse forward to look down)
+      </label>
+    </div>
+  );
+}
+
 function Help() {
   return (
     <Panel title="How the office works">
@@ -50,6 +72,7 @@ function Help() {
           <kbd>S</kbd>
           <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse.
         </p>
+        <MouseSettings />
         <h3>The building</h3>
         <p>
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
