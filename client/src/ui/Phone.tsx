@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { isBusy, pendingRequests, qaKey, unreadMessages, useStore, type PhoneTab } from '../store';
 import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
+import { Markdown } from './Markdown';
 import { closeOverlay } from './Overlays';
 
 // The manager's phone: text the CEO, decide on hires, and see the whole company at a glance
@@ -63,13 +64,13 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
         <span className="chip">{req.role === 'qa' ? '🔍 QA' : '💻 Dev'}</span>
         {req.specialty && <span className="chip">🎯 {req.specialty}</span>}
       </div>
-      {req.reason && <p className="resume-reason">“{req.reason}”</p>}
+      {req.reason && <Markdown className="resume-reason" text={req.reason} />}
       {hire && req.brief && (
-        <button className="linkish small" onClick={() => setOpen(!open)}>
+        <button className="linkish small" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? '▾ Job description' : '▸ Job description'}
         </button>
       )}
-      {open && <p className="resume-brief">{req.brief}</p>}
+      {open && <Markdown className="resume-brief" text={req.brief} />}
       {hire && pending && (
         <div className="muted small">
           {req.model || settings.defaultModel} · {req.effort || settings.defaultEffort} effort
@@ -140,7 +141,7 @@ function Bubble({ m, ceoName }: { m: PhoneMessage; ceoName: string }) {
     <div className={`bubble-row ${mine ? 'bubble-row-me' : ''}`}>
       <div className={`bubble ${mine ? 'bubble-me' : 'bubble-them'}`}>
         {!mine && <div className="bubble-from">{ceoName}</div>}
-        <div className="bubble-text">{m.text}</div>
+        {mine ? <div className="bubble-text">{m.text}</div> : <Markdown className="bubble-md" text={m.text} />}
         {req && req.status === 'pending' && m.from === 'ceo' && <Resume req={req} />}
         <div className="bubble-time">{clock(m.at)}</div>
       </div>

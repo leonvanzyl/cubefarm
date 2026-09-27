@@ -378,8 +378,9 @@ const PROFILES: Record<string, Profile> = {
       {
         title: 'Accessibility engineer',
         specialty: 'a11y',
-        job_description: 'You make the app work for everyone: keyboard navigation, focus management, ARIA roles and colour contrast. Test with the keyboard only.',
-        reason: 'Keyboard shortcuts and drag-and-drop are in the backlog, and both are easy to get wrong for keyboard and screen-reader users.',
+        job_description:
+          'You make the app work for **everyone**:\n\n- Keyboard navigation and focus management\n- ARIA roles, checked with `axe`\n- Colour contrast (WCAG AA)\n\nTest with the keyboard only. The [WAI-ARIA practices](https://www.w3.org/WAI/ARIA/apg/) are your reference.',
+        reason: 'Keyboard shortcuts and drag-and-drop are in the backlog, and both are *easy to get wrong* for keyboard and screen-reader users.',
       },
     ],
   },
@@ -414,7 +415,7 @@ const GENERIC: Profile = {
     {
       title: 'Frontend engineer',
       specialty: 'frontend',
-      job_description: 'You own the UI: layout, components and styling, checked at desktop and phone widths.',
+      job_description: 'You own the UI:\n\n1. Layout and components\n2. Styling, checked at **desktop and phone** widths',
       reason: 'The project needs someone who owns the UI from the start.',
     },
   ],
@@ -547,7 +548,31 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       const people = s.floors.reduce((n, f) => n + f.team.length, 0);
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const pending = s.pendingProposals.length;
-      return `We have ${s.floors.length} floors, ${people} people and ${issues} open issues.${pending ? ` ${pending} proposal${pending === 1 ? ' is' : 's are'} waiting for you in Hires.` : ''} (I'm the demo CEO, so I can't act on "${short(text)}", but the real one would.)`;
+      // Real CEOs answer in Markdown, so the demo one does too: every element the phone renders.
+      const rows = s.floors.map((f) => `| ${f.floor} | \`${f.repo.split('/').pop()}\` | ${f.team.length} | ${f.backlog.length} | ${f.pullRequests.length} |`);
+      return [
+        `**Quick status:** ${s.floors.length} floor${s.floors.length === 1 ? '' : 's'}, ${people} people and ${issues} open issues.`,
+        '',
+        '- The team is *heads down* on the backlog',
+        `- ${pending ? `**${pending}** proposal${pending === 1 ? ' is' : 's are'} waiting for you in Hires` : 'No hiring decisions waiting on you'}`,
+        '  - QA re-tests every PR after a fix',
+        '',
+        '| Floor | Repo | People | Issues | PRs |',
+        '| ---: | --- | ---: | ---: | ---: |',
+        ...(rows.length ? rows : ['| – | no projects yet | 0 | 0 | 0 |']),
+        '',
+        'What I would do next:',
+        '',
+        '1. Merge anything that passed QA',
+        '2. Run `npm run build` on each floor before the next milestone',
+        '3. Hire only where the backlog is piling up',
+        '',
+        '```bash',
+        'SWARM_HOME=/tmp/office-swarm-demo node --import tsx server/index.ts --demo --port 5260',
+        '```',
+        '',
+        `> I'm the demo CEO, so I can't act on "${short(text)}", but the real one would. See the [Claude Code docs](https://docs.claude.com/en/docs/claude-code/overview).`,
+      ].join('\n');
     },
   };
 

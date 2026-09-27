@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { isBusy, kanbanFor, agentsOnRepo, useStore } from '../store';
 import { confirmDialog } from './Confirm';
+import { Markdown } from './Markdown';
 import { closeOverlay, Panel } from './Overlays';
 import { toolVerb } from '../world/draw';
 
@@ -139,7 +140,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
       {agent.brief && (
         <details className="small job-brief">
           <summary>Job description{agent.hiredBy === 'ceo' ? ' (from the CEO)' : ''}</summary>
-          <p>{agent.brief}</p>
+          <Markdown text={agent.brief} />
         </details>
       )}
 

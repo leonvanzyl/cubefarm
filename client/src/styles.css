@@ -1237,9 +1237,8 @@ input.inline:focus {
   cursor: pointer;
   font-weight: 600;
 }
-.job-brief p {
-  margin: 4px 0 0;
-  white-space: pre-wrap;
+.job-brief .md {
+  margin-top: 4px;
   line-height: 1.45;
 }
 
@@ -1556,6 +1555,133 @@ input.inline:focus {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.bubble-md {
+  min-width: 0;
+}
+
+/* markdown (ui/Markdown.tsx): agent-written prose in bubbles, resumes and job descriptions.
+   Tints are translucent so it reads on any bubble colour. */
+.md {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md blockquote,
+.md .md-table {
+  margin: 0 0 0.55em;
+}
+.md ul,
+.md ol {
+  padding-left: 1.3em;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0.15em 0 0.2em;
+}
+.md li + li {
+  margin-top: 0.15em;
+}
+.md li > p {
+  margin: 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 0.7em 0 0.3em;
+  line-height: 1.25;
+  font-size: 1em;
+}
+.md h1 {
+  font-size: 1.15em;
+}
+.md h2 {
+  font-size: 1.08em;
+}
+.md h5,
+.md h6 {
+  color: var(--muted);
+}
+.md a {
+  color: #3a56d4;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.md a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.md-deadlink {
+  text-decoration: underline dotted;
+}
+.md code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: rgba(31, 29, 43, 0.08);
+  border-radius: 5px;
+  padding: 0.1em 0.3em;
+}
+.md pre {
+  overflow-x: auto;
+  background: rgba(31, 29, 43, 0.08);
+  border-radius: 8px;
+  padding: 7px 9px;
+  line-height: 1.35;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.md blockquote {
+  padding: 0 0 0 9px;
+  border-left: 3px solid rgba(31, 29, 43, 0.25);
+  color: #4a4e69;
+}
+.md hr {
+  border: none;
+  border-top: 1.5px solid rgba(31, 29, 43, 0.15);
+  margin: 0.6em 0;
+}
+.md-table {
+  overflow-x: auto;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.md th,
+.md td {
+  border: 1px solid rgba(31, 29, 43, 0.2);
+  padding: 3px 7px;
+  text-align: left;
+  overflow-wrap: normal;
+}
+.md th {
+  background: rgba(31, 29, 43, 0.06);
+}
+.md input[type='checkbox'] {
+  margin: 0 4px 0 0;
+  vertical-align: middle;
+}
+.md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.1em;
+}
+
 .bubble-time {
   text-align: right;
   font-size: 0.65rem;
@@ -1676,10 +1802,10 @@ input.inline:focus {
   flex-wrap: wrap;
 }
 .resume-reason {
-  margin: 0;
   font-size: 0.88rem;
   line-height: 1.45;
-  font-style: italic;
+  padding-left: 9px;
+  border-left: 3px solid rgba(31, 29, 43, 0.2);
 }
 .resume-brief {
   margin: 0;
@@ -1688,7 +1814,6 @@ input.inline:focus {
   background: #f6f3ec;
   border-radius: 10px;
   padding: 8px;
-  white-space: pre-wrap;
 }
 
 /* company */
