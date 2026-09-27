@@ -60,7 +60,7 @@ export function Game() {
       <Travel />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
-      {statsEnabled && <StatsProbe />}
+      {statsEnabled && <StatsProbe paused={paused} />}
     </Canvas>
   );
 }

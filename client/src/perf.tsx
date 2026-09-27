@@ -1,6 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { PerformanceMonitor } from '@react-three/drei';
+import { PerformanceMonitor, type PerformanceMonitorApi } from '@react-three/drei';
 import { coversView, useStore } from './store';
 
 // Keeping the office cheap to leave open all day: the 3D view stops drawing while a panel hides it or
@@ -61,16 +61,14 @@ function fpsBounds(measured: number): [number, number] {
  * back up toward MAX_DPR once it recovers. No flip-flop limit: drei's fallback would stop monitoring and
  * leave the view at its lowest resolution for the rest of the day after one busy spell (a build, a test
  * run). The gap between the low and high bounds keeps it from bouncing between steps.
+ *
+ * Driven from onIncline/onDecline rather than onChange: drei compares against a `lastFactor` that is
+ * reset to 0 on every render, and each step re-renders the Canvas, so the last step down to factor 0
+ * looked unchanged and the view got stuck one step above DPR 1.
  */
 export function AdaptiveResolution({ onChange }: { onChange: (maxDpr: number) => void }) {
-  return (
-    <PerformanceMonitor
-      factor={1}
-      step={0.25}
-      bounds={fpsBounds}
-      onChange={({ factor }) => onChange(Math.round((1 + (MAX_DPR - 1) * factor) * 100) / 100)}
-    />
-  );
+  const apply = ({ factor }: PerformanceMonitorApi) => onChange(Math.round((1 + (MAX_DPR - 1) * factor) * 100) / 100);
+  return <PerformanceMonitor factor={1} step={0.25} bounds={fpsBounds} onIncline={apply} onDecline={apply} />;
 }
 
 // The probe inside the Canvas writes straight into this element, so the readout never re-renders React.
@@ -79,13 +77,16 @@ let readoutEl: HTMLSpanElement | null = null;
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 
 /** Lives inside the Canvas (only with `?stats`). Samples the frame rate and the renderer's counters twice a second. */
-export function StatsProbe() {
+export function StatsProbe({ paused }: { paused: boolean }) {
   const gl = useThree((s) => s.gl);
   const acc = useRef({ start: 0, prev: 0, frames: 0 });
+  // After a pause (panel open, tab hidden) start a fresh window instead of averaging over the gap.
+  useEffect(() => {
+    acc.current.start = 0;
+  }, [paused]);
   useFrame(() => {
     const now = performance.now();
     const a = acc.current;
-    // After a pause (panel open, tab hidden) start a fresh window instead of averaging over the gap.
     if (!a.start || now - a.prev > 1000) {
       a.start = now;
       a.frames = 0;
