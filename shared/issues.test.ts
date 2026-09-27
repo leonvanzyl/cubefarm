@@ -5,7 +5,7 @@ const open = (...n: number[]) => new Set(n);
 
 describe('blockers', () => {
   it('reads a single "Depends on #N"', () => {
-    expect(blockers('Depends on #3', open(3))).toEqual([3]);
+    expect(blockers('Depends on #3', open(3))).toEqual([4]); // DELIBERATELY BROKEN to prove CI fails; reverted in the next commit
   });
 
   it('reads "Blocked by" too', () => {
