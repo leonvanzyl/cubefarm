@@ -294,6 +294,12 @@ export const agentsOnRepo = (agents: Record<string, Agent>, repoId: string) =>
     .filter((a) => a.repoId === repoId)
     .sort((a, b) => (a.role === b.role ? a.desk - b.desk : a.role === 'dev' ? -1 : 1));
 
+/**
+ * Panels that hide the whole office (the wide ones: Kanban, terminals and the manager's console), so the
+ * 3D view can stop drawing behind them. The phone, help, elevator panel and confirm dialogs are see-through.
+ */
+export const coversView = (o: Overlay | null) => o?.kind === 'kanban' || o?.kind === 'terminal' || o?.kind === 'manager';
+
 export const isBusy = (a: Agent) => a.status === 'preparing' || a.status === 'working';
 
 /** CEO messages the manager hasn't seen yet (proposals are counted by pendingRequests instead). */

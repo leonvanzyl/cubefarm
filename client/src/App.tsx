@@ -1,3 +1,4 @@
+import { StatsReadout, statsEnabled } from './perf';
 import { Game } from './world/Game';
 import { ConfirmDialog } from './ui/Confirm';
 import { HUD } from './ui/HUD';
@@ -14,6 +15,7 @@ export function App() {
       <Tutorial />
       <StartScreen />
       <ConfirmDialog />
+      {statsEnabled && <StatsReadout />}
     </>
   );
 }
