@@ -2,7 +2,8 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { api } from '../api';
 import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
-import { CEO_ID, type EffortLevel, type RepoView } from '../../../shared/types';
+import { CEO_ID, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
+import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../officeUpdate';
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { Panel } from './Overlays';
@@ -23,10 +24,69 @@ async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
 
 // ---------- floors ----------
 
+const NO_LAUNCHER = 'Start the office with npm run dev or npm start so it can install updates and restart itself.';
+
+/** The office itself: the commit it runs and its own update. Hidden on servers that can't update themselves. */
+function OfficeRow({ update }: { update: OfficeUpdateView }) {
+  const commit = useStore((s) => s.officeCommit);
+  const autoUpdate = useStore((s) => s.settings.autoUpdate);
+  const [busy, setBusy] = useState(false);
+  const act = (action: 'now' | 'later') => {
+    setBusy(true);
+    void attempt(() => api.updateOffice(action)).finally(() => setBusy(false));
+  };
+  const deadline = drainDeadline(update);
+  const pending = update.state !== 'none';
+  const tone = update.state === 'failed' ? 'office-state-bad' : update.state === 'none' ? 'office-state-ok' : 'office-state-busy';
+  const tip = (enabled: boolean, text: string) => (update.launcher ? (enabled ? text : undefined) : NO_LAUNCHER);
+  return (
+    <div className="card office-card">
+      <div className="row wrap">
+        <span className="floor-badge office-badge" aria-hidden>
+          🏢
+        </span>
+        <div className="grow">
+          <b>Office</b> <span className="muted small">running {commit ? <code>{commit}</code> : 'an unknown commit'}</span>
+          <div className={`small office-state ${tone}`} role="status">
+            {officeUpdateText(update)}
+          </div>
+        </div>
+        {pending && (
+          <div className="office-actions" title={update.launcher ? undefined : NO_LAUNCHER}>
+            <button
+              className="btn btn-small btn-good"
+              disabled={busy || !canUpdateNow(update)}
+              title={tip(canUpdateNow(update), 'Start nothing new, let running sessions finish, then update and restart the office')}
+              onClick={() => act('now')}
+            >
+              Update now
+            </button>
+            <button className="btn btn-small btn-ghost" disabled={busy || !canPostpone(update)} title={tip(canPostpone(update), 'Keep working; ask again in 2 hours or when a newer commit lands')} onClick={() => act('later')}>
+              Later
+            </button>
+          </div>
+        )}
+      </div>
+      {update.detail && update.state !== 'failed' && <div className="muted small">{update.detail}</div>}
+      {deadline && update.running > 0 && (
+        <div className="muted small">Sessions still running at {new Date(deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} are stopped, and their work goes back to the queue.</div>
+      )}
+      {!update.launcher && pending && <div className="muted small">{NO_LAUNCHER}</div>}
+      {typeof autoUpdate === 'boolean' && (
+        <label className="toggle" title="When an update is ready, start nothing new, let running sessions finish, then update and restart the office">
+          <input type="checkbox" checked={autoUpdate} onChange={(e) => void attempt(() => api.updateSettings({ autoUpdate: e.target.checked }))} /> Update automatically
+        </label>
+      )}
+    </div>
+  );
+}
+
 function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
   const agents = useStore((s) => s.agents);
   const goToFloor = useStore((s) => s.goToFloor);
   const openOverlay = useStore((s) => s.openOverlay);
+  // The office's own folder isn't fast-forwarded; its update is on the Office row instead.
+  const officeFolder = useStore((s) => !!s.officeUpdate) && !!repo.folderSync?.startsWith('update ready');
   const team = agentsOnRepo(agents, repo.id);
   const others = all.filter((r) => r.id !== repo.id);
   const patch = (p: Parameters<typeof api.updateRepo>[1]) => void attempt(() => api.updateRepo(repo.id, p));
@@ -45,7 +105,7 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
           </div>
           <div className="muted small" title={repo.localPath ? 'Your own project folder' : 'A clone the office manages'}>
             📁 <code>{repo.checkoutPath}</code>
-            {repo.folderSync && ` · ${repo.folderSync}`}{' '}
+            {officeFolder ? " · the office's own folder, updated from the Office row" : repo.folderSync && ` · ${repo.folderSync}`}{' '}
             <button className="btn btn-small btn-ghost" title="Fast-forward it to GitHub's default branch, when that's safe" onClick={() => void attempt(() => api.syncFolder(repo.id))}>
               ⟳ Sync now
             </button>
@@ -121,9 +181,11 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
 
 function FloorsTab() {
   const repos = useStore((s) => s.repos);
+  const officeUpdate = useStore((s) => s.officeUpdate);
   return (
     <div className="tab-grid">
       <div>
+        {officeUpdate && <OfficeRow update={officeUpdate} />}
         <h3 className="section">🏢 Floors</h3>
         {repos.length === 0 && <p className="muted">No floors yet. Add a project →</p>}
         {[...repos].sort((a, b) => a.floor - b.floor).map((r) => (

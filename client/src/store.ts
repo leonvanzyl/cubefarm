@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type HireRequestView, type LogLine, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { chirp, cue } from './ui/sfx';
 
@@ -48,6 +48,9 @@ interface State {
   ceo: CeoInfo;
   messages: PhoneMessage[];
   phoneReadAt: number;
+  officeCommit?: string | null; // undefined: the server can't update itself
+  officeUpdate?: OfficeUpdateView;
+  restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
   travel: { to: number; phase: 'closing' | 'opening' } | null;
@@ -59,6 +62,8 @@ interface State {
 
   apply(ev: ServerEvent): void;
   setConnected(v: boolean): void;
+  setRestarting(v: boolean): void;
+  setOfficeUpdate(u: OfficeUpdateView): void;
   openOverlay(o: Overlay | null): void;
   setFocus(f: Focus | null): void;
   setLocked(v: boolean): void;
@@ -130,6 +135,7 @@ export const useStore = create<State>((set, get) => ({
   ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null },
   messages: [],
   phoneReadAt: 0,
+  restarting: false,
 
   floor: loadView()?.floor ?? 0,
   travel: null,
@@ -175,6 +181,9 @@ export const useStore = create<State>((set, get) => ({
           ceo: d.ceo,
           messages: d.messages,
           phoneReadAt: d.phoneReadAt,
+          officeCommit: d.officeCommit,
+          officeUpdate: d.officeUpdate,
+          restarting: false,
           floor: floorExists ? get().floor : 0,
         });
         break;
@@ -265,10 +274,15 @@ export const useStore = create<State>((set, get) => ({
       case 'toast':
         get().pushToast(ev.level, ev.text);
         break;
+      case 'officeUpdate':
+        set({ officeUpdate: ev.officeUpdate });
+        break;
     }
   },
 
   setConnected: (connected) => set({ connected }),
+  setRestarting: (restarting) => set({ restarting }),
+  setOfficeUpdate: (officeUpdate) => set({ officeUpdate }),
   openOverlay(overlay) {
     set({ overlay, focus: overlay ? null : get().focus });
     if (overlay && document.pointerLockElement) document.exitPointerLock();

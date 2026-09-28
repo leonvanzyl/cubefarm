@@ -1,5 +1,5 @@
 import { useStore } from './store';
-import type { GhRepoSummary, PreviewView, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
+import type { GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
 
 async function call<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -72,6 +72,11 @@ export const api = {
   reset: (id: string) => call('POST', `/api/agents/${id}/reset`),
   message: (id: string, text: string) => call('POST', `/api/agents/${id}/message`, { text }),
   updateSettings: (patch: Partial<SwarmSettings>) => call('PATCH', '/api/settings', patch),
+  updateOffice: async (action: 'now' | 'later') => {
+    const u = await call<OfficeUpdateView>('POST', '/api/office/update', { action });
+    useStore.getState().setOfficeUpdate(u);
+    return u;
+  },
   messageCeo: (text: string) => call('POST', '/api/ceo/message', { text }),
   ceoReview: () => call('POST', '/api/ceo/review'),
   phoneRead: (at: number) => call('POST', '/api/phone/read', { at }),
