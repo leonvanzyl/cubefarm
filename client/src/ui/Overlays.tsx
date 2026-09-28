@@ -10,8 +10,9 @@ import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
 
-// Closing a panel leaves the mouse free: the next click on the view only grabs it again, so it
-// can't also act on whatever the crosshair lands on.
+// Closing a panel grabs the mouse again right away (world/lookLock.ts; "Grab the mouse when panels
+// close" in help turns that off), and mouse presses are swallowed for a moment so a double click on
+// ✕ or the backdrop can't act on whatever the crosshair lands on.
 export function closeOverlay() {
   useStore.getState().openOverlay(null);
 }
@@ -74,7 +75,7 @@ export function SoundControls() {
 }
 
 function MouseSettings() {
-  const { sensitivity, invertY, set } = useLookPrefs();
+  const { sensitivity, invertY, grabOnClose, set } = useLookPrefs();
   return (
     <div className="mouse-settings">
       <label className="mouse-sens">
@@ -90,6 +91,9 @@ function MouseSettings() {
       <label className="toggle">
         <input type="checkbox" checked={invertY} onChange={(e) => set({ invertY: e.target.checked })} /> Invert Y (push the mouse forward to look down)
       </label>
+      <label className="toggle">
+        <input type="checkbox" checked={grabOnClose} onChange={(e) => set({ grabOnClose: e.target.checked })} /> Grab the mouse when panels close
+      </label>
     </div>
   );
 }
@@ -103,7 +107,7 @@ function Help() {
           <kbd>W</kbd>
           <kbd>A</kbd>
           <kbd>S</kbd>
-          <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse.
+          <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse. Closing a panel or changing floor grabs it again.
         </p>
         <MouseSettings />
         <h3>Balls</h3>

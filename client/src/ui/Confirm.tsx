@@ -25,6 +25,9 @@ export function confirmDialog(ask: Ask): Promise<boolean> {
 /** True while a question is on screen; the player shouldn't walk or interact behind it. */
 export const isConfirmOpen = () => useConfirm.getState().ask !== null;
 
+/** Calls fn synchronously whenever a question appears or is answered. Returns the unsubscribe function. */
+export const subscribeConfirm = (fn: (open: boolean, was: boolean) => void) => useConfirm.subscribe((s, p) => fn(s.ask !== null, p.ask !== null));
+
 function answer(ok: boolean) {
   const ask = useConfirm.getState().ask;
   if (!ask) return;

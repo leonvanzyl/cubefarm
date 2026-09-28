@@ -9,6 +9,7 @@ import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { footstepsFollow, getAudioPrefs, toggleMute } from '../ui/sfx';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
+import { watchLookLock } from './lookLock';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -17,6 +18,9 @@ let canvasEl: HTMLCanvasElement | null = null;
 const QUIET_MS = 400;
 let quietUntil = 0;
 const QUIET_EVENTS = ['mousedown', 'mouseup', 'click', 'dblclick'] as const;
+const hushMouse = () => {
+  quietUntil = performance.now() + QUIET_MS;
+};
 
 /** Grab the mouse for looking around. Must be called from a click handler. */
 export function requestLook() {
@@ -186,7 +190,9 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    const stopLookLock = watchLookLock(requestLook, hushMouse);
     return () => {
+      stopLookLock();
       gl.domElement.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
       for (const type of QUIET_EVENTS) window.removeEventListener(type, onQuietMouse, true);
