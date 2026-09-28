@@ -3,6 +3,7 @@ import { api } from '../api';
 import { isBusy, pendingRequests, qaKey, unreadMessages, useStore, type PhoneTab } from '../store';
 import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
 import { Markdown } from './Markdown';
+import { MessageBox } from './MessageBox';
 import { closeOverlay } from './Overlays';
 
 // The manager's phone: text the CEO, decide on hires, and see the whole company at a glance
@@ -233,7 +234,7 @@ function Chat() {
           send(text);
         }}
       >
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${ceo.name}…`} autoFocus />
+        <MessageBox value={text} onChange={setText} placeholder={`Message ${ceo.name}…`} aria-label={`Message ${ceo.name}`} title="Enter sends · Shift+Enter adds a new line" autoFocus />
         <button className="btn btn-small btn-good" disabled={!text.trim()}>
           Send
         </button>
@@ -444,6 +445,11 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
           ))}
         </nav>
         <div className="phone-hint">
+          {tab === 'chat' && (
+            <>
+              <kbd>Shift</kbd>+<kbd>Enter</kbd> new line ·{' '}
+            </>
+          )}
           <kbd>P</kbd> or <kbd>Esc</kbd> to put it away
         </div>
       </div>
