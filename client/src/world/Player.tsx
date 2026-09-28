@@ -10,6 +10,7 @@ import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { footstepsFollow, getAudioPrefs, toggleMute } from '../ui/sfx';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
 import { watchLookLock } from './lookLock';
+import { pokeToy } from './toys/poke';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -51,6 +52,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   quietUntil = performance.now() + QUIET_MS;
   if (focus.action.kind === 'pickup') {
     s.setHeld({ kind: 'ball', id: focus.action.toyId }); // already holding one? the toy world swaps them
+    return;
+  }
+  if (focus.action.kind === 'poke') {
+    pokeToy(focus.action.toyId);
     return;
   }
   if (focus.action.kind === 'hire') {

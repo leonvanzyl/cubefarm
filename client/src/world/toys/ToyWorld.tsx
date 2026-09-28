@@ -9,6 +9,7 @@ import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { Hoop } from './Hoop';
 import { setToySource } from './probe';
+import { Roomba } from './Roomba';
 
 // Loaded lazily by ./index.tsx, so Rapier stays out of the main bundle.
 
@@ -22,6 +23,8 @@ const TOY_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.pusher, G
 // A ball in (or just out of) your hands: everything but you.
 const HELD_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.toys]);
 const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
+// The roomba steers itself round the building (roombaBrain.ts) and never shoves the player's pusher: it only touches toys.
+const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
 const DOOR = elevatorDoorway();
 
 /** Fixed colliders generated from layout.ts: floor, ceiling, walls, cabin and furniture, each at its own height. */
@@ -344,6 +347,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Pusher />
       <Balls floor={floor} />
       <Hoop floor={floor} groups={BUILDING_GROUPS} />
+      <Roomba floor={floor} groups={ROOMBA_GROUPS} dockGroups={BUILDING_GROUPS} />
     </Physics>
   );
 }
