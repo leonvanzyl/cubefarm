@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collide, lobbyColliders, officeColliders, PLAYER_RADIUS, rect, shellColliders, SPAWN, type Rect } from './layout.ts';
+import { APP_SCREEN, BOARD, collide, HALF_D, lobbyColliders, officeColliders, PLAYER_RADIUS, rect, shellColliders, SPAWN, type Rect } from './layout.ts';
 
 const R = 0.3;
 const box: Rect = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 };
@@ -82,5 +82,21 @@ describe('collide', () => {
     const lobby = [...shellColliders(), ...lobbyColliders()];
     expect(collide(SPAWN.x, SPAWN.z, office)).toEqual({ x: SPAWN.x, z: SPAWN.z });
     expect(collide(SPAWN.x, SPAWN.z, lobby)).toEqual({ x: SPAWN.x, z: SPAWN.z });
+  });
+
+  it('mounts the app monitor on the north wall, clear of the whiteboard and everything else', () => {
+    const a = APP_SCREEN;
+    const shell = shellColliders();
+    const monitor = rect(a.x, -HALF_D + a.depth / 2, a.w + a.bezel * 2, a.depth, a.y + a.h / 2 + a.bezel);
+    const office = officeColliders();
+    expect(office).toContainEqual(monitor);
+    expect(monitor.maxX).toBeLessThan(-BOARD.w / 2 - 0.5);
+    const same = (b: Rect, c: Rect) => b.minX === c.minX && b.maxX === c.maxX && b.minZ === c.minZ && b.maxZ === c.maxZ;
+    const touches = (b: Rect, c: Rect) => b.minX < c.maxX && b.maxX > c.minX && b.minZ < c.maxZ && b.maxZ > c.minZ;
+    const furniture = office.filter((b) => !same(b, monitor) && !shell.some((w) => same(w, b)));
+    expect(furniture.filter((b) => touches(b, monitor))).toEqual([]);
+    // the player can stand right in front of it to read it and press E
+    const front = { x: a.x, z: monitor.maxZ + 1 };
+    expect(collide(front.x, front.z, office)).toEqual(front);
   });
 });

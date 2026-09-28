@@ -1,4 +1,4 @@
-import type { LogLine, RepoView } from '../../../shared/types';
+import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 
 // 2D canvas painters for everything in the office that shows text: laptop terminals,
@@ -463,5 +463,188 @@ export function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, see
     for (let wy = h - bh + 10; wy < h - 10; wy += 16) for (let wx = x + 6; wx < x + bw - 12; wx += 12) if ((wx + wy + i) % 3) ctx.fillRect(wx, wy, 5, 7);
     x += bw;
     i++;
+  }
+}
+
+// ---------- the floor's app monitor ----------
+
+const APP_STEPS: { status: PreviewStatus; label: string }[] = [
+  { status: 'preparing', label: 'Checking out the code' },
+  { status: 'installing', label: 'Installing dependencies' },
+  { status: 'starting', label: 'Starting the app' },
+];
+
+const APP_BADGE: Record<PreviewStatus, { text: string; bg: string }> = {
+  unconfigured: { text: 'NOT SET UP', bg: '#5c6078' },
+  stopped: { text: 'STOPPED', bg: '#5c6078' },
+  preparing: { text: 'STARTING', bg: '#f4a261' },
+  installing: { text: 'STARTING', bg: '#f4a261' },
+  starting: { text: 'STARTING', bg: '#f4a261' },
+  running: { text: '● LIVE', bg: '#ef233c' },
+  error: { text: 'ERROR', bg: '#e63946' },
+};
+
+/** Shorten text with an ellipsis until it fits in max pixels, in the context's current font. */
+function fitText(ctx: CanvasRenderingContext2D, text: string, max: number) {
+  let t = text;
+  while (t.length > 2 && ctx.measureText(t).width > max) t = `${t.slice(0, -2)}…`;
+  return t;
+}
+
+export interface AppScreenInfo {
+  floor: number;
+  name: string;
+  color: string;
+  preview: PreviewView;
+  shot: HTMLImageElement | null; // the latest agent screenshot on the floor, shown while the app is live
+  shotBy: string | null;
+}
+
+/** The wall screen at the front of an office floor: the floor's app and how it's doing. */
+export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: number, info: AppScreenInfo) {
+  const p = info.preview;
+  ctx.fillStyle = TERM.bg;
+  ctx.fillRect(0, 0, w, h);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  // header: floor chip, floor name, status badge
+  const headH = 118;
+  ctx.fillStyle = TERM.bar;
+  ctx.fillRect(0, 0, w, headH);
+  ctx.fillStyle = info.color;
+  ctx.fillRect(0, headH - 6, w, 6);
+  ctx.font = `700 34px ${SANS}`;
+  const chip = `FLOOR ${info.floor}`;
+  const chipW = ctx.measureText(chip).width + 44;
+  roundRect(ctx, 40, 30, chipW, 54, 27);
+  ctx.fillStyle = info.color;
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(chip, 62, 58);
+
+  const badge = APP_BADGE[p.status];
+  ctx.font = `700 38px ${SANS}`;
+  const badgeW = ctx.measureText(badge.text).width + 52;
+  roundRect(ctx, w - 40 - badgeW, 28, badgeW, 58, 29);
+  ctx.fillStyle = badge.bg;
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.fillText(badge.text, w - 40 - badgeW / 2, 58);
+  ctx.textAlign = 'left';
+
+  ctx.font = `700 50px ${SANS}`;
+  const nameX = 40 + chipW + 26;
+  ctx.fillText(fitText(ctx, info.name, w - 40 - badgeW - 26 - nameX), nameX, 58);
+
+  const centred = (text: string, y: number, size: number, color: string, weight = 700) => {
+    ctx.font = `${weight} ${size}px ${SANS}`;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(fitText(ctx, text, w - 100), w / 2, y);
+    ctx.textAlign = 'left';
+  };
+  const footer = (text: string, color = '#8d8da8') => centred(text, h - 50, 32, color, 600);
+
+  const bodyTop = headH;
+  const midY = bodyTop + (h - headH - 100) / 2;
+  const ref = p.ref ?? 'the app';
+
+  if (p.status === 'stopped') {
+    // a big play button
+    const cy = midY - 70;
+    ctx.fillStyle = info.color;
+    ctx.beginPath();
+    ctx.arc(w / 2, cy, 84, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - 26, cy - 42);
+    ctx.lineTo(w / 2 - 26, cy + 42);
+    ctx.lineTo(w / 2 + 44, cy);
+    ctx.closePath();
+    ctx.fill();
+    centred('Press E to open the app', midY + 80, 70, '#ffffff');
+    footer("The app isn't running. Start it from the viewer.");
+  } else if (p.status === 'unconfigured') {
+    centred('⚙️', midY - 90, 110, '#ffffff', 400);
+    centred('No run command yet.', midY + 40, 66, '#ffffff');
+    centred("Set one in the manager's console.", midY + 120, 44, '#b8b8cc', 600);
+    footer('Press E to open the app');
+  } else if (p.status === 'error') {
+    const firstLine = (p.error ?? '').split(/\r?\n/).find((l) => l.trim())?.trim() || 'The app stopped unexpectedly.';
+    ctx.fillStyle = '#e63946';
+    ctx.fillRect(0, midY - 120, w, 130);
+    ctx.font = `700 44px ${SANS}`;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(fitText(ctx, `⚠ ${firstLine}`, w - 100), 50, midY - 55);
+    centred("The app couldn't start.", midY + 90, 52, '#ffffff');
+    footer('Press E to see the log and try again', '#ffb4ba');
+  } else if (p.status !== 'running') {
+    const at = Math.max(0, APP_STEPS.findIndex((s) => s.status === p.status));
+    centred(`Getting ${ref} ready…`, bodyTop + 80, 46, '#b8b8cc', 600);
+    centred(`${APP_STEPS[at].label}…`, midY - 20, 72, '#ffffff');
+    // a three-step progress bar
+    const gap = 18;
+    const segW = (w - 200 - gap * (APP_STEPS.length - 1)) / APP_STEPS.length;
+    APP_STEPS.forEach((s, i) => {
+      const x = 100 + i * (segW + gap);
+      const y = midY + 90;
+      roundRect(ctx, x, y, segW, 34, 17);
+      ctx.fillStyle = i < at ? TERM.done : i === at ? '#f4a261' : '#3a3a52';
+      ctx.fill();
+      ctx.font = `600 28px ${SANS}`;
+      ctx.fillStyle = i <= at ? TERM.text : '#6c6c88';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${i < at ? '✓ ' : ''}${s.label}`, x + segW / 2, y + 70);
+      ctx.textAlign = 'left';
+    });
+    footer(`Step ${at + 1} of ${APP_STEPS.length} · press E to watch`);
+  } else {
+    // running: where it's served and what's deployed, plus the latest thing an agent on this floor looked at
+    const left = 56;
+    const colW = info.shot ? w * 0.5 : w - 2 * left;
+    ctx.font = `600 34px ${SANS}`;
+    ctx.fillStyle = '#b8b8cc';
+    ctx.fillText('Serving at', left, bodyTop + 72);
+    ctx.font = `700 50px ${MONO}`;
+    ctx.fillStyle = TERM.tool;
+    ctx.fillText(fitText(ctx, (p.url ?? '').replace(/^https?:\/\//, '').replace(/\/$/, ''), colW), left, bodyTop + 140);
+
+    ctx.font = `700 42px ${SANS}`;
+    const refW = ctx.measureText(ref).width + 48;
+    roundRect(ctx, left, bodyTop + 208, refW, 64, 32);
+    ctx.fillStyle = info.color;
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(ref, left + 24, bodyTop + 241);
+    if (p.commit) {
+      ctx.font = `600 42px ${MONO}`;
+      ctx.fillStyle = TERM.thinking;
+      ctx.fillText(p.commit, left + refW + 24, bodyTop + 241);
+    }
+    if (p.startedAt) {
+      ctx.font = `500 32px ${SANS}`;
+      ctx.fillStyle = '#8d8da8';
+      ctx.fillText(`up since ${new Date(p.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, left, bodyTop + 330);
+    }
+
+    if (info.shot) {
+      const tw = w - colW - left - 70;
+      const th = Math.round(tw * 0.5625);
+      const tx = w - 40 - tw;
+      const ty = bodyTop + 50;
+      ctx.fillStyle = '#3a3a52';
+      ctx.fillRect(tx - 6, ty - 6, tw + 12, th + 12);
+      // cover-fit, anchored to the top left like a browser viewport
+      const img = info.shot;
+      const scale = Math.max(tw / img.width, th / img.height);
+      ctx.drawImage(img, 0, 0, tw / scale, th / scale, tx, ty, tw, th);
+      ctx.font = `500 26px ${SANS}`;
+      ctx.fillStyle = '#8d8da8';
+      ctx.fillText(fitText(ctx, info.shotBy ? `latest from ${info.shotBy}'s browser` : 'latest agent screenshot', tw), tx, ty + th + 36);
+    }
+    footer('Press E to open the app', TERM.done);
   }
 }

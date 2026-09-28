@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
 import { agentsOnRepo, useStore } from '../store';
+import { AppMonitor } from './AppMonitor';
 import { Desk } from './Desk';
 import { drawSign } from './draw';
 import { Elevator } from './Elevator';
@@ -76,6 +77,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       />
 
       <KanbanBoard repo={repo} agents={agents} />
+      <AppMonitor repo={repo} agents={agents} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
 
@@ -121,7 +123,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <Plant position={[-7.1, 0, -HALF_D + 0.7]} />
       <Plant position={[7.1, 0, -HALF_D + 0.7]} />
       <Plant position={[-HALF_W + 0.7, 0, HALF_D - 0.8]} scale={1.2} />
-      <Plant position={[-HALF_W + 0.7, 0, -HALF_D + 0.7]} scale={1.1} />
+      <Plant position={[-11, 0, -HALF_D + 0.7]} scale={1.1} />
       <Plant position={[HALF_W - 0.7, 0, HALF_D - 0.7]} scale={0.9} pot="#8338ec" />
       <Couch position={[-HALF_W + 0.9, 0, 6.5]} rotationY={-Math.PI / 2} color={shade(repo.color, -0.05)} />
       <CoffeeTable position={[-HALF_W + 2.6, 0, 6.5]} rotationY={Math.PI / 2} />
