@@ -2,9 +2,11 @@ import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
 import { HALF_D, HALF_W } from '../layout';
 import { shade, toon, toonMap } from '../materials';
+import { BasketballLook } from './Hoop';
+import { HOOP, hoopRim } from './hoopScore';
 
 export type ToyFloor = 'office' | 'lobby';
-export type BallKind = 'beach' | 'exercise' | 'yarn';
+export type BallKind = 'beach' | 'exercise' | 'yarn' | 'basketball';
 
 export interface BallDef {
   id: string;
@@ -14,6 +16,8 @@ export interface BallDef {
   restitution: number;
   density: number;
   damping: number;
+  /** Speed of a fully charged throw in m/s, when it isn't the usual. */
+  throwSpeed?: number;
 }
 
 const INK = '#1f1d2b';
@@ -22,14 +26,18 @@ const SPECS: Record<BallKind, Omit<BallDef, 'id' | 'start'>> = {
   beach: { kind: 'beach', r: 0.4, restitution: 0.8, density: 1.2, damping: 0.9 },
   exercise: { kind: 'exercise', r: 0.45, restitution: 0.7, density: 1.6, damping: 0.9 },
   yarn: { kind: 'yarn', r: 0.33, restitution: 0.35, density: 2.5, damping: 1.3 },
+  // Thrown softer than the others, so a charged shot from about 4 m has a usable window (tuned in a throw simulation).
+  basketball: { kind: 'basketball', r: HOOP.ball.r, restitution: 0.75, density: 60, damping: 0.5, throwSpeed: 8.5 },
 };
 
 const ball = (id: string, kind: BallKind, x: number, z: number): BallDef => ({ id, ...SPECS[kind], start: { x, y: SPECS[kind].r + 0.02, z } });
+// The basketball waits on the floor just in front of its hoop.
+const basketball = (floor: ToyFloor) => ball('basketball', 'basketball', hoopRim(floor).x, hoopRim(floor).z - 0.35);
 
 // Open floor space only: office floors use the break area south of the desks, the lobby its empty south-west corner.
 export const BALLS: Record<ToyFloor, BallDef[]> = {
-  office: [ball('beach-ball', 'beach', 6.6, 6.8), ball('exercise-ball', 'exercise', 9.8, 8.6), ball('yarn-ball', 'yarn', 12.2, 6.2)],
-  lobby: [ball('beach-ball', 'beach', -11, 5.6), ball('exercise-ball', 'exercise', -7.6, 8.2), ball('yarn-ball', 'yarn', -5.4, 4.4)],
+  office: [ball('beach-ball', 'beach', 6.6, 6.8), ball('exercise-ball', 'exercise', 9.8, 8.6), ball('yarn-ball', 'yarn', 12.2, 6.2), basketball('office')],
+  lobby: [ball('beach-ball', 'beach', -11, 5.6), ball('exercise-ball', 'exercise', -7.6, 8.2), ball('yarn-ball', 'yarn', -5.4, 4.4), basketball('lobby')],
 };
 
 /** Somewhere a ball should never be: outside the walls, in the elevator, through the floor or above the ceiling. */
@@ -75,6 +83,7 @@ const STRANDS: [number, number, number][] = [
 /** What a ball looks like, centred on its body's origin. */
 export function BallLook({ def }: { def: BallDef }) {
   const { r } = def;
+  if (def.kind === 'basketball') return <BasketballLook r={r} />;
   if (def.kind === 'beach') {
     return (
       <mesh castShadow material={toonMap('beach-ball', beachTexture())}>

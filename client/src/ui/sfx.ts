@@ -202,6 +202,13 @@ export function footstepsFollow(bobPhase: number, moving: boolean, running: bool
   stepCount = n;
 }
 
+/** A basket: the net's swish, then a small cheer. */
+export function swish() {
+  noise({ dur: 0.3, peak: 0.14, filter: 'bandpass', freq: 5200, to: 2600, q: 0.8, attack: 0.03 });
+  noise({ at: 0.18, dur: 0.9, peak: 0.05, filter: 'bandpass', freq: 900, to: 1500, q: 0.5, attack: 0.2 });
+  [784, 988, 1318.5].forEach((freq, i) => tone({ freq, type: 'triangle', at: 0.2 + i * 0.08, dur: 0.3, peak: 0.06 }));
+}
+
 // ---------- event cues ----------
 
 export type Cue = 'error' | 'qaFailed' | 'ready' | 'merged' | 'welcome';

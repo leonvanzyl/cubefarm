@@ -7,6 +7,7 @@ import { useInteractable } from '../interact';
 import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
+import { Hoop } from './Hoop';
 import { setToySource } from './probe';
 
 // Loaded lazily by ./index.tsx, so Rapier stays out of the main bundle.
@@ -230,7 +231,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       v.y = camera.position.y + tmp.y * THROW.aim - p.y;
       v.z = camera.position.z + tmp.z * THROW.aim - p.z;
       const len = Math.hypot(v.x, v.y, v.z) || 1;
-      const speed = THROW.lob + (THROW.hard - THROW.lob) * power;
+      const speed = THROW.lob + ((d.throwSpeed ?? THROW.hard) - THROW.lob) * power;
       v.x = (v.x / len) * speed + walk.x * THROW.walk;
       v.y = (v.y / len) * speed + THROW.lift + (THROW.hardLift - THROW.lift) * power;
       v.z = (v.z / len) * speed + walk.z * THROW.walk;
@@ -342,6 +343,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Building floor={floor} />
       <Pusher />
       <Balls floor={floor} />
+      <Hoop floor={floor} groups={BUILDING_GROUPS} />
     </Physics>
   );
 }
