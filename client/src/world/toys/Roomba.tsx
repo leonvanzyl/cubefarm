@@ -10,7 +10,7 @@ import type { ToyFloor } from './balls';
 import { onPoke } from './poke';
 import { setRoombaSource } from './probe';
 import { DOCK_SIZE, ROOMBA, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
-import { Vacuum } from './Vacuum';
+import { Vacuum } from './RoombaVacuum';
 
 // The floor's robot vacuum and its charging dock. roombaBrain.ts decides where it goes; this steers a kinematic
 // body there every physics step (so balls it bumps get nudged) and animates the brush and status light.

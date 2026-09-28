@@ -1,5 +1,5 @@
 // The roomba vacuuming foam darts: which floor darts it picks up, and a session count for window.__swarmToys.
-// Pure, so it can be tested (and light, since probe.ts loads it up front); Vacuum.tsx does the picking up.
+// Pure, so it can be tested (and light, since probe.ts loads it up front); RoombaVacuum.tsx does the picking up.
 
 import type { LooseDart } from './darts';
 import type { RoombaState } from './roombaBrain';
