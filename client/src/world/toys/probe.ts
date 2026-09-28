@@ -19,20 +19,33 @@ export interface ToysSnapshot {
   held: Held | null;
   /** Whether a throw is being charged right now. */
   charging: boolean;
+  /** This floor's basketball hoop: baskets scored here this session and the floor's best (kept across reloads). */
+  hoop: HoopScore | null;
 }
 
-type Source = () => Omit<ToysSnapshot, 'held' | 'charging'>;
+export interface HoopScore {
+  score: number;
+  best: number;
+}
+
+type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop'>;
 
 let source: Source | null = null;
+let hoop: (() => HoopScore) | null = null;
 
 /** The mounted toy world registers itself here; null when there is none (loading, failed, or between floors). */
 export function setToySource(s: Source | null) {
   source = s;
 }
 
+/** The mounted hoop registers its scoreboard here. */
+export function setHoopSource(s: (() => HoopScore) | null) {
+  hoop = s;
+}
+
 function snapshot(): ToysSnapshot {
   const { held, chargeAt } = useStore.getState();
-  const hands = { held, charging: chargeAt !== null };
+  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null };
   try {
     if (source) return { ...source(), ...hands };
   } catch {
