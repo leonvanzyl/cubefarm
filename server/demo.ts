@@ -446,18 +446,20 @@ export function createDemoBackend(): Backend {
  */
 const OFFICE_REPO = 'demo-co/pixel-todo';
 const DEMO_HEAD = `0ff1ce5${'0'.repeat(33)}`;
-const lastFakeUpdate = { commits: 0 };
+const lastFakeUpdate = { to: '', commits: 0 };
 const demoOffice: OfficeHost = {
   launcher: underLauncher() || process.env.SWARM_DEMO_LAUNCHER === '1',
   head: async () => DEMO_HEAD,
   isOwnFolder: (dir) => dir === `/demo/${OFFICE_REPO}/main`,
-  commitsBetween: async () => lastFakeUpdate.commits,
+  // Only its own fake updates have a count; one the real launcher did (u) gets no count rather than a wrong one.
+  commitsBetween: async (_from, to) => (to === lastFakeUpdate.to ? lastFakeUpdate.commits : null),
   takeLastUpdate: () => takeLastUpdate(HOME_DIR),
   async update(from) {
     await new Promise((r) => setTimeout(r, 4000));
     lastFakeUpdate.commits = mergedSinceSync.get(OFFICE_REPO) ?? 0;
     mergedSinceSync.set(OFFICE_REPO, 0);
-    return { from, to: fakeSha(), ok: true, installed: true, built: true, at: Date.now() };
+    lastFakeUpdate.to = fakeSha();
+    return { from, to: lastFakeUpdate.to, ok: true, installed: true, built: true, at: Date.now() };
   },
 };
 
