@@ -36,11 +36,13 @@ It ships on npm as `cubefarm` (`npx cubefarm`); it used to be called Office Swar
 | `npm run typecheck` | `tsc --noEmit` over client, server, shared and the configs |
 | `npm test` | Vitest, once (`npm run test:watch` to re-run on edits) |
 | `npm run build` | typecheck, `vite build` to `dist/`, then the server bundled into `dist-server/` (`scripts/build-server.mjs`) |
+| `npm run test:e2e` | Playwright (`e2e/`, `playwright.config.ts`): builds, boots a demo office on `E2E_PORT` (default 4399; set it to your reserved port) with a temp `SWARM_HOME`, and smoke-tests it in headless Chromium |
 | `node scripts/smoke-package.mjs` | after a build: packs the npm package, installs it into a temp folder and boots its demo |
 | `node --import tsx server/index.ts --demo` | a demo office (see SAFETY for the env it needs) |
 
 CI (`.github/workflows/ci.yml`): Node 24 on `ubuntu-latest` and `windows-latest`, `npm ci` → `typecheck` → `test` →
-`build` → package smoke test, for every PR and push to `main`, with a throwaway `SWARM_HOME` and `SWARM_PORT=0`. All three must pass locally
+`build` → package smoke test, for every PR and push to `main`, with a throwaway `SWARM_HOME` and `SWARM_PORT=0`; a separate `e2e`
+job on `ubuntu-latest` runs `npm run test:e2e`. All three must pass locally
 before you open a PR.
 
 ## Code map

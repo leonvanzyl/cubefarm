@@ -42,6 +42,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "prepublishOnly": "npm test && npm run build"
   },
   "dependencies": {
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@dimforge/rapier3d-compat": "0.19.2",
+    "@playwright/test": "1.56.1",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@react-three/rapier": "^2.2.0",
