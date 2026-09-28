@@ -102,6 +102,9 @@ export interface LooseDart {
   x: number;
   y: number;
   z: number;
+  /** Its foam colour, e.g. '#3a86ff', and its orientation, so something tidying it up can draw it. */
+  color: string;
+  q: { x: number; y: number; z: number; w: number };
 }
 
 /** Below this height (m) a loose dart counts as lying on the floor. */

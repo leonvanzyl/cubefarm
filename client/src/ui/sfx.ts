@@ -198,6 +198,19 @@ export function thwip() {
   tone({ freq: 520, to: 190, type: 'triangle', dur: 0.08, peak: 0.07, attack: 0.004 });
 }
 
+/** Someone hit by a toy: a soft, round "boop". */
+export function boop() {
+  tone({ freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008 });
+  tone({ freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004 });
+}
+
+/** The roomba sucking up a dart: a rising slurp of air with a little pop at the end. */
+export function slurp() {
+  noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05 });
+  tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03 });
+  noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002 });
+}
+
 /** One soft footstep: a muffled thud. */
 export function footstep(running = false) {
   noise({ dur: running ? 0.09 : 0.12, peak: running ? 0.07 : 0.045, freq: (running ? 700 : 480) * (0.9 + Math.random() * 0.2), q: 0.7 });

@@ -3,6 +3,8 @@
 
 import { useStore, type Held } from '../../store';
 import { dartCount, stuckDartCount } from './darts';
+import { reactionCount } from './hits';
+import { vacuumedCount } from './vacuum';
 
 export interface ToyBallState {
   id: string;
@@ -27,6 +29,9 @@ export interface ToysSnapshot {
   /** Foam darts on this floor (flying, loose and stuck), and how many of them are stuck to something. */
   darts: number;
   dartsStuck: number;
+  /** Times a seated person reacted to being hit by a ball or dart, and darts the roomba vacuumed, this session. */
+  reactions: number;
+  vacuumed: number;
 }
 
 export interface HoopScore {
@@ -45,7 +50,7 @@ export interface ToyRoombaState {
   spins: number;
 }
 
-type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop' | 'roomba' | 'darts' | 'dartsStuck'>;
+type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop' | 'roomba' | 'darts' | 'dartsStuck' | 'reactions' | 'vacuumed'>;
 
 let source: Source | null = null;
 let hoop: (() => HoopScore) | null = null;
@@ -74,7 +79,7 @@ function snapshot(): ToysSnapshot {
   } catch {
     // being torn down
   }
-  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null, roomba, darts: dartCount(), dartsStuck: stuckDartCount() };
+  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null, roomba, darts: dartCount(), dartsStuck: stuckDartCount(), reactions: reactionCount(), vacuumed: vacuumedCount() };
   try {
     if (source) return { ...source(), ...hands };
   } catch {

@@ -241,7 +241,7 @@ function Darts({ groups }: { groups: number }) {
           .filter((d) => d.state === 'loose')
           .map((d) => {
             const p = d.body.translation();
-            return { id: d.id, x: p.x, y: p.y, z: p.z };
+            return { id: d.id, x: p.x, y: p.y, z: p.z, color: `#${d.color.getHexString()}`, q: d.body.rotation() };
           }),
       remove: (id) => {
         const d = darts.current.find((x) => x.id === id);
@@ -294,7 +294,8 @@ function Darts({ groups }: { groups: number }) {
           .setGravityScale(DART.flightGravity)
           .setLinearDamping(0.05)
           .setAngularDamping(1.5)
-          .setCcdEnabled(true),
+          .setCcdEnabled(true)
+          .setUserData({ toy: 'dart' }), // how HitTargets tells a dart from other bodies
       );
       world.createCollider(
         rapier.ColliderDesc.capsule(DART.half, DART.r).setDensity(DART.density).setRestitution(0.35).setFriction(0.9).setCollisionGroups(groups),
