@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { CHARGE, chargePower } from '../world/toys/hands';
+import { BlasterHud } from './BlasterHud';
 
 /** The throw meter under the crosshair. Animates itself while charging; hidden during the first moments of a tap. */
 function ChargeMeter({ at }: { at: number }) {
@@ -30,6 +31,7 @@ export function HeldHint() {
   const held = useStore((s) => s.held);
   const chargeAt = useStore((s) => s.chargeAt);
   if (!held) return null;
+  if (held.kind === 'blaster') return <BlasterHud held={held} />;
   return (
     <>
       {chargeAt !== null && <ChargeMeter at={chargeAt} />}

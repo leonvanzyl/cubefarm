@@ -9,6 +9,8 @@ import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { footstepsFollow, getAudioPrefs, toggleMute } from '../ui/sfx';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
+import { isBlasterId } from './toys/darts';
+import { reloadHeld, takeBlaster } from './toys/gun';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -45,6 +47,10 @@ const lookDiag = { dropped: 0, skipped: 0 };
 export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   const s = useStore.getState();
   quietUntil = performance.now() + QUIET_MS;
+  if (focus.action.kind === 'pickup' && isBlasterId(focus.action.toyId)) {
+    takeBlaster(focus.action.toyId);
+    return;
+  }
   if (focus.action.kind === 'pickup') {
     s.setHeld({ kind: 'ball', id: focus.action.toyId }); // already holding one? the toy world swaps them
     return;
@@ -164,6 +170,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (e.code === 'KeyE' && !e.repeat && s.focus) runFocusAction(s.focus);
       if (e.code === 'KeyF' && !e.repeat && !s.travel) startCharge();
       if (e.code === 'KeyG' && !e.repeat) dropHeld();
+      if (e.code === 'KeyR' && !e.repeat && !s.travel) reloadHeld();
       if (e.code === 'KeyH') s.openOverlay({ kind: 'help' });
       if (e.code === 'KeyP') {
         e.preventDefault(); // don't type the "p" into the phone's message box

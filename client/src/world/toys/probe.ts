@@ -2,6 +2,7 @@
 // Each read returns a fresh snapshot. Later toys (hoop score, darts, roomba) add fields here.
 
 import { useStore, type Held } from '../../store';
+import { dartCount, stuckDartCount } from './darts';
 
 export interface ToyBallState {
   id: string;
@@ -19,9 +20,12 @@ export interface ToysSnapshot {
   held: Held | null;
   /** Whether a throw is being charged right now. */
   charging: boolean;
+  /** Foam darts on this floor (flying, loose and stuck), and how many of them are stuck to something. */
+  darts: number;
+  dartsStuck: number;
 }
 
-type Source = () => Omit<ToysSnapshot, 'held' | 'charging'>;
+type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'darts' | 'dartsStuck'>;
 
 let source: Source | null = null;
 
@@ -32,7 +36,7 @@ export function setToySource(s: Source | null) {
 
 function snapshot(): ToysSnapshot {
   const { held, chargeAt } = useStore.getState();
-  const hands = { held, charging: chargeAt !== null };
+  const hands = { held, charging: chargeAt !== null, darts: dartCount(), dartsStuck: stuckDartCount() };
   try {
     if (source) return { ...source(), ...hands };
   } catch {

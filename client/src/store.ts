@@ -25,7 +25,10 @@ export interface Focus {
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
-export type Held = { kind: 'ball'; id: string };
+export type Held =
+  | { kind: 'ball'; id: string }
+  /** A foam blaster: darts left in the magazine, and performance.now() when a reload started (null when not reloading). */
+  | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null };
 
 export interface Toast {
   id: number;
