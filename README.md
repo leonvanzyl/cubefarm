@@ -75,6 +75,8 @@ npx cubefarm@latest
 
 Prefer a permanent install? Run `npm install -g cubefarm`, then start it with `cubefarm`.
 
+Running it from a clone of this repo (`npm start`)? Then the office updates itself from GitHub once its agents are done: see [Updating the office](docs/how-it-works.md#updating-the-office).
+
 ## Good to know
 
 - **It runs on your Claude subscription.** Every agent draws on the same usage limits. To cap how many work at once, set a session limit in the manager's console.
