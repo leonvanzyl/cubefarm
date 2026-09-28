@@ -174,6 +174,13 @@ export function chirp() {
   [1046.5, 1568].forEach((freq, i) => tone({ freq, type: 'triangle', at: i * 0.11, dur: 0.18, peak: 0.12 }));
 }
 
+/** The roomba's happy chirp: a quick rising warble and a bright little "boop". */
+export function roombaChirp() {
+  tone({ freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035 });
+  tone({ freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08 });
+  tone({ freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07 });
+}
+
 /** The elevator "ding": two soft sine tones. */
 export function ding() {
   [880, 1318.5].forEach((freq, i) => tone({ freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02 }));
