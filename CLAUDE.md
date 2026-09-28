@@ -66,6 +66,8 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation.
 - `previewRunner.ts`: checks out, installs and runs a floor's app in its preview worktree; kills the process tree.
 - `httpError.ts`: `HttpError(status, message)`.
+- `officeUpdate.ts`: the office's self-update: the drain decision, the launcher contract (IPC, `last-update.json`).
+- `pacing.ts`: pacing new work after Claude's usage warnings: the start/skip decision and the usage state.
 
 The `cubefarm` command (`bin/cubefarm.js`, plain JS): checks Node/git/gh/Claude login, starts `dist-server/index.js`,
 opens the browser; `login` and `doctor` subcommands.

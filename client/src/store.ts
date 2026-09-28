@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { chirp, cue } from './ui/sfx';
 
@@ -53,6 +53,7 @@ interface State {
   phoneReadAt: number;
   officeCommit?: string | null; // undefined: the server can't update itself
   officeUpdate?: OfficeUpdateView;
+  usage: UsageView; // Claude's subscription usage: normal, pacing after a warning, or paused at the limit
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -134,6 +135,7 @@ export const useStore = create<State>((set, get) => ({
     projectsDir: '',
     setupDone: true,
     tutorialStep: -1,
+    pacingSessions: 3,
   },
   repos: [],
   agents: {},
@@ -144,6 +146,7 @@ export const useStore = create<State>((set, get) => ({
   ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null },
   messages: [],
   phoneReadAt: 0,
+  usage: { state: 'normal', until: null },
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -194,6 +197,7 @@ export const useStore = create<State>((set, get) => ({
           phoneReadAt: d.phoneReadAt,
           officeCommit: d.officeCommit,
           officeUpdate: d.officeUpdate,
+          usage: d.usage,
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -287,6 +291,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'officeUpdate':
         set({ officeUpdate: ev.officeUpdate });
+        break;
+      case 'usage':
+        set({ usage: ev.usage });
         break;
     }
   },

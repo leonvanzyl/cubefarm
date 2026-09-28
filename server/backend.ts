@@ -2,6 +2,7 @@ import * as github from './github.ts';
 import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { realPreviews, type PreviewBackend } from './previewRunner.ts';
+import { realOffice, type OfficeHost } from './officeUpdate.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
 /** Everything the swarm needs from the outside world. The demo backend fakes all of it. */
@@ -13,6 +14,9 @@ export interface Backend {
   listIssues(fullName: string): Promise<IssueInfo[]>;
   listPulls(fullName: string): Promise<PullInfo[]>;
   createIssue(fullName: string, title: string, body: string, labels?: string[]): Promise<number>;
+  /** OPEN or CLOSED; null when there is no such issue. */
+  issueState(fullName: string, number: number): Promise<'OPEN' | 'CLOSED' | null>;
+  editIssue(fullName: string, number: number, edit: { body?: string; addLabels?: string[]; removeLabels?: string[] }): Promise<void>;
   mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void>;
   updateBranch(fullName: string, number: number): Promise<void>;
   closePull(fullName: string, number: number): Promise<void>;
@@ -22,8 +26,8 @@ export interface Backend {
   commentPull(fullName: string, number: number, body: string): Promise<string>;
   uploadEvidence(fullName: string, filePath: string, data: Buffer): Promise<string>;
   ensureClone(fullName: string): Promise<void>;
-  /** Fast-forward the floor's main checkout to GitHub when that is safe; returns its status. */
-  syncMain(fullName: string, defaultBranch: string, opts: { touch: boolean }): Promise<string | null>;
+  /** Fast-forward the floor's main checkout to GitHub when that is safe; returns how it stands. */
+  syncMain(fullName: string, defaultBranch: string, opts: { touch: boolean }): Promise<workspace.MainSync | null>;
   /** Point a floor at the user's own project folder (null: a clone the office manages). */
   setLocalPath(fullName: string, dir: string | null): void;
   scanProjects(root: string): Promise<workspace.LocalFolder[]>;
@@ -39,6 +43,8 @@ export interface Backend {
   startSession(opts: SessionOptions, cb: SessionCallbacks, defaultBranch: string): SessionHandle;
   /** Run a floor's app for the preview monitor (its own worktree, its own port). */
   previews: PreviewBackend;
+  /** The running office's own folder and its launcher, for the office's self-update. */
+  office: OfficeHost;
 }
 
 export const realBackend: Backend = {
@@ -49,6 +55,8 @@ export const realBackend: Backend = {
   listIssues: github.listIssues,
   listPulls: github.listPulls,
   createIssue: github.createIssue,
+  issueState: github.issueState,
+  editIssue: github.editIssue,
   mergePull: github.mergePull,
   updateBranch: github.updateBranch,
   closePull: github.closePull,
@@ -71,4 +79,5 @@ export const realBackend: Backend = {
   releaseDesk: workspace.releaseDesk,
   startSession,
   previews: realPreviews,
+  office: realOffice,
 };

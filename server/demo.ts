@@ -6,6 +6,8 @@ import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
+import { HOME_DIR } from './config.ts';
+import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
 // dev → QA → fix loop) can be explored without spending any usage or touching real repos.
@@ -28,6 +30,7 @@ const repos = new Map<string, FakeRepo>();
 /** Repos made in the demo (new projects, published folders): empty, so no package.json for the preview to fall back on. */
 const bareRepos = new Set<string>();
 const mergedSinceSync = new Map<string, number>(); // merges the fake project folder hasn't pulled yet
+const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by a merge
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
@@ -284,6 +287,20 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
   };
 }
 
+// Claude's usage warning, faked once so the office can be seen pacing new work: the 4th session gets it, and the
+// window "resets" 5 minutes later.
+const USAGE_WARNING_AT = 4;
+const USAGE_WARNING_MS = 5 * 60_000;
+let sessionsStarted = 0;
+
+function fakeUsageWarning(cb: SessionCallbacks) {
+  setTimeout(() => {
+    const resetsAt = Date.now() + USAGE_WARNING_MS;
+    cb.log([{ kind: 'error', text: `⚠ Subscription usage warning (five_hour) · resets ${new Date(resetsAt).toLocaleTimeString()} (demo)` }]);
+    cb.usageWarning?.({ resetsAt, rateLimitType: 'five_hour', utilization: 0.82 });
+  }, 3000);
+}
+
 export function createDemoBackend(): Backend {
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
@@ -338,6 +355,16 @@ export function createDemoBackend(): Backend {
       r.issues.push(issue(n, title, body, fullName, labels));
       return n;
     },
+    issueState: async (fullName, number) => {
+      const r = repos.get(fullName);
+      return r?.issues.some((i) => i.number === number) ? 'OPEN' : closedIssues.has(`${fullName}#${number}`) ? 'CLOSED' : null;
+    },
+    editIssue: async (fullName, number, edit) => {
+      const i = repos.get(fullName)?.issues.find((x) => x.number === number);
+      if (!i) throw new Error(`Unknown issue #${number}`);
+      if (edit.body !== undefined) i.body = edit.body;
+      i.labels = [...i.labels.filter((l) => !edit.removeLabels?.includes(l)), ...(edit.addLabels ?? []).filter((l) => !i.labels.includes(l))];
+    },
     mergePull: async (fullName, number, _method, headSha) => {
       const r = repos.get(fullName);
       const pr = r?.pulls.find((p) => p.number === number);
@@ -346,6 +373,7 @@ export function createDemoBackend(): Backend {
       mergedSinceSync.set(fullName, (mergedSinceSync.get(fullName) ?? 0) + 1);
       pr.state = 'MERGED';
       pr.mergedAt = now();
+      for (const n of pr.closesIssues) closedIssues.add(`${fullName}#${n}`);
       r.issues = r.issues.filter((i) => !pr.closesIssues.includes(i.number));
     },
     updateBranch: async (fullName, number) => {
@@ -385,10 +413,10 @@ export function createDemoBackend(): Backend {
     ensureClone: async () => new Promise((r) => setTimeout(r, 400)),
     syncMain: async (fullName, _branch, { touch }) => {
       const behind = mergedSinceSync.get(fullName) ?? 0;
-      if (behind === 0) return 'in sync';
-      if (!touch) return `update ready (${behind} commit${behind === 1 ? '' : 's'})`;
+      if (behind === 0) return { status: 'in sync', behind: 0, updatable: false };
+      if (!touch) return { status: `update ready (${behind} commit${behind === 1 ? '' : 's'})`, behind, updatable: true };
       mergedSinceSync.set(fullName, 0);
-      return `updated to ${fakeSha().slice(0, 7)}`;
+      return { status: `updated to ${fakeSha().slice(0, 7)}`, behind: 0, updatable: false };
     },
     mainDir: (fullName) => `/demo/${fullName}/main`,
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
@@ -400,10 +428,38 @@ export function createDemoBackend(): Backend {
     },
     removeDesk: async () => undefined,
     releaseDesk: async () => undefined,
-    startSession: (opts, cb) => (opts.role === 'ceo' ? ceoSession(opts, cb) : fakeSession(opts, cb, deskRepo.get(opts.cwd) ?? [...repos.keys()][0])),
+    startSession: (opts, cb) => {
+      if (++sessionsStarted === USAGE_WARNING_AT) fakeUsageWarning(cb);
+      return opts.role === 'ceo' ? ceoSession(opts, cb) : fakeSession(opts, cb, deskRepo.get(opts.cwd) ?? [...repos.keys()][0]);
+    },
     previews: demoPreviews,
+    office: demoOffice,
   };
 }
+
+// ---------- the office's own update ----------
+
+/**
+ * Floor 1's folder plays the office's own folder, so merges there make an update ready. There is a launcher when
+ * the real one started the demo, or with SWARM_DEMO_LAUNCHER=1; either way the update is faked: a short pause, then
+ * the result message, and nothing restarts.
+ */
+const OFFICE_REPO = 'demo-co/pixel-todo';
+const DEMO_HEAD = `0ff1ce5${'0'.repeat(33)}`;
+const lastFakeUpdate = { commits: 0 };
+const demoOffice: OfficeHost = {
+  launcher: underLauncher() || process.env.SWARM_DEMO_LAUNCHER === '1',
+  head: async () => DEMO_HEAD,
+  isOwnFolder: (dir) => dir === `/demo/${OFFICE_REPO}/main`,
+  commitsBetween: async () => lastFakeUpdate.commits,
+  takeLastUpdate: () => takeLastUpdate(HOME_DIR),
+  async update(from) {
+    await new Promise((r) => setTimeout(r, 4000));
+    lastFakeUpdate.commits = mergedSinceSync.get(OFFICE_REPO) ?? 0;
+    mergedSinceSync.set(OFFICE_REPO, 0);
+    return { from, to: fakeSha(), ok: true, installed: true, built: true, at: Date.now() };
+  },
+};
 
 // ---------- the demo preview ----------
 
@@ -706,6 +762,14 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
           await use('propose_let_go', { agent_id: idle[idle.length - 1].id, reason: `Floor ${f.floor} has ${devs} developers for ${f.backlog.length} open issues; ${idle.length} of them are idle.` });
           return `Floor ${f.floor} is overstaffed: ${devs} developers for ${f.backlog.length} open issues. I suggest letting ${idle[idle.length - 1].name} go; it's on your phone.`;
         }
+      }
+      // An issue nobody routed while the floor has a specialist: re-route it rather than file a duplicate.
+      for (const f of s.floors) {
+        const specialist = f.team.find((a) => a.role === 'dev' && a.specialty);
+        const unrouted = (f.backlog as { number: number; specialty: string | null; inProgress: boolean }[]).find((i) => !i.specialty && !i.inProgress);
+        if (!specialist || !unrouted) continue;
+        const out = await use('route_issue', { floor: f.floor, number: unrouted.number, specialty: specialist.specialty });
+        if (!out.startsWith('Refused')) return `Floor ${f.floor}: #${unrouted.number} had no specialty, so I routed it to ${specialist.specialty}, ${specialist.name}'s lane.`;
       }
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const prs = s.floors.reduce((n, f) => n + f.pullRequests.length, 0);

@@ -638,6 +638,18 @@ function SettingsTab() {
           Leave empty so every agent with work runs at once. They all share your Claude subscription's usage limits, and each one is its own Claude Code process on this PC, so set a limit if you hit
           either.
         </p>
+        <label className="field">
+          <span>Sessions while pacing</span>
+          <input
+            key={settings.pacingSessions}
+            type="number"
+            min={1}
+            max={32}
+            defaultValue={settings.pacingSessions}
+            onBlur={(e) => Number(e.target.value) !== settings.pacingSessions && set({ pacingSessions: Number(e.target.value) || 3 })}
+          />
+        </label>
+        <p className="muted small">When Claude warns that usage is getting high, new issues only start while fewer sessions than this are running. QA, fixes and the CEO carry on.</p>
         <h3>🧠 The CEO</h3>
         <label className="toggle block">
           <input type="radio" checked={settings.hiring === 'approve'} onChange={() => set({ hiring: 'approve' })} />

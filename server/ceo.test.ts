@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
-import { createOfficeTools, jobLabel, specialtyLabel, specialtySlug, type CeoJob } from './ceo.ts';
+import { createOfficeTools, IssueCap, jobLabel, planRoute, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
 
 describe('specialtySlug', () => {
   it('turns a specialty into a lowercase slug', () => {
@@ -78,6 +78,7 @@ describe('office tools', () => {
       proposeHire: () => '',
       proposeLetGo: () => '',
       fileIssue: async () => '',
+      routeIssue: async () => '',
     });
     const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
     await office.server.instance.connect(serverSide);
@@ -89,12 +90,102 @@ describe('office tools', () => {
   it('lists every tool the CEO relies on', async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['agent_detail', 'company_status', 'file_issue', 'propose_hire', 'propose_let_go', 'set_floor_profile', 'update_job']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['agent_detail', 'company_status', 'file_issue', 'propose_hire', 'propose_let_go', 'route_issue', 'set_floor_profile', 'update_job']);
   });
 
   it('still takes preview_env as a map of strings', async () => {
     const { client, floors } = await connect();
     await client.callTool({ name: 'set_floor_profile', arguments: { floor: 1, preview_env: { VITE_API: 'http://localhost:{port}' } } });
     expect(floors).toEqual([{ floor: 1, preview_env: { VITE_API: 'http://localhost:{port}' } }]);
+  });
+});
+
+describe('planRoute (route_issue)', () => {
+  // #1 ← #2 ← #3 is a two-step chain; #5 waits for #4; #9 is closed.
+  const base: RouteRequest = {
+    floor: 1,
+    number: 4,
+    issues: [
+      { number: 1, body: 'Set up the skeleton', labels: ['swarm:frontend'] },
+      { number: 2, body: 'Depends on #1', labels: [] },
+      { number: 3, body: 'Depends on #2\n\nThe rest', labels: [] },
+      { number: 4, body: 'Some text', labels: ['swarm:backend', 'bug'] },
+      { number: 5, body: 'Intro\n\nDepends on #4\n\nMore', labels: [] },
+      { number: 6, body: 'Free', labels: [] },
+    ],
+    closed: (n) => n === 9,
+    inProgress: false,
+    specialties: ['frontend', 'backend'],
+  };
+  const route = (over: Partial<RouteRequest>) => planRoute({ ...base, ...over });
+
+  it('re-routes to a specialty on the floor, dropping the old swarm label only', () => {
+    expect(route({ specialty: 'Frontend' })).toEqual({ addLabels: ['swarm:frontend'], removeLabels: ['swarm:backend'], body: null, summary: '#4 on floor 1: routed to frontend.' });
+    expect(route({ specialty: '' })).toMatchObject({ addLabels: [], removeLabels: ['swarm:backend'], summary: '#4 on floor 1: no specialty.' });
+  });
+
+  it('refuses a specialty nobody on the floor or in a pending proposal has', () => {
+    expect(() => route({ specialty: 'wizardry' })).toThrow('Nobody on floor 1 has the specialty "wizardry", and no pending proposal does. Specialties there: frontend, backend.');
+    expect(() => route({ specialty: '!!!' })).toThrow(/is not a specialty/);
+  });
+
+  it('rewrites the Depends on line and leaves the rest of the body alone', () => {
+    expect(route({ number: 5, dependsOn: [6] }).body).toBe('Depends on #6\n\nIntro\n\nMore');
+    expect(route({ number: 5, dependsOn: [] }).body).toBe('Intro\n\nMore');
+    expect(route({ number: 6, dependsOn: [1, 4] })).toMatchObject({ body: 'Depends on #1, #4\n\nFree', summary: '#6 on floor 1: depends on #1, #4.' });
+  });
+
+  it('refuses a closed or unknown issue', () => {
+    expect(() => route({ number: 9, specialty: 'frontend' })).toThrow('#9 is closed.');
+    expect(() => route({ number: 42, specialty: 'frontend' })).toThrow('There is no open issue #42 on floor 1.');
+  });
+
+  it('refuses dependencies on itself, on closed and on unknown issues', () => {
+    expect(() => route({ dependsOn: [4] })).toThrow("#4 can't depend on itself.");
+    expect(() => route({ dependsOn: [9] })).toThrow("#9 is closed, so there's nothing to wait for.");
+    expect(() => route({ dependsOn: [42] })).toThrow('There is no open issue #42 on floor 1.');
+  });
+
+  it('refuses a cycle', () => {
+    expect(() => route({ number: 1, dependsOn: [3] })).toThrow('#3 already waits for #1, directly or through other issues, so that would be a cycle.');
+    expect(() => route({ number: 4, dependsOn: [5] })).toThrow(/#5 already waits for #4/);
+  });
+
+  it('refuses a chain deeper than two steps', () => {
+    expect(() => route({ number: 1, dependsOn: [6] })).toThrow('That makes a dependency chain 3 steps deep through #1.');
+    expect(() => route({ number: 6, dependsOn: [3] })).toThrow(/3 steps deep/);
+    expect(route({ number: 6, dependsOn: [2] }).body).toBe('Depends on #2\n\nFree');
+  });
+
+  it('keeps the specialty but not the dependencies of an issue in progress', () => {
+    expect(() => route({ inProgress: true, dependsOn: [] })).toThrow("#4 is already in progress, so its dependencies can't change. Changing its specialty is fine.");
+    expect(route({ inProgress: true, specialty: 'frontend' }).addLabels).toEqual(['swarm:frontend']);
+  });
+
+  it('needs something to change', () => {
+    expect(() => route({})).toThrow(/Nothing to change/);
+  });
+});
+
+describe('IssueCap', () => {
+  it('refuses the 13th issue and says the next manager message allows more', () => {
+    const cap = new IssueCap(12);
+    for (let i = 0; i < 12; i++) {
+      cap.check();
+      cap.record('a/b');
+    }
+    expect(() => cap.check()).toThrow("You already filed 12 issues in this job. That's plenty for one milestone. The manager's next message allows more.");
+  });
+
+  it('resets when a manager message arrives, and still counts the whole job', () => {
+    const cap = new IssueCap(2);
+    cap.record('a/b');
+    cap.record('c/d');
+    expect(() => cap.check()).toThrow();
+    cap.managerMessage();
+    expect(() => cap.check()).not.toThrow();
+    cap.record('a/b');
+    expect(cap.total).toBe(3);
+    expect([...cap.repos]).toEqual(['a/b', 'c/d']);
   });
 });

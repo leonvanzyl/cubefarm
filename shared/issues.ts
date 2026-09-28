@@ -15,6 +15,33 @@ export function blockers(body: string, open: Set<number>) {
   return [...out];
 }
 
+const DEPENDENCY = /\b(?:depends\s+on|blocked\s+by)\s*:?\s*(?:#\d+(?:\s*(?:,|and|&)\s*)?)+/gi;
+const STATEMENT = new RegExp(`\\s*${DEPENDENCY.source}[.;,]?`, 'gi'); // with the space before it and a full stop after
+
+/**
+ * An issue body with its "Depends on #N" / "Blocked by #N" statements replaced by one "Depends on #a, #b" line at the
+ * top ([] removes them). A line that only said that goes; the rest of the body is left alone.
+ */
+export function setDependsOn(body: string, deps: number[]) {
+  const lines: string[] = [];
+  let dropped = false;
+  for (const line of (body ?? '').split(/\r?\n/)) {
+    const rest = line.match(DEPENDENCY) ? line.replace(STATEMENT, '').trimEnd() : line;
+    if (rest !== line && !/[\p{L}\p{N}]/u.test(rest)) {
+      dropped = true;
+      continue;
+    }
+    // A dropped line between two paragraphs doesn't leave a double gap.
+    if (dropped && !rest.trim() && !lines[lines.length - 1]?.trim()) continue;
+    dropped = false;
+    lines.push(rest);
+  }
+  while (lines.length && !lines[0].trim()) lines.shift();
+  const rest = lines.join('\n');
+  if (deps.length === 0) return rest;
+  return `Depends on ${deps.map((n) => `#${n}`).join(', ')}${rest ? `\n\n${rest}` : ''}`;
+}
+
 /**
  * How much of the backlog each open issue holds up: the longest chain of open issues waiting on it (`chain`) and how
  * many wait on it directly or indirectly (`waiting`). Starting the issues with the most behind them first lets the
