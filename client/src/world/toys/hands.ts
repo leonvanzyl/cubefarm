@@ -1,5 +1,6 @@
 import { useStore } from '../../store';
 import { noise } from '../../ui/sfx';
+import { pullTrigger } from './gun';
 
 // The player's hands. store.held says what is being carried; input (Player.tsx) charges and throws here,
 // and the toy world picks the throw up on its next physics step.
@@ -18,6 +19,7 @@ let pending: { id: string; power: number; at: number } | null = null;
 /** Start winding up a throw (left mouse or F went down). */
 export function startCharge() {
   const s = useStore.getState();
+  if (s.held?.kind === 'blaster') return pullTrigger(); // a blaster fires on the press; there's nothing to charge
   if (s.held && s.chargeAt === null) s.setCharge(performance.now());
 }
 

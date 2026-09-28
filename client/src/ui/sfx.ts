@@ -192,6 +192,12 @@ export function whoosh(dur = 0.75) {
   tone({ freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4 });
 }
 
+/** A foam blaster's "thwip": a puff of air through the barrel with a springy little pop. */
+export function thwip() {
+  noise({ dur: 0.09, peak: 0.1, filter: 'bandpass', freq: 2600, to: 900, q: 1.4, attack: 0.003 });
+  tone({ freq: 520, to: 190, type: 'triangle', dur: 0.08, peak: 0.07, attack: 0.004 });
+}
+
 /** One soft footstep: a muffled thud. */
 export function footstep(running = false) {
   noise({ dur: running ? 0.09 : 0.12, peak: running ? 0.07 : 0.045, freq: (running ? 700 : 480) * (0.9 + Math.random() * 0.2), q: 0.7 });

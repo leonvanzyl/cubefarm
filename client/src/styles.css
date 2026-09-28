@@ -462,6 +462,49 @@ input.inline:focus {
 .charge-full .charge-fill {
   background: #ff8a5b;
 }
+/* Foam blaster ammo, bottom right above the phone, next to where the blaster sits in view. */
+.hud-ammo {
+  position: absolute;
+  right: 16px;
+  bottom: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px 14px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 0 4px 0 var(--ink);
+  font-weight: 700;
+  pointer-events: none;
+}
+.hud-ammo-count {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.hud-ammo-empty .hud-ammo-count {
+  color: #ef476f;
+}
+.hud-ammo-note {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.hud-ammo-bar {
+  width: 100%;
+  min-width: 110px;
+  height: 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.hud-ammo-fill {
+  height: 100%;
+  background: #ffd166;
+  transform: scaleX(0);
+  transform-origin: left;
+}
 .hud-resume {
   position: absolute;
   top: calc(50% + 26px);

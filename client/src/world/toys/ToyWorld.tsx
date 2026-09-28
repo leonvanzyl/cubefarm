@@ -6,6 +6,7 @@ import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
+import { Blasters } from './Blasters';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { Hoop } from './Hoop';
 import { setToySource } from './probe';
@@ -348,6 +349,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Balls floor={floor} />
       <Hoop floor={floor} groups={BUILDING_GROUPS} />
       <Roomba floor={floor} groups={ROOMBA_GROUPS} dockGroups={BUILDING_GROUPS} />
+      <Blasters floor={floor} groups={HELD_GROUPS} />
     </Physics>
   );
 }

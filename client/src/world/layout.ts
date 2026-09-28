@@ -69,6 +69,11 @@ export const BOARD = { w: 12, h: 3.0, y: 0.45, z: -HALF_D + 0.06 };
 // sticks out from the wall.
 export const APP_SCREEN = { x: -13.7, y: 2.25, w: 3.2, h: 1.8, bezel: 0.09, depth: 0.12 };
 
+// The foam blaster rack stands against the south wall: on office floors west of the floor sign near the couch,
+// in the lobby in the south-west corner (clear of the basketball hoop further east). d is how far it sticks out.
+export const BLASTER_RACK = { officeX: -10, lobbyX: -12.9, w: 1.3, d: 0.3, h: 1.85 };
+export const blasterRack = (x: number): Rect => rect(x, HALF_D - BLASTER_RACK.d / 2, BLASTER_RACK.w, BLASTER_RACK.d, BLASTER_RACK.h);
+
 // The QA lab: test stations along the east wall. Testers face the wall, with their backs to the room.
 export const QA_LAB = { x: HALF_W - 2.0, stations: [-5.2, -2.0, 1.2] };
 export const QA_ROTATION = -Math.PI / 2;
@@ -90,6 +95,7 @@ export function officeColliders(): Rect[] {
   out.push(rect(a.x, -HALF_D + a.depth / 2, a.w + a.bezel * 2, a.depth, a.y + a.h / 2 + a.bezel)); // app monitor, up to its top bezel
   out.push(rect(-HALF_W + 0.9, 6.5, 1.1, 3.2, SOLID_H.couch)); // couch
   out.push(rect(-HALF_W + 2.6, 6.5, 0.9, 1.4, SOLID_H.coffeeTable)); // coffee table
+  out.push(blasterRack(BLASTER_RACK.officeX));
   out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5, SOLID_H.kitchen)); // kitchenette counter + fridge
   out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7, SOLID_H.cooler)); // water cooler
   return out;
@@ -124,6 +130,7 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z, MANAGER_DESK.w, MANAGER_DESK.d, SOLID_H.desk));
   out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z - 1.1, 0.8, 0.8, SOLID_H.seated)); // manager chair
   out.push(rect(-HALF_W + 0.4, -8, 0.8, 5, SOLID_H.bookshelf)); // bookshelf
+  out.push(blasterRack(BLASTER_RACK.lobbyX));
   out.push(rect(RECEPTION.x, RECEPTION.z, RECEPTION.w, RECEPTION.d, SOLID_H.reception));
   out.push(rect(11.5, 4, 3.2, 1, SOLID_H.couch)); // sofa
   out.push(rect(11.5, 6.2, 1.6, 0.9, SOLID_H.coffeeTable)); // table
