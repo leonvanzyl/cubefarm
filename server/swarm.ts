@@ -6,7 +6,7 @@ import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
-import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, jobLabel, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, IssueCap, jobLabel, planRoute, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { HttpError } from './httpError.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
@@ -367,9 +367,10 @@ export class Swarm {
       proposeHire: (a) => this.proposeHire(a),
       proposeLetGo: (a) => this.proposeLetGo(a),
       fileIssue: (a) => this.fileIssue(a),
+      routeIssue: (a) => this.routeIssue(a),
     });
   }
-  private ceoIssues = { filed: 0, repos: new Set<string>() }; // issues filed during the current CEO job
+  private ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB); // issues filed during the current CEO job
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
   private repoRt = new Map<string, RepoRuntime>();
@@ -2472,7 +2473,7 @@ export class Swarm {
       this.state.ceo.lastReviewAt = Date.now();
       this.state.ceo.lastFingerprint = this.fingerprint();
     }
-    this.ceoIssues = { filed: 0, repos: new Set() };
+    this.ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB);
     this.emitAgent(a);
     this.emitCeo();
     this.save();
@@ -2548,7 +2549,7 @@ export class Swarm {
       this.postMessage('office', `⚠️ ${a.name} hit a problem while ${what}: ${a.lastError.slice(0, 240)}`);
     } else {
       a.status = 'done';
-      const filed = this.ceoIssues.filed ? ` · ${this.ceoIssues.filed} issue${this.ceoIssues.filed === 1 ? '' : 's'} filed` : '';
+      const filed = this.ceoIssues.total ? ` · ${this.ceoIssues.total} issue${this.ceoIssues.total === 1 ? '' : 's'} filed` : '';
       this.appendLog(a, [{ kind: 'done', text: `✔ Done in ${this.minutes(a)}m · ${a.turns} turns${filed}` }]);
     }
     for (const id of this.ceoIssues.repos) void this.syncRepo(id);
@@ -2567,6 +2568,7 @@ export class Swarm {
     const rt = this.agentRt.get(a.id)!;
     if (rt.session) {
       this.appendLog(a, [{ kind: 'manager', text: `▶ Manager: ${t}` }]);
+      this.ceoIssues.managerMessage(); // a new request: the issue cap counts from here
       rt.session.send(`Message from the manager (they read your reply on their phone, so keep it short):\n${t}`);
       return;
     }
@@ -2963,14 +2965,40 @@ export class Swarm {
 
   private async fileIssue(x: { floor: number; title: string; body: string; specialty?: string }) {
     const repo = this.floorRepo(x.floor);
-    if (this.ceoIssues.filed >= MAX_ISSUES_PER_JOB) throw new Error(`You already filed ${MAX_ISSUES_PER_JOB} issues in this job. That's plenty for one milestone.`);
+    this.ceoIssues.check();
     const title = String(x.title ?? '').trim().slice(0, 120);
     if (!title) throw new Error('An issue needs a title.');
     const slug = specialtySlug(x.specialty);
     const body = `${String(x.body ?? '').trim()}\n\n---\n_Filed by ${this.ceo().name}, the cubefarm CEO._`;
     const n = await this.backend.createIssue(repo.fullName, title, body, slug ? [specialtyLabel(slug)] : []);
-    this.ceoIssues.filed++;
-    this.ceoIssues.repos.add(repo.id);
+    this.ceoIssues.record(repo.id);
     return `Filed #${n} on floor ${repo.floor}: ${title}${slug ? ` (routed to ${slug})` : ''}.`;
+  }
+
+  /** Change an open issue's specialty and/or dependencies (see planRoute for what is refused). */
+  private async routeIssue(x: { floor: number; number: number; specialty?: string; depends_on?: number[] }) {
+    const repo = this.floorRepo(x.floor);
+    const issues = this.repoRt.get(repo.id)?.issues ?? [];
+    const asked = [Number(x.number), ...(x.depends_on ?? []).map(Number)].filter((n) => !issues.some((i) => i.number === n));
+    const states = new Map(await Promise.all([...new Set(asked)].map(async (n) => [n, await this.backend.issueState(repo.fullName, n).catch(() => null)] as const)));
+    const specialties = [
+      ...this.state.agents.filter((a) => a.repoId === repo.id && a.specialty).map((a) => a.specialty.toLowerCase()),
+      ...this.state.requests.filter((r) => r.status === 'pending' && r.kind === 'hire' && r.repoId === repo.id && r.specialty).map((r) => r.specialty),
+    ];
+    const plan = planRoute({
+      floor: repo.floor,
+      number: Number(x.number),
+      specialty: x.specialty,
+      dependsOn: x.depends_on,
+      issues,
+      closed: (n) => states.get(n) === 'CLOSED',
+      inProgress: this.issueTaken(repo, Number(x.number)),
+      specialties,
+    });
+    if (plan.body !== null || plan.addLabels.length || plan.removeLabels.length) {
+      await this.backend.editIssue(repo.fullName, Number(x.number), { body: plan.body ?? undefined, addLabels: plan.addLabels, removeLabels: plan.removeLabels });
+      await this.syncRepo(repo.id); // the scheduler sees the new routing right away
+    }
+    return plan.summary;
   }
 }

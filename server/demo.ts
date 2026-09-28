@@ -30,6 +30,7 @@ const repos = new Map<string, FakeRepo>();
 /** Repos made in the demo (new projects, published folders): empty, so no package.json for the preview to fall back on. */
 const bareRepos = new Set<string>();
 const mergedSinceSync = new Map<string, number>(); // merges the fake project folder hasn't pulled yet
+const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by a merge
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
@@ -354,6 +355,16 @@ export function createDemoBackend(): Backend {
       r.issues.push(issue(n, title, body, fullName, labels));
       return n;
     },
+    issueState: async (fullName, number) => {
+      const r = repos.get(fullName);
+      return r?.issues.some((i) => i.number === number) ? 'OPEN' : closedIssues.has(`${fullName}#${number}`) ? 'CLOSED' : null;
+    },
+    editIssue: async (fullName, number, edit) => {
+      const i = repos.get(fullName)?.issues.find((x) => x.number === number);
+      if (!i) throw new Error(`Unknown issue #${number}`);
+      if (edit.body !== undefined) i.body = edit.body;
+      i.labels = [...i.labels.filter((l) => !edit.removeLabels?.includes(l)), ...(edit.addLabels ?? []).filter((l) => !i.labels.includes(l))];
+    },
     mergePull: async (fullName, number, _method, headSha) => {
       const r = repos.get(fullName);
       const pr = r?.pulls.find((p) => p.number === number);
@@ -362,6 +373,7 @@ export function createDemoBackend(): Backend {
       mergedSinceSync.set(fullName, (mergedSinceSync.get(fullName) ?? 0) + 1);
       pr.state = 'MERGED';
       pr.mergedAt = now();
+      for (const n of pr.closesIssues) closedIssues.add(`${fullName}#${n}`);
       r.issues = r.issues.filter((i) => !pr.closesIssues.includes(i.number));
     },
     updateBranch: async (fullName, number) => {
@@ -750,6 +762,14 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
           await use('propose_let_go', { agent_id: idle[idle.length - 1].id, reason: `Floor ${f.floor} has ${devs} developers for ${f.backlog.length} open issues; ${idle.length} of them are idle.` });
           return `Floor ${f.floor} is overstaffed: ${devs} developers for ${f.backlog.length} open issues. I suggest letting ${idle[idle.length - 1].name} go; it's on your phone.`;
         }
+      }
+      // An issue nobody routed while the floor has a specialist: re-route it rather than file a duplicate.
+      for (const f of s.floors) {
+        const specialist = f.team.find((a) => a.role === 'dev' && a.specialty);
+        const unrouted = (f.backlog as { number: number; specialty: string | null; inProgress: boolean }[]).find((i) => !i.specialty && !i.inProgress);
+        if (!specialist || !unrouted) continue;
+        const out = await use('route_issue', { floor: f.floor, number: unrouted.number, specialty: specialist.specialty });
+        if (!out.startsWith('Refused')) return `Floor ${f.floor}: #${unrouted.number} had no specialty, so I routed it to ${specialist.specialty}, ${specialist.name}'s lane.`;
       }
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const prs = s.floors.reduce((n, f) => n + f.pullRequests.length, 0);

@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { blockers, holdUps, setDependsOn } from '../shared/issues.ts';
 import type { CeoJobKind } from '../shared/types.ts';
 
 // The CEO: a Claude Code session in the lobby that runs the company instead of writing code.
@@ -32,6 +33,7 @@ export interface OfficeHandlers {
   }): string;
   proposeLetGo(a: { agent_id: string; reason: string }): string;
   fileIssue(a: { floor: number; title: string; body: string; specialty?: string }): Promise<string>;
+  routeIssue(a: { floor: number; number: number; specialty?: string; depends_on?: number[] }): Promise<string>;
 }
 
 export interface OfficeTools {
@@ -129,6 +131,17 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
       },
       (a) => run(() => h.fileIssue(a)),
     ),
+    tool(
+      'route_issue',
+      'Fix the routing of an open issue instead of filing a duplicate: change its specialty, rewrite its "Depends on #N" line, or both. The rest of the body stays as it is.',
+      {
+        floor: z.number().int(),
+        number: z.number().int().positive().describe('The issue number'),
+        specialty: z.string().max(24).optional().describe('Sets swarm:<specialty> and removes any other; "" for none. Someone on the floor, or a pending proposal, must have it.'),
+        depends_on: z.array(z.number().int().positive()).max(10).optional().describe('Issues it waits for; [] for none. Not for an issue in progress.'),
+      },
+      (a) => run(() => h.routeIssue(a)),
+    ),
   ];
   const server = createSdkMcpServer({ name: 'office', version: '1.0.0', tools: defs });
   return {
@@ -176,7 +189,7 @@ export function ceoSystemPrompt(o: {
     '- Titles are specific ("Three.js graphics engineer", not "Developer"). A specialty is a short lowercase slug ("graphics", "gameplay", "frontend", "backend", "content", "a11y", "devops"). Only route an issue to a specialty that someone on the floor has, or that you are proposing to hire.',
     '- Before proposing a hire, check the floor and the pending proposals for someone who already covers it. If the manager declined a similar proposal (recentDecisions), do not propose it again unless something has changed, and say what.',
     `- ${o.hiring === 'auto' ? 'Hiring is on auto: proposals within the team cap are approved immediately, so be deliberate.' : 'The manager approves every hire, so explain each reason in a sentence or two they can decide on.'}`,
-    '- Issues: plan for parallel work. What keeps a floor busy is the number of issues that can start right now (capacity.issuesReadyToStart in company_status); aim for at least one per developer. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most, keep foundation issues small, and split big pieces into parts that can be built side by side. The office starts the issues that hold up others first. Do not duplicate open issues. File at most 12 issues per job.',
+    '- Issues: plan for parallel work. What keeps a floor busy is the number of issues that can start right now (capacity.issuesReadyToStart in company_status); aim for at least one per developer. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most, keep foundation issues small, and split big pieces into parts that can be built side by side. The office starts the issues that hold up others first. Do not duplicate open issues: fix an existing issue\'s specialty or dependencies with route_issue. File at most 12 issues per job, or per message from the manager.',
     "- When company.usage in company_status says pacing or paused, Claude's usage is running low and the office is finishing open work first: file only what is needed next, not a whole milestone.",
     '- Your final message goes straight to the manager\'s phone. Keep it short and plain: what you found, what you proposed, what you filed, and any question you need answered. No headings, no tables.',
   ].join('\n');
@@ -215,7 +228,7 @@ export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: stri
       return [
         'Periodic review of the company. For every floor, look at:',
         '- floors without a profile or QA brief: study them and write one',
-        '- backlog against the team (capacity): fewer issues ready to start than free developers, long dependency chains, a specialty with a long queue',
+        '- backlog against the team (capacity): fewer issues ready to start than free developers, long dependency chains, a specialty with a long queue (fix those with route_issue)',
         '- pull requests stuck in QA or marked as needing a human',
         '- floors with a brief and an empty backlog: plan the next milestone',
         'Propose hires or let-gos only when clearly justified. If nothing needs doing, reply with one short sentence saying so.',
@@ -237,6 +250,116 @@ export function jobLabel(job: CeoJob, floor: { floor: number; fullName: string }
     case 'chat':
       return 'Replying to you';
   }
+}
+
+// ---------- issues ----------
+
+/**
+ * The CEO's issue cap: at most `max` issues per request from the manager. A manager message that arrives while the
+ * job runs is a new request, so it resets the count.
+ */
+export class IssueCap {
+  filed = 0; // since the job started or the manager's last message
+  total = 0; // in the whole job
+  readonly repos = new Set<string>(); // floors that got issues, to refresh when the job ends
+  constructor(readonly max: number) {}
+
+  check() {
+    if (this.filed >= this.max) throw new Error(`You already filed ${this.max} issues in this job. That's plenty for one milestone. The manager's next message allows more.`);
+  }
+
+  record(repoId: string) {
+    this.filed++;
+    this.total++;
+    this.repos.add(repoId);
+  }
+
+  managerMessage() {
+    this.filed = 0;
+  }
+}
+
+export interface RouteRequest {
+  floor: number;
+  number: number;
+  specialty?: string; // '' = no specialty
+  dependsOn?: number[]; // [] = no dependencies
+  issues: { number: number; body: string; labels: string[] }[]; // the floor's open issues
+  closed: (n: number) => boolean; // for numbers that aren't open: closed, rather than unknown
+  inProgress: boolean;
+  specialties: string[]; // held by someone on the floor or by a pending hire proposal for it
+}
+
+export interface RoutePlan {
+  addLabels: string[];
+  removeLabels: string[];
+  body: string | null; // null: leave the body alone
+  summary: string;
+}
+
+/** Longest chain of open issues this one waits for, one step per "Depends on". */
+function waitsDepth(n: number, deps: Map<number, number[]>, seen = new Set<number>()): number {
+  if (seen.has(n)) return 0;
+  seen.add(n);
+  const depth = Math.max(0, ...(deps.get(n) ?? []).map((d) => waitsDepth(d, deps, seen) + 1));
+  seen.delete(n);
+  return depth;
+}
+
+/**
+ * What route_issue changes, or why it refuses: a closed or unknown issue, a specialty nobody on the floor has,
+ * dependencies on an issue in progress, a dependency on itself, on a closed or unknown issue, a cycle, or a chain
+ * deeper than two steps.
+ */
+export function planRoute(r: RouteRequest): RoutePlan {
+  const issue = r.issues.find((i) => i.number === r.number);
+  if (!issue) throw new Error(r.closed(r.number) ? `#${r.number} is closed.` : `There is no open issue #${r.number} on floor ${r.floor}.`);
+  if (r.specialty === undefined && r.dependsOn === undefined) throw new Error('Nothing to change: pass specialty, depends_on or both.');
+  const plan: RoutePlan = { addLabels: [], removeLabels: [], body: null, summary: '' };
+  const done: string[] = [];
+
+  if (r.specialty !== undefined) {
+    const slug = specialtySlug(r.specialty);
+    if (r.specialty.trim() && !slug) throw new Error(`"${r.specialty}" is not a specialty. Use a short lowercase slug, or "" for none.`);
+    if (slug && !r.specialties.includes(slug)) {
+      const have = [...new Set(r.specialties)].join(', ') || 'none';
+      throw new Error(`Nobody on floor ${r.floor} has the specialty "${slug}", and no pending proposal does. Specialties there: ${have}.`);
+    }
+    const label = slug ? specialtyLabel(slug) : null;
+    plan.removeLabels = issue.labels.filter((l) => /^swarm:/i.test(l) && !/^swarm:skip$/i.test(l) && l !== label);
+    if (label && !issue.labels.includes(label)) plan.addLabels = [label];
+    done.push(slug ? `routed to ${slug}` : 'no specialty');
+  }
+
+  if (r.dependsOn !== undefined) {
+    if (r.inProgress) throw new Error(`#${r.number} is already in progress, so its dependencies can't change. Changing its specialty is fine.`);
+    const deps = [...new Set(r.dependsOn.map(Number))];
+    const open = new Set(r.issues.map((i) => i.number));
+    for (const d of deps) {
+      if (d === r.number) throw new Error(`#${r.number} can't depend on itself.`);
+      if (!open.has(d)) throw new Error(r.closed(d) ? `#${d} is closed, so there's nothing to wait for.` : `There is no open issue #${d} on floor ${r.floor}.`);
+    }
+    const body = setDependsOn(issue.body, deps);
+    const after = r.issues.map((i) => (i.number === r.number ? { ...i, body } : i));
+    const waits = new Map(after.map((i) => [i.number, blockers(i.body, open)]));
+    const loop = deps.find((d) => reaches(d, r.number, waits));
+    if (loop !== undefined) throw new Error(`#${loop} already waits for #${r.number}, directly or through other issues, so that would be a cycle.`);
+    const depth = waitsDepth(r.number, waits) + (holdUps(after).get(r.number)?.chain ?? 0);
+    if (depth > 2) throw new Error(`That makes a dependency chain ${depth} steps deep through #${r.number}. Keep chains to 2 steps at most: split the work so more of it can start side by side.`);
+    if (body !== issue.body) plan.body = body;
+    done.push(deps.length ? `depends on ${deps.map((d) => `#${d}`).join(', ')}` : 'no dependencies');
+  }
+
+  plan.summary = `#${r.number} on floor ${r.floor}: ${done.join(', ')}.`;
+  return plan;
+}
+
+/** Does `from` wait for `to`, directly or through other issues? */
+function reaches(from: number, to: number, waits: Map<number, number[]>, seen = new Set<number>()): boolean {
+  if (from === to) return true;
+  if (seen.has(from)) return false;
+  seen.add(from);
+  return (waits.get(from) ?? []).some((n) => reaches(n, to, waits, seen));
 }
 
 /** Short lowercase slug for a specialty ("Three.js graphics" -> "three-js-graphics"). */

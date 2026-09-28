@@ -134,6 +134,29 @@ export async function createIssue(fullName: string, title: string, body: string,
   return Number(match[1]);
 }
 
+/** OPEN or CLOSED; null when the repo has no such issue. */
+export async function issueState(fullName: string, number: number): Promise<'OPEN' | 'CLOSED' | null> {
+  try {
+    const raw = await ghJson<{ state: string }>(['issue', 'view', String(number), '-R', fullName, '--json', 'state']);
+    return raw.state === 'OPEN' ? 'OPEN' : 'CLOSED';
+  } catch {
+    return null;
+  }
+}
+
+/** Replace an issue's body and/or add and remove labels. */
+export async function editIssue(fullName: string, number: number, edit: { body?: string; addLabels?: string[]; removeLabels?: string[] }): Promise<void> {
+  const args = ['issue', 'edit', String(number), '-R', fullName];
+  if (edit.body !== undefined) args.push('--body-file', '-');
+  for (const l of edit.addLabels ?? []) {
+    await ensureLabel(fullName, l);
+    args.push('--add-label', l);
+  }
+  for (const l of edit.removeLabels ?? []) args.push('--remove-label', l);
+  if (args.length === 5) return;
+  await gh(args, edit.body !== undefined ? { input: edit.body || ' ' } : undefined);
+}
+
 /** Merge a PR. With headSha, GitHub refuses if anything was pushed after that commit (e.g. after QA signed it off). */
 export async function mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void> {
   const pr = await ghJson<{ headRefName: string; isCrossRepository: boolean }>(['pr', 'view', String(number), '-R', fullName, '--json', 'headRefName,isCrossRepository']);

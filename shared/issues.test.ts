@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockers, holdUps, issueSpecialty } from './issues.ts';
+import { blockers, holdUps, issueSpecialty, setDependsOn } from './issues.ts';
 
 const open = (...n: number[]) => new Set(n);
 
@@ -99,5 +99,24 @@ describe('holdUps', () => {
     expect(h.get(1)?.waiting).toBe(1);
     expect(h.get(2)?.waiting).toBe(1);
     expect(Number.isFinite(h.get(1)?.chain)).toBe(true);
+  });
+});
+
+describe('setDependsOn', () => {
+  it('puts one Depends on line at the top', () => {
+    expect(setDependsOn('Build it.', [3, 4])).toBe('Depends on #3, #4\n\nBuild it.');
+    expect(setDependsOn('', [3])).toBe('Depends on #3');
+  });
+
+  it('replaces the old statements, wherever they were', () => {
+    expect(setDependsOn('Depends on #1\n\nBuild it.', [2])).toBe('Depends on #2\n\nBuild it.');
+    expect(setDependsOn('Intro\n\nBlocked by #1, #2\n\nMore\n- **Depends on: #5**', [])).toBe('Intro\n\nMore');
+    expect(setDependsOn('Do this. Depends on #1 and #2.', [])).toBe('Do this.');
+  });
+
+  it('leaves the rest of the body alone', () => {
+    const body = 'Context\r\n\r\n- [ ] one\r\n- [ ] two\r\n\r\n---\r\n_Filed by Morgan_';
+    expect(setDependsOn(body, [])).toBe(body.replace(/\r\n/g, '\n'));
+    expect(blockers(setDependsOn(body, [7]), open(7))).toEqual([7]);
   });
 });
