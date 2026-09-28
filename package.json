@@ -32,13 +32,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -k -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
-    "demo": "concurrently -k -n server,client -c magenta,cyan \"npm:demo:server\" \"npm:dev:client\"",
-    "dev:server": "node scripts/dev-server.mjs",
-    "demo:server": "node scripts/dev-server.mjs --demo",
-    "dev:client": "vite",
+    "dev": "node scripts/office.mjs --dev",
+    "demo": "node scripts/office.mjs --dev --demo",
     "build": "tsc --noEmit -p tsconfig.json && vite build && node scripts/build-server.mjs",
-    "start": "node bin/cubefarm.js",
+    "start": "node scripts/office.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",

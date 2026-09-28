@@ -185,7 +185,8 @@ const newer = (a, b) => {
 };
 
 async function checkForUpdate() {
-  if (process.env.CI) return;
+  // A checkout's `npm start` runs this under scripts/office.mjs, which updates the office from its origin instead.
+  if (process.env.CI || process.env.SWARM_LAUNCHER === '1') return;
   try {
     const res = await fetch(`https://registry.npmjs.org/${pkg.name}/latest`, { signal: AbortSignal.timeout(4000) });
     const { version } = await res.json();
