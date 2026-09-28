@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
+import { HeldHint } from './HeldHint';
 import { WorkersPanel } from './WorkersPanel';
 import { officeUpdateChip } from '../officeUpdate';
 
@@ -49,6 +50,7 @@ export function HUD() {
   const ghReady = useStore((s) => s.ghReady);
   const ghError = useStore((s) => s.ghError);
   const focus = useStore((s) => s.focus);
+  const held = useStore((s) => s.held);
   const overlay = useStore((s) => s.overlay);
   const locked = useStore((s) => s.locked);
   const started = useStore((s) => s.started);
@@ -93,9 +95,11 @@ export function HUD() {
       {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
       {started && !overlay && focus && (
         <div className="hud-hint">
-          <kbd>E</kbd> / <kbd>Click</kbd> {focus.label}
+          <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}
+          {focus.label}
         </div>
       )}
+      {started && !overlay && !travel && <HeldHint />}
       {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
