@@ -102,9 +102,11 @@ export const SENSITIVITY_MAX = 3;
 export interface LookPrefs {
   sensitivity: number;
   invertY: boolean;
+  /** Grab the mouse again when a panel or question closes (see lookLock.ts). */
+  grabOnClose: boolean;
 }
 const PREFS_KEY = 'cubefarm:look';
-const DEFAULT_PREFS: LookPrefs = { sensitivity: 1, invertY: false };
+const DEFAULT_PREFS: LookPrefs = { sensitivity: 1, invertY: false, grabOnClose: true };
 
 const clampSensitivity = (v: number) => Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, v));
 
@@ -114,6 +116,7 @@ function loadPrefs(): LookPrefs {
     return {
       sensitivity: typeof v?.sensitivity === 'number' && Number.isFinite(v.sensitivity) ? clampSensitivity(v.sensitivity) : DEFAULT_PREFS.sensitivity,
       invertY: v?.invertY === true,
+      grabOnClose: v?.grabOnClose !== false,
     };
   } catch {
     return { ...DEFAULT_PREFS };
@@ -125,9 +128,9 @@ export const useLookPrefs = create<LookPrefs & { set: (p: Partial<LookPrefs>) =>
   set: (p) => {
     const next = { ...p, ...(p.sensitivity !== undefined ? { sensitivity: clampSensitivity(p.sensitivity) } : {}) };
     set(next);
-    const { sensitivity, invertY } = get();
+    const { sensitivity, invertY, grabOnClose } = get();
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ sensitivity, invertY }));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ sensitivity, invertY, grabOnClose }));
     } catch {
       // storage may be unavailable (private mode); the setting just won't survive a reload
     }
