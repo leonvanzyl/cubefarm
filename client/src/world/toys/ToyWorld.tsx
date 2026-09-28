@@ -8,6 +8,7 @@ import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders,
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { Blasters } from './Blasters';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
+import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
@@ -26,6 +27,8 @@ const HELD_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.toys]);
 const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
 // The roomba steers itself round the building (roombaBrain.ts) and never shoves the player's pusher: it only touches toys.
 const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
+// Sensors round seated people (HitTargets.tsx) only notice toys.
+const SEATED_GROUPS = interactionGroups(G.toys, [G.toys]);
 const DOOR = elevatorDoorway();
 
 /** Fixed colliders generated from layout.ts: floor, ceiling, walls, cabin and furniture, each at its own height. */
@@ -350,6 +353,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Hoop floor={floor} groups={BUILDING_GROUPS} />
       <Roomba floor={floor} groups={ROOMBA_GROUPS} dockGroups={BUILDING_GROUPS} />
       <Blasters floor={floor} groups={HELD_GROUPS} />
+      <HitTargets floor={floor} groups={SEATED_GROUPS} />
     </Physics>
   );
 }
