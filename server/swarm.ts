@@ -10,6 +10,7 @@ import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, jobLabel, specialtyLa
 import { HttpError } from './httpError.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
+import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { CEO_ID } from '../shared/types.ts';
 import type {
@@ -23,6 +24,7 @@ import type {
   HireRequestView,
   IssueInfo,
   LogLine,
+  OfficeUpdateView,
   PhoneMessage,
   PreviewConfig,
   PreviewView,
@@ -229,9 +231,6 @@ const ERROR_COOLDOWN_MS = 2 * 60_000;
 const MAX_ISSUE_FAILURES = 2;
 // How long the office waits after Claude's usage limit is hit when Claude doesn't say when it resets.
 const LIMIT_PAUSE_MS = 15 * 60_000;
-// The running office's own folder: syncing it would restart the server mid-work, so it's only reported.
-const OFFICE_DIR = path.resolve(import.meta.dirname, '..');
-const isSamePath = (a: string, b: string) => (process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
 const oneLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split(/\r?\n/)[0].slice(0, 200);
 
 // The latest browser screenshot per agent is kept on disk so monitors survive a server restart.
@@ -343,6 +342,7 @@ export class Swarm {
       projectsDir: DEFAULT_PROJECTS_DIR,
       setupDone: false,
       tutorialStep: 0,
+      autoUpdate: true,
     },
     repos: [],
     agents: [],
@@ -378,6 +378,19 @@ export class Swarm {
   private flushTimer: NodeJS.Timeout | null = null;
   private logSeq = 1;
   private previews: Previews;
+  private officeHead: string | null = null; // the commit the office runs (null: not a git checkout, so no self-update)
+  private officeUpdate = {
+    behind: 0,
+    requested: false,
+    postponedUntil: null as number | null,
+    postponedBehind: 0,
+    failed: null as string | null,
+    failedBehind: null as number | null,
+    drainingSince: null as number | null,
+    sent: false,
+    handedOver: false, // sessions cut off by the hand-over are the restarted office's to recover
+  };
+  private lastOfficeView = '';
 
   constructor(private backend: Backend) {
     this.previews = new Previews(backend, {
@@ -496,6 +509,9 @@ export class Swarm {
     ]);
     for (const r of this.state.repos) void this.previews.refreshDefault(r);
     this.recover(interrupted);
+    this.officeHead = await this.backend.office.head();
+    const updated = await this.backend.office.takeLastUpdate().catch(() => null);
+    if (updated) await this.reportUpdate(updated);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
     this.save();
@@ -623,6 +639,8 @@ export class Swarm {
       ceo: this.ceoInfo(),
       messages: this.state.messages.slice(-100),
       phoneReadAt: this.state.phoneReadAt,
+      officeCommit: this.officeHead?.slice(0, 7) ?? null,
+      officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
   }
 
@@ -695,14 +713,18 @@ export class Swarm {
 
   private save() {
     if (this.saveTimer) return;
-    this.saveTimer = setTimeout(async () => {
-      this.saveTimer = null;
-      for (const a of this.state.agents) a.logTail = (this.agentRt.get(a.id)?.log ?? []).slice(-200);
-      await fs.mkdir(path.dirname(STATE_FILE), { recursive: true });
-      const tmp = `${STATE_FILE}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(this.state, null, 2));
-      await fs.rename(tmp, STATE_FILE);
-    }, 1500);
+    this.saveTimer = setTimeout(() => void this.writeState().catch((err) => console.warn('could not save the state', err)), 1500);
+  }
+
+  /** Write the state file now, e.g. before the office stops or hands itself to the launcher. */
+  private async writeState() {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    for (const a of this.state.agents) a.logTail = (this.agentRt.get(a.id)?.log ?? []).slice(-200);
+    await fs.mkdir(path.dirname(STATE_FILE), { recursive: true });
+    const tmp = `${STATE_FILE}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(this.state, null, 2));
+    await fs.rename(tmp, STATE_FILE);
   }
 
   // ---------- lookups ----------
@@ -1004,8 +1026,10 @@ export class Swarm {
   private async syncFolder(repo: PersistedRepo) {
     const rt = this.repoRt.get(repo.id);
     if (!rt || rt.cloneStatus !== 'ready') return rt?.folderSync ?? null;
-    const own = isSamePath(this.backend.mainDir(repo.fullName), OFFICE_DIR); // updating the running office restarts it mid-work
-    const status = await this.backend.syncMain(repo.fullName, repo.defaultBranch, { touch: !own }).catch((err) => `sync failed: ${oneLine(err)}`);
+    const own = this.backend.office.isOwnFolder(this.backend.mainDir(repo.fullName)); // updating the running office restarts it mid-work
+    const sync = await this.backend.syncMain(repo.fullName, repo.defaultBranch, { touch: !own }).catch((err) => ({ status: `sync failed: ${oneLine(err)}`, behind: 0, updatable: false }));
+    const status = sync?.status ?? null;
+    if (own && sync) this.setOfficeBehind(sync.updatable ? sync.behind : 0);
     if (!this.repoRt.has(repo.id)) return null;
     const before = rt.folderSync;
     rt.folderSync = status;
@@ -1036,8 +1060,9 @@ export class Swarm {
   }
 
   /** Server shutdown: stop every floor's app so nothing is left holding a preview port. */
-  shutdown(): Promise<void> {
-    return this.previews.stopAll(this.state.repos);
+  async shutdown(): Promise<void> {
+    await this.writeState().catch((err) => console.warn('could not save the state', err));
+    await this.previews.stopAll(this.state.repos);
   }
 
   private async cloneRepo(id: string) {
@@ -1505,6 +1530,7 @@ export class Swarm {
   private async onFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
     const rt = this.agentRt.get(a.id);
     if (!rt || !this.state.agents.includes(a)) return; // fired
+    if (this.officeUpdate.handedOver) return; // stopped for the office's update: recovered like after a restart
     rt.session = null;
     rt.currentTool = null;
     a.endedAt = Date.now();
@@ -1957,6 +1983,7 @@ export class Swarm {
     if (typeof patch.projectsDir === 'string' && patch.projectsDir.trim()) s.projectsDir = path.resolve(patch.projectsDir.trim());
     if (typeof patch.setupDone === 'boolean') s.setupDone = patch.setupDone;
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
+    if (typeof patch.autoUpdate === 'boolean') s.autoUpdate = patch.autoUpdate;
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
@@ -2111,6 +2138,7 @@ export class Swarm {
    * so no repo can hog the slots.
    */
   private schedule() {
+    if (this.officeUpdateTick()) return; // draining for the office's own update
     if (this.limited()) return;
     // Management first: the CEO's jobs are short and shape everyone else's work.
     this.maybeHeartbeat();
@@ -2132,6 +2160,136 @@ export class Swarm {
         }
       }
     }
+  }
+
+  // ---------- the office's own update ----------
+
+  private drainInput(): DrainInput {
+    const u = this.officeUpdate;
+    return {
+      now: Date.now(),
+      behind: this.officeHead ? u.behind : 0,
+      launcher: this.backend.office.launcher,
+      autoUpdate: this.state.settings.autoUpdate !== false,
+      requested: u.requested,
+      postponedUntil: u.postponedUntil,
+      postponedBehind: u.postponedBehind,
+      failed: u.failed,
+      failedBehind: u.failedBehind,
+      drainingSince: u.drainingSince,
+      sent: u.sent,
+      running: this.running(),
+    };
+  }
+
+  private officeUpdateView(): OfficeUpdateView {
+    const u = this.officeUpdate;
+    const input = this.drainInput();
+    const d = drainDecision(input);
+    const until = u.postponedUntil ? new Date(u.postponedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const detail = d.state === 'failed' ? u.failed : d.state === 'waiting' ? `Postponed until ${until}, or until a newer commit lands.` : null;
+    return { state: d.state, behind: input.behind, launcher: input.launcher, drainingSince: u.drainingSince ?? d.drainingSince, running: input.running, detail };
+  }
+
+  private emitOfficeUpdate() {
+    if (!this.officeHead) return;
+    const view = this.officeUpdateView();
+    const key = JSON.stringify(view);
+    if (key === this.lastOfficeView) return;
+    this.lastOfficeView = key;
+    this.broadcast({ type: 'officeUpdate', officeUpdate: view });
+  }
+
+  /** The own-folder check found the office this many commits behind GitHub. */
+  private setOfficeBehind(behind: number) {
+    const u = this.officeUpdate;
+    if (u.failed && u.failedBehind === null) u.failedBehind = behind; // only a newer commit retries a failed update by itself
+    u.behind = behind;
+    if (behind === 0) Object.assign(u, { requested: false, failed: null, failedBehind: null });
+    this.officeUpdateTick();
+  }
+
+  /**
+   * Take the office's own update one step (see drainDecision): drain, and once nothing is running, or the drain timed
+   * out, hand it to the launcher. True while nothing new may start.
+   */
+  private officeUpdateTick(): boolean {
+    if (!this.officeHead) return false;
+    const u = this.officeUpdate;
+    const d = drainDecision(this.drainInput());
+    if (d.state === 'draining' && u.drainingSince === null) {
+      const running = this.running();
+      this.postMessage(
+        'office',
+        `⬆️ Updating the office (${u.behind} new commit${u.behind === 1 ? '' : 's'}). Nothing new starts${running ? ` while ${running} running session${running === 1 ? '' : 's'} finish` : ''}; then it installs and restarts.`,
+      );
+    }
+    u.drainingSince = d.drainingSince;
+    if (d.send) void this.handOver(d.timedOut);
+    this.emitOfficeUpdate();
+    return d.state === 'draining' || d.state === 'updating';
+  }
+
+  /** Drained: hand the update to the launcher. Sessions still running after the timeout stop the way a restart stops them. */
+  private async handOver(timedOut: boolean) {
+    const u = this.officeUpdate;
+    const from = this.officeHead!;
+    u.sent = true;
+    const busy = this.state.agents.filter((a) => BUSY.includes(a.status));
+    if (timedOut) this.postMessage('office', `⏱ ${busy.length} session${busy.length === 1 ? ' was' : 's were'} still running after 20 minutes. Stopped; the work goes back to the queue after the update.`);
+    this.emitOfficeUpdate();
+    u.handedOver = true;
+    await this.writeState().catch((err) => console.warn('could not save the state', err)); // still "working": the restarted office recovers them
+    for (const a of busy) this.agentRt.get(a.id)?.session?.stop();
+    try {
+      const result = await this.backend.office.update(from);
+      if (result) await this.afterUpdate(result); // the demo: nothing restarts
+    } catch (err) {
+      await this.afterUpdate({ from, to: from, ok: false, error: `the launcher didn't take the update: ${oneLine(err)}`, installed: false, built: false, at: Date.now() });
+    }
+  }
+
+  /** An update that didn't restart the office (the demo, or a failed hand-over): recover like a restart would, then report it. */
+  private async afterUpdate(result: LastUpdate) {
+    const u = this.officeUpdate;
+    Object.assign(u, { sent: false, handedOver: false, requested: false, drainingSince: null });
+    const interrupted = this.state.agents.filter((a) => BUSY.includes(a.status));
+    for (const a of interrupted) {
+      Object.assign(a, { status: 'stopped', lastError: 'The office updated itself while this agent was working.' });
+      const rt = this.agentRt.get(a.id);
+      if (rt) Object.assign(rt, { session: null, currentTool: null });
+    }
+    this.ensureCeo(interrupted);
+    this.recover(interrupted);
+    interrupted.forEach((a) => this.emitAgent(a));
+    await this.reportUpdate(result);
+    if (!result.ok) u.failedBehind = u.behind;
+    const own = this.state.repos.find((r) => this.backend.office.isOwnFolder(this.backend.mainDir(r.fullName)));
+    if (own) await this.syncFolder(own);
+    this.emitCeo();
+    this.save();
+    setTimeout(() => this.schedule(), 300);
+  }
+
+  /** One phone message about the last update (the launcher's last-update.json, or the demo's fake). */
+  private async reportUpdate(result: LastUpdate) {
+    const commits = result.ok && result.to ? await this.backend.office.commitsBetween(result.from, result.to) : null;
+    this.postMessage('office', lastUpdateMessage(result, commits));
+    Object.assign(this.officeUpdate, { failed: result.ok ? null : result.error || 'unknown error', failedBehind: null });
+  }
+
+  /** The manager's Update now (drain now, even with automatic updates off) or Later (not for 2 hours, or until a newer commit). */
+  updateOffice(action: unknown): OfficeUpdateView {
+    if (action !== 'now' && action !== 'later') throw new HttpError(400, 'action must be "now" or "later"');
+    const u = this.officeUpdate;
+    if (!this.officeHead || !this.backend.office.launcher) throw new HttpError(409, 'The office can only update itself when its launcher started it (npm run dev or npm start).');
+    if (u.sent) throw new HttpError(409, 'The update is already under way.');
+    if (u.behind <= 0) throw new HttpError(409, 'The office is up to date: there is nothing to update.');
+    if (action === 'now') Object.assign(u, { requested: true, postponedUntil: null });
+    else Object.assign(u, { requested: false, postponedUntil: Date.now() + POSTPONE_MS, postponedBehind: u.behind });
+    this.officeUpdateTick();
+    setTimeout(() => this.schedule(), 200);
+    return this.officeUpdateView();
   }
 
   // ---------- the CEO ----------
@@ -2325,7 +2483,7 @@ export class Swarm {
 
   private onCeoFinished(a: PersistedAgent, result: SessionResult) {
     const rt = this.agentRt.get(a.id);
-    if (!rt) return;
+    if (!rt || this.officeUpdate.handedOver) return;
     rt.session = null;
     rt.currentTool = null;
     a.endedAt = Date.now();

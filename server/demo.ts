@@ -6,6 +6,8 @@ import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
+import { HOME_DIR } from './config.ts';
+import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
 // dev → QA → fix loop) can be explored without spending any usage or touching real repos.
@@ -385,10 +387,10 @@ export function createDemoBackend(): Backend {
     ensureClone: async () => new Promise((r) => setTimeout(r, 400)),
     syncMain: async (fullName, _branch, { touch }) => {
       const behind = mergedSinceSync.get(fullName) ?? 0;
-      if (behind === 0) return 'in sync';
-      if (!touch) return `update ready (${behind} commit${behind === 1 ? '' : 's'})`;
+      if (behind === 0) return { status: 'in sync', behind: 0, updatable: false };
+      if (!touch) return { status: `update ready (${behind} commit${behind === 1 ? '' : 's'})`, behind, updatable: true };
       mergedSinceSync.set(fullName, 0);
-      return `updated to ${fakeSha().slice(0, 7)}`;
+      return { status: `updated to ${fakeSha().slice(0, 7)}`, behind: 0, updatable: false };
     },
     mainDir: (fullName) => `/demo/${fullName}/main`,
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
@@ -402,8 +404,33 @@ export function createDemoBackend(): Backend {
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => (opts.role === 'ceo' ? ceoSession(opts, cb) : fakeSession(opts, cb, deskRepo.get(opts.cwd) ?? [...repos.keys()][0])),
     previews: demoPreviews,
+    office: demoOffice,
   };
 }
+
+// ---------- the office's own update ----------
+
+/**
+ * Floor 1's folder plays the office's own folder, so merges there make an update ready. There is a launcher when
+ * the real one started the demo, or with SWARM_DEMO_LAUNCHER=1; either way the update is faked: a short pause, then
+ * the result message, and nothing restarts.
+ */
+const OFFICE_REPO = 'demo-co/pixel-todo';
+const DEMO_HEAD = `0ff1ce5${'0'.repeat(33)}`;
+const lastFakeUpdate = { commits: 0 };
+const demoOffice: OfficeHost = {
+  launcher: underLauncher() || process.env.SWARM_DEMO_LAUNCHER === '1',
+  head: async () => DEMO_HEAD,
+  isOwnFolder: (dir) => dir === `/demo/${OFFICE_REPO}/main`,
+  commitsBetween: async () => lastFakeUpdate.commits,
+  takeLastUpdate: () => takeLastUpdate(HOME_DIR),
+  async update(from) {
+    await new Promise((r) => setTimeout(r, 4000));
+    lastFakeUpdate.commits = mergedSinceSync.get(OFFICE_REPO) ?? 0;
+    mergedSinceSync.set(OFFICE_REPO, 0);
+    return { from, to: fakeSha(), ok: true, installed: true, built: true, at: Date.now() };
+  },
+};
 
 // ---------- the demo preview ----------
 

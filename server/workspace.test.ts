@@ -33,7 +33,9 @@ await fs.writeFile(gitConfig, '[user]\n\tname = Sync Test\n\temail = sync-test@e
 process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
-const { mainDir, syncMain } = await import('./workspace.ts');
+const { mainDir, syncMain: sync } = await import('./workspace.ts');
+// Most tests only care about the status line.
+const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
 
 let seq = 0;
 let edits = 0;
@@ -167,6 +169,17 @@ describe('syncMain', { timeout: 60_000 }, () => {
     expect(await head(r.dir)).toBe(before);
     // It fetched, so the checkout knows about the update; it just didn't take it.
     expect(await originMain(r.dir)).toBe(await head(r.upstream));
+  });
+
+  it('returns how far behind it is, and whether a fast-forward would catch up', async () => {
+    const r = await makeRepos();
+    expect(await sync(r.fullName, 'main', { touch: false })).toEqual({ status: 'in sync', behind: 0, updatable: false });
+    await pushUpstream(r, 2);
+    expect(await sync(r.fullName, 'main', { touch: false })).toEqual({ status: 'update ready (2 commits)', behind: 2, updatable: true });
+    await git(['checkout', '-q', '-b', 'my-feature'], { cwd: r.dir });
+    expect(await sync(r.fullName, 'main', { touch: false })).toMatchObject({ behind: 2, updatable: false });
+    await git(['checkout', '-q', 'main'], { cwd: r.dir });
+    expect(await sync(r.fullName, 'main', { touch: true })).toMatchObject({ behind: 0, updatable: false });
   });
 
   it('installs dependencies when package.json changed', async () => {

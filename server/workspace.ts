@@ -80,50 +80,59 @@ function npmInstall(dir: string) {
   return next;
 }
 
+/** How a floor's main checkout stands after syncMain. */
+export interface MainSync {
+  status: string; // e.g. "in sync", "updated to abc1234", "update ready (3 commits)" or "2 behind: local changes"
+  behind: number; // commits it is still behind GitHub's default branch
+  updatable: boolean; // on the default branch without local commits, so a fast-forward would bring it up to date
+}
+
 /**
  * Bring a floor's main checkout up to date with GitHub. It only ever fast-forwards, and only when the checkout is on
  * the default branch with no local changes: nothing is stashed, reset or discarded, and anything else leaves the
  * folder as it is. Installs dependencies when package.json or the lockfile changed. With `touch: false` it only
- * reports (the office's own folder). Returns the checkout's status, e.g. "in sync", "updated to abc1234" or
- * "2 behind: local changes"; null when there is no checkout yet.
+ * reports (the office's own folder). Returns how the checkout stands; null when there is no checkout yet.
  */
-export async function syncMain(fullName: string, defaultBranch: string, opts: { touch: boolean }): Promise<string | null> {
+export async function syncMain(fullName: string, defaultBranch: string, opts: { touch: boolean }): Promise<MainSync | null> {
   const dir = mainDir(fullName);
-  const result = await withRepoLock(fullName, async () => {
+  const result = await withRepoLock(fullName, async (): Promise<(MainSync & { install?: boolean }) | null> => {
     if (!(await exists(path.join(dir, '.git')))) return null;
     const g = (args: string[], timeoutMs?: number) => git(args, { cwd: dir, timeoutMs });
+    let behind = 0;
     try {
       await g(['fetch', 'origin', '--prune'], 180_000);
       const target = `origin/${defaultBranch}`;
-      const behind = Number(await g(['rev-list', '--count', `HEAD..${target}`]));
+      behind = Number(await g(['rev-list', '--count', `HEAD..${target}`]));
       const commits = `${behind} commit${behind === 1 ? '' : 's'}`;
       const branch = await g(['symbolic-ref', '--short', '-q', 'HEAD']).catch(() => '');
-      if (branch !== defaultBranch) return { status: `on ${branch ? `branch ${branch}` : 'a detached HEAD'}${behind ? ` (${defaultBranch} is ${commits} ahead)` : ''}` };
-      if (behind === 0) return { status: 'in sync' };
-      if (Number(await g(['rev-list', '--count', `${target}..HEAD`])) > 0) return { status: `diverged: local commits, and ${commits} to pull` };
-      if (!opts.touch) return { status: `update ready (${commits})` };
-      if (await g(['status', '--porcelain', '--untracked-files=no'])) return { status: `${behind} behind: local changes` };
+      const stays = (status: string) => ({ status, behind, updatable: false });
+      if (branch !== defaultBranch) return stays(`on ${branch ? `branch ${branch}` : 'a detached HEAD'}${behind ? ` (${defaultBranch} is ${commits} ahead)` : ''}`);
+      if (behind === 0) return stays('in sync');
+      if (Number(await g(['rev-list', '--count', `${target}..HEAD`])) > 0) return stays(`diverged: local commits, and ${commits} to pull`);
+      if (!opts.touch) return { status: `update ready (${commits})`, behind, updatable: true };
+      if (await g(['status', '--porcelain', '--untracked-files=no'])) return { status: `${behind} behind: local changes`, behind, updatable: true };
       const before = await g(['rev-parse', 'HEAD']);
       try {
         await g(['merge', '--ff-only', target], 120_000);
       } catch {
-        return { status: `${behind} behind: local files are in the way` };
+        return { status: `${behind} behind: local files are in the way`, behind, updatable: true };
       }
       const changed = (await g(['diff', '--name-only', before, 'HEAD'])).split(/\r?\n/);
       const install = changed.some((f) => f === 'package.json' || f === 'package-lock.json') && (await exists(path.join(dir, 'package.json')));
-      return { status: `updated to ${await g(['rev-parse', '--short', 'HEAD'])}`, install };
+      return { status: `updated to ${await g(['rev-parse', '--short', 'HEAD'])}`, behind: 0, updatable: false, install };
     } catch (err) {
-      return { status: `sync failed: ${(err as Error).message.split(/\r?\n/)[0].slice(0, 160)}` };
+      return { status: `sync failed: ${(err as Error).message.split(/\r?\n/)[0].slice(0, 160)}`, behind, updatable: false };
     }
   });
-  if (!result?.install) return result?.status ?? null;
+  if (!result?.install) return result;
+  const { install: _install, ...sync } = result;
   // Outside the repo lock: agents' worktrees don't wait for npm.
   try {
     await npmInstall(dir);
-    return `${result.status} · dependencies installed`;
+    return { ...sync, status: `${sync.status} · dependencies installed` };
   } catch (err) {
     console.warn(`npm install in ${dir} failed:`, (err as Error).message);
-    return `${result.status} · npm install failed`;
+    return { ...sync, status: `${sync.status} · npm install failed` };
   }
 }
 

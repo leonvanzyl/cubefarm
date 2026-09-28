@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import { DEMO, PORT, STATE_FILE, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { createDemoBackend } from './demo.ts';
+import { underLauncher } from './officeUpdate.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
 const swarm = new Swarm(DEMO ? createDemoBackend() : realBackend);
@@ -135,6 +136,8 @@ app.get('/api/agents/:id/screen', (req, res) => {
 });
 
 app.patch('/api/settings', route((req) => swarm.updateSettings(req.body ?? {})));
+// The office's own update: Update now / Later
+app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.action)));
 
 // The CEO and the manager's phone
 app.post('/api/ceo/message', route((req) => swarm.messageCeo(str(req.body.text))));
@@ -189,3 +192,9 @@ const shutdown = (signal: string) => {
 };
 process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));
+// The launcher has the update ready and asks the office to stop so it can restart it on the new code.
+if (underLauncher()) {
+  process.on('message', (msg) => {
+    if ((msg as { type?: unknown } | null)?.type === 'office:shutdown') shutdown('update');
+  });
+}
