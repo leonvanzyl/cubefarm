@@ -286,6 +286,20 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
   };
 }
 
+// Claude's usage warning, faked once so the office can be seen pacing new work: the 4th session gets it, and the
+// window "resets" 5 minutes later.
+const USAGE_WARNING_AT = 4;
+const USAGE_WARNING_MS = 5 * 60_000;
+let sessionsStarted = 0;
+
+function fakeUsageWarning(cb: SessionCallbacks) {
+  setTimeout(() => {
+    const resetsAt = Date.now() + USAGE_WARNING_MS;
+    cb.log([{ kind: 'error', text: `⚠ Subscription usage warning (five_hour) · resets ${new Date(resetsAt).toLocaleTimeString()} (demo)` }]);
+    cb.usageWarning?.({ resetsAt, rateLimitType: 'five_hour', utilization: 0.82 });
+  }, 3000);
+}
+
 export function createDemoBackend(): Backend {
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
@@ -402,7 +416,10 @@ export function createDemoBackend(): Backend {
     },
     removeDesk: async () => undefined,
     releaseDesk: async () => undefined,
-    startSession: (opts, cb) => (opts.role === 'ceo' ? ceoSession(opts, cb) : fakeSession(opts, cb, deskRepo.get(opts.cwd) ?? [...repos.keys()][0])),
+    startSession: (opts, cb) => {
+      if (++sessionsStarted === USAGE_WARNING_AT) fakeUsageWarning(cb);
+      return opts.role === 'ceo' ? ceoSession(opts, cb) : fakeSession(opts, cb, deskRepo.get(opts.cwd) ?? [...repos.keys()][0]);
+    },
     previews: demoPreviews,
     office: demoOffice,
   };

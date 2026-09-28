@@ -11,6 +11,7 @@ import { HttpError } from './httpError.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
+import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { CEO_ID } from '../shared/types.ts';
 import type {
@@ -343,6 +344,7 @@ export class Swarm {
       setupDone: false,
       tutorialStep: 0,
       autoUpdate: true,
+      pacingSessions: DEFAULT_PACING_SESSIONS,
     },
     repos: [],
     agents: [],
@@ -639,6 +641,7 @@ export class Swarm {
       ceo: this.ceoInfo(),
       messages: this.state.messages.slice(-100),
       phoneReadAt: this.state.phoneReadAt,
+      usage: this.usageNow(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
@@ -1521,6 +1524,7 @@ export class Swarm {
             .catch((err) => console.warn('could not save screenshot', err));
         },
         limited: (at) => this.pauseForLimit(at),
+        usageWarning: (info) => this.paceForWarning(info),
         finished: (result) => void this.onFinished(a, repo, result),
       },
       repo.defaultBranch,
@@ -1984,6 +1988,7 @@ export class Swarm {
     if (typeof patch.setupDone === 'boolean') s.setupDone = patch.setupDone;
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
     if (typeof patch.autoUpdate === 'boolean') s.autoUpdate = patch.autoUpdate;
+    if (patch.pacingSessions !== undefined) s.pacingSessions = clampPacingSessions(patch.pacingSessions);
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
@@ -2021,6 +2026,8 @@ export class Swarm {
   private issueFailures = new Map<string, number>(); // `${repoId}#${issue}` → failed sessions on it
   private nudged = new Set<string>(); // `${repoId}#${issue}`: its developer was asked once to finish the missing PR
   private pausedUntil = 0; // Claude's usage limit was hit: nothing new starts before this
+  private pacingUntil = 0; // Claude warned about usage: new issues are paced until this
+  private lastUsage = '';
 
   /** Backlog issues that can start now, most urgent first: the ones holding up the longest chain of other issues, then the oldest. */
   private readyIssues(repo: PersistedRepo) {
@@ -2095,7 +2102,7 @@ export class Swarm {
    * free developer is least needed elsewhere, so nobody sits idle while there is work that can start.
    */
   private startIssueWork(repo: PersistedRepo): boolean {
-    if (!repo.autoAssign) return false;
+    if (!repo.autoAssign || !this.mayStart('issue')) return false;
     const free = this.available(repo, 'dev');
     const ready = free.length ? this.readyIssues(repo) : [];
     if (ready.length === 0) return false;
@@ -2119,6 +2126,44 @@ export class Swarm {
     const fresh = Date.now() >= this.pausedUntil;
     this.pausedUntil = until;
     if (fresh) this.postMessage('office', `⏸ Claude's usage limit was reached. The office starts no new work until ${new Date(until).toLocaleTimeString()}; sessions already running carry on.`);
+    this.emitUsage();
+  }
+
+  /** Claude warned that usage is getting high: pace new issues until the window resets, rather than run into the limit. */
+  private paceForWarning(info: UsageWarning) {
+    const now = Date.now();
+    const until = info.resetsAt && info.resetsAt > now ? info.resetsAt : now + PACING_MS;
+    if (until <= this.pacingUntil) return;
+    const fresh = now >= this.pacingUntil;
+    this.pacingUntil = until;
+    if (fresh) this.postMessage('office', pacingMessage(info, until, this.state.settings.pacingSessions, now));
+    this.emitUsage();
+  }
+
+  /** May work of this kind start now, as far as Claude's usage goes? */
+  private mayStart(kind: WorkKind) {
+    return mayStart(kind, { now: Date.now(), pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil, running: this.running(), pacingSessions: this.state.settings.pacingSessions });
+  }
+
+  private usageNow() {
+    return usageView({ now: Date.now(), pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil });
+  }
+
+  private emitUsage() {
+    const usage = this.usageNow();
+    const key = JSON.stringify(usage);
+    if (key === this.lastUsage) return;
+    this.lastUsage = key;
+    this.broadcast({ type: 'usage', usage });
+  }
+
+  /** Pacing and pauses run out on their own: say so when pacing ends. */
+  private tickUsage() {
+    if (this.pacingUntil && Date.now() >= this.pacingUntil) {
+      this.pacingUntil = 0;
+      this.postMessage('office', "✅ Claude's usage is back to normal. The office starts new work at full speed again.");
+    }
+    this.emitUsage();
   }
 
   /** A failed session releases its issue for someone else; an issue that keeps failing waits for the manager. */
@@ -2138,6 +2183,7 @@ export class Swarm {
    * so no repo can hog the slots.
    */
   private schedule() {
+    this.tickUsage();
     if (this.officeUpdateTick()) return; // draining for the office's own update
     if (this.limited()) return;
     // Management first: the CEO's jobs are short and shape everyone else's work.
@@ -2475,6 +2521,7 @@ export class Swarm {
         screenshot: () => undefined,
         turn: (text) => this.postMessage('ceo', text),
         limited: (at) => this.pauseForLimit(at),
+        usageWarning: (info) => this.paceForWarning(info),
         finished: (result) => this.onCeoFinished(a, result),
       },
       '',
@@ -2766,6 +2813,7 @@ export class Swarm {
           teamCap: s.teamCap,
           sessionLimit: s.sessionLimit || 'none',
           sessionsRunning: this.running(),
+          usage: usageLabel(this.usageNow(), Date.now()),
           deskLimits: { dev: MAX_DESKS.dev, qa: MAX_DESKS.qa },
         },
         floors,
