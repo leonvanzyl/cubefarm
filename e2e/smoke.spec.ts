@@ -123,6 +123,8 @@ test('the phone opens and closes with P, its button and Esc', async ({ page }) =
   await page.keyboard.press('p');
   await expect(hires).toBeHidden();
 
+  // Closing a panel grabs the mouse again (#42); a locked pointer can't click the HUD, so let go of it first.
+  await page.evaluate(() => document.exitPointerLock());
   await phoneButton(page).click();
   await expect(hires).toBeVisible();
   await page.keyboard.press('Escape');
