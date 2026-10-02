@@ -79,9 +79,10 @@ export function Elevator({ floorLabel, accent }: { floorLabel: string; accent: s
         <mesh position={[0, doorHeight + 0.18, depth / 2]} rotation={[Math.PI / 2, 0, 0]} material={glow('#fff6d6')}>
           <circleGeometry args={[0.45, 32]} />
         </mesh>
+        {/* sides: their front starts inside the wall, not on its face, which would flicker beside the doorway */}
         {[-1, 1].map((s) => (
-          <mesh key={s} position={[s * (cabinHalf + 0.05), WALL_H / 2, depth / 2]} material={toon('#c8ced8')}>
-            <boxGeometry args={[0.1, WALL_H, depth]} />
+          <mesh key={s} position={[s * (cabinHalf + 0.05), WALL_H / 2, (depth + 0.05) / 2]} material={toon('#c8ced8')}>
+            <boxGeometry args={[0.1, WALL_H, depth - 0.05]} />
           </mesh>
         ))}
         <mesh position={[0, WALL_H / 2, depth + 0.05]} material={toon('#c8ced8')}>
