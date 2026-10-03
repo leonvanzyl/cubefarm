@@ -6,7 +6,7 @@ import { HttpError } from './httpError.ts';
 import { ONE_TURN } from './prompts.ts';
 import { MAX_TRIAGES, type TriagePr } from './triage.ts';
 
-// The CEO: a Claude Code session in the lobby that runs the company instead of writing code.
+// The CEO: a coding-agent session in the lobby that runs the company instead of writing code.
 // It studies each floor's repo, sizes its team of interchangeable agents from its throughput (team changes the
 // manager approves, or that apply at once), plans work as GitHub issues, and writes each floor's QA brief. Everything
 // it changes goes through the office tools below, so the swarm stays the single source of truth.
@@ -244,6 +244,12 @@ export function scalePlan(t: TeamNow, size: number, max: number): ScalePlan {
 
 // ---------- prompts ----------
 
+/**
+ * How the running CLI names an office tool. Claude Code and Codex both namespace MCP tools as
+ * mcp__<server>__<tool>; OpenCode joins them with a single underscore.
+ */
+export const officeToolPrefix = (cli: AgentCli) => (cli === 'opencode' ? 'office_' : 'mcp__office__');
+
 export function ceoSystemPrompt(o: {
   name: string;
   company: string;
@@ -252,6 +258,7 @@ export function ceoSystemPrompt(o: {
   sessionLimit: number;
   maxAgents: number;
   scaling: 'approve' | 'auto';
+  tools: string;
 }) {
   const manager = o.manager ? `the manager, ${o.manager}` : 'the human manager';
   return [
@@ -266,10 +273,10 @@ export function ceoSystemPrompt(o: {
     "- Write each floor's QA brief: what every QA pass must check for this kind of project (for a 3D game: the canvas renders, controls respond, frame rate is smooth; for a website: links, phone layout, accessibility; for an API: status codes, validation, error cases).",
     '',
     'How you work:',
-    '- Call mcp__office__company_status first. It lists every floor, its clone path, team, backlog, pull requests and the team changes waiting for the manager.',
+    `- Call ${o.tools}company_status first. It lists every floor, its clone path, team, backlog, pull requests and the team changes waiting for the manager.`,
     '- Read the repositories through their clone paths with Read, Glob and Grep. They are read-only to you. You cannot run shell commands.',
     `- Keep durable notes about the company in ${o.notesFile}: read it at the start, and update it at the end with decisions and anything worth remembering next time.`,
-    '- Change things only through the mcp__office__ tools.',
+    `- Change things only through the ${o.tools} tools.`,
     `- ${ONE_TURN}`,
     '',
     'Rules:',

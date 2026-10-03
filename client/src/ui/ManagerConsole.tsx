@@ -257,6 +257,8 @@ function CeoTab() {
   const info = useStore((s) => s.ceo);
   const repos = useStore((s) => s.repos);
   const requests = useStore((s) => s.requests);
+  const settings = useStore((s) => s.settings);
+  const clis = useStore((s) => s.clis);
   const openOverlay = useStore((s) => s.openOverlay);
   const [text, setText] = useState('');
   const scroller = useRef<HTMLDivElement>(null);
@@ -266,6 +268,8 @@ function CeoTab() {
   }, [log.length]);
   if (!ceo) return <p className="muted">The corner office is empty.</p>;
   const working = ceo.status === 'working';
+  const terminal = settings.runtime === 'terminal';
+  const ceoCli: AgentCli = terminal ? ceo.cli || 'claude' : 'claude';
   const pending = pendingRequests(requests);
   const send = (t: string) => {
     if (!t.trim()) return;
@@ -285,6 +289,16 @@ function CeoTab() {
             <span className="muted small">CEO</span>
             <StatusPill status={ceo.status} />
             <span className="spacer" />
+            {terminal && (
+              <select
+                value={ceoCli}
+                title="The CEO's coding agent"
+                style={{ width: 'auto' }}
+                onChange={(e) => void attempt(() => api.updateAgent(ceo.id, { cli: e.target.value as AgentCli }))}
+              >
+                <CliOptions clis={clis} />
+              </select>
+            )}
             <ModelInput agent={ceo} style={{ maxWidth: 150 }} />
             <EffortSelect agent={ceo} style={{ width: 'auto' }} />
           </div>
@@ -650,7 +664,7 @@ function SettingsTab() {
         </label>
         <p className="muted small">
           {terminal
-            ? 'Each agent can use their own coding agent, model and effort (Team tab); the CEO always runs Claude Code. Claude Code reports every step; Codex and OpenCode are experimental: the office sees their task rather than each step.'
+            ? 'Each agent can use their own coding agent, model and effort (Team tab; the CEO tab does the same for the CEO). Claude Code reports every step; Codex and OpenCode are experimental: the office sees their task rather than each step.'
             : 'The Agent SDK runs Claude Code. Each agent can use their own model and effort (Team tab).'}
         </p>
         <label className="field">
@@ -711,7 +725,7 @@ function SettingsTab() {
           <span>Company review every (minutes, 0 = off)</span>
           <input type="number" min={0} max={1440} defaultValue={settings.ceoHeartbeatMin} onBlur={(e) => set({ ceoHeartbeatMin: Number(e.target.value) })} />
         </label>
-        <p className="muted small">A review checks team sizes, stuck PRs and floor profiles, and is skipped when nothing changed since the last one. It never files issues: new work only comes from you. The CEO's own model and effort are on the CEO tab.</p>
+        <p className="muted small">A review checks team sizes, stuck PRs and floor profiles, and is skipped when nothing changed since the last one. It never files issues: new work only comes from you. The CEO's own coding agent, model and effort are on the CEO tab.</p>
       </div>
       <div className="card">
         <h3>⌨️ How agents run</h3>

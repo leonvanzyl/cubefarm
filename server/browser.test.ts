@@ -62,6 +62,7 @@ describe('the Playwright MCP server', () => {
       codexHook: 'h.cjs',
       plugin: 'file:///p.mjs',
       browser,
+      office: null,
     };
     const codex = launchArgs('codex', ctx).args.find((a) => a.startsWith('mcp_servers.playwright='))!;
     expect(codex).toBe(`mcp_servers.playwright={command=${JSON.stringify(browser.command)},args=[${browser.args.map((a) => JSON.stringify(a)).join(',')}]}`);
