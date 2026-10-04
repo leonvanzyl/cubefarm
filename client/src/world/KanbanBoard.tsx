@@ -20,7 +20,7 @@ export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] 
         repo.fullName,
         repo.autoAssign,
         repo.lastSync ? Math.floor(repo.lastSync / 60000) : 0,
-        ...(Object.values(cols) as KanbanCard[][]).map((list) => list.map((c) => [c.key, c.title, c.note, c.agent?.name, c.agent?.color, c.tone, c.ghost])),
+        ...(Object.values(cols) as KanbanCard[][]).map((list) => list.map((c) => [c.key, c.title, c.note, c.agent?.name, c.agent?.color, c.tone, c.ghost, c.ghost ? c.qa?.updatedAt : 0])),
       ]),
     [cols, repo],
   );

@@ -188,6 +188,11 @@ export function setListener(px: number, py: number, pz: number, fx: number, fy: 
 /** Where the listener is now (updated in place every frame). */
 export const listenerAt = (): Readonly<Vec3> => ear;
 
+const facing = { fwd: earFwd, up: earUp };
+
+/** Which way the listener faces and what's up for them (unit vectors, updated in place every frame). */
+export const listenerFacing = (): { readonly fwd: Readonly<Vec3>; readonly up: Readonly<Vec3> } => facing;
+
 // ---------- the probe (window.__swarmSfx) ----------
 
 /** One sound that was asked for, as recorded for QA and e2e. */

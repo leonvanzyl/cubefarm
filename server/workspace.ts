@@ -308,9 +308,9 @@ async function staleIndexLock(wt: string): Promise<string | null> {
   return stat && Date.now() - stat.mtimeMs > STALE_LOCK_MS ? lock : null;
 }
 
-/** Put an existing desk worktree on `branch` at `ref`, keeping ignored files (node_modules, build caches). */
-async function reuseDesk(wt: string, branch: string, ref: string) {
-  await git(['checkout', '--force', '-B', branch, ref], { cwd: wt });
+/** Put an existing desk worktree on `branch` at `ref` (null: a detached HEAD), keeping ignored files (node_modules, build caches). */
+async function reuseDesk(wt: string, branch: string | null, ref: string) {
+  await git(branch ? ['checkout', '--force', '-B', branch, ref] : ['checkout', '--force', '--detach', ref], { cwd: wt });
   await git(['reset', '--hard', ref], { cwd: wt });
   // Untracked leftovers from the last task go; ignored files (node_modules, build caches) stay.
   await git(['clean', '-fd'], { cwd: wt }).catch(() => undefined);
@@ -356,20 +356,28 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
 
     const wt = deskDir(fullName, agentSlug);
 
+    // git lets a branch be checked out in one worktree only. When another one has it (the PR's author still at their
+    // desk, or your own folder), this desk works on it detached and pushes with `git push origin HEAD:<branch>`:
+    // the other checkout is never touched.
+    await git(['worktree', 'prune'], { cwd: main });
+    const holder = branchHolder(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd: main })), branch, wt);
+    const local = holder ? null : branch;
+    if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at ${ref}; push with git push origin HEAD:${branch}.`);
+
     // Reuse the desk's worktree in place. Deleting it fails on Windows while any process (a dev server
     // the agent left running, a browser) still has its working directory inside, and reuse keeps
     // node_modules warm between tasks.
     if (await exists(path.join(wt, '.git'))) {
       try {
         try {
-          await reuseDesk(wt, branch, ref);
+          await reuseDesk(wt, local, ref);
         } catch (err) {
           // A git that died mid-command (a crash, a killed CLI) leaves index.lock behind, and every git after it fails.
           const lock = /index\.lock/.test((err as Error).message) ? await staleIndexLock(wt) : null;
           if (!lock) throw err;
           await fs.rm(lock, { force: true, maxRetries: 3 });
           note?.(`Removed a stale git lock (${lock}) left in the desk.`);
-          await reuseDesk(wt, branch, ref);
+          await reuseDesk(wt, local, ref);
         }
         return wt;
       } catch (err) {
@@ -386,9 +394,14 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
     }
     await git(['worktree', 'prune'], { cwd: main });
     await fs.mkdir(path.dirname(wt), { recursive: true });
-    await git(['worktree', 'add', '-B', branch, wt, ref], { cwd: main });
+    await git(['worktree', 'add', ...(local ? ['-B', local] : ['--detach']), wt, ref], { cwd: main });
     return wt;
   });
+}
+
+/** The other worktree (not `desk`) that has `branch` checked out, if any. */
+export function branchHolder(worktrees: WorktreeEntry[], branch: string, desk: string): string | null {
+  return worktrees.find((w) => w.branch === branch && !samePath(w.path, path.resolve(desk)))?.path ?? null;
 }
 
 /** `main`: the floor's checkout when it was let go (a disconnect points mainDir elsewhere before this runs). */
