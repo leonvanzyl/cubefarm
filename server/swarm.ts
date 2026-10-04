@@ -7,9 +7,11 @@ import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, IssueCap, jobLabel, planRoute, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
+import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
@@ -509,12 +511,14 @@ export class Swarm {
         return [];
       });
     const carryOn: PersistedAgent[] = [];
+    const preparing = new Set<PersistedAgent>(); // their task's session hadn't started: nothing of it to resume
     for (const a of this.state.agents) {
       if (!BUSY.includes(a.status)) continue;
-      if (back.some((c) => c.agentId === a.id && c.busy)) {
+      if (followKeptCli(a, back.find((c) => c.agentId === a.id))) {
         carryOn.push(a);
         continue;
       }
+      if (a.status === 'preparing') preparing.add(a);
       a.status = 'stopped';
       a.lastError = 'The swarm server restarted while this agent was working.';
       interrupted.push(a);
@@ -556,7 +560,7 @@ export class Swarm {
       this.previews.clearOrphans(this.state.repos),
     ]);
     for (const r of this.state.repos) void this.previews.refreshDefault(r);
-    this.recover(interrupted);
+    this.recover(interrupted, preparing);
     // A PR the restart left in "testing" with nobody on it: test it again (the result, if any, was lost).
     for (const rec of orphanedQa(this.state.qa, this.state.agents, BUSY)) this.setQa(rec, { status: 'queued', qaAgentId: null });
     this.officeHead = await this.backend.office.head();
@@ -576,22 +580,23 @@ export class Swarm {
     setTimeout(() => this.schedule(), 1000);
   }
 
-  /** Agents cut off by a server restart pick their Claude Code session back up (QA and demo agents start over). */
-  private recover(agents: PersistedAgent[]) {
+  /**
+   * Agents cut off by a server restart pick their session back up, told what they were doing. QA, demo agents and
+   * tasks still being prepared start over from the queue.
+   */
+  private recover(agents: PersistedAgent[], preparing: Set<PersistedAgent>) {
     for (const a of agents) {
-      if (a.task === 'qa' || this.backend.demo || !a.sessionId || !a.branch) {
+      const fix = a.task === 'fix' ? this.state.qa.find((q) => q.devAgentId === a.id && q.status === 'fixing') : undefined;
+      if (!resumesAfterRestart(a, preparing.has(a), this.backend.demo)) {
         this.appendLog(a, [{ kind: 'system', text: '↺ The office server restarted. Starting over from the queue.' }]);
         const rec = a.task === 'qa' ? this.state.qa.find((q) => q.qaAgentId === a.id && q.status === 'testing') : undefined;
         if (rec) this.setQa(rec, { status: 'queued' });
-        const fix = a.task === 'fix' ? this.state.qa.find((q) => q.devAgentId === a.id && q.status === 'fixing') : undefined;
         if (fix) this.setQa(fix, { status: 'failed' });
         this.clearTask(a);
         continue;
       }
       if (this.slotsFull()) continue; // stays 'stopped'; the manager can resume it later
-      void this.message(a.id, 'The office server restarted while you were working. Check the state of your worktree and continue where you left off.').catch((err) =>
-        console.warn(`could not resume ${a.name}`, err),
-      );
+      void this.message(a.id, resumeNote(a, fix)).catch((err) => console.warn(`could not resume ${a.name}`, err));
     }
   }
 
@@ -1700,7 +1705,7 @@ export class Swarm {
     if (result.interrupted) this.interrupted(a);
 
     if (a.task === 'qa') await this.onQaFinished(a, repo, result);
-    else if (a.task === 'fix') this.onFixFinished(a, repo, result);
+    else if (a.task === 'fix') await this.onFixFinished(a, repo, result);
     else await this.onIssueFinished(a, repo, result);
 
     this.emitAgent(a);
@@ -1822,6 +1827,7 @@ export class Swarm {
       // a fresh start: the manager decided it deserves another round
       rec.round += 1;
       rec.sessionFailures = 0;
+      rec.mergeNote = null;
     }
     const dev = this.state.agents.find((a) => a.repoId === repo.id && a.role === 'dev' && a.task !== 'qa' && (a.prNumber === prNumber || a.branch === pr.headRefName));
     this.queueQa(repo, prNumber, dev ?? null, pr.closesIssues[0] ?? null);
@@ -2029,7 +2035,8 @@ export class Swarm {
     this.setQa(rec, { status: 'fixing', devAgentId: dev.id });
     this.beginTask(
       dev,
-      { task: 'fix', issueNumber: rec.issueNumber, issueTitle: pull?.title ?? `PR #${rec.prNumber}`, branch: headRef, prNumber: rec.prNumber, prUrl: pull?.url ?? null },
+      // The session they held was another task's (QA, say); the author's own is resumed below, from rec.devSessionId.
+      { task: 'fix', issueNumber: rec.issueNumber, issueTitle: pull?.title ?? `PR #${rec.prNumber}`, branch: headRef, prNumber: rec.prNumber, prUrl: pull?.url ?? null, sessionId: null },
       rec.fixReason === 'conflict' ? `Resolving conflicts on PR #${rec.prNumber}` : rec.fixReason === 'checks' ? `Fixing checks on PR #${rec.prNumber}` : `Fixing PR #${rec.prNumber} after QA round ${rec.round}`,
       `Checking out PR #${rec.prNumber}…`,
     );
@@ -2077,8 +2084,10 @@ export class Swarm {
     this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }), resume);
   }
 
-  private onFixFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
+  private async onFixFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
     const rec = this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === a.prNumber);
+    // Did it push anything? A checks fix may only re-run a flaky check, so only QA and conflict fixes are asked.
+    const head = rec && result.ok && a.status !== 'stopped' && rec.fixReason !== 'checks' ? await this.prHead(a, repo, rec.prNumber) : null;
     if (a.status === 'stopped') {
       if (rec?.status === 'fixing') this.setQa(rec, { status: 'failed' });
       return;
@@ -2090,18 +2099,42 @@ export class Swarm {
       if (rec) this.setQa(rec, { status: failures >= 2 ? 'needs-human' : 'failed', sessionFailures: failures });
       return;
     }
-    a.status = 'done';
-    if (rec && (rec.fixReason === 'checks' || rec.fixReason === 'conflict')) {
-      // Back in line to merge: new commits go through QA again first, a re-run of flaky checks doesn't.
-      this.appendLog(a, [{ kind: 'done', text: `✔ PR #${a.prNumber} fixed in ${this.minutes(a)}m. Back in line to merge.` }]);
-      this.setQa(rec, { status: 'passed', devSessionId: a.sessionId ?? rec.devSessionId, mergeNote: 'waiting for fresh checks' });
-      this.toast('info', `${a.name} fixed PR #${rec.prNumber}; it merges once it passes again`);
+    if (!rec || !this.state.qa.includes(rec)) {
+      a.status = 'done';
+      this.appendLog(a, [{ kind: 'done', text: `✔ Fix pushed for PR #${a.prNumber} in ${this.minutes(a)}m. Back to QA.` }]);
       return;
     }
-    this.appendLog(a, [{ kind: 'done', text: `✔ Fix pushed for PR #${a.prNumber} in ${this.minutes(a)}m. Back to QA.` }]);
-    if (rec) {
-      this.setQa(rec, { status: 'queued', round: rec.round + 1, devSessionId: a.sessionId ?? rec.devSessionId });
-      this.toast('info', `${a.name} pushed fixes for PR #${rec.prNumber}; QA round ${rec.round} is queued`);
+    const step = fixOutcome(rec, head, this.minutes(a), !this.limited());
+    if (!step.pushed) {
+      // Like a failed session: someone gets another go, with the same instructions, before it lands on the manager.
+      const needsHuman = step.set.status === 'needs-human';
+      a.status = 'error';
+      a.lastError = `No new commits were pushed for PR #${rec.prNumber}`;
+      this.appendLog(a, [step.log]);
+      this.setQa(rec, step.set);
+      this.toast('error', `${a.name} ended the fix for PR #${rec.prNumber} without pushing a commit${needsHuman ? '; it needs you' : '; it goes back for another try'}`);
+      if (needsHuman) {
+        this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} went back for fixes, but ${step.set.sessionFailures} fix sessions in a row ended without pushing a commit, so it needs you.`);
+      }
+      return;
+    }
+    a.status = 'done';
+    this.appendLog(a, [step.log]);
+    this.setQa(rec, { ...step.set, devSessionId: a.sessionId ?? rec.devSessionId });
+    this.toast(
+      'info',
+      step.set.status === 'passed' ? `${a.name} fixed PR #${rec.prNumber}; it merges once it passes again` : `${a.name} pushed fixes for PR #${rec.prNumber}; QA round ${rec.round} is queued`,
+    );
+  }
+
+  /** The PR's head commit now; null (with a warning in the agent's log) when GitHub can't be asked. */
+  private async prHead(a: PersistedAgent, repo: PersistedRepo, prNumber: number): Promise<string | null> {
+    try {
+      return (await this.backend.prDetails(repo.fullName, prNumber)).headSha;
+    } catch (err) {
+      console.warn(`could not read the head of ${repo.fullName}#${prNumber}`, err);
+      this.appendLog(a, [{ kind: 'system', text: `⚠ Could not check PR #${prNumber} for new commits (${oneLine(err)}); taking the fix at its word.` }]);
+      return null;
     }
   }
 
@@ -2462,13 +2495,14 @@ export class Swarm {
     const u = this.officeUpdate;
     Object.assign(u, { sent: false, handedOver: false, requested: false, drainingSince: null });
     const interrupted = this.state.agents.filter((a) => BUSY.includes(a.status));
+    const preparing = new Set(interrupted.filter((a) => a.status === 'preparing'));
     for (const a of interrupted) {
       Object.assign(a, { status: 'stopped', lastError: 'The office updated itself while this agent was working.' });
       const rt = this.agentRt.get(a.id);
       if (rt) Object.assign(rt, { session: null, currentTool: null });
     }
     this.ensureCeo(interrupted);
-    this.recover(interrupted);
+    this.recover(interrupted, preparing);
     interrupted.forEach((a) => this.emitAgent(a));
     await this.reportUpdate(result);
     if (!result.ok) u.failedBehind = u.behind;

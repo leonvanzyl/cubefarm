@@ -459,7 +459,7 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
               : status === 'fixing'
                 ? `🔧 fixing · round ${rec!.round}`
                 : status === 'needs-human'
-                  ? '⚠️ needs you'
+                  ? `⚠️ needs you${rec!.mergeNote ? ` · ${rec!.mergeNote}` : ''}`
                   : p.isDraft
                     ? 'draft'
                     : 'not tested yet',
