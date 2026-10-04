@@ -5,7 +5,7 @@ import { elapsedLabel } from '../qaCard';
 import { bodyExcerpt, cardLabel, canPeel, locateCard } from '../world/whiteboard';
 import type { Col } from '../world/stickies';
 import { Markdown } from './Markdown';
-import { Panel } from './Overlays';
+import { Panel } from './Panel';
 
 // One whiteboard card up close (E on a sticky): the issue and the first lines of its body, who has it and since when,
 // what it waits for, and for a PR its QA round, QA's latest report and checks, and CI. It reads the office's state as

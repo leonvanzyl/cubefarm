@@ -10,6 +10,7 @@ import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR } from './config.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
 import { VoiceApiError, type VoiceApi } from './voice.ts';
+import type { NotifyTransport } from './notifier.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
 // dev → QA → fix loop) can be explored without spending any usage or touching real repos.
@@ -613,6 +614,7 @@ export function createDemoBackend(): Backend {
     previews: demoPreviews,
     office: demoOffice,
     voice: demoVoice,
+    notify: demoNotify,
   };
 }
 
@@ -1122,5 +1124,25 @@ const demoVoice: VoiceApi = {
   synthesize: async (_key, { text, voiceId }) => {
     await new Promise((r) => setTimeout(r, 300));
     return demoChime(text.length, voiceId);
+  },
+};
+
+// ---------- notifications ----------
+
+/**
+ * Nothing is sent: each channel logs the message it would get. A demo office starts with every chat app set up (fake
+ * addresses in demo-secrets.json), so a needs-human PR shows one line per channel; an address containing "bad" fails.
+ */
+const demoNotify: NotifyTransport = {
+  demoWebhooks: {
+    discord: { url: 'https://discord.com/api/webhooks/100000000000000001/demo-webhook-token' },
+    slack: { url: 'https://hooks.slack.com/services/T00000000/B00000000/demowebhooktoken' },
+    telegram: { token: '123456789:demo-bot-token-abcdefghijklmnop', chatId: '123456789' },
+    ntfy: { url: 'https://ntfy.sh/cubefarm-demo-office' },
+  },
+  post: async ({ channel, url, text }) => {
+    const ok = !/bad/i.test(url);
+    console.log(`🔔 demo ${channel}${ok ? '' : ' (fails: "bad" address)'} would get: ${text.replace(/\n/g, ' ⏎ ')}`);
+    return ok ? 200 : 404;
   },
 };

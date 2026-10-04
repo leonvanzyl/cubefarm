@@ -32,6 +32,9 @@ import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, free
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
+import { Notifier } from './notifier.ts';
+import { clip, plainText, stuckAgents } from './notify.ts';
+import { DEFAULT_NOTIFY, notifySettings, officeUrl } from '../shared/notify.ts';
 import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { DEFAULT_THEME_SETTINGS, dueGreeting, themeSettings } from '../shared/themes.ts';
@@ -398,6 +401,7 @@ export class Swarm {
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
       themes: DEFAULT_THEME_SETTINGS,
+      notify: notifySettings(DEFAULT_NOTIFY, {}),
     },
     repos: [],
     agents: [],
@@ -460,6 +464,9 @@ export class Swarm {
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
   /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
   readonly voice: Voice;
+  /** Notifications to the manager's devices and chat apps (docs/pocket.md). The demo's only log what they'd send. */
+  readonly notifier: Notifier;
+  private toldStuck = new Set<string>(); // `${agentId}:${endedAt}`: agents in an error the manager was notified about
 
   constructor(private backend: Backend) {
     this.voice = new Voice({
@@ -472,6 +479,15 @@ export class Swarm {
       keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
       cacheChanged: (voiceCache) => this.broadcast({ type: 'voiceCache', voiceCache }),
       log: (line) => console.log(line),
+    });
+    this.notifier = new Notifier({
+      transport: backend.notify,
+      secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
+      pushFile: path.join(HOME_DIR, backend.demo ? 'demo-push.json' : 'push.json'),
+      settings: () => this.state.settings.notify,
+      broadcast: (note) => this.broadcast({ type: 'notify', note }),
+      channelsChanged: (notifyChannels) => this.broadcast({ type: 'notifyChannels', notifyChannels }),
+      log: (line) => console.warn(line),
     });
     this.previews = new Previews(backend, {
       emit: (id) => {
@@ -554,6 +570,7 @@ export class Swarm {
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
       this.state.settings.themes = themeSettings(DEFAULT_THEME_SETTINGS, loaded.settings?.themes);
+      this.state.settings.notify = notifySettings(DEFAULT_NOTIFY, loaded.settings?.notify);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -562,6 +579,7 @@ export class Swarm {
       // first run
     }
     await this.voice.init();
+    await this.notifier.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
     for (const a of this.state.agents) {
@@ -648,6 +666,7 @@ export class Swarm {
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
     setInterval(() => this.greet(), 60_000);
     setTimeout(() => this.greet(), 5000);
+    setInterval(() => this.notifyStuck(), 60_000);
     void this.backend
       .detectClis()
       .then((clis) => {
@@ -802,9 +821,15 @@ export class Swarm {
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
+      notifyChannels: this.notifier.channelsView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
+  }
+
+  /** The short commit the office runs, or null when it isn't a git checkout. */
+  officeCommit(): string | null {
+    return this.officeHead?.slice(0, 7) ?? null;
   }
 
   /** The agent's latest screenshot: null when it has none right now, undefined for an unknown agent. */
@@ -846,10 +871,13 @@ export class Swarm {
   }
 
   private setQa(rec: QaRecord, patch: Partial<QaRecord>) {
+    const told = rec.status === 'needs-human' && rec.escalated;
     Object.assign(rec, patch, { updatedAt: Date.now() });
     if (rec.status !== 'needs-human') rec.escalated = false;
     this.broadcast({ type: 'qa', qa: this.qaView(rec) });
     this.save();
+    // Every way a PR reaches the manager (escalated by the CEO, or straight to them) passes here.
+    if (!told && rec.status === 'needs-human' && rec.escalated) this.notifyNeedsHuman(rec);
   }
 
   private appendLog(a: PersistedAgent, entries: LogEntry[]) {
@@ -1175,6 +1203,7 @@ export class Swarm {
       return this.mergeNote(rec, `merge blocked: ${error}`);
     }
     this.toast('success', `🔀 Merged PR #${pr.number} into ${repo.defaultBranch}: ${pr.title}`);
+    this.notifyMerge(repo, pr.number, pr.title);
     await this.closeResolvedIssues(repo, pr.number, pr);
     return true;
   }
@@ -1407,6 +1436,7 @@ export class Swarm {
     const pr = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === number) ?? (await this.backend.prDetails(repo.fullName, number));
     await this.backend.mergePull(repo.fullName, number, method);
     this.toast('success', `Merged PR #${number} into ${repo.defaultBranch}`);
+    this.notifyMerge(repo, number, pr.title);
     await this.closeResolvedIssues(repo, number, pr);
     await this.syncRepo(repo.id);
     setTimeout(() => this.schedule(), 200);
@@ -2550,6 +2580,11 @@ export class Swarm {
       s.themes = themeSettings(s.themes, patch.themes);
       setTimeout(() => this.greet(), 1000);
     }
+    if (patch.notify !== undefined) {
+      const url = (patch.notify as { officeUrl?: unknown } | null)?.officeUrl;
+      if (url !== undefined && officeUrl(url) === null) throw new HttpError(400, 'The office URL must be an http(s) address, e.g. https://office.your-tailnet.ts.net');
+      s.notify = notifySettings(s.notify, patch.notify);
+    }
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
@@ -2724,8 +2759,14 @@ export class Swarm {
     const usage = this.usageNow();
     const key = JSON.stringify(usage);
     if (key === this.lastUsage) return;
+    const was = this.lastUsage ? (JSON.parse(this.lastUsage) as typeof usage).state : 'normal';
     this.lastUsage = key;
     this.broadcast({ type: 'usage', usage });
+    if (usage.state !== was && usage.state !== 'normal') {
+      const until = usage.until ? new Date(usage.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'it resets';
+      if (usage.state === 'paused') this.notifier.notify('usage', "Claude's usage limit was reached", `The office starts no new work until ${until}; running sessions carry on.`);
+      else this.notifier.notify('usage', 'Pacing new work', `Claude warned that usage is high, so new issues start slowly until ${until}.`);
+    }
   }
 
   /** Pacing and pauses run out on their own: say so when pacing ends. */
@@ -3418,6 +3459,8 @@ export class Swarm {
     if (this.state.messages.length > KEEP_MESSAGES) this.state.messages.splice(0, this.state.messages.length - KEEP_MESSAGES);
     this.broadcast({ type: 'message', message: m });
     this.save();
+    // Proposals are notified as such (proposeHire, proposeLetGo).
+    if (from === 'ceo' && !requestId) this.notifier.notify('ceoMessage', this.ceo().name, plainText(m.text), `${this.ceo().name}: ${plainText(m.text, 100)}`);
     return m;
   }
 
@@ -3425,6 +3468,32 @@ export class Swarm {
   private greet() {
     const text = dueGreeting(new Date(), this.state.settings.themes, this.state.settings.managerName || this.user || '', this.state.messages);
     if (text) this.postMessage('ceo', text);
+  }
+
+  // ---------- notifications ----------
+
+  private notifyNeedsHuman(rec: QaRecord) {
+    const repo = this.state.repos.find((r) => r.id === rec.repoId);
+    const title = this.repoRt.get(rec.repoId)?.pulls.find((p) => p.number === rec.prNumber)?.title;
+    const name = repo?.fullName.split('/')[1] ?? rec.repoId;
+    this.notifier.notify('needsHuman', `PR #${rec.prNumber} needs you`, `${name}${title ? `: ${title}` : ''}. ${rec.stuckWhy ? `Stuck because ${rec.stuckWhy}.` : rec.summary ?? ''}`, `${name} #${rec.prNumber}${title ? ` ${title}` : ''}`);
+  }
+
+  private notifyMerge(repo: PersistedRepo, n: number, title: string) {
+    const name = repo.fullName.split('/')[1];
+    this.notifier.notify('merge', `Merged PR #${n}`, `${name}${title ? `: ${title}` : ''}`, `${name} #${n}${title ? ` ${title}` : ''}`);
+  }
+
+  /** Agents stuck in an error for STUCK_ERROR_MS: the manager hears once per error (checked every minute). */
+  private notifyStuck() {
+    const now = Date.now();
+    for (const { agent: a, key } of stuckAgents(this.state.agents, now, this.toldStuck)) {
+      this.toldStuck.add(key);
+      const repo = this.state.repos.find((r) => r.id === a.repoId);
+      const mins = Math.round((now - (a.endedAt ?? now)) / 60_000);
+      this.notifier.notify('agentError', `${a.name} needs help`, `In an error for ${mins} minutes${repo ? ` on floor ${repo.floor}` : ''}: ${clip(a.lastError ?? 'their session failed', 200)}`, `${a.name}${repo ? ` (floor ${repo.floor})` : ''}`);
+    }
+    for (const key of this.toldStuck) if (!this.state.agents.some((a) => key === `${a.id}:${a.endedAt ?? 0}` && a.status === 'error')) this.toldStuck.delete(key);
   }
 
   markPhoneRead(at: number) {
@@ -3724,6 +3793,7 @@ export class Swarm {
       return `Hired ${req.name} as ${title} on floor ${repo.floor} (auto-approved; agent id ${req.agentId}).`;
     }
     this.postMessage('ceo', `📄 New candidate for floor ${repo.floor}: ${name}, ${title}. ${req.reason}`, req.id);
+    this.notifier.notify('hire', `New candidate for floor ${repo.floor}`, `${name}, ${title}. ${plainText(req.reason)}`, `${name}, ${title} (floor ${repo.floor})`);
     return `Proposed ${name} as ${title} on floor ${repo.floor}. The manager will approve or decline (request ${req.id}).`;
   }
 
@@ -3766,6 +3836,7 @@ export class Swarm {
       return `Let ${a.name} go (auto-approved).`;
     }
     this.postMessage('ceo', `👋 I suggest letting ${a.name} (${req.title}, floor ${repo.floor}) go. ${req.reason}`, req.id);
+    this.notifier.notify('hire', `Let ${a.name} go?`, `${this.ceo().name} suggests letting ${a.name} (${req.title}, floor ${repo.floor}) go. ${plainText(req.reason)}`, `let ${a.name} go (floor ${repo.floor})`);
     return `Proposed letting ${a.name} go. The manager will decide (request ${req.id}).`;
   }
 

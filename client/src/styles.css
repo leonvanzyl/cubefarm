@@ -2854,3 +2854,420 @@ input.inline:focus {
     display: none;
   }
 }
+
+/* ---------- pocket mode (pocket/Pocket.tsx): the office as a 2D app for phones and touch screens ---------- */
+
+.app-loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  color: var(--muted);
+}
+.start-meta {
+  flex-wrap: wrap;
+}
+.start-pocket {
+  font-size: 0.95rem;
+}
+.pocket {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f4f1ea;
+  overflow: hidden;
+}
+.pk-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: var(--accent);
+  border-bottom: 3px solid var(--ink);
+}
+.pk-logo {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+.pk-title {
+  min-width: 0;
+  font-size: 1.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--bad);
+}
+.pk-dot-on {
+  background: var(--good);
+}
+.pk-icon-btn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 2.5px solid var(--ink);
+  background: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.pk-main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pk-main-chat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pk-main-chat .phone-chat {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--paper);
+}
+.pk-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.pk-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 6px 4px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  background: #23263a;
+  border-top: 3px solid var(--ink);
+}
+.pk-tab {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: #b8bbd6;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.pk-tab-on {
+  background: #3b3f5c;
+  color: #fff;
+}
+.pk-tab-icon {
+  position: relative;
+  font-size: 1.3rem;
+}
+.pk-tab-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-card {
+  min-width: 0;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+.pk-banner {
+  padding: 8px 12px;
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  background: #fff3d6;
+  font-weight: 500;
+}
+.pk-banner-bad {
+  background: #ffe0e6;
+}
+.pk-callout {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: #ffe0e6;
+  box-shadow: 0 3px 0 var(--ink);
+  font-family: var(--font);
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.pk-ceo,
+.pk-floor-head,
+.pk-agent-head,
+.pk-pr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pk-pr-head {
+  align-items: flex-start;
+}
+.pk-pr-head .grow {
+  overflow-wrap: anywhere;
+}
+.pk-floor {
+  border-left: 10px solid var(--accent);
+}
+.pk-floor-name {
+  font-size: 1.05rem;
+}
+.pk-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-pipeline {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+.pk-stage {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  border: 2px solid rgba(31, 29, 43, 0.15);
+  border-radius: 12px;
+  background: #f4f1ea;
+}
+.pk-stage-n {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.pk-stage-icon {
+  margin-right: 3px;
+  font-size: 0.8rem;
+  vertical-align: 2px;
+}
+.pk-stage-label {
+  max-width: 100%;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+}
+.pk-stage-zero {
+  opacity: 0.5;
+}
+.pk-stage-hot {
+  border-color: var(--bad);
+  background: #ffe0e6;
+}
+.pk-floor-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pk-wide {
+  width: 100%;
+}
+.pk-center {
+  text-align: center;
+}
+.pk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pk-chip {
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pk-chip-on {
+  background: var(--accent);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+.pk-h {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 2px 0;
+  font-size: 1rem;
+}
+.pk-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-margin-top: 8px;
+}
+.pk-agent-bad {
+  background: #fff5f7;
+}
+.pk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pk-actions .btn {
+  min-height: 34px;
+}
+.pk-assign {
+  flex: 1 1 160px;
+  min-width: 0;
+  width: auto;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+}
+.pk-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pk-error {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.pk-pr-summary {
+  margin: 6px 0 2px;
+  overflow-wrap: anywhere;
+}
+.pk-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+/* at the top, two at most and two lines each, so they never cover the tabs or a message box */
+.pocket .toasts {
+  top: calc(66px + env(safe-area-inset-top));
+  bottom: auto;
+  left: 12px;
+  right: 12px;
+  max-width: none;
+  align-items: stretch;
+}
+.pocket .toast {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pocket .quick {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.pocket .md pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pocket .resume {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .pocket .overlay {
+    padding: 0;
+  }
+  .pocket .panel {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .pocket .panel-head {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  .pocket .panel-body {
+    padding: 12px;
+  }
+}
+
+/* the Kanban in pocket mode: one column under the other, so nothing scrolls sideways */
+.kanban-embedded {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.kanban-embedded-title {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+.kanban-embedded .kanban,
+.kanban-embedded .kanban-5 {
+  grid-template-columns: minmax(0, 1fr);
+  overflow: visible;
+}
+.kanban-embedded .kcol-body {
+  overflow: visible;
+}
+.kanban-embedded .kcard-title {
+  overflow-wrap: anywhere;
+}
+
+/* ui/NotifySettings.tsx */
+.notify-h {
+  margin: 14px 0 2px;
+  font-size: 0.95rem;
+}
+.notify-events .toggle.block {
+  margin: 4px 0;
+}
+.notify-hook {
+  padding: 8px 0;
+  border-top: 2px dashed rgba(31, 29, 43, 0.15);
+}
+.notify-hook p {
+  margin: 2px 0 6px;
+}
+.notify-form {
+  display: flex;
+  flex-direction: column;
+}
+.notify-ok {
+  color: #1b873a;
+  font-weight: 600;
+}
