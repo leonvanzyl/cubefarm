@@ -7,6 +7,7 @@ import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
+import { Outside } from './Outside';
 import { Player } from './Player';
 import { Lights } from './Shell';
 import { SoundListener } from './SoundListener';
@@ -36,6 +37,7 @@ export function Game() {
   const repos = useStore((s) => s.repos);
   const repo = floor === 0 ? null : repoOnFloor(repos, floor);
   const isOffice = !!repo;
+  const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
   const colliders = useMemo(() => (isOffice ? officeColliders() : lobbyColliders()), [isOffice]);
   // Stop drawing while nobody can see the office; switching back to 'always' draws a fresh frame at once.
   const paused = useRenderPaused();
@@ -58,6 +60,7 @@ export function Game() {
       <fog attach="fog" args={['#f3ece2', 30, 70]} />
       <Lights />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
+      <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />

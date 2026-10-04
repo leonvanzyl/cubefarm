@@ -441,38 +441,56 @@ export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, li
   ctx.textAlign = 'left';
 }
 
-export function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number) {
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#74c0fc');
-  g.addColorStop(0.7, '#c5e8ff');
-  g.addColorStop(1, '#e6f6ff');
-  ctx.fillStyle = g;
+/** Window glass: a faint blue tint you see straight through, with two diagonal glints. */
+export function drawGlass(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.fillStyle = 'rgba(205, 236, 255, 0.16)';
   ctx.fillRect(0, 0, w, h);
-  // puffy clouds
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  for (let i = 0; i < 6; i++) {
-    const cx = ((seed * 131 + i * 223) % w) + 20;
-    const cy = 40 + ((seed * 17 + i * 53) % (h * 0.35));
-    for (let k = 0; k < 4; k++) {
-      ctx.beginPath();
-      ctx.arc(cx + k * 22, cy + (k % 2) * 6, 18 + (k % 3) * 6, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.32)';
+  for (const [x0, bw] of [[0.18, 0.07], [0.3, 0.025]] as const) {
+    ctx.beginPath();
+    ctx.moveTo(w * x0, h);
+    ctx.lineTo(w * (x0 + bw), h);
+    ctx.lineTo(w * (x0 + bw + 0.22), 0);
+    ctx.lineTo(w * (x0 + 0.22), 0);
+    ctx.fill();
   }
-  // cartoon skyline
-  const palette = ['#8aa4c8', '#9fb6d6', '#7d95bb', '#a8bddb'];
-  let x = 0;
-  let i = 0;
-  while (x < w) {
-    const bw = 40 + ((seed + i * 37) % 70);
-    const bh = h * (0.18 + (((seed * 7 + i * 29) % 30) / 100));
-    ctx.fillStyle = palette[i % palette.length];
-    ctx.fillRect(x, h - bh, bw - 4, bh);
-    ctx.fillStyle = 'rgba(255,255,230,0.55)';
-    for (let wy = h - bh + 10; wy < h - 10; wy += 16) for (let wx = x + 6; wx < x + bw - 12; wx += 12) if ((wx + wy + i) % 3) ctx.fillRect(wx, wy, 5, 7);
-    x += bw;
-    i++;
-  }
+}
+
+/**
+ * One bay of the building's outside, one storey tall, for the floors above and below yours: the wall, a window,
+ * and the slab between floors along the top. `wall` is the fraction of the storey that's wall (the rest is slab).
+ */
+export function drawFacade(ctx: CanvasRenderingContext2D, w: number, h: number, wall: number, win: { x0: number; x1: number; y0: number; y1: number }) {
+  ctx.fillStyle = '#f6ecda';
+  ctx.fillRect(0, 0, w, h);
+  const slab = h * (1 - wall);
+  ctx.fillStyle = '#dccbb0';
+  ctx.fillRect(0, 0, w, slab);
+  ctx.fillStyle = '#b9a68a';
+  ctx.fillRect(0, slab - 3, w, 3);
+  // fractions of the storey, from its floor up
+  const x0 = w * win.x0;
+  const x1 = w * win.x1;
+  const top = h - h * win.y1;
+  const bottom = h - h * win.y0;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x0 - 5, top - 5, x1 - x0 + 10, bottom - top + 12);
+  const g = ctx.createLinearGradient(0, top, 0, bottom);
+  g.addColorStop(0, '#8fc9ef');
+  g.addColorStop(1, '#c4e6fb');
+  ctx.fillStyle = g;
+  ctx.fillRect(x0, top, x1 - x0, bottom - top);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.beginPath();
+  ctx.moveTo(x0 + (x1 - x0) * 0.15, bottom);
+  ctx.lineTo(x0 + (x1 - x0) * 0.25, bottom);
+  ctx.lineTo(x0 + (x1 - x0) * 0.45, top);
+  ctx.lineTo(x0 + (x1 - x0) * 0.35, top);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect((x0 + x1) / 2 - 3, top, 6, bottom - top);
+  ctx.fillStyle = '#1f1d2b';
+  ctx.fillRect(x0 - 5, bottom + 5, x1 - x0 + 10, 2);
 }
 
 // ---------- the floor's app monitor ----------

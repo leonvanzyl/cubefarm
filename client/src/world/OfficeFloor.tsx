@@ -53,7 +53,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
 
   return (
     <group>
-      <Shell accent={repo.color} floorColor="#d9b48a" seed={repo.floor} />
+      <Shell kind="office" accent={repo.color} floorColor="#d9b48a" />
       {DESK_RUGS.map((r) => (
         <Rug key={r.minZ} position={[(r.minX + r.maxX) / 2, 0.004, (r.minZ + r.maxZ) / 2]} size={[r.maxX - r.minX, r.maxZ - r.minZ]} color={rugColor} />
       ))}

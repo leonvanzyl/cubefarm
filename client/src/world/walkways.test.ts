@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KANBAN_KEYS } from './draw';
 import { BOARD, PLAYER_RADIUS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders } from './layout';
+import { BALCONY, BALCONY_OUT, HALF_W, SIDE_OPENINGS, SIDES, sideSign } from './layout';
 import { segmentClear, type Pt } from './toys/roombaBrain';
 import { WALK_R, WALK_SPEED, findPath, spot, standable, steer, walkways, type Body, type FloorKind, type Mover, type Walkways } from './walkways';
 
@@ -72,6 +73,25 @@ describe('named spots', () => {
           expect(segmentClear([counter], at, p, WALK_R), `${from.id} → ${id}`).toBe(true);
           at = p;
         }
+      }
+    }
+  });
+});
+
+describe('the balconies', () => {
+  it.each(FLOORS)('are off-limits on the %s floor: nobody stands out there or in a side doorway, and no walk leads out', (floor) => {
+    const w = walkways(floor);
+    for (const side of SIDES) {
+      const s = sideSign(side);
+      const door = SIDE_OPENINGS[floor][side].door;
+      for (const x of [HALF_W, HALF_W + 0.2, HALF_W + 1.2, BALCONY_OUT - 0.5]) {
+        expect(standable(w, s * x, door), `${side} ${x}`).toBe(false);
+        expect(standable(w, s * x, BALCONY.maxZ - 1), `${side} ${x}`).toBe(false);
+      }
+      for (const home of w.homes) {
+        const path = findPath(w, home, { x: s * (HALF_W + 1.2), z: door });
+        expect(path, home.id).not.toBeNull();
+        for (const p of path!.slice(0, -1)) expect(Math.abs(p.x), home.id).toBeLessThan(HALF_W);
       }
     }
   });
