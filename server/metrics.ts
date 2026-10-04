@@ -65,23 +65,17 @@ export function loadHistory(raw: unknown, now: number): OpsHistory {
 // ---------- recording ----------
 
 /**
- * Merged PRs from a sync that the history doesn't have yet. Lead time runs from the oldest linked issue's opening
- * (`born`, when the office saw it), else from the PR's. Returns how many were added.
+ * Merged PRs from a sync that the history doesn't have yet. Lead time runs from when the issue it closes was filed
+ * (issueCreatedAt, as far as the office knows), else from the PR's opening. Returns how many were added.
  */
-export function recordMerges(
-  h: OpsHistory,
-  repo: string,
-  pulls: Pick<PullInfo, 'number' | 'state' | 'mergedAt' | 'createdAt' | 'closesIssues'>[],
-  born: (issue: number) => number | null,
-  now: number,
-): number {
+export function recordMerges(h: OpsHistory, repo: string, pulls: Pick<PullInfo, 'number' | 'state' | 'mergedAt' | 'createdAt' | 'issueCreatedAt'>[], now: number): number {
   let added = 0;
   for (const p of pulls) {
     const at = p.state === 'MERGED' && p.mergedAt ? Date.parse(p.mergedAt) : NaN;
     if (!Number.isFinite(at) || now - at > KEEP_MS) continue;
     if (h.merges.some((m) => m[1] === repo && m[2] === p.number)) continue;
-    const issues = p.closesIssues.map(born).filter(isNum);
-    const start = issues.length ? Math.min(...issues) : Date.parse(p.createdAt);
+    const filed = p.issueCreatedAt ? Date.parse(p.issueCreatedAt) : NaN;
+    const start = Number.isFinite(filed) ? filed : Date.parse(p.createdAt);
     h.merges.push([at, repo, p.number, Number.isFinite(start) && start <= at ? at - start : null]);
     added++;
   }

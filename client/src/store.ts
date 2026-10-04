@@ -16,6 +16,8 @@ export type PhoneTab = 'chat' | 'hires' | 'company' | 'games';
 export type Overlay =
   | { kind: 'terminal'; agentId: string }
   | { kind: 'kanban'; repoId: string }
+  /** One whiteboard card up close (CardView.tsx). `peel`: its sticky can come off the board (G). */
+  | { kind: 'card'; repoId: string; key: string; number: number; pr: boolean; peel?: boolean }
   | { kind: 'app'; repoId: string }
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string; card?: string } // card: an OpsAlarm id, or 'usage', to open at
@@ -27,14 +29,8 @@ export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'setting
 export interface Focus {
   id: string;
   label: string;
-  action:
-    | Overlay
-    | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' }
-    | { kind: 'pickup'; toyId: string }
-    | { kind: 'poke'; toyId: string }
-    | { kind: 'coffee'; op: 'place' | 'brew' | 'take' }
-    | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' }
-    | { kind: 'resume' }; // the usage meter while pacing: resume full speed (asks first)
+  // resume: the usage meter while pacing, resume full speed (asks first)
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'resume' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -43,7 +39,9 @@ export type Held =
   /** A foam blaster: darts left in the magazine, and performance.now() when a reload started (null when not reloading). */
   | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null }
   /** A coffee mug: sips of coffee left, 0 (empty) to 3 (full). */
-  | { kind: 'mug'; id: string; sips: number };
+  | { kind: 'mug'; id: string; sips: number }
+  /** A sticky peeled off the whiteboard (boardHands.ts): an issue for a developer's desk, or a PR for the QA lab. */
+  | { kind: 'sticky'; id: string; repoId: string; key: string; number: number; pr: boolean };
 
 export interface Toast {
   id: number;

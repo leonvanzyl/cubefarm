@@ -24,7 +24,13 @@ const NOW = new Date(2026, 8, 30, 15, 20).getTime();
 const MIN = 60_000;
 const iso = (t: number) => new Date(t).toISOString();
 
-const merged = (number: number, mergedAt: number, createdAt: number, closesIssues: number[] = []) => ({ number, state: 'MERGED' as const, mergedAt: iso(mergedAt), createdAt: iso(createdAt), closesIssues });
+const merged = (number: number, mergedAt: number, createdAt: number, issueCreatedAt: number | null = null) => ({
+  number,
+  state: 'MERGED' as const,
+  mergedAt: iso(mergedAt),
+  createdAt: iso(createdAt),
+  issueCreatedAt: issueCreatedAt === null ? null : iso(issueCreatedAt),
+});
 
 function floor(over: Partial<FloorState> = {}): FloorState {
   return { repoId: 'o/a', floor: 1, ready: 0, agents: [], prs: [], ...over };
@@ -38,22 +44,21 @@ const pr = (number: number, status: string | null, ceoLooking = false, why: stri
 });
 
 describe('recording the history', () => {
-  it('records each merge once, with its lead time from the oldest linked issue', () => {
+  it('records each merge once, with its lead time from when its issue was filed', () => {
     const h = emptyHistory();
-    const born = (n: number) => (n === 4 ? NOW - 5 * HOUR_MS : n === 5 ? NOW - 3 * HOUR_MS : null);
-    const pulls = [merged(10, NOW - HOUR_MS, NOW - 2 * HOUR_MS, [5, 4]), merged(11, NOW - 10 * MIN, NOW - 40 * MIN), { ...merged(12, NOW, NOW), state: 'OPEN' as const, mergedAt: null }];
-    expect(recordMerges(h, 'o/a', pulls, born, NOW)).toBe(2);
+    const pulls = [merged(10, NOW - HOUR_MS, NOW - 2 * HOUR_MS, NOW - 5 * HOUR_MS), merged(11, NOW - 10 * MIN, NOW - 40 * MIN), { ...merged(12, NOW, NOW), state: 'OPEN' as const, mergedAt: null }];
+    expect(recordMerges(h, 'o/a', pulls, NOW)).toBe(2);
     expect(h.merges).toEqual([
       [NOW - HOUR_MS, 'o/a', 10, 4 * HOUR_MS],
       [NOW - 10 * MIN, 'o/a', 11, 30 * MIN], // no known issue: from the PR's opening
     ]);
-    expect(recordMerges(h, 'o/a', pulls, born, NOW)).toBe(0);
-    expect(recordMerges(h, 'o/b', pulls, born, NOW)).toBe(2); // the same numbers on another floor are other PRs
+    expect(recordMerges(h, 'o/a', pulls, NOW)).toBe(0);
+    expect(recordMerges(h, 'o/b', pulls, NOW)).toBe(2); // the same numbers on another floor are other PRs
   });
 
   it("skips merges older than a week, so they don't come back after pruning", () => {
     const h = emptyHistory();
-    expect(recordMerges(h, 'o/a', [merged(3, NOW - KEEP_MS - MIN, NOW - KEEP_MS - HOUR_MS)], () => null, NOW)).toBe(0);
+    expect(recordMerges(h, 'o/a', [merged(3, NOW - KEEP_MS - MIN, NOW - KEEP_MS - HOUR_MS)], NOW)).toBe(0);
   });
 
   it('records finished check runs per commit and result, and ignores running or untimed ones', () => {

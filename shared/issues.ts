@@ -15,6 +15,12 @@ export function blockers(body: string, open: Set<number>) {
   return [...out];
 }
 
+/** Why an issue that waits for others can't start yet (the server's refusal and the whiteboard's warning say the same). */
+export function waitsMessage(issue: number, waits: number[]) {
+  const list = waits.map((n) => `#${n}`).join(', ');
+  return `#${issue} waits for ${list}: it can start once ${waits.length === 1 ? 'that is' : 'those are'} closed`;
+}
+
 const DEPENDENCY = /\b(?:depends\s+on|blocked\s+by)\s*:?\s*(?:#\d+(?:\s*(?:,|and|&)\s*)?)+/gi;
 const STATEMENT = new RegExp(`\\s*${DEPENDENCY.source}[.;,]?`, 'gi'); // with the space before it and a full stop after
 
