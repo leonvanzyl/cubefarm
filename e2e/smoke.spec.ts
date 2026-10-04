@@ -177,6 +177,37 @@ test('holding W walks forward', async ({ page }) => {
   expect(to.yaw).toBeCloseTo(from.yaw); // W walks, it doesn't turn
 });
 
+test('the coffee machine fills a mug you put under it', async ({ page }) => {
+  // Floor 1's kitchenette (east wall): stand in front of the coffee machine, looking down at its drip tray.
+  const spot: SavedView = { floor: 1, x: 14.75, z: 5.9, yaw: -Math.PI / 2, pitch: -0.83 };
+  await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(spot)] as const);
+  await enterOffice(page);
+  const coffee = () => page.evaluate(() => (window as unknown as { __swarmCoffee: { state: string; mug: { sips: number } | null } }).__swarmCoffee);
+  const held = () => page.evaluate(() => (window as unknown as { __swarmToys: { held: unknown } }).__swarmToys.held);
+  const act = (op: string) => page.evaluate((o) => (window as unknown as { __swarmCoffeeDo(op: string): void }).__swarmCoffeeDo(o), op);
+
+  await act('brew'); // no mug: nothing happens
+  expect((await coffee()).state).toBe('empty');
+
+  await page.evaluate(() => (window as unknown as { __swarmGiveMug(sips: number): void }).__swarmGiveMug(0));
+  await expect(page.getByText('Put mug under the machine')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('e');
+  await expect.poll(async () => (await coffee()).state).toBe('mugPlaced');
+  expect(await held()).toBeNull();
+
+  await act('brew');
+  expect((await coffee()).state).toBe('brewing');
+  await expect.poll(async () => (await coffee()).state, { timeout: 15_000 }).toBe('ready');
+  await expect(page.getByText('Take coffee')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('e');
+  await expect.poll(held).toMatchObject({ kind: 'mug', sips: 3 });
+  expect((await coffee()).state).toBe('empty');
+
+  const sounds = await page.evaluate(() => (window as unknown as { __swarmSfx: { name: string; group: string | null; at: unknown }[] }).__swarmSfx.filter((s) => s.name.startsWith('coffee-')));
+  expect(sounds.map((s) => s.name)).toEqual(expect.arrayContaining(['coffee-nope', 'coffee-mug', 'coffee-button']));
+  expect(sounds.every((s) => s.group === 'toys' && s.at)).toBe(true);
+});
+
 test('__swarmSfx records sounds, fading and panning with where you stand', async ({ page }) => {
   type Rec = { name: string; at: { x: number } | null; gain: number; pan: number; played: boolean };
   const ping = (x: number, z: number) =>
