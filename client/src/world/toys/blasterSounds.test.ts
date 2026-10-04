@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WALL_H } from '../layout';
 import { BLASTER } from './darts';
-import { BURST_GAP_MS, QUIET_SPEED, dartImpact, dartSurface, landingSpeed, nextBurst, reloadCues, thwipVoice } from './blasterSounds';
+import { BURST_GAP_MS, PERSON_HUSH_STEPS, QUIET_SPEED, dartImpact, dartSurface, heardSurface, landingSpeed, nextBurst, reloadCues, thwipVoice } from './blasterSounds';
 
 describe('dartSurface', () => {
   const fixed = { fixed: true, normalY: 0, y: 1.2 };
@@ -55,6 +55,13 @@ describe('dartImpact', () => {
 
   it('leaves people to say boop themselves', () => {
     expect(dartImpact('glance', 'person', 18)).toBeNull();
+  });
+
+  it("doesn't tick on the chair right after reaching someone", () => {
+    expect(heardSurface('furniture', 1, 'wall')).toBe('person');
+    expect(heardSurface(null, PERSON_HUSH_STEPS, 'furniture')).toBe('person');
+    expect(heardSurface('furniture', PERSON_HUSH_STEPS + 1, 'wall')).toBe('furniture');
+    expect(heardSurface(null, Infinity, 'furniture')).toBe('furniture');
   });
 });
 

@@ -11,7 +11,7 @@ import { WallSign } from '../OfficeFloor';
 import { Box, Cyl } from '../Toon';
 import { escaped, type ToyFloor } from './balls';
 import { blasterClatter, dartSound } from './blasterSfx';
-import { LANDING_SOUNDS, dartImpact, dartSurface, landingSpeed, type DartSurface } from './blasterSounds';
+import { LANDING_SOUNDS, dartImpact, dartSurface, heardSurface, landingSpeed, type DartSurface } from './blasterSounds';
 import { BLASTERS, DART_CAP, FLOOR_Y, reloadProgress, setDartSource, sticks, toEvict, type BlasterDef } from './darts';
 import { kick, resetBlasters, takeShot } from './gun';
 import { walk } from './hands';
@@ -196,16 +196,20 @@ interface Dart {
   color: THREE.Color;
   state: 'flying' | 'loose' | 'stuck';
   dir: THREE.Vector3;
-  /** For its sounds: its speed in flight, what its look-ahead ray last met, its vertical speed while loose, and landings heard. */
+  /**
+   * For its sounds: its speed in flight, what its look-ahead ray last met and how many steps ago it met someone, its
+   * vertical speed while loose, and landings heard.
+   */
   speed: number;
   ahead: DartSurface | null;
+  sincePerson: number;
   vy: number;
   landings: number;
 }
 
 /** A dart that hit something falls and rolls like any other toy. */
 function tumble(d: Dart) {
-  const impact = dartImpact('glance', d.ahead ?? 'furniture', d.speed);
+  const impact = dartImpact('glance', heardSurface(d.ahead, d.sincePerson, 'furniture'), d.speed);
   if (impact) dartSound(impact.sound, d.body.translation(), impact.gain);
   d.vy = d.body.linvel().y;
   d.state = 'loose';
@@ -336,7 +340,7 @@ function Darts({ groups }: { groups: number }) {
         rapier.ColliderDesc.capsule(DART.half, DART.r).setDensity(DART.density).setRestitution(0.35).setFriction(0.9).setCollisionGroups(groups),
         body,
       );
-      darts.current.push({ id: nextId.current++, born: performance.now(), body, color: new THREE.Color(def.foam), state: 'flying', dir: v.clone(), speed: DART.speed, ahead: null, vy: 0, landings: 0 });
+      darts.current.push({ id: nextId.current++, born: performance.now(), body, color: new THREE.Color(def.foam), state: 'flying', dir: v.clone(), speed: DART.speed, ahead: null, sincePerson: Infinity, vy: 0, landings: 0 });
     },
     [camera, castFrom, groups, rapier, remove, tmp, world],
   );
@@ -350,7 +354,7 @@ function Darts({ groups }: { groups: number }) {
       b.setTranslation(point.addScaledVector(n, DART.tip - DART.embed), false);
       b.setRotation(tmp.q.setFromUnitVectors(UP, n.negate()), false);
       d.state = 'stuck';
-      const impact = dartImpact('stick', d.ahead ?? 'wall', d.speed);
+      const impact = dartImpact('stick', heardSurface(d.ahead, d.sincePerson, 'wall'), d.speed);
       if (impact) dartSound(impact.sound, point, impact.gain);
     },
     [rapier, tmp, world],
@@ -391,6 +395,7 @@ function Darts({ groups }: { groups: number }) {
           y: at.y + v.y * hit.timeOfImpact,
         });
       } else d.ahead = null;
+      d.sincePerson = d.ahead === 'person' ? 0 : d.sincePerson + 1;
       if (!hit || !hit.collider.parent()?.isFixed()) continue;
       p.set(at.x, at.y, at.z).addScaledVector(v, hit.timeOfImpact);
       const inDoorway = p.x > DOOR.minX && p.x < DOOR.maxX && p.z > DOOR.minZ - 0.05; // the doorway only exists for toys

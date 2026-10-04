@@ -59,6 +59,17 @@ export function dartImpact(how: 'stick' | 'glance' | 'land', surface: DartSurfac
   return { sound: 'tick', gain: loudness(speed, how === 'land' ? 4 : 12) };
 }
 
+/**
+ * Physics steps after a dart's look-ahead last met someone in which its own hits stay quiet: the chair's solid box
+ * sits just inside the person's sensor, so a dart that reaches someone hits the chair next, and their boop is the sound.
+ */
+export const PERSON_HUSH_STEPS = 6;
+
+/** The surface a dart's hit sounds like: someone it just reached, rather than the chair behind them, else `ahead`. */
+export function heardSurface(ahead: DartSurface | null, stepsSincePerson: number, fallback: DartSurface): DartSurface {
+  return stepsSincePerson <= PERSON_HUSH_STEPS ? 'person' : (ahead ?? fallback);
+}
+
 // ---------- landings ----------
 
 /** Vertical speed (m/s) a falling body must lose in one physics step to count as landing on something. */
