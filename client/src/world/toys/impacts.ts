@@ -32,17 +32,22 @@ export type HoopPart = 'rim' | 'board';
 
 /** How close (m) a ball's surface must be to a hoop part for a hit to count as touching it. */
 const TOUCH = 0.05;
+/** The most `moved` may widen TOUCH by, so a hard hit elsewhere doesn't reach out to the hoop. */
+const MAX_MOVED = 0.08;
 
 /**
  * Which part of the hoop a ball centred at `p` with radius `r` is touching, if any. `rim` is the floor's rim
- * (hoopRim); the backboard's face is parallel to the south wall, filled back to it like its collider.
+ * (hoopRim); the backboard's face is parallel to the south wall, filled back to it like its collider, underside
+ * included. `p` is read after the physics step, when the ball has already rebounded up to `moved` m (its speed
+ * times the step) away from what it hit, so that much more counts as touching.
  */
-export function hoopPart(p: Vec3, r: number, rim: Rim): HoopPart | null {
+export function hoopPart(p: Vec3, r: number, rim: Rim, moved = 0): HoopPart | null {
+  const touch = TOUCH + Math.min(MAX_MOVED, Math.max(0, moved));
   const radial = Math.hypot(p.x - rim.x, p.z - rim.z) - rim.r;
-  if (Math.hypot(radial, p.y - rim.y) <= r + HOOP.rim.tube + TOUCH) return 'rim';
+  if (Math.hypot(radial, p.y - rim.y) <= r + HOOP.rim.tube + touch) return 'rim';
   const face = HALF_D - HOOP.standoff - HOOP.board.t;
   const halfW = Math.max(HOOP.board.w, HOOP.score.w) / 2;
   const top = HOOP.score.bottom + HOOP.score.h;
-  if (p.z >= face - r - TOUCH && Math.abs(p.x - rim.x) <= halfW + r && p.y >= HOOP.board.bottom - r && p.y <= top + r) return 'board';
+  if (p.z >= face - r - touch && Math.abs(p.x - rim.x) <= halfW + r && p.y >= HOOP.board.bottom - r - touch && p.y <= top + r) return 'board';
   return null;
 }

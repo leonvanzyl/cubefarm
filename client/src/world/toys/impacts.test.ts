@@ -65,6 +65,23 @@ describe('hoopPart', () => {
     expect(hoopPart({ x: rim.x + 0.3, y: 3.0, z: face - r }, r, rim)).toBe('board');
   });
 
+  it('finds a ball that hit the rim or board from below and has already rebounded', () => {
+    // read after the step: a ball that hit the underside of the rim is back down about 0.06 m below the tube
+    const underRim = { x: rim.x, y: rim.y - HOOP.rim.tube - r - 0.06, z: rim.z - rim.r };
+    expect(hoopPart(underRim, r, rim, 0.06)).toBe('rim');
+    // under the board, between its face and the wall
+    const underBoard = { x: rim.x + 0.3, y: HOOP.board.bottom - r - 0.02, z: face + 0.1 };
+    expect(hoopPart(underBoard, r, rim)).toBe('board');
+    expect(hoopPart({ ...underBoard, y: HOOP.board.bottom - r - 0.1 }, r, rim, 0.06)).toBe('board');
+  });
+
+  it('only widens the touch by how far the ball moved, and only so far', () => {
+    const below = (gap: number) => ({ x: rim.x, y: rim.y - HOOP.rim.tube - r - gap, z: rim.z - rim.r });
+    expect(hoopPart(below(0.1), r, rim)).toBeNull();
+    expect(hoopPart(below(0.1), r, rim, 0.06)).toBe('rim');
+    expect(hoopPart(below(0.3), r, rim, 5)).toBeNull();
+  });
+
   it('ignores a ball dropping through the middle of the rim, or anywhere else', () => {
     expect(hoopPart({ x: rim.x, y: rim.y, z: rim.z }, r, rim)).toBeNull();
     expect(hoopPart({ x: rim.x, y: r, z: rim.z }, r, rim)).toBeNull(); // on the floor under the hoop

@@ -195,11 +195,15 @@ function Balls({ floor }: { floor: ToyFloor }) {
   // Safety net: a ball that somehow got out of the building comes back to where it started. Asleep means it
   // hasn't moved, so only awake balls are checked, a few times a second.
   const tick = useRef(0);
+  const respawned = useRef<boolean[]>([]); // its sudden stop isn't a bounce: listen() skips it once
   const check = useCallback(() => {
     if (++tick.current % 15) return;
     for (let i = 0; i < defs.length; i++) {
       const b = bodies.current[i];
-      if (b && !b.isSleeping() && escaped(b.translation())) respawn(b, defs[i]);
+      if (b && !b.isSleeping() && escaped(b.translation())) {
+        respawn(b, defs[i]);
+        respawned.current[i] = true;
+      }
     }
   }, [defs]);
   useAfterPhysicsStep(check);
@@ -358,6 +362,10 @@ function Balls({ floor }: { floor: ToyFloor }) {
       const g = w.gravity.y * STEP;
       for (let i = 0; i < defs.length; i++) {
         const b = bodies.current[i];
+        if (respawned.current[i]) {
+          respawned.current[i] = false;
+          continue;
+        }
         if (!b || i === holding.current || b.isSleeping()) continue;
         const lv = b.linvel();
         const p0 = before[i];
@@ -365,7 +373,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
         if (!level || !offCooldown(lastSound.current[i] ?? -Infinity, now)) continue;
         lastSound.current[i] = now;
         const p = b.translation();
-        const part = hoopPart(p, defs[i].r, rim);
+        const part = hoopPart(p, defs[i].r, rim, Math.hypot(lv.x, lv.y, lv.z) * STEP);
         if (part === 'rim') rimClank({ x: rim.x, y: rim.y, z: rim.z }, level);
         else if (part === 'board') boardThud(p, level);
         else bounce(defs[i].kind, p, level);
