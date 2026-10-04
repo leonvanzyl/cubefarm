@@ -4,7 +4,10 @@
 // and fade with distance from the camera (SoundListener.tsx). Audio is optional: when it's blocked or
 // unavailable (headless browsers), sounds just don't play, but window.__swarmSfx still records them.
 // Messages read aloud (voiceMessages.ts) have their own 'voice' group, which skips the bus that ducks everything else.
+// Each group also sends a little into the room you're in (roomSfx.ts's shared reverb), and a sound in another space
+// (behind a wall, in the elevator, out on a balcony) comes through quieter and muffled.
 
+import { ROOM_SENDS, type Occlusion } from './acoustics';
 import { normalizeAudioPrefs, parseAudioPrefs, SOUND_GROUPS, sliderGain, type AudioPrefs, type SoundGroup } from './audioPrefs';
 import { audible, distance, distanceGain, DROP_NEW, MAX_DISTANCE, panOf, PLAY, REF_DISTANCE, ROLLOFF, type Vec3, voiceToDrop } from './sfxMix';
 
@@ -27,6 +30,7 @@ const listeners = new Set<() => void>();
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let bus: GainNode | null = null; // every sound but the voice, so a message read aloud can duck them
+let roomIn: GainNode | null = null; // what the groups send into the room's reverb
 let unlocked = false;
 const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
 const groupLevels = {} as Record<SoundGroup, number>;
@@ -60,11 +64,17 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       master.connect(comp).connect(trim).connect(ctx.destination);
       bus = ctx.createGain();
       bus.connect(master);
+      roomIn = ctx.createGain();
       for (const g of SOUND_GROUPS) {
         const gain = ctx.createGain();
         gain.gain.value = groupLevels[g];
         gain.connect(g === 'voice' ? master : bus);
         groupGains[g] = gain;
+        if (ROOM_SENDS[g] > 0) {
+          const send = ctx.createGain();
+          send.gain.value = ROOM_SENDS[g];
+          gain.connect(send).connect(roomIn);
+        }
       }
       writeListener();
     }
@@ -212,6 +222,16 @@ export interface SfxRecord {
   /** The jukebox's music: its volume level (1-6) and whether it's ducked under an alert or speech. */
   level?: number;
   ducked?: boolean;
+  /** The jukebox's music: whether its vinyl crackle bed is playing (lo-fi songs). */
+  crackle?: boolean;
+  /** Heard through a wall or from another space (gain already lowered). */
+  occluded?: boolean;
+  /** The room's reverb (room:… entries): the room and its wet level. */
+  room?: string;
+  wet?: number;
+  /** The soundtrack (score:… entries): its mood and the one before. */
+  mood?: string;
+  prev?: string;
   /** performance.now() when it was asked for. */
   t: number;
 }
@@ -255,6 +275,21 @@ export function groupOutput(group?: SoundGroup): AudioNode | null {
   if (!a) return null;
   return (group && groupGains[group]) || bus || a.out;
 }
+
+/** The room's send (every group's share of its sound) and where its reverb returns (the bus), or null while audio is off. */
+export function roomBus(): { input: GainNode; output: GainNode } | null {
+  return audio() && roomIn && bus ? { input: roomIn, output: bus } : null;
+}
+
+let occluder: ((pos: Vec3, d: number) => Occlusion | null) | null = null;
+
+/** roomSfx.ts says how the walls muffle a sound at `pos`, `d` metres from the listener (null: no walls tracked). */
+export function setOccluder(fn: ((pos: Vec3, d: number) => Occlusion | null) | null) {
+  occluder = fn;
+}
+
+/** How the walls between the listener and `pos` muffle a sound there, or null when nothing's in the way. */
+export const occlusionAt = (pos: Vec3, d = distance(ear, pos)) => occluder?.(pos, d) ?? null;
 
 /** A PannerNode with the office's distance model, placed at `pos`. Connect it to groupOutput(). */
 export function createPanner(c: BaseAudioContext, pos: Vec3) {
@@ -316,13 +351,20 @@ export interface PlaceOpts {
 
 /**
  * Records a sound for the probe and decides whether it plays. Returns where to connect it (a panner, its group or
- * the master) and its loudness for the voice cap, or null to skip it.
+ * the master; through a muffling lowpass when walls are in the way), how much the walls turn it down (`scale`) and its
+ * loudness for the voice cap, or null to skip it.
  */
-function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
+function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number; scale: number } | null {
   const rec = into ?? recordSfx(name ?? kind, { group, pos, pan, peak });
   const d = pos ? distance(ear, pos) : 0;
   if (pos && !audible(d)) return null;
-  const loud = peak * (pos ? distanceGain(d) : 1);
+  const occ = pos ? occlusionAt(pos, d) : null;
+  const scale = occ?.gain ?? 1;
+  if (occ && !rec.occluded) {
+    rec.occluded = true;
+    rec.gain *= scale;
+  }
+  const loud = peak * scale * (pos ? distanceGain(d) : 1);
   const a = audio();
   if (!a) return null;
 
@@ -348,6 +390,14 @@ function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: n
       const p = createPanner(a.ctx, pos);
       p.connect(dest);
       dest = p;
+      if (occ) {
+        const f = a.ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = occ.cutoff;
+        f.Q.value = 0.5;
+        f.connect(dest);
+        dest = f;
+      }
     } else if (pan && a.ctx.createStereoPanner) {
       const p = a.ctx.createStereoPanner();
       p.pan.value = pan;
@@ -358,7 +408,7 @@ function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: n
     return null;
   }
   rec.played = true;
-  return { a, dest, loud };
+  return { a, dest, loud, scale };
 }
 
 // ---------- building blocks (exported so toys can add their sounds through the same mixer) ----------
@@ -387,7 +437,7 @@ export function tone(opts: ToneOpts) {
     osc.frequency.setValueAtTime(freq, t0);
     if (to) osc.frequency.exponentialRampToValueAtTime(to, t0 + dur);
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
+    gain.gain.exponentialRampToValueAtTime(peak * p.scale, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     osc.connect(gain).connect(p.dest);
     osc.start(t0);
@@ -434,7 +484,7 @@ export function noise(opts: NoiseOpts) {
     if (to) bq.frequency.exponentialRampToValueAtTime(to, t0 + dur);
     const gain = a.ctx.createGain();
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
+    gain.gain.exponentialRampToValueAtTime(peak * p.scale, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(bq).connect(gain).connect(p.dest);
     src.start(t0, Math.random());

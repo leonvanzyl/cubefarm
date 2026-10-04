@@ -161,6 +161,7 @@ const compactPull = (p: PullInfo, secrets: readonly string[]): PullInfo => ({
   mergeState: '',
   failedChecks: p.failedChecks.slice(0, 6).map((c) => ({ name: text(c.name, 60, secrets), url: null })),
   pendingChecks: [],
+  ...(p.issueCreatedAt !== undefined && { issueCreatedAt: p.issueCreatedAt }),
 });
 
 const compactPreview = (p: PreviewView): PreviewView => ({

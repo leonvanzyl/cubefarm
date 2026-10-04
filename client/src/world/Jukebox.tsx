@@ -4,12 +4,12 @@ import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
 import { useRenderPaused } from '../perf';
 import { useStore } from '../store';
-import { musicDucked, musicTime, nowPlaying, playTrack, setMusicLevel, setMusicQuiet, stopMusic } from '../ui/music';
+import { musicDucked, musicNodes, musicTime, nowPlaying, playTrack, setMusicLevel, setMusicQuiet, stopMusic } from '../ui/music';
 import { clampMusicLevel, MAX_MUSIC_LEVEL } from '../ui/musicMix';
 import { noise, tone, type Vec3 } from '../ui/sfx';
 import { roundRect, SANS } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
-import { SONGS, beatAt, beatPulse, firstSongFor, noteAge, trackFor } from './jukeboxSongs';
+import { SONGS, beatAt, beatPulse, firstSongFor, isFocusSong, moodOf, nextSong, noteAge, parseStation, stationSongs, trackFor, type Station } from './jukeboxSongs';
 import { HALF_D, JUKEBOX } from './layout';
 import { glow, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
@@ -17,12 +17,14 @@ import { Ball, Box, Cyl } from './Toon';
 // Every floor's jukebox: it plays through the playlist (jukeboxSongs.ts) by itself, each floor starting on its own song.
 // Aim at it and press E for the next song, or at its red button to stop and start the music (remembered in this
 // browser). Its − and + buttons (or −/+ and the mouse wheel while you look at it) set its volume, shown on the
-// now-playing card and remembered per floor. It bounces, spins its record, cycles its neon and puffs music notes on the
-// beat. Only the current floor is drawn, so there's one jukebox at a time; each floor remembers the song it's on for
-// the session.
+// now-playing card and remembered per floor. Its Focus button switches the floor between All songs and the Focus
+// station (lo-fi and ambient only), also remembered per floor: E and the next song stay on the station. It bounces,
+// spins its record, cycles its neon and puffs music notes on the beat. Only the current floor is drawn, so there's one
+// jukebox at a time; each floor remembers the song it's on for the session.
 
 const ON_KEY = 'cubefarm:jukebox';
 const VOL_KEY = 'cubefarm:jukebox:vol:';
+const STATION_KEY = 'cubefarm:jukebox:station:';
 
 function loadOn() {
   try {
@@ -36,10 +38,24 @@ let on = loadOn();
 let floorNow: number | null = null;
 const songs = new Map<number, number>(); // floor → playlist index
 const volumes = new Map<number, number>(); // floor → volume level, loaded from this browser on first use
+const stations = new Map<number, Station>(); // floor → station, likewise
 const spot: Vec3 = { x: 0, y: 1, z: 0 };
 const listeners = new Set<() => void>();
 
-const songIndex = (floor: number) => songs.get(floor) ?? firstSongFor(floor);
+const songIndex = (floor: number) => songs.get(floor) ?? firstSongFor(floor, stationFor(floor));
+
+function stationFor(floor: number): Station {
+  let s = stations.get(floor);
+  if (s === undefined) {
+    try {
+      s = parseStation(localStorage.getItem(STATION_KEY + floor));
+    } catch {
+      s = 'all';
+    }
+    stations.set(floor, s);
+  }
+  return s;
+}
 
 function volumeFor(floor: number) {
   let v = volumes.get(floor);
@@ -65,7 +81,7 @@ function start() {
   if (floor === null || !on) stopMusic();
   else {
     playTrack(trackFor(songIndex(floor)), spot, () => {
-      songs.set(floor, (songIndex(floor) + 1) % SONGS.length);
+      songs.set(floor, nextSong(songIndex(floor), stationFor(floor)));
       start();
     });
   }
@@ -94,7 +110,7 @@ function volumeClick(level: number, moved: boolean) {
 
 // ---------- actions (Player's E / click / −+ / wheel on the jukebox) ----------
 
-export type JukeboxOp = 'next' | 'toggle' | 'vol+' | 'vol-';
+export type JukeboxOp = 'next' | 'toggle' | 'station' | 'vol+' | 'vol-';
 
 /** Sets the current floor's jukebox volume (1-6), remembered per floor in this browser. */
 export function setJukeboxVolume(n: number) {
@@ -113,7 +129,32 @@ export function setJukeboxVolume(n: number) {
   emit();
 }
 
-/** E on the jukebox: the next song (switching it on if it was off), its red button: music on or off, − and +: volume. */
+/**
+ * Switches the current floor between All songs and Focus, remembered per floor. Turning Focus on during a lively song
+ * moves on to the next focus song; otherwise the song plays on.
+ */
+function toggleStation() {
+  if (floorNow === null) return;
+  const floor = floorNow;
+  const station: Station = stationFor(floor) === 'focus' ? 'all' : 'focus';
+  stations.set(floor, station);
+  try {
+    localStorage.setItem(STATION_KEY + floor, station);
+  } catch {
+    // storage may be unavailable; the station just won't be remembered
+  }
+  const now = songIndex(floor);
+  if (station === 'focus' && !isFocusSong(SONGS[now])) {
+    songs.set(floor, nextSong(now, station));
+    if (on) needle();
+    start();
+  } else emit();
+}
+
+/**
+ * E on the jukebox: the next song on its station (switching it on if it was off), its red button: music on or off,
+ * Focus: the station, − and +: volume.
+ */
 export function jukeboxAction(op: JukeboxOp) {
   if (floorNow === null) return;
   if (op === 'vol+' || op === 'vol-') {
@@ -121,8 +162,12 @@ export function jukeboxAction(op: JukeboxOp) {
     return;
   }
   clunk();
+  if (op === 'station') {
+    toggleStation();
+    return;
+  }
   if (op === 'next') {
-    songs.set(floorNow, (songIndex(floorNow) + 1) % SONGS.length);
+    songs.set(floorNow, nextSong(songIndex(floorNow), stationFor(floorNow)));
     on = true;
   } else on = !on;
   try {
@@ -140,7 +185,10 @@ export function jukeboxAction(op: JukeboxOp) {
 export interface JukeboxSnapshot {
   on: boolean;
   floor: number | null;
-  song: { id: string; title: string; artist: string; index: number } | null;
+  /** The floor's station, and how many songs it has. */
+  station: Station | null;
+  stationSize: number;
+  song: { id: string; title: string; artist: string; index: number; mood: string } | null;
   /** Seconds into the song and the beat, while it plays. */
   time: number | null;
   beat: number | null;
@@ -148,6 +196,9 @@ export interface JukeboxSnapshot {
   volume: number | null;
   levels: number;
   ducked: boolean;
+  /** The lo-fi texture's vinyl bed playing right now, and the WebAudio nodes the music holds (its chain, its notes in flight). */
+  crackle: boolean;
+  nodes: { chain: number; notes: number };
 }
 
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmJukebox')) {
@@ -157,22 +208,28 @@ if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '_
       const sec = musicTime();
       const index = floorNow === null ? null : songIndex(floorNow);
       const s = index === null ? null : SONGS[index];
+      const station = floorNow === null ? null : stationFor(floorNow);
+      const nodes = musicNodes();
       return {
         on,
         floor: floorNow,
-        song: s && index !== null ? { id: s.id, title: s.title, artist: s.artist, index } : null,
+        station,
+        stationSize: station ? stationSongs(station).length : 0,
+        song: s && index !== null ? { id: s.id, title: s.title, artist: s.artist, index, mood: moodOf(s) } : null,
         time: sec,
         beat: t && sec !== null ? beatAt(t, sec) : null,
         volume: floorNow === null ? null : volumeFor(floorNow),
         levels: MAX_MUSIC_LEVEL,
         ducked: musicDucked(),
+        crackle: nodes.crackle,
+        nodes: { chain: nodes.chain, notes: nodes.notes },
       };
     },
     enumerable: false,
     configurable: false,
   });
-  // __swarmJukeboxDo('next' | 'toggle' | 'vol+' | 'vol-') or ('vol', n): press it without aiming (pointer lock doesn't
-  // work headless).
+  // __swarmJukeboxDo('next' | 'toggle' | 'station' | 'vol+' | 'vol-') or ('vol', n): press it without aiming (pointer
+  // lock doesn't work headless).
   Object.defineProperty(window, '__swarmJukeboxDo', {
     value: (op: JukeboxOp | 'vol', n?: number) => (op === 'vol' ? setJukeboxVolume(Number(n)) : jukeboxAction(op)),
     enumerable: false,
@@ -221,7 +278,7 @@ function musicNoteTexture() {
 }
 
 function useJukeboxView(floor: number) {
-  const read = () => ({ on, index: floorNow === null ? 0 : songIndex(floorNow), vol: volumeFor(floorNow ?? floor) });
+  const read = () => ({ on, index: floorNow === null ? 0 : songIndex(floorNow), vol: volumeFor(floorNow ?? floor), station: stationFor(floorNow ?? floor) });
   const [view, setView] = useState(read);
   useEffect(() => {
     const fn = () => setView(read());
@@ -265,24 +322,30 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
   }, [song.color]);
   useMemo(musicNoteTexture, []);
 
+  const focus = view.station === 'focus';
   const display = useMemo(
     () => (ctx: CanvasRenderingContext2D) =>
       view.on
         ? drawDisplay(ctx, song.color, view.vol, [
-            { text: '♪ NOW PLAYING ♪', size: 30, weight: 700 },
+            { text: focus ? '♪ FOCUS STATION ♪' : '♪ NOW PLAYING ♪', size: 30, weight: 700 },
             { text: song.title, size: 58, weight: 800 },
             { text: song.artist, size: 38, weight: 600 },
           ])
         : drawDisplay(ctx, '#495057', view.vol, [
             { text: 'JUKEBOX', size: 66, weight: 800 },
-            { text: 'press E to play', size: 40, weight: 600 },
+            { text: focus ? 'Focus · press E to play' : 'press E to play', size: 40, weight: 600 },
           ]),
-    [view.on, view.vol, song],
+    [view.on, view.vol, song, focus],
   );
 
   const volume = `volume ${view.vol} of ${MAX_MUSIC_LEVEL}`;
-  const picker = useInteractable<THREE.Group>({ id: 'jukebox:next', label: view.on ? `Next song · now playing ${song.title}` : 'Play the jukebox', action: { kind: 'jukebox', op: 'next' } }, 3);
+  const nextLabel = focus ? `Next focus song · now playing ${song.title}` : `Next song · now playing ${song.title}`;
+  const picker = useInteractable<THREE.Group>({ id: 'jukebox:next', label: view.on ? nextLabel : 'Play the jukebox', action: { kind: 'jukebox', op: 'next' } }, 3);
   const power = useInteractable<THREE.Group>({ id: 'jukebox:power', label: view.on ? 'Stop the music' : 'Play music', action: { kind: 'jukebox', op: 'toggle' } }, 3);
+  const station = useInteractable<THREE.Group>(
+    { id: 'jukebox:station', label: focus ? 'All songs · the Focus station is on (lo-fi & ambient)' : 'Focus station · lo-fi & ambient only', action: { kind: 'jukebox', op: 'station' } },
+    3,
+  );
   const louder = useInteractable<THREE.Group>({ id: 'jukebox:vol+', label: `Louder · ${volume}`, action: { kind: 'jukebox', op: 'vol+' } }, 3);
   const softer = useInteractable<THREE.Group>({ id: 'jukebox:vol-', label: `Softer · ${volume}`, action: { kind: 'jukebox', op: 'vol-' } }, 3);
 
@@ -348,7 +411,7 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
           </mesh>
         ))}
         {/* now playing */}
-        <DisplayPanel draw={display} deps={[view.on, view.vol, song.id]} />
+        <DisplayPanel draw={display} deps={[view.on, view.vol, song.id, focus]} />
         {/* the song picker: a row of buttons, E for the next song */}
         <group ref={picker} position={[-0.07, 0.66, D / 2 - 0.03]}>
           <Box size={[0.56, 0.1, 0.06]} color={TRIM} outline shadow={false} />
@@ -366,6 +429,8 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
             <boxGeometry args={[0.14, 0.14, 0.12]} />
           </mesh>
         </group>
+        {/* the Focus button, under the power button */}
+        <FocusButton ref={station} on={focus} />
         {/* the volume buttons either side of the speaker: − on the left, + on the right */}
         <VolumeButton ref={softer} x={-0.31} plus={false} />
         <VolumeButton ref={louder} x={0.31} plus />
@@ -453,6 +518,41 @@ function VolumeButton({ ref, x, plus }: { ref: Ref<THREE.Group>; x: number; plus
       {plus && <Box size={[0.016, 0.06, 0.01]} position={[0, 0, 0.03]} color={INK} shadow={false} />}
       <mesh visible={false}>
         <boxGeometry args={[0.15, 0.15, 0.12]} />
+      </mesh>
+    </group>
+  );
+}
+
+const FOCUS_PX = { w: 160, h: 72 };
+
+/** The Focus button: a small plate that reads FOCUS, lit teal while the floor is on the Focus station. */
+function FocusButton({ ref, on }: { ref: Ref<THREE.Group>; on: boolean }) {
+  const draw = useMemo(
+    () => (ctx: CanvasRenderingContext2D) => {
+      roundRect(ctx, 4, 4, FOCUS_PX.w - 8, FOCUS_PX.h - 8, 14);
+      ctx.fillStyle = on ? '#06d6a0' : '#ced4da';
+      ctx.fill();
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      ctx.font = `800 40px ${SANS}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = on ? '#ffffff' : INK;
+      ctx.fillText('FOCUS', FOCUS_PX.w / 2, FOCUS_PX.h / 2 + 2);
+    },
+    [on],
+  );
+  const tex = useCanvasTexture(FOCUS_PX.w, FOCUS_PX.h, draw, [on]);
+  return (
+    <group ref={ref} position={[0.315, 0.51, D / 2 - 0.02]}>
+      <Box size={[0.16, 0.075, 0.03]} color={on ? '#06d6a0' : TRIM} outline shadow={false} />
+      <mesh position={[0, 0, 0.016]}>
+        <planeGeometry args={[0.15, 0.0675]} />
+        <meshBasicMaterial map={tex} transparent toneMapped={false} />
+      </mesh>
+      <mesh visible={false}>
+        <boxGeometry args={[0.18, 0.1, 0.12]} />
       </mesh>
     </group>
   );
