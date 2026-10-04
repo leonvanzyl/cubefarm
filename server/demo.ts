@@ -181,6 +181,12 @@ function fixScript(pr: number, pushes: boolean, nudged: boolean): Step[] {
   ];
 }
 
+/** The PR a fix prompt is about ("QA passed pull request #6…", "Pull request #6 (url) conflicts…"), and its title if given. */
+export function fixPromptPull(prompt: string): { number: number; title?: string } {
+  const m = prompt.match(/pull request #(\d+)(?::\s*(.+))?/i);
+  return { number: Number(m?.[1] ?? 0), title: m?.[2]?.trim() };
+}
+
 function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: string): SessionHandle {
   const timers: NodeJS.Timeout[] = [];
   let stopped = false;
@@ -189,10 +195,10 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
   const kind = opts.role === 'qa' ? 'qa' : nudged || resumedFix || /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
   // Fix sessions can be resumed (the office's nudge), like real ones.
   if (kind === 'fix') cb.sessionId(opts.resumeSessionId ?? `demo-fix-${crypto.randomUUID()}`);
-  const prMatch = opts.prompt.match(/pull request #(\d+)(?::\s*(.+))?/);
+  const pull = fixPromptPull(opts.prompt);
   const issueMatch = opts.prompt.match(/#(\d+):\s*(.+)/);
-  const number = Number((kind === 'issue' ? issueMatch?.[1] : prMatch?.[1]) ?? 0);
-  const title = (kind === 'issue' ? issueMatch?.[2] : prMatch?.[2])?.trim() ?? 'follow-up';
+  const number = kind === 'issue' ? Number(issueMatch?.[1] ?? 0) : pull.number;
+  const title = (kind === 'issue' ? issueMatch?.[2]?.trim() : pull.title) ?? 'follow-up';
   const round = Number(opts.prompt.match(/QA round (\d+)/)?.[1] ?? 1);
   // Now and then a QA fix ends without pushing, so the office's nudge can be seen; half the nudged answer NO CHANGE NEEDED.
   const pushes = kind !== 'fix' || !(nudged || /FAILED|taking over pull request/.test(opts.prompt)) || Math.random() > (nudged ? 0.5 : 0.25);
