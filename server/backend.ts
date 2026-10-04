@@ -3,6 +3,7 @@ import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { hooksReady, officeProcesses, reconnectClis, releaseClis, startCliSession, terminalsAvailable, type ReconnectedCli } from './cliRunner.ts';
 import { detectClis } from './clis.ts';
+import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
 import { realPreviews, type PreviewBackend } from './previewRunner.ts';
 import { realOffice, type OfficeHost } from './officeUpdate.ts';
 import type { AgentTerminal } from './terminal.ts';
@@ -43,6 +44,8 @@ export interface Backend {
   deskDir(fullName: string, agentSlug: string): string;
   /** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
   prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string>;
+  /** npm ci in a prepared desk unless nothing changed since the last one; never throws (see deps.ts installDesk). */
+  installDeps(dir: string, cb: DepsCallbacks): Promise<DepsOutcome>;
   /** `main`: the floor's checkout as it was when the desk was let go (default: mainDir now). */
   removeDesk(fullName: string, agentSlug: string, main?: string): Promise<void>;
   /** Remove desks, stray desk folders and finished swarm/qa branches nothing in `keep` uses. */
@@ -96,6 +99,7 @@ export const realBackend: Backend = {
   mainDir: workspace.mainDir,
   deskDir: workspace.deskDir,
   prepareDesk: workspace.prepareDesk,
+  installDeps: (dir, cb) => installDesk(dir, cb),
   removeDesk: workspace.removeDesk,
   sweepDesks: workspace.sweepDesks,
   releaseDesk: (fullName, agentSlug, port) => workspace.releaseDesk(fullName, agentSlug, port, officeProcesses()),

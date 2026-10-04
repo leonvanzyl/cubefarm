@@ -392,6 +392,8 @@ function fakeUsageWarning(cb: SessionCallbacks) {
 export function createDemoBackend(): Backend {
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
+  // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
+  const installedDesks = new Set<string>();
   // A pretend projects folder: the demo repos, one git folder that isn't on GitHub yet, and one plain folder.
   const folders = new Map<string, LocalFolder>();
   const addFolder = (name: string, github: string | null, git = true) =>
@@ -526,6 +528,18 @@ export function createDemoBackend(): Backend {
       const dir = `/demo/${fullName}/desks/${slug}`;
       deskRepo.set(dir, fullName);
       return dir;
+    },
+    installDeps: async (dir, cb) => {
+      if (installedDesks.has(dir)) {
+        cb.log(['Dependencies unchanged since the last install; skipping it.']);
+        return 'skipped';
+      }
+      cb.log(['Installing dependencies…', '$ npm ci']);
+      cb.installing();
+      await new Promise((r) => setTimeout(r, 1500));
+      cb.log(['Dependencies installed.']);
+      installedDesks.add(dir);
+      return 'installed';
     },
     removeDesk: async () => undefined,
     sweepDesks: async () => ({ desks: 0, folders: 0, branches: 0, patches: [], skipped: [] }),
