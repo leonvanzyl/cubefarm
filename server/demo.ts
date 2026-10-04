@@ -8,7 +8,9 @@ import { CLIS } from './clis.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR } from './config.ts';
+import { DAY_MS, emptyHistory, HOUR_MS, prune, startOfDay, type OpsHistory } from './metrics.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
+import type { UsageWarning } from './pacing.ts';
 import { VoiceApiError, type VoiceApi } from './voice.ts';
 import type { NotifyTransport } from './notifier.ts';
 
@@ -38,14 +40,18 @@ const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
 let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
-/** Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. */
+/**
+ * Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. They say they
+ * took a few minutes, like real CI, though the demo doesn't make you wait that long.
+ */
 function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
-  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [] });
+  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [], checkRun: null });
   setTimeout(() => {
     Object.assign(pr, {
       checks: fail ? 'failing' : 'passing',
       pendingChecks: [],
       failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${++runSeq}/job/1` }] : [],
+      checkRun: { ms: Math.round((2.5 + Math.random() * 5) * 60_000), doneAt: Date.now() },
     });
   }, 12_000 + Math.random() * 10_000);
 }
@@ -401,6 +407,51 @@ function inTerminal(opts: SessionOptions, cb: SessionCallbacks, start: (cb: Sess
   return handle;
 }
 
+/**
+ * Claude's usage on demand (the manager's console → Mission control, in the demo): a weekly-limit warning at 91% that
+ * resets at midnight, or the 5-hour limit reached for 3 minutes.
+ */
+export function demoUsage(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number } {
+  if (kind === 'limit') return { limitResetsAt: now + 3 * 60_000 };
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  return { resetsAt: midnight.getTime(), rateLimitType: 'seven_day', utilization: 0.91 };
+}
+
+/**
+ * A believable past week for mission control: each floor merged a few PRs every working day (the first floor more),
+ * most QA rounds and check runs passed, and sessions cost around a dollar. `rand` is there for the tests.
+ */
+export function demoPastWeek(repos: string[], now: number, rand: () => number = Math.random): OpsHistory {
+  const h = emptyHistory();
+  const min = 60_000;
+  let n = 0;
+  repos.forEach((repo, floor) => {
+    const pace = floor === 0 ? 1 : 0.6;
+    for (let day = 6; day >= 0; day--) {
+      const midnight = startOfDay(now) - day * DAY_MS;
+      const merges = Math.round((3 + rand() * 4) * pace);
+      for (let k = 0; k < merges; k++) {
+        const at = midnight + (9 + rand() * 9) * HOUR_MS; // working hours
+        const rounds = rand() < 0.3 ? 2 : 1; // now and then QA failed it once first
+        h.merges.push([at, repo, 0, Math.round((25 + rand() * 200) * min)]);
+        for (let r = 0; r < rounds; r++) {
+          const before = (rounds - r) * 20 * min;
+          h.qa.push([at - before, repo, r === rounds - 1, Math.round((1 + rand() * 14) * min)]);
+          h.checks.push([at - before - 6 * min, repo, `past${String(n++).padStart(4, '0')}`, rand() > 0.12, Math.round((2.5 + rand() * 5) * min)]);
+          h.cost.push([at - before, repo, Math.round((0.3 + rand()) * 100) / 100], [at - before - 40 * min, repo, Math.round((0.4 + rand() * 1.2) * 100) / 100]);
+        }
+      }
+      for (const hour of [10, 15]) h.cost.push([midnight + hour * HOUR_MS, '', Math.round((0.5 + rand() * 0.8) * 100) / 100]); // the CEO's reviews
+    }
+  });
+  for (const list of [h.merges, h.qa, h.checks, h.cost] as [number, ...unknown[]][][]) {
+    for (let i = list.length - 1; i >= 0; i--) if (list[i][0] > now) list.splice(i, 1); // nothing from later today
+  }
+  prune(h, now);
+  return h;
+}
+
 // Claude's usage warning, faked once so the office can be seen pacing new work: the 4th session gets it, and the
 // window "resets" 5 minutes later.
 const USAGE_WARNING_AT = 4;
@@ -619,6 +670,8 @@ export function createDemoBackend(): Backend {
     office: demoOffice,
     voice: demoVoice,
     notify: demoNotify,
+    seedOps: (ids, at) => demoPastWeek(ids, at),
+    simulateUsage: demoUsage,
   };
 }
 

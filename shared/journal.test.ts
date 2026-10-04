@@ -22,7 +22,7 @@ import {
   type JournalLine,
   type RepoPatch,
 } from './journal.ts';
-import { INSTALL_STEP, type AgentView, type PullInfo, type QaView, type RepoView, type ServerEvent, type WorldSnapshot } from './types.ts';
+import { INSTALL_STEP, type AgentView, type OpsView, type PullInfo, type QaView, type RepoView, type ServerEvent, type WorldSnapshot } from './types.ts';
 
 const MIN = 60_000;
 
@@ -125,7 +125,7 @@ function qa(patch: Partial<QaView> = {}): QaView {
 
 /** A keyframe as the journal writes it: slimmed by journalFrame. */
 function frame(patch: Partial<JournalFrame> = {}): JournalFrame {
-  const f = { repos: [repo()], agents: [agent()], qa: [], requests: [], ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null }, messages: [], usage: { state: 'normal' as const, until: null }, ...patch };
+  const f = { repos: [repo()], agents: [agent()], qa: [], requests: [], ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null }, messages: [], usage: { state: 'normal' as const, until: null, warning: null }, ...patch };
   return journalFrame({ ...f, agents: f.agents.map((a) => ({ ...a, log: [] })) });
 }
 
@@ -198,6 +198,18 @@ describe('journalEvent: what is kept', () => {
       { type: 'message', message: { id: 2, from: 'manager', text: `my ElevenLabs key is ${SECRETS.eleven} and env ${SECRETS.env}`, at: 1 } },
       { type: 'qa', qa: qa({ summary: `ran with GITHUB_TOKEN=${SECRETS.github}`, checks: [{ name: 'tests', result: 'fail', details: `stderr: ${SECRETS.env}` }] }) },
       { type: 'request', request: { id: 'r1', kind: 'hire', repoId: 'o/r', role: 'dev', agentId: null, name: 'Bo', title: 'Dev', specialty: '', brief: SECRETS.env, reason: `needs ${SECRETS.anthropic}`, model: '', effort: '', look: 'masculine', color: '', hair: '', skin: '', status: 'pending', note: '', createdAt: 1, decidedAt: null, decidedBy: null } },
+      {
+        type: 'ops',
+        ops: {
+          floors: [],
+          total: {} as OpsView['total'],
+          ceoCostToday: 0,
+          alarms: [
+            { id: 'agent:ada', kind: 'agent', repoId: 'o/r', floor: 1, prNumber: null, agentId: 'ada', text: `Ada is stuck on an error: crashed with ${SECRETS.env}`, since: 1 },
+            { id: 'pr:o/r#2', kind: 'pr', repoId: 'o/r', floor: 1, prNumber: 2, agentId: null, text: `PR #2 needs you: GITHUB_TOKEN=${SECRETS.github}`, since: 1 },
+          ],
+        },
+      },
     ];
     const recorded = JSON.stringify(events.map((e) => journalEvent(e, secrets)));
     for (const s of Object.values(SECRETS)) expect(recorded).not.toContain(s);
@@ -205,6 +217,7 @@ describe('journalEvent: what is kept', () => {
     expect(recorded).not.toContain('listening on 6301');
     expect(recorded).not.toContain('crashed with');
     expect(recorded).not.toContain('stderr');
+    expect(recorded).toContain('"Ada is stuck on an error"');
     // the floor's look survives
     expect(recorded).toContain('Depends on #1');
     expect(recorded).toContain('my ElevenLabs key is [redacted]');
@@ -232,7 +245,7 @@ describe('journalFrame', () => {
       requests: [],
       ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null },
       messages: Array.from({ length: 50 }, (_, i) => ({ id: i, from: 'ceo' as const, text: `m${i}`, at: i })),
-      usage: { state: 'normal' as const, until: null },
+      usage: { state: 'normal' as const, until: null, warning: null },
     };
     const f = journalFrame(snap);
     expect(JSON.stringify(f)).not.toContain('terminal output');
@@ -306,7 +319,7 @@ describe('recorded: writing only what changed', () => {
 
 describe('seeking', () => {
   const files: JournalLine[][] = [
-    [{ t: 0, k: frame(), boot: true }, { t: 5, e: { type: 'usage', usage: { state: 'normal', until: null } } }],
+    [{ t: 0, k: frame(), boot: true }, { t: 5, e: { type: 'usage', usage: { state: 'normal', until: null, warning: null } } }],
     [{ t: 10, k: frame() }, { t: 12, e: { type: 'agentRemoved', agentId: 'a' } }, { t: 18, e: { type: 'agentRemoved', agentId: 'b' } }],
     [{ t: 20, k: frame() }, { t: 25, e: { type: 'agentRemoved', agentId: 'c' } }],
   ];

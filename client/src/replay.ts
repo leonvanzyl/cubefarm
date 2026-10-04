@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { api } from './api';
 import { requestSnapshot } from './net';
+import { EMPTY_OPS } from './ops';
 import { useStore } from './store';
 import { CHUNK_MS, clockTime, createClock, DEFAULT_SPEED, nextFetch, parsePresence, seekClock, touchPresence, withPlaying, withSpeed, type Presence, type ReplayClock } from './replayClock';
 import { setGongVolume } from './world/gongState';
@@ -75,6 +76,7 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
     voiceKeyHint: s.voiceKeyHint,
     voiceCache: s.voiceCache,
     notifyChannels: s.notifyChannels,
+    ops: f.ops ?? EMPTY_OPS, // a day from before mission control (or the demo's sample day) shows its screens empty
   };
 }
 

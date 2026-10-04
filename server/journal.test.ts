@@ -148,7 +148,7 @@ describe('Journal', () => {
       requests: [],
       ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null },
       messages: [],
-      usage: { state: 'normal', until: null },
+      usage: { state: 'normal', until: null, warning: null },
     });
   // flushMs: the tests tick by hand
   const make = (opts: Partial<ConstructorParameters<typeof Journal>[0]> = {}) => new Journal({ dir, now: () => now, flushMs: 1e9, secrets: () => [SECRET], frame: frameNow, ...opts });

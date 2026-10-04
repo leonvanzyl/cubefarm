@@ -2861,6 +2861,98 @@ input.inline:focus {
   }
 }
 
+/* ---------- mission control: the HUD's usage chip and the console's Mission control tab ---------- */
+
+/* The office's update chip and the usage chip stack under the floor card. */
+.hud-chips {
+  position: absolute;
+  top: 100px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.hud-chips .office-chip {
+  position: static;
+}
+.hud-chips .usage-chip {
+  max-width: min(600px, calc(100vw - 32px));
+}
+.usage-chip-pacing {
+  background: #ffd6a5;
+}
+.usage-chip-paused {
+  background: #ffc2d1;
+}
+.usage-card {
+  border-left: 12px solid var(--good);
+}
+.usage-card.usage-warn {
+  border-left-color: var(--warn);
+}
+.usage-card.usage-bad {
+  border-left-color: var(--bad);
+}
+.usage-pill-good {
+  background: #b9fbc0;
+}
+.usage-pill-warn {
+  background: #ffe8a3;
+}
+.usage-pill-bad {
+  background: #ffc2d1;
+}
+.usage-gauge {
+  height: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #eef0f6;
+  overflow: hidden;
+}
+.usage-gauge > div {
+  height: 100%;
+}
+/* The card the console was opened at (an alarm, or the usage meter). */
+.ops-card-hot {
+  box-shadow: 0 0 0 4px var(--bad);
+  animation: ops-hot 1.2s ease-in-out 3;
+}
+@keyframes ops-hot {
+  50% {
+    box-shadow: 0 0 0 9px rgba(239, 71, 111, 0.35);
+  }
+}
+.alarm-card b {
+  overflow-wrap: anywhere;
+}
+.ops-table-wrap {
+  overflow-x: auto;
+}
+.ops-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+.ops-table th,
+.ops-table td {
+  padding: 5px 8px;
+  border-bottom: 1.5px solid #e6e3d8;
+  text-align: right;
+  white-space: nowrap;
+}
+.ops-table tbody th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+}
+.ops-col {
+  border-top: 5px solid var(--accent);
+}
+.ops-table td:last-child,
+.ops-table thead th:last-child {
+  font-weight: 700;
+}
 /* ---------- pocket mode (pocket/Pocket.tsx): the office as a 2D app for phones and touch screens ---------- */
 
 .app-loading {

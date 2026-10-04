@@ -79,7 +79,7 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
   const qa = new Map<string, QaView>();
   const messages: PhoneMessage[] = [];
   const ceo: CeoInfo = { queue: [], job: null, lastReviewAt: null, nextReviewAt: null };
-  let usage: UsageView = { state: 'normal', until: null };
+  let usage: UsageView = { state: 'normal', until: null, warning: null };
   const jobs = new Map<string, Job>();
   const restUntil = new Map<string, number>();
   const checksAt = new Map<string, number>(); // `${repoId}#${pr}` -> when its checks pass
@@ -228,12 +228,12 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
       if (ceoAgent) start(ceoAgent, { kind: 'ceo', repoId: '', n: 0, until: t + between(4, 8) * MIN, nextTool: t + MIN }, { status: 'working', currentTool: 'mcp__office__company_status' });
     }
     if (minute === 840) {
-      usage = { state: 'pacing', until: t + 40 * MIN };
+      usage = { state: 'pacing', until: t + 40 * MIN, warning: { limit: '5-hour limit', pct: 85, resetsAt: t + 40 * MIN, at: t } };
       ev({ type: 'usage', usage });
       say('office', '🐢 Claude warned that usage is getting high, so the office is pacing new work for a while.');
     }
     if (usage.state === 'pacing' && usage.until !== null && t >= usage.until) {
-      usage = { state: 'normal', until: null };
+      usage = { state: 'normal', until: null, warning: usage.warning };
       ev({ type: 'usage', usage });
       say('office', '🏃 Usage is back to normal: new work starts as usual again.');
     }

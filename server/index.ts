@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { DAY_PARTS } from '../shared/speech.ts';
 import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
@@ -185,6 +186,13 @@ app.get(
   '/api/voice/sample',
   route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),
 );
+app.get(
+  '/api/voice/standup',
+  route(async (req, res) => {
+    const q = parse(z.object({ n: z.coerce.number().int().min(1).max(99), part: z.enum(DAY_PARTS) }), req.query);
+    sendAudio(res, await swarm.voice.standupAudio(q.n, q.part));
+  }),
+);
 // Notifications (docs/pocket.md). Webhook URLs, tokens and push subscriptions go in; only hints come back out.
 app.put('/api/notify/webhooks/:channel', route((req) => swarm.notifier.setWebhook(String(req.params.channel), req.body ?? {})));
 app.post('/api/notify/test', route((req) => swarm.notifier.test(str(req.body?.channel))));
@@ -193,6 +201,9 @@ app.post('/api/notify/push/devices', route((req) => swarm.notifier.subscribe(req
 app.delete('/api/notify/push/devices', route((req) => swarm.notifier.unsubscribe(str(req.body?.endpoint))));
 // The office's own update: Update now / Later
 app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.action)));
+// Claude's usage: resume full speed after a usage warning; in the demo, a warning or the limit on demand
+app.post('/api/usage/resume', route(() => swarm.resumeFullSpeed()));
+app.post('/api/usage/simulate', route((req) => swarm.simulateUsage(req.body?.kind)));
 
 // The journal, for the time-lapse replay (read-only); the demo can write itself a sample day.
 app.get('/api/journal/days', route(() => swarm.journal.days()));

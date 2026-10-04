@@ -47,6 +47,8 @@ export interface PullInfo {
   failedChecks: { name: string; url: string | null }[];
   pendingChecks: string[];
   issueCreatedAt?: string | null; // when the issue it closes was filed, as far as the office knows (the whiteboard's issue → merge time)
+  /** GitHub's check runs on the head commit once all have finished: how long they took (first start to last finish) and when they finished. */
+  checkRun?: { ms: number; doneAt: number } | null;
 }
 
 export interface RepoView {
@@ -326,10 +328,74 @@ export interface VoiceOption {
   recommended: boolean;
 }
 
+/** The last usage warning Claude gave: which limit ("weekly limit"), how full it was (0-100), when it resets, and when it came. */
+export interface UsageWarningView {
+  limit: string | null;
+  pct: number | null;
+  resetsAt: number | null;
+  at: number;
+}
+
 /** Claude's subscription usage: normal, pacing new work after a usage warning, or paused at the limit until `until`. */
 export interface UsageView {
   state: 'normal' | 'pacing' | 'paused';
   until: number | null;
+  warning: UsageWarningView | null; // the latest since the office started, for the usage meter
+}
+
+/** One floor's numbers on mission control (or the whole office's), computed by the server from its state and history. */
+export interface OpsNumbers {
+  // the pipeline, right now
+  ready: number; // backlog issues that can start
+  building: number; // issues a developer is working on
+  inQa: number; // open PRs waiting for QA or being tested (or not tested yet)
+  fixing: number; // open PRs back with a developer: QA failed, checks or a conflict
+  toMerge: number; // open PRs that passed QA
+  needsYou: number; // open PRs waiting on the manager (needsManager)
+  triage: number; // stuck PRs the CEO is looking at before they reach the manager
+  // throughput
+  mergedToday: number; // since midnight
+  mergedHour: number; // in the last 60 minutes
+  spark: number[]; // merges per clock hour over the last 24 hours, oldest first (the current hour last)
+  // flow, over the last 24 hours
+  leadMs: number | null; // median issue → merge
+  qaWaitMs: number | null; // median wait for a QA tester
+  qaPass: number | null; // share of QA rounds that passed over 7 days, 0-1
+  // GitHub's checks, over 7 days
+  ciPass: number | null; // share of check runs that passed, 0-1
+  ciRuns: number;
+  ciMs: number | null; // median duration
+  // the team, right now
+  busy: number;
+  idle: number;
+  errors: number;
+  costToday: number; // dollars since midnight from finished sessions' reported cost: an estimate
+}
+
+export interface OpsFloor extends OpsNumbers {
+  repoId: string;
+  floor: number;
+  alarms: number;
+}
+
+/** Something that needs the manager: a PR the office can't move (needsManager), or an agent in error for over 10 minutes. */
+export interface OpsAlarm {
+  id: string; // "pr:<repo>#<n>" or "agent:<id>": the manager's console opens at this card
+  kind: 'pr' | 'agent';
+  repoId: string;
+  floor: number;
+  prNumber: number | null;
+  agentId: string | null;
+  text: string;
+  since: number;
+}
+
+/** Mission control: every floor's numbers, the office's total, and what needs the manager (oldest first). */
+export interface OpsView {
+  floors: OpsFloor[];
+  total: OpsNumbers;
+  ceoCostToday: number;
+  alarms: OpsAlarm[];
 }
 
 /**
@@ -408,6 +474,7 @@ export interface WorldSnapshot {
   officeCommit?: string | null; // short sha the server started on (absent on servers without self-update)
   officeUpdate?: OfficeUpdateView;
   usage: UsageView;
+  ops: OpsView;
   clis: CliView[];
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
@@ -432,6 +499,7 @@ export type ServerEvent =
   | { type: 'phoneRead'; at: number }
   | { type: 'officeUpdate'; officeUpdate: OfficeUpdateView }
   | { type: 'usage'; usage: UsageView }
+  | { type: 'ops'; ops: OpsView }
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }

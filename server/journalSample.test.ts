@@ -81,7 +81,7 @@ const base: JournalFrame = {
   requests: [],
   ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null },
   messages: [],
-  usage: { state: 'normal', until: null },
+  usage: { state: 'normal', until: null, warning: null },
 };
 
 const midnight = new Date(2026, 9, 3).getTime();

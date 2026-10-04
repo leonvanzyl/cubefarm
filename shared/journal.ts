@@ -2,7 +2,7 @@
 // can replay it. Pure, so the server (recording, reading, pruning) and the client (replay) share one set of rules:
 // which events are kept and how they're slimmed and scrubbed of secrets, keyframes and seeking, retention, and the
 // marks on the replay's timeline. Terminal output, settings and anything secret are never kept.
-import { INSTALL_STEP, type AgentView, type CeoInfo, type HireRequestView, type IssueInfo, type PhoneMessage, type PreviewView, type PullInfo, type QaView, type RepoView, type ServerEvent, type UsageView, type WorldSnapshot } from './types.ts';
+import { INSTALL_STEP, type AgentView, type CeoInfo, type HireRequestView, type IssueInfo, type OpsView, type PhoneMessage, type PreviewView, type PullInfo, type QaView, type RepoView, type ServerEvent, type UsageView, type WorldSnapshot } from './types.ts';
 
 /** A keyframe (a full picture of the office) starts every journal file; a new file starts this often. */
 export const KEYFRAME_MS = 10 * 60_000;
@@ -24,10 +24,12 @@ export interface JournalFrame {
   ceo: CeoInfo;
   messages: PhoneMessage[];
   usage: UsageView;
+  /** Mission control's screens (absent in the demo's sample day). */
+  ops?: OpsView;
 }
 
 /** The events the journal keeps: the ones that change how the office looks. */
-export type JournalEvent = Extract<ServerEvent, { type: 'repo' | 'repoRemoved' | 'agent' | 'agentRemoved' | 'qa' | 'qaRemoved' | 'request' | 'ceo' | 'message' | 'usage' }>;
+export type JournalEvent = Extract<ServerEvent, { type: 'repo' | 'repoRemoved' | 'agent' | 'agentRemoved' | 'qa' | 'qaRemoved' | 'request' | 'ceo' | 'message' | 'usage' | 'ops' }>;
 
 /** An agent's update after their first: only the fields that changed (mostly just the tool in hand). */
 export interface AgentPatch {
@@ -304,6 +306,17 @@ const compactCeo = (c: CeoInfo, secrets: readonly string[]): CeoInfo => ({
   nextReviewAt: c.nextReviewAt,
 });
 
+const compactUsage = (u: UsageView): UsageView => ({
+  state: u.state,
+  until: u.until,
+  warning: u.warning ? { limit: u.warning.limit && clip(u.warning.limit, 60), pct: u.warning.pct, resetsAt: u.warning.resetsAt, at: u.warning.at } : null,
+});
+
+/** Mission control's numbers; an alarm about someone's error says who, never the error. */
+function compactOps(o: OpsView, secrets: readonly string[]): OpsView {
+  return { ...o, alarms: o.alarms.slice(0, 50).map((a) => ({ ...a, text: a.kind === 'agent' ? clip(a.text.split(':')[0], 80) : text(a.text, 160, secrets) })) };
+}
+
 /** The event as the journal keeps it, or null for one it never records (terminal output, screens, settings, keys, toasts…). */
 export function journalEvent(ev: ServerEvent, secrets: readonly string[] = []): JournalEvent | null {
   switch (ev.type) {
@@ -326,7 +339,9 @@ export function journalEvent(ev: ServerEvent, secrets: readonly string[] = []): 
     case 'message':
       return { type: 'message', message: compactMessage(ev.message, secrets) };
     case 'usage':
-      return { type: 'usage', usage: { state: ev.usage.state, until: ev.usage.until } };
+      return { type: 'usage', usage: compactUsage(ev.usage) };
+    case 'ops':
+      return { type: 'ops', ops: compactOps(ev.ops, secrets) };
     default:
       return null;
   }
@@ -338,7 +353,7 @@ const KEEP_REQUESTS = 20;
 export const FRAME_MESSAGES = 20;
 
 /** A keyframe from the office's snapshot, slimmed and scrubbed like the events. */
-export function journalFrame(s: Pick<WorldSnapshot, 'repos' | 'agents' | 'qa' | 'requests' | 'ceo' | 'messages' | 'usage'>, secrets: readonly string[] = []): JournalFrame {
+export function journalFrame(s: Pick<WorldSnapshot, 'repos' | 'agents' | 'qa' | 'requests' | 'ceo' | 'messages' | 'usage'> & { ops?: OpsView }, secrets: readonly string[] = []): JournalFrame {
   const decided = s.requests.filter((r) => r.status !== 'pending').slice(-KEEP_REQUESTS);
   return {
     repos: s.repos.map((r) => compactRepo(r, secrets)),
@@ -347,7 +362,8 @@ export function journalFrame(s: Pick<WorldSnapshot, 'repos' | 'agents' | 'qa' | 
     requests: s.requests.filter((r) => r.status === 'pending' || decided.includes(r)).map((r) => compactRequest(r, secrets)),
     ceo: compactCeo(s.ceo, secrets),
     messages: s.messages.slice(-FRAME_MESSAGES).map((m) => compactMessage(m, secrets)),
-    usage: { state: s.usage.state, until: s.usage.until },
+    usage: compactUsage(s.usage),
+    ...(s.ops && { ops: compactOps(s.ops, secrets) }),
   };
 }
 
@@ -374,6 +390,8 @@ export function dedupeKey(e: JournalEvent): string | null {
       return 'ceo';
     case 'usage':
       return 'usage';
+    case 'ops':
+      return 'ops';
     case 'message':
       return null;
   }
@@ -389,6 +407,7 @@ export function frameKeys(f: JournalFrame): Map<string, string> {
   for (const request of f.requests) put({ type: 'request', request });
   put({ type: 'ceo', ceo: f.ceo });
   put({ type: 'usage', usage: f.usage });
+  if (f.ops) put({ type: 'ops', ops: f.ops });
   return out;
 }
 
