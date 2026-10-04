@@ -82,6 +82,14 @@ export const blasterRack = (x: number): Rect => rect(x, HALF_D - BLASTER_RACK.d 
 export const JUKEBOX = { officeX: -12.6, lobbyX: 8, w: 1, d: 0.6, h: 1.62 };
 export const jukeboxRect = (x: number): Rect => rect(x, HALF_D - JUKEBOX.d / 2, JUKEBOX.w, JUKEBOX.d, JUKEBOX.h);
 
+// The merge gong stands against the north wall between the whiteboard's plant and the wall clock's, its disc facing
+// the room: a frame w wide and h tall on feet d deep (centred on x, z), with a disc of radius r hanging centred at
+// y. It stays below the clock. Its solid reaches back to the wall, so nothing gets trapped behind it.
+export const GONG = { x: -8.85, z: -11.3, w: 2.3, d: 0.9, h: 2.35, r: 0.72, y: 1.3 };
+export const gongRect = (): Rect => ({ minX: GONG.x - GONG.w / 2, maxX: GONG.x + GONG.w / 2, minZ: -HALF_D, maxZ: GONG.z + GONG.d / 2, h: GONG.h });
+/** Where you stand to hit the gong (facing north): part 2 walks a merged PR's author here. */
+export const GONG_SPOT = { x: GONG.x, z: GONG.z + GONG.d / 2 + 0.9 };
+
 // The QA lab: test stations along the east wall. Testers face the wall, with their backs to the room.
 export const QA_LAB = { x: HALF_W - 2.0, stations: [-5.2, -2.0, 1.2] };
 export const QA_ROTATION = -Math.PI / 2;
@@ -106,6 +114,7 @@ export function officeColliders(): Rect[] {
   out.push(rect(-HALF_W + 2.6, 6.5, 0.9, 1.4, SOLID_H.coffeeTable)); // coffee table
   out.push(blasterRack(BLASTER_RACK.officeX));
   out.push(jukeboxRect(JUKEBOX.officeX));
+  out.push(gongRect());
   out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5, SOLID_H.kitchen)); // kitchenette counter + fridge
   out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7, SOLID_H.cooler)); // water cooler
   return out;
