@@ -296,7 +296,45 @@ async function removeDir(dir: string) {
   await fs.rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
 }
 
-export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string, branch: string): Promise<string> {
+/** A git lock file this old was left by a git that died: nothing still running holds it. */
+const STALE_LOCK_MS = 10 * 60_000;
+
+/** A worktree's index.lock (in its gitdir, which its .git file points at) when it is stale, else null. */
+async function staleIndexLock(wt: string): Promise<string | null> {
+  const ref = (await fs.readFile(path.join(wt, '.git'), 'utf8').catch(() => '')).match(/gitdir:\s*(.+)/)?.[1]?.trim();
+  if (!ref) return null;
+  const lock = path.join(path.resolve(wt, ref), 'index.lock');
+  const stat = await fs.stat(lock).catch(() => null);
+  return stat && Date.now() - stat.mtimeMs > STALE_LOCK_MS ? lock : null;
+}
+
+/** Put an existing desk worktree on `branch` at `ref`, keeping ignored files (node_modules, build caches). */
+async function reuseDesk(wt: string, branch: string, ref: string) {
+  await git(['checkout', '--force', '-B', branch, ref], { cwd: wt });
+  await git(['reset', '--hard', ref], { cwd: wt });
+  // Untracked leftovers from the last task go; ignored files (node_modules, build caches) stay.
+  await git(['clean', '-fd'], { cwd: wt }).catch(() => undefined);
+}
+
+/**
+ * Empty a desk's folder for a fresh worktree. On Windows a folder can't be removed while a process has it as its
+ * working directory; if everything inside it is gone, that's fine: `git worktree add` takes an empty folder.
+ */
+async function clearDeskFolder(wt: string) {
+  try {
+    await removeDir(wt);
+  } catch (err) {
+    const left = await fs.readdir(wt).catch(() => null);
+    if (left?.length !== 0) {
+      throw new Error(
+        `Could not clear the desk folder ${wt}: ${(err as Error).message}. A program started by the previous task is probably still running there. Close it and try again.`,
+      );
+    }
+  }
+}
+
+/** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
+export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string> {
   return withRepoLock(fullName, async () => {
     const main = mainDir(fullName);
     await git(['fetch', 'origin', '--prune'], { cwd: main, timeoutMs: 180_000 });
@@ -323,25 +361,28 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
     // node_modules warm between tasks.
     if (await exists(path.join(wt, '.git'))) {
       try {
-        await git(['checkout', '--force', '-B', branch, ref], { cwd: wt });
-        await git(['reset', '--hard', ref], { cwd: wt });
-        // Untracked leftovers from the last task go; ignored files (node_modules, build caches) stay.
-        await git(['clean', '-fd'], { cwd: wt }).catch(() => undefined);
+        try {
+          await reuseDesk(wt, branch, ref);
+        } catch (err) {
+          // A git that died mid-command (a crash, a killed CLI) leaves index.lock behind, and every git after it fails.
+          const lock = /index\.lock/.test((err as Error).message) ? await staleIndexLock(wt) : null;
+          if (!lock) throw err;
+          await fs.rm(lock, { force: true, maxRetries: 3 });
+          note?.(`Removed a stale git lock (${lock}) left in the desk.`);
+          await reuseDesk(wt, branch, ref);
+        }
         return wt;
-      } catch {
-        // fall through and rebuild the worktree from scratch
+      } catch (err) {
+        // Rebuild the worktree from scratch, but say why: the rebuild can fail in its own way.
+        const why = `Couldn't reuse the desk in place, so it's rebuilt: ${(err as Error).message}`;
+        console.warn(`${wt}: ${why}`);
+        note?.(why);
       }
     }
 
     if (await exists(wt)) {
       await git(['worktree', 'remove', '--force', wt], { cwd: main }).catch(() => undefined);
-      try {
-        await removeDir(wt);
-      } catch (err) {
-        throw new Error(
-          `Could not clear the desk folder ${wt}: ${(err as Error).message}. A program started by the previous task is probably still running there. Close it and try again.`,
-        );
-      }
+      await clearDeskFolder(wt);
     }
     await git(['worktree', 'prune'], { cwd: main });
     await fs.mkdir(path.dirname(wt), { recursive: true });

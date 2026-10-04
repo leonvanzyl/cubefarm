@@ -36,8 +36,11 @@ export class AgentTerminal {
   rows = TERM_ROWS;
   /** Output arrived since the last save. */
   dirty = false;
-  /** Closes a CLI left waiting at its prompt after its task (set by the runtime that left it there). */
-  releaseIdle: (() => void) | null = null;
+  /**
+   * Closes a CLI left waiting at its prompt after its task, settling once it has exited (set by the runtime that left
+   * it there; null while a CLI drives a session).
+   */
+  releaseIdle: (() => Promise<void>) | null = null;
   /** Something the manager typed at that waiting prompt: the office takes it on as a follow-up (true) or refuses. */
   onIdlePrompt: ((text: string) => boolean) | null = null;
   /** Keys a viewer typed, after they went to the CLI (the runtime watches for Esc interrupting a turn). */
