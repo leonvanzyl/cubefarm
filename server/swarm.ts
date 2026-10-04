@@ -163,6 +163,7 @@ interface AgentRuntime {
   screenshot: { data: Buffer; mime: string; at: number } | null;
   shots: Shot[]; // every screenshot of the current session (QA evidence)
   terminal: AgentTerminal | null; // their terminal, once they've run in the terminal runtime
+  qaResume?: { cwd: string; systemAppend: string } | null; // the QA run's one resume for a missing report, until used
 }
 
 interface RepoRuntime {
