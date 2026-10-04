@@ -26,6 +26,7 @@ function agent(patch: Partial<JournalAgent> = {}): JournalAgent {
     hair: '#000000',
     skin: '#ffddcc',
     style: null,
+    career: null,
     model: '',
     effort: '',
     cli: '',

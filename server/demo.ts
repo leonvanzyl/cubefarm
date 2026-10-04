@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import type { Backend } from './backend.ts';
@@ -38,6 +39,32 @@ const mergedSinceSync = new Map<string, number>(); // merges the fake project fo
 const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by a merge
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
+
+// GitHub never gives two PRs the same number, and the office's ledger (coins, careers) counts each PR once by it, so
+// the fake's numbers carry on across restarts (the issues and PRs themselves start over).
+const NUMBERS_FILE = path.join(HOME_DIR, 'demo-github.json');
+
+function restoreNumbers() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(NUMBERS_FILE, 'utf8')) as Record<string, number>;
+    for (const r of repos.values()) if (Number.isInteger(saved[r.fullName])) r.nextNumber = Math.max(r.nextNumber, saved[r.fullName]);
+  } catch {
+    // first run
+  }
+}
+
+/** The repo's next issue or PR number, remembered for the next start. */
+function takeNumber(r: FakeRepo) {
+  const n = r.nextNumber++;
+  try {
+    fs.mkdirSync(HOME_DIR, { recursive: true });
+    fs.writeFileSync(`${NUMBERS_FILE}.tmp`, JSON.stringify(Object.fromEntries([...repos.values()].map((x) => [x.fullName, x.nextNumber]))));
+    fs.renameSync(`${NUMBERS_FILE}.tmp`, NUMBERS_FILE);
+  } catch (err) {
+    console.warn('could not save the demo PR numbers', err);
+  }
+  return n;
+}
 
 let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
 /**
@@ -277,7 +304,7 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     const repo = repos.get(fullName);
     let url = '';
     if (repo && number) {
-      const n = repo.nextNumber++;
+      const n = takeNumber(repo);
       url = `https://github.com/${fullName}/pull/${n}`;
       repo.pulls.unshift({
         number: n,
@@ -470,6 +497,7 @@ function fakeUsageWarning(cb: SessionCallbacks) {
 }
 
 export function createDemoBackend(): Backend {
+  restoreNumbers();
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
   // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
@@ -488,6 +516,7 @@ export function createDemoBackend(): Backend {
     if (!repos.has(fullName)) {
       repos.set(fullName, { fullName, description, issues: [], pulls: [], nextNumber: 1 });
       bareRepos.add(fullName);
+      restoreNumbers();
     }
     addFolder(name, fullName);
     return fullName;
@@ -527,7 +556,7 @@ export function createDemoBackend(): Backend {
     createIssue: async (fullName, title, body, labels = []) => {
       const r = repos.get(fullName);
       if (!r) throw new Error('Unknown repo');
-      const n = r.nextNumber++;
+      const n = takeNumber(r);
       r.issues.push(issue(n, title, body, fullName, labels));
       return n;
     },

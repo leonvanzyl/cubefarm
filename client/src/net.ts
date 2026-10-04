@@ -6,7 +6,7 @@ let retry = 0;
 let socket: WebSocket | null = null;
 // Back from the time-lapse: everything waits for the fresh snapshot asked for, so nothing applies on top of the replay.
 let awaitingSnapshot = false;
-const OUTSIDE_REPLAY = new Set<ServerEvent['type']>(['notify', 'notifyChannels', 'settings', 'officeUpdate', 'clis', 'voiceKey', 'voiceCache']);
+const OUTSIDE_REPLAY = new Set<ServerEvent['type']>(['notify', 'notifyChannels', 'settings', 'officeUpdate', 'clis', 'voiceKey', 'voiceCache', 'progress']);
 
 /** The time-lapse stopped: asks for the live office again (a reconnect brings a snapshot anyway). */
 export function requestSnapshot() {

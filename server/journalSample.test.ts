@@ -21,6 +21,7 @@ const person = (id: string, role: JournalAgent['role'], repoId: string, desk: nu
   hair: '#000000',
   skin: '#ffddcc',
   style: null,
+  career: null,
   model: '',
   effort: '',
   cli: '',

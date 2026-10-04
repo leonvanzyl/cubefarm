@@ -78,6 +78,7 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
     notifyChannels: s.notifyChannels,
     ticker: f.ticker ?? [],
     prPreviews: [], // the PR theatre is live-only: off while replaying
+    progress: s.progress, // coins and decorations are the office's own, now
     ops: f.ops ?? EMPTY_OPS, // a day from before mission control (or the demo's sample day) shows its screens empty
   };
 }

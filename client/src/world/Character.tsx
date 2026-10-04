@@ -86,6 +86,7 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   clap: { l: { pitch: 0.05, yaw: 0.62 }, r: { pitch: 0.05, yaw: 0.62 }, head: 0.08 },
   nod: { l: null, r: null, head: -0.05 },
   thumbs: { l: null, r: { pitch: 0.45, yaw: 0.25 }, head: 0.12 },
+  call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -459,7 +460,7 @@ export function Character({
     faceInfo.expression = expression;
     faceInfo.lid = asleep.current ? 1 : blink(t, face.seed);
     applyFace(faceMesh, face.s, faceInfo.lid);
-    if (phone.current) phone.current.visible = seated && ls.fidget === 'phone' && fw > 0.35;
+    if (phone.current) phone.current.visible = (seated && ls.fidget === 'phone' && fw > 0.35) || (st.stage === 'up' && goal?.gesture === 'call');
     if (seated && body.current) body.current.rotation.y = o.spin * fw;
     if (chair?.current) chair.current.rotation.y = seated ? o.spin * fw : 0;
 

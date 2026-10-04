@@ -2,6 +2,7 @@
 // can replay it. Pure, so the server (recording, reading, pruning) and the client (replay) share one set of rules:
 // which events are kept and how they're slimmed and scrubbed of secrets, keyframes and seeking, retention, and the
 // marks on the replay's timeline. Terminal output, settings and anything secret are never kept.
+import type { CareerView } from './careers.ts';
 import { INSTALL_STEP, type AgentView, type CeoInfo, type HireRequestView, type IssueInfo, type OpsView, type PhoneMessage, type PreviewView, type PullInfo, type QaView, type RepoView, type ServerEvent, type TickerItem, type UsageView, type WorldSnapshot } from './types.ts';
 
 /** A keyframe (a full picture of the office) starts every journal file; a new file starts this often. */
@@ -210,6 +211,13 @@ export function compactRepo(r: RepoView, secrets: readonly string[] = []): RepoV
   };
 }
 
+/** Someone's record on the team (their desk tells it): the numbers, and their latest merges' titles scrubbed. */
+const compactCareer = (c: CareerView, secrets: readonly string[]): CareerView => ({
+  ...c,
+  costUsd: Math.round(c.costUsd * 100) / 100,
+  recent: c.recent.slice(0, 8).map((r) => ({ n: r.n, title: text(r.title, 100, secrets), at: r.at })),
+});
+
 /** An agent as the journal keeps it: what they're on and the tool in hand, never their errors, screens or brief. */
 export function compactAgent(a: JournalAgent, secrets: readonly string[] = []): JournalAgent {
   return {
@@ -248,6 +256,7 @@ export function compactAgent(a: JournalAgent, secrets: readonly string[] = []): 
     hasScreenshot: false,
     screenshotAt: null,
     lastError: null,
+    career: a.career ? compactCareer(a.career, secrets) : null,
     // The sign over them: the kind of work, without its detail (a file, a command).
     ...(a.activity !== undefined && { activity: a.activity && { kind: a.activity.kind, detail: '' } }),
   };

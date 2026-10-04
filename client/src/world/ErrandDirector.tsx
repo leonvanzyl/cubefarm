@@ -41,6 +41,7 @@ import { ARRIVE, CABIN, CHAT, CHAT_VENUES, DOORS_SECONDS, LEAVE, arrivalPath, ex
 import { countPoke, npcRoomba } from './toys/npc';
 import { pokeToy } from './toys/poke';
 import './toyErrands';
+import './roof/roofErrand';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
 
