@@ -282,6 +282,9 @@ export const PARTS = {
   coatOpening: box(0.06, 0.3, 0.02),
   badge: box(0.07, 0.05, 0.015),
   inspectorGlasses: glassesGeometry('round', -0.2)!,
+  // the phone they check while idle (lying in the hand, screen up)
+  phone: box(0.075, 0.014, 0.13),
+  phoneScreen: xf(new THREE.PlaneGeometry(0.06, 0.105), { at: [0, 0.0075, 0], rot: [-Math.PI / 2, 0, 0] }),
   // looks
   hair: build(['crop', 'long', 'ponytail', 'bun', 'quiff', 'afro', 'sidePart', 'buzz', 'bald', 'curls'] as const, hairGeometry),
   facialHair: build(['none', 'stubble', 'beard', 'moustache'] as const, facialGeometry),

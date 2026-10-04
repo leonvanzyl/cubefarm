@@ -41,6 +41,9 @@ export function trackBody(id: string, s: BodyState) {
 /** Someone's live body (where they are now), while they're drawn on the current floor. */
 export const bodyState = (id: string) => live.get(id);
 
+/** Everyone drawn on the current floor, by agent id. */
+export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
+
 /** The errand director (ErrandDirector.tsx) says who is on which errand; null when they're at their desk. */
 export function setErrand(id: string, info: ErrandInfo | null) {
   if (info) busy.set(id, info);
