@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BALCONY_TOP, BENCH, FLOOR_HEIGHT, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFloor, balconyFurniture, balconyRailing, floorElevation, inBuilding, outsideAt, outsideColliders, sideDoorway, sideSign, toyOnlyAt } from './layout.ts';
-import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, MANAGER_ROOM, MISSION, missionColumn, missionRects, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
+import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, MANAGER_ROOM, MISSION, missionColumn, missionRects, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, WAITING_TABLE, type Rect } from './layout.ts';
 
 const R = 0.3;
 const box: Rect = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 };
@@ -124,6 +124,27 @@ describe('collide', () => {
     expect(collide(consoleSpot.x, consoleSpot.z, lobby)).toEqual(consoleSpot);
     // and the counter blocks walking
     expect(collide(COFFEE_CORNER.x, corner.minZ + 0.1, lobby).z).toBeLessThanOrEqual(corner.minZ - PLAYER_RADIUS + 1e-9);
+  });
+
+  it("lines six waiting chairs and their coffee table along the lobby's east wall, clear of everything else and of the front door", () => {
+    const lobby = lobbyColliders();
+    const shell = shellColliders('lobby');
+    const chairs = WAITING.seats.map((z) => rect(WAITING.x, z, 0.7, 0.7, 1.3));
+    const table = rect(WAITING_TABLE.x, WAITING_TABLE.z, WAITING_TABLE.w, WAITING_TABLE.d, 0.5);
+    expect(WAITING.seats).toHaveLength(6);
+    for (const r of [...chairs, table]) expect(lobby).toContainEqual(r);
+    const same = (b: Rect, c: Rect) => b.minX === c.minX && b.maxX === c.maxX && b.minZ === c.minZ && b.maxZ === c.maxZ;
+    const touches = (b: Rect, c: Rect) => b.minX < c.maxX && b.maxX > c.minX && b.minZ < c.maxZ && b.maxZ > c.minZ;
+    const mine = [...chairs, table];
+    const others = lobby.filter((b) => !mine.some((m) => same(m, b)) && !shell.some((w) => same(w, b)));
+    for (const r of mine) expect(others.filter((b) => touches(b, r))).toEqual([]);
+    expect(mine.filter((a, i) => mine.some((b, j) => i !== j && touches(a, b)))).toEqual([]);
+    // three chairs either side of the table, all south of the glass door
+    expect(WAITING.seats.filter((z) => z < WAITING_TABLE.z)).toHaveLength(3);
+    const door = sideDoorway('lobby', 'east');
+    expect(Math.min(...chairs.map((c) => c.minZ))).toBeGreaterThan(door.maxZ + 0.8);
+    // the walkway in front of them is clear
+    for (const z of WAITING.seats) expect(collide(WAITING.x - 1, z, lobby)).toEqual({ x: WAITING.x - 1, z });
   });
 
   it('stands the gong against the north wall, clear of the whiteboard, the app monitor and the desks, with a free spot in front', () => {

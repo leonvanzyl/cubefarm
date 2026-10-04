@@ -32,7 +32,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 
 1. **Set up your company.** A short wizard asks your name, names your company and introduces your CEO.
 2. **Move in a project.** Pick one of your project folders or a GitHub repo, or start a new one. It gets its own floor. Every project needs to be on GitHub, because issues and pull requests are how the team works.
-3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires.
+3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires, or meet the candidates waiting in the lobby and interview them face to face.
 4. **Watch the work.** Developers pick up issues and open pull requests. QA testers review and test each one in a real browser, then post a report with screenshots. With auto-merge on, a pull request merges itself once QA passes and GitHub's checks are green.
 
 ## What's in the office
@@ -47,6 +47,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 - **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model, effort and job description, and "What they're told" shows the full prompt the office gives them.
 - **Merges**: confetti bursts over the developer's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
 - **Rituals**: when the CEO files a burst of issues, the free agents gather at the whiteboard and the CEO comes up in the elevator to put up the new stickies (and says so out loud if the CEO's voice is on). The CEO walks the floors now and then (press `E` on them to text them), people eat lunch from noon to one, pizza arrives on Friday afternoons, and in the evening the desk lamps come on, idle agents head home and come back in the morning with a coffee. They follow the sky's clock (in help: a 30-minute day, your own clock, or always afternoon).
+- **Time-lapse**: watch the day (or just what happened while you were away) replay in the office at up to 600×, from the manager's console or the screen in the lobby.
 - **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`.
 - **The office dog**: one dog for the whole building (Biscuit, renameable in Settings). Pet it with `E` and it follows you, throw a ball and it fetches it, and it naps, keeps struggling agents company, celebrates merges and rides the elevator between floors.
 - **Ping-pong**: `E` at either end of the table picks up a paddle and someone free comes to play you; the mouse moves the paddle and your swing sets the pace and spin. Games go to 11 and feed the floor's leaderboard on the wall.

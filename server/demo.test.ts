@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoPastWeek, demoUsage, fixPromptPull } from './demo.ts';
+import { demoCandidate, demoPastWeek, demoUsage, fixPromptPull } from './demo.ts';
 import { KEEP_MS, opsView, startOfDay } from './metrics.ts';
 
 describe('fixPromptPull', () => {
@@ -17,6 +17,27 @@ describe('fixPromptPull', () => {
 
   it('falls back to 0 when no PR is named', () => {
     expect(fixPromptPull('Work on issue #4: Add socks').number).toBe(0);
+  });
+});
+
+describe('demoCandidate', () => {
+  it("offers a floor's own hire first, then the shared candidates, never a specialty already taken", () => {
+    expect(demoCandidate('demo-co/pixel-todo', [])?.title).toBe('Accessibility engineer');
+    const next = demoCandidate('demo-co/pixel-todo', ['a11y', 'frontend']);
+    expect(next?.specialty).not.toBe('a11y');
+    expect(next?.title).toBe('HTML/CSS front-end developer');
+    expect(demoCandidate('demo-co/unknown', [])?.specialty).toBe('frontend'); // a project the demo doesn't know
+  });
+
+  it('runs out once every specialty is taken', () => {
+    const taken: string[] = [];
+    for (let c = demoCandidate('demo-co/weather-api', taken); c; c = demoCandidate('demo-co/weather-api', taken)) {
+      expect(taken).not.toContain(c.specialty);
+      expect(c.title && c.job_description && c.reason).toBeTruthy();
+      taken.push(c.specialty);
+    }
+    expect(taken.length).toBeGreaterThanOrEqual(6);
+    expect(demoCandidate('demo-co/weather-api', taken)).toBeNull();
   });
 });
 

@@ -11,6 +11,7 @@ import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
+import { parseRange } from './journal.ts';
 import { underLauncher } from './officeUpdate.ts';
 import { serviceWorkerSource, swVersion } from './pwa.ts';
 import { screenStatus } from './screenReply.ts';
@@ -246,15 +247,35 @@ app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.actio
 app.post('/api/usage/resume', route(() => swarm.resumeFullSpeed()));
 app.post('/api/usage/simulate', route((req) => swarm.simulateUsage(req.body?.kind)));
 
+// The journal, for the time-lapse replay (read-only); the demo can write itself a sample day.
+app.get('/api/journal/days', route(() => swarm.journal.days()));
+app.get(
+  '/api/journal/events',
+  route((req) => {
+    const { from, to, seek } = parseRange(req.query, Date.now());
+    return swarm.journal.read(from, to, seek);
+  }),
+);
+app.post('/api/journal/sample', route(() => swarm.journalSample()));
+
 // The CEO and the manager's phone
 app.post('/api/ceo/message', route((req) => swarm.messageCeo(str(req.body.text))));
 app.post('/api/ceo/review', route(() => swarm.requestReview()));
 app.post('/api/phone/read', route((req) => swarm.markPhoneRead(Number(req.body?.at) || Date.now())));
 app.post(
   '/api/requests/:id/approve',
-  route((req) => swarm.approveRequest(String(req.params.id), { name: str(req.body?.name) || undefined, model: typeof req.body?.model === 'string' ? req.body.model : undefined, effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined })),
+  route((req) =>
+    swarm.approveRequest(String(req.params.id), {
+      name: str(req.body?.name) || undefined,
+      model: typeof req.body?.model === 'string' ? req.body.model : undefined,
+      effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
+      note: str(req.body?.note),
+    }),
+  ),
 );
 app.post('/api/requests/:id/reject', route((req) => swarm.rejectRequest(String(req.params.id), str(req.body?.note))));
+// The demo office only: the CEO proposes a hire (or a let-go) on demand.
+app.post('/api/demo/proposals', route((req) => swarm.demoPropose(req.body?.kind, req.body?.floor)));
 
 // Office progression (#210): the lobby kiosk, a floor's decorations, the player's coffees, and the demo's coins and
 // tenure for QA.

@@ -17,6 +17,7 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
+import { TimeLapseTab } from './TimeLapse';
 import { VoiceSettings } from './VoiceSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -737,6 +738,7 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
     ['team', '👩‍💻 Team'],
     ['issues', '📝 Issues'],
     ['settings', '⚙️ Settings'],
+    ['timelapse', '📼 Time-lapse'],
   ];
   return (
     <Panel wide title="🧑‍💼 Manager's console">
@@ -754,6 +756,7 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
         {tab === 'team' && <TeamTab />}
         {tab === 'issues' && <IssuesTab initialRepo={initialRepo} />}
         {tab === 'settings' && <SettingsTab />}
+        {tab === 'timelapse' && <TimeLapseTab />}
       </div>
     </Panel>
   );
