@@ -8,8 +8,9 @@ vi.mock('./world/gongState', () => ({ hitGong: vi.fn(() => 'boom') }));
 const { useStore } = await import('./store');
 const { cue } = await import('./ui/sfx');
 const { hitGong } = await import('./world/gongState');
+const { onMerge } = await import('./world/confetti');
 
-const pr = (number: number, state: PullInfo['state']) => ({ number, state }) as PullInfo;
+const pr = (number: number, state: PullInfo['state']) => ({ number, state, headRefName: `swarm/issue-${number}-nobody` }) as PullInfo;
 const repo = (floor: number, ...pulls: PullInfo[]) => ({ id: `acme/floor${floor}`, floor, pulls }) as RepoView;
 const snapshot = (...repos: RepoView[]) =>
   ({ type: 'snapshot', data: { repos, agents: [], qa: [], requests: [], messages: [], phoneReadAt: 0, settings: {}, ceo: {}, usage: {}, clis: [] } as unknown as WorldSnapshot }) as const;
@@ -38,6 +39,17 @@ describe('the merge gong trigger', () => {
     expect(hitGong).toHaveBeenCalledTimes(1);
     expect(hitGong).toHaveBeenCalledWith({ repoId: 'acme/floor1', celebrate: true });
     expect(cue).not.toHaveBeenCalledWith('merged'); // the gong is the merge cue now
+  });
+
+  it('still sends the merge confetti (confetti.ts) along with the gong', () => {
+    const bursts: unknown[] = [];
+    const off = onMerge((b) => bursts.push(b));
+    const { apply } = useStore.getState();
+    apply(snapshot(repo(1, pr(5, 'OPEN'))));
+    apply({ type: 'repo', repo: repo(1, pr(5, 'MERGED')) });
+    off();
+    expect(hitGong).toHaveBeenCalledTimes(1);
+    expect(bursts).toEqual([{ repoId: 'acme/floor1', prNumber: 5, agentId: null }]);
   });
 
   it('chimes instead when the merge is on a floor whose gong is not on screen', () => {

@@ -50,6 +50,8 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
 };
+// A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
+const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
 
 export function Character({ agent, chair, children }: { agent: Agent; chair?: RefObject<THREE.Object3D | null>; children?: ReactNode }) {
   const torso = useRef<THREE.Group>(null);
@@ -83,6 +85,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
     const dt = Math.min(delta, 0.1);
     const now = performance.now();
     const t = now / 1000 + seed.current;
+    const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
 
     // ---------- where the body is ----------
     const st = move.s;
@@ -111,7 +114,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
         b.position.set(te[0] * dx + te[2] * dz, 0, te[8] * dx + te[10] * dz);
         b.rotation.y = st.heading - st.seatHeading;
       }
-      const g = GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
+      const g = party ? PARTY_ARMS : GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
       const kg = 1 - Math.exp(-dt * 6);
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
@@ -133,7 +136,6 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
 
     // ---------- the seated pose ----------
     const busy = agent.status === 'working' || agent.status === 'preparing';
-    const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
     const cheering = party || (agent.status === 'done' && agent.endedAt != null && Date.now() - agent.endedAt < 7000);
     // A little hysteresis so poses don't flicker between quick tool calls.
     const sinceTool = now - lastTool.current.at;
@@ -172,6 +174,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
     const glide = Math.sin(t * 1.9) * 0.06 * c.mouse;
     const click = (Math.sin(t * 5.3) > 0.93 ? 0.04 : 0) * c.mouse;
     const wave = cheering ? Math.sin(t * 9) * 0.35 : 0;
+    const waveUp = party ? wave * up : 0; // up and partying, they wave too
 
     // Longer arms on taller people: tip them down a touch so hands still land on the keyboard.
     const reach = -(look.height - 1) * 0.55;
@@ -187,8 +190,8 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
     const rp = (HANG.pitch + swing * 1.1 + idle) * (1 - move.gr) + move.r.pitch * move.gr;
     const ry = HANG.yaw * (1 - move.gr) + move.r.yaw * move.gr;
     if (armL.current && armR.current) {
-      armL.current.rotation.set((c.l.pitch + reach + tapL) * k + lp * up + jolt, (-(c.l.yaw + driftL) + wave) * k - ly * up, 0);
-      armR.current.rotation.set((c.r.pitch + reach + tapR - click) * k + rp * up + jolt, (c.r.yaw + driftR * (1 - c.mouse) + glide - wave) * k + ry * up, 0);
+      armL.current.rotation.set((c.l.pitch + reach + tapL) * k + lp * up + jolt, (-(c.l.yaw + driftL) + wave) * k - ly * up + waveUp, 0);
+      armR.current.rotation.set((c.r.pitch + reach + tapR - click) * k + rp * up + jolt, (c.r.yaw + driftR * (1 - c.mouse) + glide - wave) * k + ry * up - waveUp, 0);
     }
     if (torso.current) {
       const breathe = Math.sin(t * 1.6) * 0.015;
