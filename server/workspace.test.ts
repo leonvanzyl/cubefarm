@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // syncMain against real throwaway repos: a bare "origin", a clone of it as the floor's main checkout, and an
 // "upstream" clone that pushes new work. Everything lives in one temp folder whose path has spaces in it.
@@ -257,6 +257,72 @@ describe('syncMain', { timeout: 60_000 }, () => {
     expect(await syncMain(r.fullName, 'main', { touch: true })).toMatch(/^updated to \w+$/);
     expect(await head(r.dir)).toBe(await head(r.upstream));
     expect(await fs.readFile(path.join(r.dir, 'lines.txt'), 'utf8')).toBe('one\r\ntwo\r\n');
+  });
+});
+
+describe('prepareDesk', { timeout: 60_000 }, () => {
+  const realRm = fs.rm.bind(fs);
+  const branchOf = (cwd: string) => git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
+
+  /** fs.rm as Windows does it while a process has the desk as its working directory: the folder itself stays. */
+  function lockFolder(desk: string, { emptiesIt }: { emptiesIt: boolean }) {
+    vi.spyOn(fs, 'rm').mockImplementation(async (p, opts) => {
+      if (path.resolve(String(p)) !== desk) return realRm(p, opts);
+      if (emptiesIt) for (const f of await fs.readdir(desk)) await realRm(path.join(desk, f), { recursive: true, force: true });
+      throw Object.assign(new Error(`EBUSY: resource busy or locked, rmdir '${desk}'`), { code: 'EBUSY' });
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rebuilds a desk whose files are gone but whose locked, empty folder remains', async () => {
+    const r = await makeRepos();
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'radia-404e', 'swarm/issue-108-radia');
+    expect(desk).toBe(deskDir(r.fullName, 'radia-404e'));
+    // What a failed rebuild left behind: everything inside deleted, the folder held open by the idle CLI.
+    for (const f of await fs.readdir(desk)) await realRm(path.join(desk, f), { recursive: true, force: true });
+    lockFolder(desk, { emptiesIt: true });
+    expect(await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'radia-404e', 'swarm/issue-109-radia')).toBe(desk);
+    expect(await branchOf(desk)).toBe('swarm/issue-109-radia');
+    expect(await head(desk)).toBe(await originMain(r.dir));
+    expect(await fs.readFile(path.join(desk, 'README.md'), 'utf8')).toMatch(/^# Test/);
+  });
+
+  it('clears a stale index.lock and reuses the desk in place, node_modules and all', async () => {
+    const r = await makeRepos();
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'tim-1a2b', 'swarm/issue-108-tim');
+    await fs.appendFile(path.join(r.dir, '.git', 'info', 'exclude'), '\nnode_modules/\n');
+    await fs.mkdir(path.join(desk, 'node_modules', 'left-pad'), { recursive: true });
+    await fs.writeFile(path.join(desk, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1;\n');
+    // A git that died mid-command left its lock in the worktree's gitdir, 20 minutes ago.
+    const gitdir = path.resolve(desk, (await fs.readFile(path.join(desk, '.git'), 'utf8')).replace('gitdir:', '').trim());
+    const lock = path.join(gitdir, 'index.lock');
+    await fs.writeFile(lock, '');
+    const old = new Date(Date.now() - 20 * 60_000);
+    await fs.utimes(lock, old, old);
+    const notes: string[] = [];
+    expect(await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'tim-1a2b', 'swarm/issue-109-tim', (t) => notes.push(t))).toBe(desk);
+    expect(await branchOf(desk)).toBe('swarm/issue-109-tim');
+    expect(await fs.readFile(path.join(desk, 'node_modules', 'left-pad', 'index.js'), 'utf8')).toBe('module.exports = 1;\n');
+    await expect(fs.access(lock)).rejects.toThrow();
+    expect(notes).toEqual([expect.stringMatching(/^Removed a stale git lock/)]);
+  });
+
+  it("says why it couldn't reuse a desk, and still refuses one whose files can't be removed", async () => {
+    const r = await makeRepos();
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-01df', 'swarm/issue-108-ada');
+    // Reuse fails: the desk's .git points nowhere. (Replaced, not overwritten: git marks it hidden on Windows.)
+    await realRm(path.join(desk, '.git'));
+    await fs.writeFile(path.join(desk, '.git'), `gitdir: ${path.join(ROOT, 'nowhere')}\n`);
+    lockFolder(desk, { emptiesIt: false });
+    const notes: string[] = [];
+    await expect(prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-01df', 'swarm/issue-109-ada', (t) => notes.push(t))).rejects.toThrow(
+      /^Could not clear the desk folder .*EBUSY.*A program started by the previous task is probably still running there\. Close it and try again\.$/,
+    );
+    expect(notes).toEqual([expect.stringMatching(/^Couldn't reuse the desk in place, so it's rebuilt: /)]);
+    expect(await fs.readFile(path.join(desk, 'README.md'), 'utf8')).toMatch(/^# Test/);
   });
 });
 

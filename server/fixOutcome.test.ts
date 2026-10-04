@@ -58,12 +58,23 @@ describe('fixOutcome', () => {
       expect(fixOutcome(conflict, OLD, 3).set).toEqual({ status: 'failed', sessionFailures: 1 });
       expect(fixOutcome({ ...conflict, sessionFailures: 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the conflict was never resolved' });
     });
+  });
 
-    it('on a PR QA never passed (the manager sent it back) goes to QA, not in line to merge', () => {
-      const unpassed = record({ fixReason: 'conflict', passedSha: null });
-      expect(fixOutcome(unpassed, NEW, 3).set).toEqual({ status: 'queued', round: 3, sessionFailures: 0, fixReason: 'qa' });
-      expect(fixOutcome(unpassed, null, 3).set.status).toBe('queued');
-      expect(fixOutcome(unpassed, OLD, 3).pushed).toBe(false);
+  describe('a conflict fix after QA failed the last round', () => {
+    const failedLast = record({ fixReason: 'conflict', round: 3, testedSha: OLD, passedSha: null });
+
+    it('with a new commit goes back to QA for one more round, never straight to merge', () => {
+      expect(fixOutcome(failedLast, NEW, 3)).toEqual({
+        set: { status: 'queued', round: 4, sessionFailures: 0 },
+        log: { kind: 'done', text: '✔ Fix pushed for PR #45 in 3m. Back to QA.' },
+        pushed: true,
+      });
+      expect(fixOutcome(failedLast, null, 3).set.status).toBe('queued');
+    });
+
+    it('without a new commit is a failed session, then the manager\'s', () => {
+      expect(fixOutcome(failedLast, OLD, 3).set).toEqual({ status: 'failed', sessionFailures: 1 });
+      expect(fixOutcome({ ...failedLast, sessionFailures: 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the conflict was never resolved' });
     });
   });
 
