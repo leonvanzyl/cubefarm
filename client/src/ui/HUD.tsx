@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { AgentCard } from './AgentCard';
 import { floorPrCounts, repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { HeldHint } from './HeldHint';
@@ -9,6 +10,7 @@ import { officeUpdateChip } from '../officeUpdate';
 import { ROOF } from '../world/layout';
 import { useRoof } from '../world/roof/roofState';
 import { RoofHud } from './RoofHud';
+import { usageChip } from '../ops';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
 function OfficeUpdateChip() {
@@ -18,6 +20,21 @@ function OfficeUpdateChip() {
   if (!text || overlay?.kind === 'manager') return null;
   return (
     <button className="office-chip" onClick={() => openOverlay({ kind: 'manager', tab: 'floors' })} title="The office is updating itself. Open the manager's console">
+      {text}
+    </button>
+  );
+}
+
+/** While Claude's usage holds new work back (pacing or paused); opens Mission control at the usage meter. */
+function UsageChip() {
+  const usage = useStore((s) => s.usage);
+  const sessions = useStore((s) => s.settings.pacingSessions);
+  const overlay = useStore((s) => s.overlay);
+  const openOverlay = useStore((s) => s.openOverlay);
+  const text = usageChip(usage, sessions, Date.now());
+  if (!text || overlay?.kind === 'manager') return null;
+  return (
+    <button className={`office-chip usage-chip usage-chip-${usage.state}`} onClick={() => openOverlay({ kind: 'manager', tab: 'ops', card: 'usage' })} title="Claude's usage is holding new work back. Open Mission control">
       {text}
     </button>
   );
@@ -114,12 +131,16 @@ export function HUD() {
       </div>
 
       <WorkersPanel />
-      <OfficeUpdateChip />
+      <div className="hud-chips">
+        <OfficeUpdateChip />
+        <UsageChip />
+      </div>
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
       {started && !overlay && !travel && !scope && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
       {started && !overlay && !travel && <RoofHud />}
+      <AgentCard />
       {started && !overlay && (focus || sip) && (
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}

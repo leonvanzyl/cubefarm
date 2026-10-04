@@ -84,9 +84,10 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
   const repo = useStore((s) => s.repos.find((r) => r.id === repoId));
   const allAgents = useStore((s) => s.agents);
   const qaRecords = useStore((s) => s.qa);
+  const usageState = useStore((s) => s.usage.state);
   const openOverlay = useStore((s) => s.openOverlay);
   const agents = useMemo(() => agentsOnRepo(allAgents, repoId), [allAgents, repoId]);
-  const cols = useMemo(() => (repo ? kanbanFor(repo, agents, qaRecords) : null), [repo, agents, qaRecords]);
+  const cols = useMemo(() => (repo ? kanbanFor(repo, agents, qaRecords, { state: usageState }) : null), [repo, agents, qaRecords, usageState]);
   const [showForm, setShowForm] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
 
@@ -160,15 +161,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
     </button>
   );
   const previewButton = (c: KanbanCard) => (
-    <button
-      className="btn btn-small"
-      title={`Run PR #${c.number} and open it in the app viewer`}
-      onClick={() => {
-        openOverlay({ kind: 'app', repoId: repo.id });
-        const already = repo.preview.pr === c.number && repo.preview.status !== 'stopped' && repo.preview.status !== 'error' && repo.preview.status !== 'unconfigured';
-        if (!already) void api.startPreview(repo.id, c.number).catch(() => undefined);
-      }}
-    >
+    <button className="btn btn-small" title={`Run PR #${c.number} beside ${repo.defaultBranch} and open it in the app viewer`} onClick={() => openOverlay({ kind: 'app', repoId: repo.id, pr: c.number })}>
       Preview
     </button>
   );
