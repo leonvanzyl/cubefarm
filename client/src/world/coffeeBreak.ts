@@ -7,8 +7,13 @@ import type { BrewState } from './coffee';
 import type { Gesture } from './body';
 import type { ActStep, ErrandActor } from './errands';
 
-/** The kitchenette's spots (walkways.ts): the dispenser, the machine, a step back from it, and two by the counter. */
-export const SPOTS = { mugs: 'mugs', machine: 'coffee', line: 'coffee-line', sip: ['coffee-sip-0', 'coffee-sip-1'] } as const;
+/** The kitchenette's spots (walkways.ts): the dispenser, the machine, two to wait at behind it, and two by the counter. */
+export const SPOTS = {
+  mugs: 'mugs',
+  machine: 'coffee',
+  line: ['coffee-line', 'coffee-line-1'],
+  sip: ['coffee-sip-0', 'coffee-sip-1'],
+} as const;
 
 export const BREAK = {
   /** At most this many people on a coffee break per floor at once. */
@@ -84,6 +89,20 @@ export function pickSeat(seats: Map<string, string>, id: string, ids: readonly s
   return free ?? null;
 }
 
+/** Where to wait for the machine: the front spot when it's free, else the one behind; moving up once the front frees. */
+export function pickLineSpot(seats: Map<string, string>, id: string, ids: readonly string[] = SPOTS.line): string {
+  const mine = ids.find((s) => seats.get(s) === id);
+  const best = ids.find((s) => s === mine || !seats.has(s));
+  if (!best) return ids[ids.length - 1];
+  if (mine && mine !== best) seats.delete(mine);
+  seats.set(best, id);
+  return best;
+}
+
+export function leaveLineSpot(seats: Map<string, string>, id: string) {
+  for (const s of SPOTS.line) if (seats.get(s) === id) seats.delete(s);
+}
+
 export function leaveSeat(seats: Map<string, string>, id: string) {
   for (const [spot, who] of seats) if (who === id) seats.delete(spot);
 }
@@ -116,7 +135,7 @@ export interface BreakWorld {
   slot(): Slot | null;
   /** The player goes first: their mug is in the machine, or they're beside it with a mug to put in. */
   playerFirst(): boolean;
-  /** The machine's line (shared by everyone on the floor) and the spots by the counter (spot → who). */
+  /** The machine's line (shared by everyone on the floor) and who has which spot to wait at or sip by (spot → who). */
   line: string[];
   seats: Map<string, string>;
   /** Each returns whether it happened. */
@@ -170,6 +189,8 @@ export class CoffeeBreak implements ErrandActor {
   }
 
   private walk(spot: string): ActStep {
+    // off to anywhere but the line: their place in it is free for the one behind
+    if (!(SPOTS.line as readonly string[]).includes(spot)) leaveLineSpot(this.world.seats, this.id);
     if (spot !== this.target) this.there = false;
     this.target = spot;
     return { walk: spot, gesture: this.hands() };
@@ -245,7 +266,7 @@ export class CoffeeBreak implements ErrandActor {
           return this.walk(SPOTS.machine);
         }
         if (now - this.lineAt > BREAK.line) return this.quit();
-        return this.walk(SPOTS.line);
+        return this.walk(pickLineSpot(w.seats, this.id));
       }
       case 'machine': {
         if (!this.at(SPOTS.machine)) return this.walk(SPOTS.machine);
@@ -256,7 +277,7 @@ export class CoffeeBreak implements ErrandActor {
           case 'place':
             if (w.playerFirst()) {
               this.stage = 'line';
-              return this.walk(SPOTS.line);
+              return this.walk(pickLineSpot(w.seats, this.id));
             }
             return this.act(now, BREAK.reach, 'tap', () => {
               const mug = this.mug;
@@ -289,9 +310,9 @@ export class CoffeeBreak implements ErrandActor {
             return this.walk(SPOTS.mugs);
           case 'blocked':
             this.stage = 'line';
-            return this.walk(SPOTS.line);
+            return this.walk(pickLineSpot(w.seats, this.id));
         }
-        return this.walk(SPOTS.line);
+        return this.walk(pickLineSpot(w.seats, this.id));
       }
       case 'sip': {
         const seat = pickSeat(w.seats, this.id);

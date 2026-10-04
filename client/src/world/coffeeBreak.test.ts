@@ -11,6 +11,7 @@ import {
   leaveLine,
   machineMove,
   myTurn,
+  pickLineSpot,
   pickSeat,
   type BreakWorld,
   type Mug,
@@ -173,6 +174,17 @@ describe('what to do at the machine', () => {
     expect(pickSeat(seats, 'a')).toBe(SPOTS.sip[0]);
     expect(pickSeat(seats, 'c')).toBeNull();
   });
+
+  it('gives each one waiting their own spot in line, and the one behind moves up', () => {
+    const seats = new Map<string, string>();
+    expect(pickLineSpot(seats, 'a')).toBe(SPOTS.line[0]);
+    expect(pickLineSpot(seats, 'b')).toBe(SPOTS.line[1]);
+    expect(pickLineSpot(seats, 'a')).toBe(SPOTS.line[0]);
+    expect(pickLineSpot(seats, 'b')).toBe(SPOTS.line[1]);
+    seats.delete(SPOTS.line[0]);
+    expect(pickLineSpot(seats, 'b')).toBe(SPOTS.line[0]);
+    expect([...seats]).toEqual([[SPOTS.line[0], 'b']]);
+  });
 });
 
 describe('drinking', () => {
@@ -242,7 +254,7 @@ describe('a coffee break', () => {
       if (da === 'done' && db === 'done') break;
     }
     expect(bWaited).toBe(true);
-    expect(rb.visits[0]).toBe(SPOTS.line);
+    expect(rb.visits[0]).toBe(SPOTS.line[0]);
     expect(k.log.indexOf('b place')).toBeGreaterThan(k.log.indexOf('a take 3'));
     expect(k.log).toContain('b take 3');
     expect(new Set([...k.log].filter((l) => l.endsWith('sip')))).toEqual(new Set(['a sip', 'b sip']));
@@ -266,6 +278,35 @@ describe('a coffee break', () => {
     expect(k.playerTakes()?.id).toBe('mug-1');
     for (; k.now < 40; k.now += DT) r.step(k.now);
     expect(k.log).toContain('a place');
+  });
+
+  it('the player goes first and two wait: they stand in two different spots, never on each other', () => {
+    const { k, world } = kitchen();
+    k.playerPlaces({ id: 'mug-1', sips: 0 });
+    const a = new CoffeeBreak('a', world);
+    const b = new CoffeeBreak('b', world);
+    const ra = runner(a);
+    const rb = runner(b);
+    for (k.now = 0; k.now < 20; k.now += DT) {
+      ra.step(k.now);
+      rb.step(k.now);
+    }
+    expect(a.stage).toBe('line');
+    expect(b.stage).toBe('line');
+    const wa = ra.last;
+    const wb = rb.last;
+    if (typeof wa !== 'object' || !('walk' in wa) || typeof wb !== 'object' || !('walk' in wb)) throw new Error('not waiting');
+    expect(new Set([wa.walk, wb.walk])).toEqual(new Set(SPOTS.line));
+    // the player takes their coffee: the first goes to the machine and the second moves up to the front spot
+    k.playerTakes();
+    let movedUp = false;
+    for (; k.now < 30; k.now += DT) {
+      ra.step(k.now);
+      const s = rb.step(k.now);
+      if (b.stage === 'line' && typeof s === 'object' && 'walk' in s && s.walk === SPOTS.line[0]) movedUp = true;
+    }
+    expect(a.stage).not.toBe('line');
+    expect(movedUp).toBe(true);
   });
 
   it('gives up after waiting too long behind the player’s mug, and puts the empty mug back', () => {
@@ -315,15 +356,16 @@ describe('a coffee break', () => {
 describe('the kitchenette spots', () => {
   it('are where people can stand, the line a step back from the machine and the two by the counter facing each other', () => {
     const w = walkways('office');
-    const ids = [SPOTS.mugs, SPOTS.machine, SPOTS.line, ...SPOTS.sip];
+    const ids = [SPOTS.mugs, SPOTS.machine, ...SPOTS.line, ...SPOTS.sip];
     for (const id of ids) {
       const s = spot(w, id);
       expect(s, id).toBeDefined();
       expect(standable(w, s!.x, s!.z), id).toBe(true);
     }
     const m = spot(w, SPOTS.machine)!;
-    const l = spot(w, SPOTS.line)!;
-    expect(Math.hypot(m.x - l.x, m.z - l.z)).toBeGreaterThan(0.7);
+    const [l0, l1] = SPOTS.line.map((id) => spot(w, id)!);
+    expect(Math.hypot(m.x - l0.x, m.z - l0.z)).toBeGreaterThan(0.7);
+    expect(Math.hypot(l0.x - l1.x, l0.z - l1.z)).toBeGreaterThan(0.7);
     const [s0, s1] = SPOTS.sip.map((id) => spot(w, id)!);
     expect(Math.abs(Math.abs(s0.facing - s1.facing) - Math.PI)).toBeLessThan(1e-9);
   });
