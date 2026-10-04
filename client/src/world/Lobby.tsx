@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { floorPrCounts, pendingRequests, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
+import { ActivityIcon } from './ActivityIcon';
 import { WaitingRoom } from './Candidates';
 import { Desk } from './Desk';
 import { drawSign, roundRect, SANS } from './draw';
@@ -9,10 +10,12 @@ import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
 import { Jukebox } from './Jukebox';
+import { MissionControl } from './MissionControl';
 import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION } from './layout';
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
 import { Bookshelf, CoffeeCorner, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
+import { LobbyRituals } from './Rituals';
 import { Shell } from './Shell';
 import { Ball, Box, Cyl } from './Toon';
 import { Toys } from './toys';
@@ -256,6 +259,7 @@ function CeoOffice() {
   return (
     <group>
       <ErrandDirector floor="lobby" agents={people} />
+      <LobbyRituals />
       <Rug position={[(c.minX + c.maxX) / 2, 0.005, (c.minZ + c.maxZ) / 2]} size={[c.maxX - c.minX, c.maxZ - c.minZ]} color="#e6dcff" />
       <GlassWall from={[c.minX, c.minZ]} to={[c.minX, c.maxZ]} />
       <GlassWall from={[c.minX, c.maxZ]} to={[c.doorMinX, c.maxZ]} />
@@ -270,6 +274,7 @@ function CeoOffice() {
         deps={[ceo?.name]}
       />
       {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
+      {ceo && <ActivityIcon agent={ceo} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
@@ -356,6 +361,7 @@ export function Lobby() {
         deps={[company]}
       />
 
+      <MissionControl />
       <CeoOffice />
       <WaitingRoom />
       <Elevator floorLabel="▲ G · Lobby" accent={ACCENT} />

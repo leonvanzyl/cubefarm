@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { SAMPLE_LINE, speechText } from '../shared/speech.ts';
+import { SAMPLE_LINE, speechText, standupLine, type DayPart } from '../shared/speech.ts';
 import { clampKeepDays, KEEP_DAYS_DEFAULT } from '../shared/voiceClips.ts';
 import type { PhoneMessage, VoiceCacheView, VoiceOption, VoiceSettings } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
@@ -321,6 +321,13 @@ export class Voice {
   async sampleAudio(voiceId?: string): Promise<Buffer> {
     const s = this.deps.settings();
     return this.audio('sample', voiceId || s.voiceId, s.model, SAMPLE_LINE);
+  }
+
+  /** GET /api/voice/standup: the CEO's line at a stand-up in the 3D office, made once per wording and cached. */
+  async standupAudio(count: number, part: DayPart): Promise<Buffer> {
+    const s = this.deps.settings();
+    if (s.provider !== 'elevenlabs') throw new HttpError(404, "The CEO isn't voiced by ElevenLabs right now.");
+    return this.audio('standup', s.voiceId, s.model, standupLine(count, part));
   }
 
   private async audio(name: string, voiceId: string, model: string, text: string, m?: PhoneMessage): Promise<Buffer> {

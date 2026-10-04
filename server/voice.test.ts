@@ -331,6 +331,19 @@ describe('Voice', () => {
     expect(await v.prune()).toMatchObject({ clips: 2 });
   });
 
+  it("voices the stand-up's line once per wording, then plays it from the cache", async () => {
+    const v = make();
+    await v.setKey('sk_good');
+    const first = await v.standupAudio(3, 'morning');
+    expect(first.toString()).toBe('mp3:Morning team, three new features today!');
+    expect(await v.standupAudio(3, 'morning')).toEqual(first);
+    expect(calls.synth).toBe(1);
+    await v.standupAudio(2, 'morning');
+    expect(calls.synth).toBe(2);
+    settings = { ...settings, provider: 'browser' };
+    expect(await status(v.standupAudio(3, 'morning'))).toBe(404);
+  });
+
   it('other ElevenLabs failures are a 502 and keep trying', async () => {
     const v = make();
     await v.setKey('sk_good');

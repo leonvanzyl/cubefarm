@@ -10,6 +10,8 @@ import { elevenLabs } from './elevenlabs.ts';
 import { httpTransport, type NotifyTransport } from './notifier.ts';
 import type { VoiceApi } from './voice.ts';
 import type { AgentTerminal } from './terminal.ts';
+import type { OpsHistory } from './metrics.ts';
+import type { UsageWarning } from './pacing.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
 /** A made-up candidate the demo CEO proposes: the propose_hire tool's arguments, bar the floor and role. */
@@ -92,6 +94,10 @@ export interface Backend {
   voice: VoiceApi;
   /** Notifications to the chat apps and push services (docs/pocket.md). */
   notify: NotifyTransport;
+  /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
+  seedOps?(repos: string[], now: number): OpsHistory;
+  /** The demo only: Claude's usage warning, or its limit, on demand, as a session would report it. */
+  simulateUsage?(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number };
 }
 
 export const realBackend: Backend = {
