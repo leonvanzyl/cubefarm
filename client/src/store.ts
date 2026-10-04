@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { chirp, cue } from './ui/sfx';
+import { hitGong } from './world/gongState';
+import { newlyMerged } from './world/gongRules';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -214,8 +216,8 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'repo': {
         const before = get().repos.find((r) => r.id === ev.repo.id);
-        const wasOpen = new Set(before?.pulls.filter((p) => p.state === 'OPEN').map((p) => p.number));
-        if (live && ev.repo.pulls.some((p) => p.state === 'MERGED' && wasOpen.has(p.number))) cue('merged');
+        // A merge on the player's floor bangs its gong and the floor celebrates; anywhere else it's the chime.
+        if (live && newlyMerged(before, ev.repo).length && hitGong({ repoId: ev.repo.id, celebrate: true }) === 'absent') cue('merged');
         const repos = get().repos.filter((r) => r.id !== ev.repo.id);
         repos.push(ev.repo);
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
