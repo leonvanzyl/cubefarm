@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
-import { agentsOnRepo, useStore } from '../store';
+import { agentsOnRepo, floorPrCounts, useStore } from '../store';
 import { AppMonitor } from './AppMonitor';
 import { Desk } from './Desk';
 import { drawSign } from './draw';
@@ -47,8 +47,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
   const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
   const qaRecords = useStore((s) => s.qa);
-  const inQa = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status !== 'passed').length;
-  const ready = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status === 'passed').length;
+  const { inQa, ready } = useMemo(() => floorPrCounts(repo, qaRecords), [repo, qaRecords]);
   const name = repo.fullName.split('/')[1] ?? repo.fullName;
   const rugColor = shade(repo.color, 0.24);
 
