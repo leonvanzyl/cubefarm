@@ -185,6 +185,9 @@ export interface SfxRecord {
   played: boolean;
   /** Where its panner really was when it played, for sounds on long-lived panners (typing); else absent. */
   from?: Vec3 | null;
+  /** The jukebox's music: its volume level (1-6) and whether it's ducked under an alert or speech. */
+  level?: number;
+  ducked?: boolean;
   /** performance.now() when it was asked for. */
   t: number;
 }
@@ -196,19 +199,21 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
 /**
  * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
  * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
- * Sounds frequent enough to crowd everything else out (typing) pass a `log` of their own.
+ * Sounds frequent enough to crowd everything else out (typing) pass a `log` of their own. A sound with its own distance
+ * model (the jukebox) passes `falloff`: its gain at `d` metres, in place of the office's.
  */
 export function recordSfx(
   name: string,
-  { group, pos, pan = 0, peak, played = false }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean },
+  { group, pos, pan = 0, peak, played = false, falloff }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean; falloff?: (d: number) => number },
   log: SfxRecord[] = probe,
 ) {
   const d = pos ? distance(ear, pos) : 0;
+  const atDistance = !pos ? 1 : falloff ? falloff(d) : audible(d) ? distanceGain(d) : 0;
   const rec: SfxRecord = {
     name,
     group: group ?? null,
     at: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
-    gain: (!pos || audible(d) ? peak * (pos ? distanceGain(d) : 1) : 0) * (group ? groupLevels[group] : 1),
+    gain: peak * atDistance * (group ? groupLevels[group] : 1),
     pan: pos ? panOf(ear, earFwd, earUp, pos) : pan,
     played,
     t: performance.now(),
@@ -237,6 +242,18 @@ export function createPanner(c: BaseAudioContext, pos: Vec3) {
   p.maxDistance = MAX_DISTANCE;
   setPannerPosition(p, pos.x, pos.y, pos.z);
   return p;
+}
+
+type AlertListener = (c: BaseAudioContext, start: number, end: number) => void;
+let alertListener: AlertListener | null = null;
+
+/** The music ducks under the alerts group: `fn` hears of every alert sound that plays (context times). */
+export function onAlertSound(fn: AlertListener | null) {
+  alertListener = fn;
+}
+
+function alerted(opts: PlaceOpts, c: BaseAudioContext, start: number, end: number) {
+  if (opts.group === 'alerts') alertListener?.(c, start, end);
 }
 
 /** Moves a panner (safe to call every frame: allocates nothing). */
@@ -352,6 +369,7 @@ export function tone(opts: ToneOpts) {
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src: osc });
+    alerted(opts, a.ctx, t0, t0 + dur);
   } catch {
     // audio is optional
   }
@@ -398,6 +416,7 @@ export function noise(opts: NoiseOpts) {
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src });
+    alerted(opts, a.ctx, t0, t0 + dur);
   } catch {
     // audio is optional
   }

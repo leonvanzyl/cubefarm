@@ -100,6 +100,12 @@ export function HUD() {
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}
           {sip ? 'Sip coffee' : focus?.label}
+          {!sip && focus?.action.kind === 'jukebox' && (
+            <>
+              {' '}
+              · <kbd>−</kbd> <kbd>+</kbd> / <kbd>Scroll</kbd> volume
+            </>
+          )}
         </div>
       )}
       {started && !overlay && !travel && <HeldHint />}
