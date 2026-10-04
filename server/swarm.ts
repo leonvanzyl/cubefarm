@@ -12,6 +12,7 @@ import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
+import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
@@ -1861,7 +1862,7 @@ export class Swarm {
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
-  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails) {
+  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string) {
     return [
       `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("cubefarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
       ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
@@ -1877,7 +1878,7 @@ export class Swarm {
       'How to test:',
       '1. Read the PR description and the linked issue, and work out the acceptance criteria.',
       `2. Review the code as a careful reviewer would: git diff origin/${repo.defaultBranch}...HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.`,
-      "3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).",
+      testStep,
       repo.browserTesting
         ? `4. If the project has a UI, start it in the background on port ${this.port(a)} (reserved for you) and exercise the change in a real browser with the Playwright tools: navigate, click, type, resize to a phone size, try edge cases, and check the console for errors. Take a screenshot with browser_take_screenshot (no filename) of every important state: the screenshots are attached to the PR as evidence. Stop the server afterwards.`
         : '4. Exercise the changed behaviour directly (run the program, call the API, write a quick script).',
@@ -1899,6 +1900,7 @@ export class Swarm {
 
     let pr: PrDetails;
     let issue: { title: string; body: string } | null = null;
+    const lastTestedSha = rec.testedSha;
     try {
       pr = await this.backend.prDetails(repo.fullName, rec.prNumber);
       const issueNumber = rec.issueNumber ?? pr.closesIssues[0] ?? null;
@@ -1930,17 +1932,21 @@ export class Swarm {
     }
 
     const dev = rec.devAgentId ? this.state.agents.find((x) => x.id === rec.devAgentId) : null;
+    const qa = qaInstructions({
+      ...pr,
+      round: rec.round,
+      fixReason: rec.fixReason,
+      lastTestedSha,
+      summary: rec.summary,
+      fixInstructions: rec.fixInstructions,
+      defaultBranch: repo.defaultBranch,
+    });
     const prompt = [
       `Please QA pull request #${pr.number}: ${pr.title}`,
       `URL: ${pr.url}`,
       `Author: ${dev ? `${dev.name} (developer agent)` : 'a teammate'} · QA round ${rec.round}`,
-      rec.fixReason === 'conflict'
-        ? `\nQA passed it before, but since then the branch was updated with ${repo.defaultBranch} to resolve merge conflicts. Re-check everything, especially where this change meets the newly merged work.`
-        : rec.fixReason === 'checks'
-          ? '\nQA passed it before, but since then the developer changed the code to fix failing GitHub checks. Re-check everything.'
-          : rec.round > 1 && rec.summary
-            ? `\nThis is a re-test after fixes. Last round's findings:\n${rec.summary}\n${rec.fixInstructions ?? ''}\nCheck those first, then re-check everything else.`
-            : '',
+      qa.checks,
+      qa.retest,
       '',
       'PR description:',
       pr.body.trim() || '(empty)',
@@ -1949,7 +1955,7 @@ export class Swarm {
       .filter((l) => l !== '')
       .join('\n');
 
-    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr), undefined, QA_SCHEMA);
+    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr, qa.testStep), undefined, QA_SCHEMA);
   }
 
   private async onQaFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {

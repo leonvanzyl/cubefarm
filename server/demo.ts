@@ -124,18 +124,28 @@ function devScript(opts: SessionOptions, cb: SessionCallbacks, issueNumber: numb
   ];
 }
 
-function qaScript(cb: SessionCallbacks, pr: number, title: string, round: number): Step[] {
+function qaScript(cb: SessionCallbacks, pr: number, title: string, round: number, checks: string): Step[] {
   const port = 5600 + (pr % 50);
   const hue = (pr * 41) % 360;
+  // With GitHub checks on the PR, QA reads what they cover instead of re-running the suite.
+  const verify: Step[] = checks.endsWith(': none')
+    ? [
+        [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm ci && npm test -- --run' }],
+        [
+          { kind: 'result', text: '  ⎿ Test Files  8 passed (8)' },
+          { kind: 'result', text: '    Tests  41 passed (41)' },
+        ],
+        [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run lint && npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.84s' }],
+      ]
+    : [
+        [{ kind: 'tool', tool: 'Read', text: '⏺ Read .github/workflows/ci.yml' }, { kind: 'result', text: '  ⎿ Read 41 lines' }],
+        [{ kind: 'text', text: '● CI already runs the tests, lint and build, so I only need a build to start the app.' }],
+        [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm ci && npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.84s' }],
+      ];
   return [
-    [{ kind: 'text', text: `● Testing PR #${pr} "${title}" (round ${round}). First, the acceptance criteria from the issue.` }],
+    [{ kind: 'text', text: `● Testing PR #${pr} "${title}" (round ${round}). ${checks}. First, the acceptance criteria from the issue.` }],
     [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git diff origin/main...HEAD --stat' }, { kind: 'result', text: '  ⎿  3 files changed, 82 insertions(+), 9 deletions(-)' }],
-    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm ci && npm test -- --run' }],
-    [
-      { kind: 'result', text: '  ⎿ Test Files  8 passed (8)' },
-      { kind: 'result', text: '    Tests  41 passed (41)' },
-    ],
-    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run lint && npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.84s' }],
+    ...verify,
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ npm run preview -- --port ${port} &` }, { kind: 'result', text: `  ⎿ Local: http://localhost:${port}/` }],
     () => cb.browserUrl(`http://localhost:${port}/`),
     [{ kind: 'tool', tool: 'mcp__playwright__browser_navigate', text: `⏺ 🌐 navigate http://localhost:${port}/` }, { kind: 'result', text: `  ⎿ Page URL: http://localhost:${port}/` }],
@@ -177,7 +187,8 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     { kind: 'system', text: `✻ Claude Code (demo) · ${opts.model} · ${opts.effort} effort` },
     { kind: 'system', text: `  cwd ${opts.cwd}` },
   ];
-  const body = kind === 'qa' ? qaScript(cb, number, title, round) : kind === 'fix' ? fixScript(number, pushes) : devScript(opts, cb, number, title);
+  const checks = opts.prompt.match(/^GitHub checks right now: .*$/m)?.[0] ?? 'GitHub checks right now: none';
+  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes) : devScript(opts, cb, number, title);
   const script = [header, ...body];
 
   const finish = () => {
@@ -488,6 +499,10 @@ export function createDemoBackend(): Backend {
         state: pr.state,
         mergeable: pr.mergeable,
         mergeState: pr.mergeState,
+        checks: pr.checks,
+        checkNames: pr.checks === 'none' ? [] : ['CI / build', 'Vercel'],
+        failedChecks: pr.failedChecks.map((c) => c.name),
+        pendingChecks: pr.pendingChecks,
       };
     },
     issueDetails: async (fullName, number) => {
