@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
+import { DEFAULT_NOTIFY } from '../../shared/notify';
+import { showDesktopNote } from './notifications';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
@@ -74,6 +76,7 @@ interface State {
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
   ticker: TickerItem[]; // the floors' recent activity lines, oldest first (world/ActivityTicker.tsx)
+  notifyChannels: NotifyChannelsView; // which chat apps have a webhook saved (hints only) and how many devices get push
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -160,6 +163,7 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    notify: DEFAULT_NOTIFY,
   },
   clis: [],
   repos: [],
@@ -177,6 +181,7 @@ export const useStore = create<State>((set, get) => ({
   voiceCache: { clips: 0, bytes: 0, saved: [] },
   voiceSpeaking: null,
   ticker: [],
+  notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -233,6 +238,7 @@ export const useStore = create<State>((set, get) => ({
           voiceKeyHint: d.voiceKeyHint ?? '',
           voiceCache: d.voiceCache ?? { clips: 0, bytes: 0, saved: [] },
           ticker: d.ticker ?? [],
+          notifyChannels: d.notifyChannels ?? get().notifyChannels,
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -355,6 +361,13 @@ export const useStore = create<State>((set, get) => ({
       case 'ticker':
         set({ ticker: [...get().ticker.slice(-(TICKER_KEEP - 1)), ev.item] });
         break;
+      case 'notifyChannels':
+        set({ notifyChannels: ev.notifyChannels });
+        break;
+      case 'notify':
+        // This tab shows it only while it's hidden (notifications.ts); a visible office already chimes and toasts.
+        showDesktopNote(ev.note, get().settings.notify?.channels.desktop !== false);
+        break;
     }
   },
 
@@ -460,7 +473,8 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
   const progress: KanbanCard[] = [];
   for (const a of devs) {
     if (a.issueNumber == null || a.task !== 'issue' || a.status === 'idle') continue;
-    if (a.prNumber != null && openPulls.some((p) => p.number === a.prNumber)) continue;
+    // Their PR's card is the work now; once it's closed or merged there is no card ("finished · no PR" was wrong).
+    if (a.prNumber != null) continue;
     const note =
       a.status === 'preparing' ? 'setting up' : a.status === 'working' ? 'working' : a.status === 'error' ? 'needs help' : a.status === 'stopped' ? 'stopped' : 'finished · no PR';
     progress.push({
@@ -487,12 +501,16 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
 
   const claimed = new Set<number>([...progress.map((c) => c.number), ...openPulls.flatMap((p) => p.closesIssues)]);
   const open = new Set(repo.issues.map((i) => i.number));
+  const held = new Map((repo.held ?? []).map((h) => [h.issue, h.pr]));
   const backlog: KanbanCard[] = repo.issues
     .filter((i) => !claimed.has(i.number))
     .map((i) => {
       const waits = blockers(i.body, open);
       const labels = i.labels.map((l) => l.replace(/^swarm:/i, '🎯 ')).slice(0, 2).join(', ');
-      return { key: `i-${i.number}`, number: i.number, title: i.title, url: i.url, note: waits.length ? `⏳ after #${waits.join(', #')}` : labels || undefined };
+      const card = { key: `i-${i.number}`, number: i.number, title: i.title, url: i.url };
+      // Its PR was closed: it waits for the manager rather than going back to auto-assign.
+      if (held.has(i.number)) return { ...card, note: `⏸ PR #${held.get(i.number)} closed · assign by hand`, tone: 'warn' as const };
+      return { ...card, note: waits.length ? `⏳ after #${waits.join(', #')}` : labels || undefined };
     });
 
   const merged: KanbanCard[] = repo.pulls

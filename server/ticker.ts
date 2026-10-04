@@ -24,6 +24,8 @@ export interface RepoFacts {
 export const TICKER_KEEP = 20;
 const MERGED_NEWS_MS = 10 * 60_000; // a merge first seen this long after it happened is old news
 const MAX_NEW_ISSUES = 3; // a batch of filed issues: this many lines, then "+n more"
+const OPEN_PULLS_LISTED = 50; // github.ts's --limit for open PRs
+const OPEN_ISSUES_LISTED = 100; // and for open issues
 
 const busy = (s: AgentView['status']) => s === 'working' || s === 'preparing';
 const opened = (repoId: string, pr: number) => `opened:${repoId}#${pr}`;
@@ -76,7 +78,7 @@ export function repoFacts(repo: RepoView): RepoFacts {
   return { pulls: new Map(repo.pulls.map((p) => [p.number, { state: p.state, checks: p.checks }])), issues: new Set(repo.issues.map((i) => i.number)) };
 }
 
-/** PRs opened, merged or closed, CI turning red or green, and newly filed issues, since the floor's last sync. */
+/** PRs opened, merged or closed, CI turning red or green, and issues filed or closed, since the floor's last sync. */
 export function repoTicks(prev: RepoFacts, next: RepoView, authorOf: (pr: number) => string | null, now = Date.now()): Tick[] {
   const out: Tick[] = [];
   const say = (text: string, tone: Tick['tone'] = 'info', key?: string) => out.push({ repoId: next.id, text, tone, key });
@@ -93,6 +95,17 @@ export function repoTicks(prev: RepoFacts, next: RepoView, authorOf: (pr: number
     if (p.state !== 'OPEN' || before.checks === p.checks) continue;
     if (p.checks === 'failing') say(`CI red on #${p.number}`, 'bad');
     else if (p.checks === 'passing' && (before.checks === 'pending' || before.checks === 'failing')) say(`CI green on #${p.number}`, 'good');
+  }
+  // Closed PRs and issues drop off GitHub's lists (github.ts lists open ones, and the last few merged PRs). A full list
+  // may have pushed something off it instead, so only a shorter one counts.
+  const listed = new Set(next.pulls.map((p) => p.number));
+  if (next.pulls.filter((p) => p.state === 'OPEN').length < OPEN_PULLS_LISTED) {
+    for (const [n, p] of prev.pulls) if (p.state === 'OPEN' && !listed.has(n)) say(`PR #${n} closed`);
+  }
+  const open = new Set(next.issues.map((i) => i.number));
+  const mergedFor = new Set(next.pulls.filter((p) => p.state === 'MERGED').flatMap((p) => p.closesIssues));
+  if (next.issues.length < OPEN_ISSUES_LISTED) {
+    for (const n of prev.issues) if (!open.has(n) && !mergedFor.has(n)) say(`Issue #${n} closed`); // a merge already said so
   }
   const filed = next.issues.filter((i) => !prev.issues.has(i.number));
   for (const i of filed.slice(0, MAX_NEW_ISSUES)) say(`New issue #${i.number}: ${clipText(redact(i.title), 40)}`);

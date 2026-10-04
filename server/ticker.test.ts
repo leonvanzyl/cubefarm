@@ -80,6 +80,17 @@ describe('repoTicks', () => {
     expect(texts(repoTicks(before, after, (n) => (n === 5 ? 'Ken' : null)))).toEqual(['#1 merged 🎉', 'CI red on #2', 'CI green on #3', 'PR #4 closed', 'Ken opened PR #5']);
   });
 
+  it('PRs and issues closed, as they drop off the open lists (the cleanup after a close)', () => {
+    const before = repoFacts(repo([pull(1), pull(2), pull(3)], [issue(10), issue(11), issue(12)]));
+    const after = repo([pull(1), pull(3, { state: 'MERGED', closesIssues: [12] })], [issue(10)]);
+    expect(texts(repoTicks(before, after, nobody))).toEqual(['#3 merged 🎉', 'PR #2 closed', 'Issue #11 closed']);
+  });
+
+  it("doesn't call something closed when a full list may have pushed it off", () => {
+    const many = Array.from({ length: 50 }, (_, i) => pull(100 + i));
+    expect(repoTicks(repoFacts(repo([pull(1), ...many])), repo(many), nobody)).toEqual([]);
+  });
+
   it('only recent merges of PRs it never saw open', () => {
     const now = Date.parse('2026-10-04T12:00:00Z');
     const after = repo([pull(7, { state: 'MERGED', mergedAt: '2026-10-04T11:58:00Z' }), pull(8, { state: 'MERGED', mergedAt: '2026-10-03T11:58:00Z' })]);
