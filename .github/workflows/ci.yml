@@ -42,7 +42,8 @@ jobs:
           fi
           echo "os-sensitive=$sensitive" | tee -a "$GITHUB_OUTPUT"
 
-  # Every PR on Ubuntu. Windows and macOS (people run the office on both: paths, child processes, terminals, git
+  # Every PR on Ubuntu. No browser tests here: e2e/ is a local tool, and QA checks every PR in a real browser.
+  # Windows and macOS (people run the office on both: paths, child processes, terminals, git
   # worktrees) only when `changes` says so; otherwise they show as skipped under the same names, which counts as passing.
   check:
     name: check (ubuntu-latest)
@@ -84,38 +85,3 @@ jobs:
     timeout-minutes: 15
     env: *check-env
     steps: *check-steps
-
-  # The built app in a real browser: a demo office boots, renders, and its panels open (e2e/, Playwright).
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-
-      - run: npm ci
-
-      - id: playwright
-        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      # With the browser cached this only installs its system libraries.
-      - run: npx playwright install --with-deps chromium
-
-      # playwright.config.ts builds the app and boots a demo office on a test port with a temp SWARM_HOME.
-      - run: npm run test:e2e
-
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 14

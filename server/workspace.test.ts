@@ -35,7 +35,7 @@ process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
 const { HOME_DIR, WORKSPACE_ROOT } = await import('./config.ts');
-const { deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync } =
+const { branchHolder, deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync, trimDesk } =
   await import('./workspace.ts');
 // Most tests only care about the status line.
 const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
@@ -260,6 +260,82 @@ describe('syncMain', { timeout: 60_000 }, () => {
   });
 });
 
+describe('trimDesk', { timeout: 60_000 }, () => {
+  const write = async (dir: string, file: string, content: string) => {
+    await fs.mkdir(path.dirname(path.join(dir, file)), { recursive: true });
+    await fs.writeFile(path.join(dir, file), content);
+  };
+  const present = (dir: string, rel: string) =>
+    fs.access(path.join(dir, rel)).then(
+      () => true,
+      () => false,
+    );
+
+  /** A desk (a real worktree of the floor's checkout) with an install, build output and an untracked source file. */
+  async function deskWithOutput() {
+    const r = await makeRepos();
+    await commitFile(r.upstream, '.gitignore', 'node_modules/\ndist/\ntest-results/\n.swarm-home/\n');
+    await commitFile(r.upstream, 'src/main.ts', 'export const x = 1;\n');
+    await commitFile(r.upstream, 'packages/app/index.ts', 'export {};\n');
+    await commitFile(r.upstream, 'playwright-report/README.md', 'tracked on purpose\n');
+    await git(['push', '-q', 'origin', 'main'], { cwd: r.upstream });
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-01df', 'swarm/issue-1-ada');
+    expect(desk).toBe(deskDir(r.fullName, 'ada-01df'));
+    await write(desk, 'node_modules/three/index.js', 'x'.repeat(1000));
+    await write(desk, 'node_modules/.bin/vite', 'y'.repeat(200));
+    await write(desk, 'packages/app/node_modules/left-pad/index.js', 'z'.repeat(300));
+    await write(desk, 'dist/index.html', 'd'.repeat(50));
+    await write(desk, 'test-results/run.json', '{}');
+    await write(desk, '.swarm-home/demo-state.json', '{}');
+    await write(desk, 'notes/draft.ts', 'work in progress\n');
+    return { r, desk };
+  }
+
+  it('removes node_modules and build output, and nothing else', async () => {
+    const { r, desk } = await deskWithOutput();
+    const status = await git(['status', '--porcelain'], { cwd: desk });
+    const worktrees = await git(['worktree', 'list', '--porcelain'], { cwd: r.dir });
+
+    const result = await trimDesk(r.fullName, 'ada-01df');
+    expect(result?.removed.sort()).toEqual(['.swarm-home', 'dist', 'node_modules', 'packages/app/node_modules', 'test-results']);
+    expect(result?.skipped).toEqual([]);
+    expect(result?.freed).toBe(1000 + 200 + 300 + 50 + 2 + 2);
+    for (const gone of ['node_modules', 'packages/app/node_modules', 'dist', 'test-results', '.swarm-home']) expect(await present(desk, gone)).toBe(false);
+    for (const kept of ['.git', 'README.md', 'src/main.ts', 'packages/app/index.ts', 'playwright-report/README.md', 'notes/draft.ts']) expect(await present(desk, kept)).toBe(true);
+    expect(await git(['status', '--porcelain'], { cwd: desk })).toBe(status);
+    expect(await git(['worktree', 'list', '--porcelain'], { cwd: r.dir })).toBe(worktrees);
+    // Nothing is left behind in the trash.
+    expect(await fs.readdir(path.join(path.dirname(path.dirname(desk)), 'trash'))).toEqual([]);
+
+    expect(await trimDesk(r.fullName, 'ada-01df')).toEqual({ freed: 0, removed: [], skipped: [] });
+  });
+
+  it("removes output folders the project doesn't ignore, unless something in them is tracked", async () => {
+    const { r, desk } = await deskWithOutput();
+    await write(desk, 'dist-server/index.js', 'server');
+    await write(desk, 'playwright-report/index.html', 'report');
+    const result = await trimDesk(r.fullName, 'ada-01df');
+    expect(result?.removed).toContain('dist-server');
+    expect(result?.removed).not.toContain('playwright-report');
+    expect(await present(desk, 'playwright-report/index.html')).toBe(true);
+  });
+
+  it('leaves a desk alone when its agent started a task before the lock came round', async () => {
+    const { r, desk } = await deskWithOutput();
+    let busy = false;
+    const trim = trimDesk(r.fullName, 'ada-01df', () => !busy);
+    busy = true; // the task started after the sweep decided, before the trim got the lock
+    expect(await trim).toBeNull();
+    expect(await present(desk, 'node_modules/three/index.js')).toBe(true);
+    expect(await present(desk, 'dist/index.html')).toBe(true);
+  });
+
+  it('is null for a desk that does not exist', async () => {
+    const r = await makeRepos();
+    expect(await trimDesk(r.fullName, 'nobody')).toBeNull();
+  });
+});
+
 describe('prepareDesk', { timeout: 60_000 }, () => {
   const realRm = fs.rm.bind(fs);
   const branchOf = (cwd: string) => git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
@@ -323,6 +399,60 @@ describe('prepareDesk', { timeout: 60_000 }, () => {
     );
     expect(notes).toEqual([expect.stringMatching(/^Couldn't reuse the desk in place, so it's rebuilt: /)]);
     expect(await fs.readFile(path.join(desk, 'README.md'), 'utf8')).toMatch(/^# Test/);
+  });
+
+  it("lets other desks fix a PR whose branch the author's desk has checked out, and leaves the author's desk alone (#199)", async () => {
+    const r = await makeRepos();
+    const branch = 'swarm/issue-192-barbara';
+    // Barbara opened PR #198 and is still at her desk: the branch is checked out there, with work in progress.
+    const barbara = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'barbara-1575', branch);
+    await commitFile(barbara, 'feature.txt', 'barbara\n');
+    await git(['push', '-q', 'origin', branch], { cwd: barbara });
+    await git(['push', '-q', 'origin', 'HEAD:refs/pull/198/head'], { cwd: barbara });
+    await fs.writeFile(path.join(barbara, 'README.md'), '# Test\nunsaved edit\n');
+    const barbaraHead = await head(barbara);
+
+    // Dennis's desk is reused in place; Ken's is new: both check the PR out detached, and both can push to it.
+    const dennis = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'dennis-1234', 'swarm/issue-5-dennis');
+    for (const [slug, file] of [['dennis-1234', 'fix-1.txt'], ['ken-5678', 'fix-2.txt']]) {
+      const notes: string[] = [];
+      const desk = await prepareDesk(r.fullName, { defaultBranch: 'main', pr: 198 }, slug, branch, (t) => notes.push(t));
+      if (slug === 'dennis-1234') expect(desk).toBe(dennis);
+      expect(await branchOf(desk)).toBe('HEAD');
+      expect(await head(desk)).toBe(await git(['rev-parse', `origin/${branch}`], { cwd: r.dir }));
+      expect(notes).toEqual([expect.stringContaining(`push with git push origin HEAD:${branch}`)]);
+      await commitFile(desk, file, 'fixed\n');
+      await git(['push', '-q', 'origin', `HEAD:${branch}`], { cwd: desk });
+      await git(['push', '-q', '-f', 'origin', 'HEAD:refs/pull/198/head'], { cwd: desk }); // what GitHub does to the PR ref
+      expect(await git(['ls-remote', 'origin', `refs/heads/${branch}`], { cwd: desk })).toMatch(new RegExp(`^${await head(desk)}\\s`));
+    }
+
+    // Barbara's desk: same branch, same commit, her unsaved edit still there.
+    expect(await branchOf(barbara)).toBe(branch);
+    expect(await head(barbara)).toBe(barbaraHead);
+    expect(await fs.readFile(path.join(barbara, 'README.md'), 'utf8')).toBe('# Test\nunsaved edit\n');
+    expect(await git(['rev-parse', branch], { cwd: r.dir })).toBe(barbaraHead);
+
+    // Once she has moved on, her own desk takes the fix on the branch as usual, with everyone's commits.
+    await git(['checkout', '-q', '--', 'README.md'], { cwd: barbara });
+    await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'dennis-1234', 'swarm/issue-6-dennis');
+    await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ken-5678', 'swarm/issue-7-ken');
+    const notes: string[] = [];
+    await prepareDesk(r.fullName, { defaultBranch: 'main', pr: 198 }, 'barbara-1575', branch, (t) => notes.push(t));
+    expect(notes).toEqual([]);
+    expect(await branchOf(barbara)).toBe(branch);
+    expect(await fs.readFile(path.join(barbara, 'fix-2.txt'), 'utf8')).toMatch(/^fixed\r?\n$/); // checked out by git: CRLF where autocrlf is on
+  });
+});
+
+describe('branchHolder', () => {
+  const wt = (p: string, branch: string | null) => ({ path: path.resolve(p), branch, locked: false });
+  it('names the other worktree that has the branch, never the desk itself', () => {
+    const list = [wt('main', 'main'), wt('desks/barbara', 'swarm/issue-1-barbara'), wt('desks/dennis', null)];
+    expect(branchHolder(list, 'swarm/issue-1-barbara', 'desks/dennis')).toBe(path.resolve('desks/barbara'));
+    expect(branchHolder(list, 'swarm/issue-1-barbara', 'desks/barbara')).toBeNull();
+    expect(branchHolder(list, 'main', 'desks/dennis')).toBe(path.resolve('main'));
+    expect(branchHolder(list, 'swarm/issue-2-ken', 'desks/dennis')).toBeNull();
   });
 });
 

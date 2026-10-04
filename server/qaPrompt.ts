@@ -43,7 +43,7 @@ function checksLine(i: QaPromptInput): string {
 function testStep(hasChecks: boolean): string {
   return hasChecks
     ? "3. GitHub's checks run on this PR, and it merges only once they're green. Read .github/workflows to see what they cover and don't re-run that locally. Run only what you need to exercise the change (for example a build to start the app), anything the checks don't cover, or a failing check to reproduce it. A failing check is a finding: name it."
-    : "3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).";
+    : "3. Install dependencies if needed (e.g. npm install when node_modules is missing), then run the project's test suite, linters, type checks and build (whichever exist).";
 }
 
 function retest(i: QaPromptInput): string {

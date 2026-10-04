@@ -308,9 +308,9 @@ async function staleIndexLock(wt: string): Promise<string | null> {
   return stat && Date.now() - stat.mtimeMs > STALE_LOCK_MS ? lock : null;
 }
 
-/** Put an existing desk worktree on `branch` at `ref`, keeping ignored files (node_modules, build caches). */
-async function reuseDesk(wt: string, branch: string, ref: string) {
-  await git(['checkout', '--force', '-B', branch, ref], { cwd: wt });
+/** Put an existing desk worktree on `branch` at `ref` (null: a detached HEAD), keeping ignored files (node_modules, build caches). */
+async function reuseDesk(wt: string, branch: string | null, ref: string) {
+  await git(branch ? ['checkout', '--force', '-B', branch, ref] : ['checkout', '--force', '--detach', ref], { cwd: wt });
   await git(['reset', '--hard', ref], { cwd: wt });
   // Untracked leftovers from the last task go; ignored files (node_modules, build caches) stay.
   await git(['clean', '-fd'], { cwd: wt }).catch(() => undefined);
@@ -356,20 +356,28 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
 
     const wt = deskDir(fullName, agentSlug);
 
+    // git lets a branch be checked out in one worktree only. When another one has it (the PR's author still at their
+    // desk, or your own folder), this desk works on it detached and pushes with `git push origin HEAD:<branch>`:
+    // the other checkout is never touched.
+    await git(['worktree', 'prune'], { cwd: main });
+    const holder = branchHolder(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd: main })), branch, wt);
+    const local = holder ? null : branch;
+    if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at ${ref}; push with git push origin HEAD:${branch}.`);
+
     // Reuse the desk's worktree in place. Deleting it fails on Windows while any process (a dev server
     // the agent left running, a browser) still has its working directory inside, and reuse keeps
     // node_modules warm between tasks.
     if (await exists(path.join(wt, '.git'))) {
       try {
         try {
-          await reuseDesk(wt, branch, ref);
+          await reuseDesk(wt, local, ref);
         } catch (err) {
           // A git that died mid-command (a crash, a killed CLI) leaves index.lock behind, and every git after it fails.
           const lock = /index\.lock/.test((err as Error).message) ? await staleIndexLock(wt) : null;
           if (!lock) throw err;
           await fs.rm(lock, { force: true, maxRetries: 3 });
           note?.(`Removed a stale git lock (${lock}) left in the desk.`);
-          await reuseDesk(wt, branch, ref);
+          await reuseDesk(wt, local, ref);
         }
         return wt;
       } catch (err) {
@@ -386,9 +394,14 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
     }
     await git(['worktree', 'prune'], { cwd: main });
     await fs.mkdir(path.dirname(wt), { recursive: true });
-    await git(['worktree', 'add', '-B', branch, wt, ref], { cwd: main });
+    await git(['worktree', 'add', ...(local ? ['-B', local] : ['--detach']), wt, ref], { cwd: main });
     return wt;
   });
+}
+
+/** The other worktree (not `desk`) that has `branch` checked out, if any. */
+export function branchHolder(worktrees: WorktreeEntry[], branch: string, desk: string): string | null {
+  return worktrees.find((w) => w.branch === branch && !samePath(w.path, path.resolve(desk)))?.path ?? null;
 }
 
 /** `main`: the floor's checkout when it was let go (a disconnect points mainDir elsewhere before this runs). */
@@ -594,6 +607,112 @@ export function sweepDesks(fullName: string, keep: SweepKeep): Promise<SweepResu
     }
     return result;
   });
+}
+
+// ---------- trimming idle desks ----------
+
+/** What an idle desk loses: build and test output at its top level, and node_modules at any depth. */
+export const TRIM_DIRS = ['node_modules', 'dist', 'dist-server', 'test-results', 'playwright-report', '.swarm-home', '.preview-tmp', '.playwright-mcp'];
+
+export interface DeskTrim {
+  /** Bytes removed. */
+  freed: number;
+  /** Desk-relative folders removed (forward slashes). */
+  removed: string[];
+  /** Folders Windows still had locked: left for the next sweep. */
+  skipped: string[];
+}
+
+/** The total size of the files under a folder: an async walk a few folders at a time that never follows links. */
+export async function dirSize(dir: string, concurrency = 8): Promise<number> {
+  let total = 0;
+  const queue = [dir];
+  let active = 0;
+  const visit = async (d: string) => {
+    const entries = await fs.readdir(d, { withFileTypes: true }).catch(() => []);
+    const sizes = await Promise.all(
+      entries.map((e) => {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) queue.push(p);
+        return e.isFile() ? fs.lstat(p).then((s) => s.size, () => 0) : 0;
+      }),
+    );
+    for (const s of sizes) total += s;
+  };
+  await new Promise<void>((resolve) => {
+    const next = () => {
+      while (active < concurrency && queue.length) {
+        active++;
+        void visit(queue.pop()!).finally(() => {
+          active--;
+          next();
+        });
+      }
+      if (active === 0 && queue.length === 0) resolve();
+    };
+    next();
+  });
+  return total;
+}
+
+/** The folders of a desk trimDesk removes: TRIM_DIRS that hold no tracked files (desk-relative, forward slashes). */
+async function trimTargets(wt: string): Promise<string[]> {
+  // Ignored folders, collapsed: "node_modules/", "packages/app/node_modules/", "dist/".
+  const ignored = (await git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], { cwd: wt }))
+    .split('\0')
+    .filter((p) => p.endsWith('/'))
+    .map((p) => p.slice(0, -1))
+    .filter((p) => (p.includes('/') ? p.endsWith('/node_modules') : TRIM_DIRS.includes(p)));
+  // Output folders the project doesn't ignore (e.g. .swarm-home) still go when nothing in them is tracked.
+  const present = [];
+  for (const name of TRIM_DIRS) if ((await fs.lstat(path.join(wt, name)).catch(() => null))?.isDirectory()) present.push(name);
+  const candidates = [...new Set([...ignored, ...present])];
+  if (candidates.length === 0) return [];
+  const tracked = (await git(['ls-files', '-z', '--', ...candidates], { cwd: wt })).split('\0').filter(Boolean);
+  return candidates.filter((c) => !tracked.some((f) => f.startsWith(`${c}/`)));
+}
+
+/**
+ * Free disk space on an idle desk: remove its node_modules and build/test output (TRIM_DIRS). Tracked files, untracked
+ * source and the worktree's .git file stay. `stillIdle` is asked again inside the repo lock, so a task that just started
+ * on this desk is never pulled out from under it. Each folder is first moved out of the desk in one rename (a folder
+ * Windows has locked fails whole and is skipped until next time, never left half-deleted), then measured and deleted
+ * outside the lock. Never stops processes. Returns null when the desk doesn't exist or is busy.
+ */
+export async function trimDesk(fullName: string, agentSlug: string, stillIdle: () => boolean = () => true): Promise<DeskTrim | null> {
+  const wt = deskDir(fullName, agentSlug);
+  const trash = path.join(repoDir(fullName), 'trash');
+  // What an earlier trim couldn't delete (files that were still locked).
+  for (const name of await fs.readdir(trash).catch(() => [])) {
+    if (name.startsWith(`${agentSlug}-`)) await removeDir(path.join(trash, name)).catch(() => undefined);
+  }
+  const bin = path.join(trash, `${agentSlug}-${Date.now()}`);
+  const moved = await withRepoLock(fullName, async () => {
+    if (!stillIdle() || !(await exists(path.join(wt, '.git')))) return null;
+    const out = { removed: [] as string[], skipped: [] as string[] };
+    const targets = await trimTargets(wt);
+    for (const [i, rel] of targets.entries()) {
+      if (!stillIdle()) break;
+      try {
+        await fs.mkdir(bin, { recursive: true });
+        await fs.rename(path.join(wt, rel), path.join(bin, `${i}-${path.basename(rel)}`));
+        out.removed.push(rel);
+      } catch {
+        out.skipped.push(rel);
+      }
+    }
+    return out;
+  });
+  if (!moved) return null;
+  if (moved.removed.length === 0) return { freed: 0, ...moved };
+  const size = await dirSize(bin);
+  let left = 0;
+  try {
+    await removeDir(bin);
+  } catch {
+    left = await dirSize(bin);
+  }
+  return { freed: size - left, ...moved };
 }
 
 // ---------- leftover processes ----------
