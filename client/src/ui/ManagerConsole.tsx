@@ -514,23 +514,39 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
                   {i.title}
                   {i.labels.length > 0 && <div className="muted small">{i.labels.join(', ')}</div>}
                 </div>
-                {holder ? (
-                  <span className="agent-chip">
-                    <span className="dot" style={{ background: holder.color }} />
-                    {holder.name}
-                  </span>
-                ) : (
-                  <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
-                    <option value="">Assign…</option>
-                    {agents
-                      .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
-                      .map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                  </select>
-                )}
+                <span className="repo-row-actions">
+                  {holder ? (
+                    <span className="agent-chip">
+                      <span className="dot" style={{ background: holder.color }} />
+                      {holder.name}
+                    </span>
+                  ) : (
+                    <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
+                      <option value="">Assign…</option>
+                      {agents
+                        .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                  <button
+                    className="btn btn-small btn-ghost"
+                    title="Close it on GitHub as not planned"
+                    onClick={() =>
+                      void confirmDialog({
+                        tone: 'danger',
+                        title: `Close #${i.number}?`,
+                        body: `“${i.title}” will be closed on GitHub as not planned${holder ? `, and ${holder.name} stops working on it` : ''}.`,
+                        confirm: 'Close issue',
+                      }).then((ok) => ok && attempt(() => api.closeIssue(repo.id, i.number)))
+                    }
+                  >
+                    Close
+                  </button>
+                </span>
               </div>
             );
           })}

@@ -104,3 +104,31 @@ describe('floorPrCounts', () => {
     expect([counts.inQa, counts.ready]).toEqual([cols.qa.length, cols.ready.length]);
   });
 });
+
+describe('kanbanFor: In progress', () => {
+  const r = (...pulls: PullInfo[]) => ({ ...repo(1, ...pulls), issues: [{ number: 192, title: 'Cancelled', body: '', labels: [] }], autoMerge: false }) as unknown as RepoView;
+  const barbara = (patch: Partial<AgentView>) => ({ id: 'b', name: 'Barbara', role: 'dev', task: 'issue', status: 'working', issueNumber: 192, issueTitle: 'Cancelled', prNumber: null, branch: 'swarm/issue-192-barbara', ...patch }) as AgentView;
+
+  it('shows a developer working on an issue, and one who finished without a PR', () => {
+    expect(kanbanFor(r(), [barbara({})], {}).progress.map((c) => c.note)).toEqual(['working']);
+    expect(kanbanFor(r(), [barbara({ status: 'done' })], {}).progress.map((c) => c.note)).toEqual(['finished · no PR']);
+  });
+
+  it('shows no card once their PR is open, closed or merged: never "finished · no PR" for a PR that was closed', () => {
+    const done = barbara({ status: 'done', prNumber: 198 });
+    expect(kanbanFor(r(pr(198, 'OPEN')), [done], {}).progress).toEqual([]);
+    expect(kanbanFor(r(), [done], {}).progress).toEqual([]); // GitHub's list leaves closed PRs out
+    expect(kanbanFor(r(pr(198, 'CLOSED')), [done], {}).progress).toEqual([]);
+    expect(kanbanFor(r(pr(198, 'MERGED')), [done], {}).progress).toEqual([]);
+  });
+
+  it('shows nothing for an agent whose task was cleared', () => {
+    expect(kanbanFor(r(), [barbara({ status: 'idle', task: null, issueNumber: null, prNumber: null, branch: null })], {}).progress).toEqual([]);
+  });
+
+  it('marks an issue whose PR was closed as waiting for the manager, in the backlog', () => {
+    const held = { ...r(), held: [{ issue: 192, pr: 198 }] } as RepoView;
+    expect(kanbanFor(held, [], {}).backlog).toMatchObject([{ number: 192, note: '⏸ PR #198 closed · assign by hand', tone: 'warn' }]);
+    expect(kanbanFor(r(), [], {}).backlog[0].tone).toBeUndefined();
+  });
+});

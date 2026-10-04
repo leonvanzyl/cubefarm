@@ -326,8 +326,8 @@ export class Previews {
     this.tellScreen();
   }
 
-  /** The floor's PRs as GitHub has them now: previews of PRs that merged or closed stop. */
-  pullsChanged(f: PreviewFloor, pulls: PullInfo[]) {
+  /** The floor's PRs as the office knows them now: previews of PRs that merged or closed stop. */
+  pullsChanged(f: PreviewFloor, pulls: Pick<PullInfo, 'number' | 'state'>[]) {
     for (const key of closedPrs(this.prInfos(), f.id, pulls)) {
       const r = this.prRuns.get(key)!;
       const state = pulls.find((p) => p.number === r.pr)?.state;

@@ -465,7 +465,11 @@ export function createDemoBackend(): Backend {
       return { fullName: newRepo(name, opts.description), path: `/demo/projects/${name}` };
     },
     listIssues: async (fullName) => [...(repos.get(fullName)?.issues ?? [])],
-    listPulls: async (fullName) => [...(repos.get(fullName)?.pulls ?? [])],
+    // Like GitHub's list: the open PRs and the 8 latest merges, never closed ones, so the office asks about those.
+    listPulls: async (fullName) => {
+      const pulls = repos.get(fullName)?.pulls ?? [];
+      return [...pulls.filter((p) => p.state === 'OPEN'), ...pulls.filter((p) => p.state === 'MERGED').slice(0, 8)];
+    },
     createIssue: async (fullName, title, body, labels = []) => {
       const r = repos.get(fullName);
       if (!r) throw new Error('Unknown repo');

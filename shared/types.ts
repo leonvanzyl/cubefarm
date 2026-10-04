@@ -71,6 +71,7 @@ export interface RepoView {
   cloneError?: string;
   issues: IssueInfo[]; // open issues
   pulls: PullInfo[]; // open + recently merged PRs
+  held: { issue: number; pr: number }[]; // open issues whose PR was closed: they wait to be assigned by hand
   lastSync: number | null;
   syncError?: string;
   previewConfig: PreviewConfig;
