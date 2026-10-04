@@ -11,8 +11,8 @@ import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { paneMaterial } from './Shell';
 
 // Outside the side walls: the sliding glass doors, the balconies (the lobby's is a patio on the ground), and the rest
-// of the building round you: its walls above and below your floor, every floor's balcony, and the ground. Everything
-// static is merged into a few meshes, so all of it costs a handful of draw calls.
+// of the building round you: its walls above and below your floor and every floor's balcony (the city, outside/City.tsx,
+// is the ground). Everything static is merged into a few meshes, so all of it costs a handful of draw calls.
 
 type FloorKind = 'office' | 'lobby';
 const INK = '#1f1d2b';
@@ -225,15 +225,7 @@ function facadeGeometry(floor: number, top: number) {
 function Facade({ floor, top }: { floor: number; top: number }) {
   const geo = useMemo(() => facadeGeometry(floor, top), [floor, top]);
   useEffect(() => () => geo.dispose(), [geo]);
-  return (
-    <group>
-      <mesh geometry={geo} material={toonMap('facade', facadeTexture())} />
-      {/* the ground, for now: the city (Outside 2) builds on it */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -floorElevation(floor) - 0.02, 0]} material={toon('#b5c99a')}>
-        <planeGeometry args={[600, 600]} />
-      </mesh>
-    </group>
-  );
+  return <mesh geometry={geo} material={toonMap('facade', facadeTexture())} />;
 }
 
 /** Everything outside the side walls, for floor `floor` of a building whose top floor is `top`. */

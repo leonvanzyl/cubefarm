@@ -18,8 +18,15 @@ export const MUG_SIZE = { r: 0.055, rBase: 0.05, h: 0.12 };
 
 const COLORS = ['#f8f9fa', '#ef476f', '#118ab2', '#ffd166', '#06d6a0'];
 
+const tints = new Map<string, string>();
+
+/** Gives a mug its own colour (an agent's coffee is in their colour), wherever it goes after. */
+export const tintMug = (id: string, color: string) => void tints.set(id, color);
+
 /** A mug's colour, picked from its id so the same mug keeps its colour when picked up and dropped again. */
 export function mugColor(id: string) {
+  const tint = tints.get(id);
+  if (tint) return tint;
   let n = 0;
   for (let i = 0; i < id.length; i++) n = (n * 31 + id.charCodeAt(i)) >>> 0;
   return COLORS[n % COLORS.length];
