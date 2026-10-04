@@ -46,6 +46,7 @@ export interface PullInfo {
   mergeState: string; // GitHub's mergeStateStatus: CLEAN | BEHIND | BLOCKED | DIRTY | UNSTABLE | DRAFT | UNKNOWN …
   failedChecks: { name: string; url: string | null }[];
   pendingChecks: string[];
+  issueCreatedAt?: string | null; // when the issue it closes was filed, as far as the office knows (the whiteboard's issue → merge time)
 }
 
 export interface RepoView {
