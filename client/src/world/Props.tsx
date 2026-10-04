@@ -77,6 +77,22 @@ export function Kitchenette({ position }: { position: P }) {
   );
 }
 
+/** The lobby's coffee corner: a short counter with the kitchenette's coffee machine and mug dispenser. Like the
+ * kitchenette, its front faces local -x; position is the middle of the counter's footprint on the floor. */
+export function CoffeeCorner({ position, rotationY = 0 }: { position: P; rotationY?: number }) {
+  return (
+    <group position={position} rotation={[0, rotationY, 0]}>
+      <Box size={[0.8, 0.9, 1.4]} position={[0, 0.45, 0]} color="#8ecae6" outline />
+      <Box size={[0.9, 0.06, 1.5]} position={[-0.02, 0.93, 0]} color="#f8f9fa" outline />
+      <CoffeeMachine position={[0, 0.96, -0.3]} />
+      <MugDispenser position={[0, 0.96, 0.4]} />
+      {/* sugar jar */}
+      <Cyl r={0.06} h={0.12} position={[0.1, 1.02, 0.6]} color="#f1f3f5" outline />
+      <Cyl r={0.065} h={0.03} position={[0.1, 1.095, 0.6]} color="#e07a5f" />
+    </group>
+  );
+}
+
 export function Rug({ position, size, color }: { position: P; size: [number, number]; color: string }) {
   return (
     <mesh position={position} rotation={[-Math.PI / 2, 0, 0]} receiveShadow material={toon(color)}>

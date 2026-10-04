@@ -1,5 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test';
-import { MANAGER_DESK, surfaceAt } from '../client/src/world/layout';
+import { COFFEE_CORNER, HALF_D, MANAGER_DESK, surfaceAt } from '../client/src/world/layout';
 import { colourStats, decodePng } from './png';
 
 // Smoke tests against the demo office: it loads without errors, you can walk in, the 3D view renders and moves,
@@ -232,6 +232,32 @@ test('the coffee machine fills a mug you put under it', async ({ page }) => {
   const sounds = await page.evaluate(() => (window as unknown as { __swarmSfx: { name: string; group: string | null; at: unknown }[] }).__swarmSfx.filter((s) => s.name.startsWith('coffee-')));
   expect(sounds.map((s) => s.name)).toEqual(expect.arrayContaining(['coffee-nope', 'coffee-mug', 'coffee-button']));
   expect(sounds.every((s) => s.group === 'toys' && s.at)).toBe(true);
+});
+
+test("the lobby's coffee corner hands out mugs and brews like the kitchenette", async ({ page }) => {
+  // Stand in front of the corner's mug dispenser on the south wall, looking down at the stack (yaw π faces south).
+  const spot: SavedView = { floor: 0, x: COFFEE_CORNER.x - 0.4, z: HALF_D - COFFEE_CORNER.d - 0.35, yaw: Math.PI, pitch: -0.5 };
+  await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(spot)] as const);
+  await enterOffice(page);
+  const coffee = () => page.evaluate(() => (window as unknown as { __swarmCoffee: { state: string } }).__swarmCoffee);
+  const held = () => page.evaluate(() => (window as unknown as { __swarmToys: { held: unknown } }).__swarmToys.held);
+  const act = (op: string) => page.evaluate((o) => (window as unknown as { __swarmCoffeeDo(op: string): void }).__swarmCoffeeDo(o), op);
+
+  await expect(page.getByText('Take a mug')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('e');
+  await expect.poll(held).toMatchObject({ kind: 'mug', sips: 0 });
+
+  await act('place');
+  await expect.poll(async () => (await coffee()).state).toBe('mugPlaced');
+  await act('brew');
+  await expect.poll(async () => (await coffee()).state, { timeout: 15_000 }).toBe('ready');
+  await act('take');
+  await expect.poll(held).toMatchObject({ kind: 'mug', sips: 3 });
+
+  // the machine's sounds come from the corner, not from where the kitchenette would be
+  const at = await page.evaluate(() => (window as unknown as { __swarmSfx: { name: string; at: { x: number; z: number } | null }[] }).__swarmSfx.filter((s) => s.name === 'coffee-button')[0]?.at);
+  expect(Math.abs(at!.x - COFFEE_CORNER.x)).toBeLessThan(COFFEE_CORNER.w / 2);
+  expect(at!.z).toBeGreaterThan(HALF_D - COFFEE_CORNER.d);
 });
 
 test('E sips a full mug twice, gulps the last, then the empty mug drops with a clunk', async ({ page }) => {

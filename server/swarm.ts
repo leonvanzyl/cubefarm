@@ -17,6 +17,7 @@ import { orphanedQa } from './qaOrphans.ts';
 import { conflictFixInstructions, lastQaRound, qaOutcome, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
+import { sendBackPatch } from './sendBack.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
@@ -24,6 +25,7 @@ import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type La
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
+import { DEFAULT_VOICE, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
@@ -370,6 +372,7 @@ export class Swarm {
       tutorialStep: 0,
       autoUpdate: true,
       pacingSessions: DEFAULT_PACING_SESSIONS,
+      voice: { ...DEFAULT_VOICE },
     },
     repos: [],
     agents: [],
@@ -421,8 +424,19 @@ export class Swarm {
   };
   private lastOfficeView = '';
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
+  /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
+  readonly voice: Voice;
 
   constructor(private backend: Backend) {
+    this.voice = new Voice({
+      api: backend.voice,
+      secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
+      cacheDir: path.join(HOME_DIR, backend.demo ? 'demo-voice' : 'voice'),
+      settings: () => this.state.settings.voice,
+      message: (id) => this.state.messages.find((m) => m.id === id),
+      officeNote: (text) => this.postMessage('office', text),
+      keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
+    });
     this.previews = new Previews(backend, {
       emit: (id) => {
         const r = this.state.repos.find((x) => x.id === id);
@@ -492,6 +506,7 @@ export class Swarm {
         delete old.maxConcurrent;
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
+      this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -499,6 +514,7 @@ export class Swarm {
     } catch {
       // first run
     }
+    await this.voice.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
     for (const a of this.state.agents) {
@@ -714,6 +730,7 @@ export class Swarm {
       phoneReadAt: this.state.phoneReadAt,
       usage: this.usageNow(),
       clis: this.clis,
+      ...this.voice.keyView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
@@ -1915,6 +1932,22 @@ export class Swarm {
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
+  /** Manager's "send back to dev" for a PR that needs a human or failed QA: a developer fixes it, with the note. */
+  async sendBackToDev(repoId: string, prNumber: number, note?: string) {
+    const repo = this.repo(repoId);
+    const find = () => this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === prNumber);
+    const listed = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === prNumber);
+    sendBackPatch(prNumber, listed, find(), repo.defaultBranch, note); // refuse before asking GitHub
+    // The last sync's mergeability may be stale or UNKNOWN: ask about the PR itself whether it conflicts now.
+    const details = await this.backend.prDetails(repo.fullName, prNumber).catch(() => null);
+    const pr = details && listed ? { ...listed, state: details.state, mergeable: details.mergeable, mergeState: details.mergeState } : listed;
+    const rec = find();
+    const patch = sendBackPatch(prNumber, pr, rec, repo.defaultBranch, note);
+    this.setQa(rec!, patch);
+    setTimeout(() => this.schedule(), 200);
+    this.toast('info', `PR #${prNumber} goes back to a developer${patch.fixReason === 'conflict' ? ' to resolve its conflicts' : ''}`);
+  }
+
   private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string, deps?: DepsOutcome) {
     return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr, testStep, depsLine: depsPromptLine(deps) });
   }
@@ -2129,6 +2162,7 @@ export class Swarm {
       rec.fixReason === 'conflict' && rec.passedSha
         ? [
             `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but it now conflicts with ${repo.defaultBranch} because other work was merged first.${takeover}`,
+            rec.fixInstructions ? `\nWhat needs fixing:\n${rec.fixInstructions}` : '',
             '',
             `Bring it up to date: git fetch origin && git merge origin/${repo.defaultBranch}. Resolve the conflicts so both this change and the newly merged work keep working, run the project's checks, and ${push}`,
           ]
@@ -2261,6 +2295,7 @@ export class Swarm {
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
     if (typeof patch.autoUpdate === 'boolean') s.autoUpdate = patch.autoUpdate;
     if (patch.pacingSessions !== undefined) s.pacingSessions = clampPacingSessions(patch.pacingSessions);
+    if (patch.voice !== undefined) s.voice = voiceSettings(s.voice, patch.voice);
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
