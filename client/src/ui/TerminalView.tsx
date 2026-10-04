@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { isBusy, kanbanFor, agentsOnRepo, useStore } from '../store';
+import { AgentSetup } from './AgentSettings';
 import { confirmDialog } from './Confirm';
 import { LiveTerminal } from './LiveTerminal';
 import { effectiveModel } from '../../../shared/models';
@@ -39,6 +40,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const [text, setText] = useState('');
   const [issue, setIssue] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
   const [, tick] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -99,6 +101,16 @@ export function TerminalView({ agentId }: { agentId: string }) {
           </span>
           <StatusPill status={agent.status} />
           {working && agent.currentTool && <span className="muted small">{toolVerb(agent.currentTool)}…</span>}
+          <span className="spacer" />
+          <button
+            className={`btn btn-small setup-toggle ${showSetup ? 'setup-toggle-on' : ''}`}
+            aria-expanded={showSetup}
+            aria-controls="agent-setup"
+            title={`${agent.name}'s coding agent, model, effort and job`}
+            onClick={() => setShowSetup((v) => !v)}
+          >
+            ⚙️ Setup
+          </button>
         </div>
       }
     >
@@ -145,7 +157,12 @@ export function TerminalView({ agentId }: { agentId: string }) {
         {agent.costUsd > 0 && <span className="muted" title="API-equivalent cost reported by the coding agent; subscription usage is billed by plan">≈${agent.costUsd.toFixed(2)}</span>}
       </div>
       {agent.lastError && agent.status !== 'working' && <div className="term-error">⚠️ {agent.lastError}</div>}
-      {agent.brief && (
+      {showSetup && (
+        <div id="agent-setup" className="setup-wrap">
+          <AgentSetup agent={agent} />
+        </div>
+      )}
+      {agent.brief && !showSetup && (
         <details className="small job-brief">
           <summary>Job description{agent.hiredBy === 'ceo' ? ' (from the CEO)' : ''}</summary>
           <Markdown text={agent.brief} />
