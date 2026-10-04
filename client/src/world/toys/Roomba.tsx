@@ -1,15 +1,16 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { CuboidCollider, CylinderCollider, RigidBody, useBeforePhysicsStep, type RapierRigidBody } from '@react-three/rapier';
+import { CuboidCollider, CylinderCollider, RigidBody, useBeforePhysicsStep, type CollisionEnterPayload, type RapierRigidBody } from '@react-three/rapier';
 import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
 import { roombaChirp } from '../../ui/sfx';
 import { useInteractable } from '../interact';
 import { toon } from '../materials';
-import type { ToyFloor } from './balls';
+import { BALLS, type ToyFloor } from './balls';
 import { onPoke } from './poke';
 import { setRoombaSource } from './probe';
-import { DOCK_SIZE, ROOMBA, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
+import { DOCK_SIZE, FULL, ROOMBA, ROOMBA_EVENT, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
+import { RoombaSounds } from './RoombaSounds';
 import { Vacuum } from './RoombaVacuum';
 
 // The floor's robot vacuum and its charging dock. roombaBrain.ts decides where it goes; this steers a kinematic
@@ -139,7 +140,7 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     const off = onPoke('roomba', () => {
       if (brain.move !== 'spin') spins++;
       spinRoomba(brain);
-      roombaChirp();
+      roombaChirp({ x: brain.x, y: 0.1, z: brain.z });
     });
     return () => {
       setRoombaSource(null);
@@ -166,21 +167,32 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     const t = clock.elapsedTime;
     const charging = brain.state === 'charging';
     if (brain.move === 'spin') light.color.setHSL((t * 2) % 1, 0.9, 0.6);
-    else if (charging) light.color.copy(brain.battery >= 0.995 ? LIGHT.full : LIGHT.charge).multiplyScalar(0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 3)));
+    else if (charging) light.color.copy(brain.battery >= FULL ? LIGHT.full : LIGHT.charge).multiplyScalar(0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 3)));
     else if (brain.state === 'returning' || brain.state === 'docking') light.color.copy(Math.sin(t * 8) > 0 ? LIGHT.home : LIGHT.off);
     else light.color.copy(LIGHT.clean);
     led.color.copy(charging ? light.color : LIGHT.off);
   });
 
+  // Nudging a ball counts as a bump for the bonk (walls and furniture are the brain's own bumps).
+  const balls = useMemo(() => new Set(BALLS[floor].map((b) => b.id)), [floor]);
+  const onHit = useMemo(
+    () => (e: CollisionEnterPayload) => {
+      const toy = (e.other.rigidBodyObject?.userData as { toy?: string } | undefined)?.toy;
+      if (toy && balls.has(toy)) brain.events |= ROOMBA_EVENT.bump;
+    },
+    [balls, brain],
+  );
+
   return (
     <>
       <DockLook dock={dock} led={led} groups={dockGroups} />
-      <RigidBody ref={body} type="kinematicPosition" colliders={false} position={[dock.x, 0, dock.z]} rotation={[0, -dock.heading, 0]} userData={{ toy: 'roomba' }}>
+      <RigidBody ref={body} type="kinematicPosition" colliders={false} position={[dock.x, 0, dock.z]} rotation={[0, -dock.heading, 0]} userData={{ toy: 'roomba' }} onCollisionEnter={onHit}>
         <CylinderCollider args={[ROOMBA.h / 2, ROOMBA.r]} position={[0, ROOMBA.h / 2 + 0.005, 0]} friction={0.3} restitution={0.3} collisionGroups={groups} />
         <Look brain={brain} light={light} />
         <Hint brain={brain} />
       </RigidBody>
       <Vacuum brain={brain} />
+      <RoombaSounds brain={brain} />
     </>
   );
 });

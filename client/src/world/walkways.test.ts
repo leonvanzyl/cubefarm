@@ -33,7 +33,7 @@ describe('named spots', () => {
   it('office floors have every desk, QA station, board column and break-area spot', () => {
     const w = walkways('office');
     expect(w.homes.map((s) => s.id)).toEqual([...Array.from({ length: 12 }, (_, i) => `desk-${i}`), 'qa-0', 'qa-1', 'qa-2']);
-    for (const id of ['coffee', 'mugs', 'cooler', 'couch', 'hoop', 'balls', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
+    for (const id of ['coffee', 'mugs', 'cooler', 'gong', 'couch', 'hoop', 'balls', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
     expect(spot(w, 'couch')!.sit).toBeDefined();
   });
 

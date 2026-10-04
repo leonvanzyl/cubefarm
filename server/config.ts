@@ -17,6 +17,8 @@ export const STATE_FILE = path.join(HOME_DIR, DEMO ? 'demo-state.json' : 'state.
 export const SYNC_INTERVAL_MS = 45_000;
 // How often idle agents on auto-assign floors look for new work.
 export const SCHEDULER_INTERVAL_MS = 8_000;
+// How often each floor's desks and finished branches are swept (also at start and after a let-go).
+export const DESK_SWEEP_INTERVAL_MS = 30 * 60_000;
 // Terminal lines kept per agent.
 export const LOG_BUFFER = 600;
 

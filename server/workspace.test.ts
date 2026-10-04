@@ -1,7 +1,8 @@
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // syncMain against real throwaway repos: a bare "origin", a clone of it as the floor's main checkout, and an
 // "upstream" clone that pushes new work. Everything lives in one temp folder whose path has spaces in it.
@@ -33,7 +34,9 @@ await fs.writeFile(gitConfig, '[user]\n\tname = Sync Test\n\temail = sync-test@e
 process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
-const { fileList, leftoversInDesk, mainDir, overwrittenPaths, porcelainPaths, syncMain: sync } = await import('./workspace.ts');
+const { HOME_DIR, WORKSPACE_ROOT } = await import('./config.ts');
+const { deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync } =
+  await import('./workspace.ts');
 // Most tests only care about the status line.
 const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
 
@@ -59,9 +62,11 @@ async function pushUpstream(r: Repos, n = 1, file = 'notes.txt') {
   await git(['push', '-q', 'origin', 'main'], { cwd: r.upstream });
 }
 
-async function makeRepos(cloneArgs: string[] = []): Promise<Repos> {
+/** `local`: the floor's checkout is a project folder of the manager's (setLocalPath), not a clone under the home. */
+async function makeRepos(cloneArgs: string[] = [], local = false): Promise<Repos> {
   const n = ++seq;
   const fullName = `sync-test/repo-${n}`;
+  if (local) setLocalPath(fullName, path.join(ROOT, 'projects', `repo ${n}`));
   const origin = path.join(ROOT, 'origins', `repo ${n}.git`);
   const upstream = path.join(ROOT, 'upstream', `repo ${n}`);
   await fs.mkdir(origin, { recursive: true });
@@ -255,6 +260,72 @@ describe('syncMain', { timeout: 60_000 }, () => {
   });
 });
 
+describe('prepareDesk', { timeout: 60_000 }, () => {
+  const realRm = fs.rm.bind(fs);
+  const branchOf = (cwd: string) => git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
+
+  /** fs.rm as Windows does it while a process has the desk as its working directory: the folder itself stays. */
+  function lockFolder(desk: string, { emptiesIt }: { emptiesIt: boolean }) {
+    vi.spyOn(fs, 'rm').mockImplementation(async (p, opts) => {
+      if (path.resolve(String(p)) !== desk) return realRm(p, opts);
+      if (emptiesIt) for (const f of await fs.readdir(desk)) await realRm(path.join(desk, f), { recursive: true, force: true });
+      throw Object.assign(new Error(`EBUSY: resource busy or locked, rmdir '${desk}'`), { code: 'EBUSY' });
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rebuilds a desk whose files are gone but whose locked, empty folder remains', async () => {
+    const r = await makeRepos();
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'radia-404e', 'swarm/issue-108-radia');
+    expect(desk).toBe(deskDir(r.fullName, 'radia-404e'));
+    // What a failed rebuild left behind: everything inside deleted, the folder held open by the idle CLI.
+    for (const f of await fs.readdir(desk)) await realRm(path.join(desk, f), { recursive: true, force: true });
+    lockFolder(desk, { emptiesIt: true });
+    expect(await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'radia-404e', 'swarm/issue-109-radia')).toBe(desk);
+    expect(await branchOf(desk)).toBe('swarm/issue-109-radia');
+    expect(await head(desk)).toBe(await originMain(r.dir));
+    expect(await fs.readFile(path.join(desk, 'README.md'), 'utf8')).toMatch(/^# Test/);
+  });
+
+  it('clears a stale index.lock and reuses the desk in place, node_modules and all', async () => {
+    const r = await makeRepos();
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'tim-1a2b', 'swarm/issue-108-tim');
+    await fs.appendFile(path.join(r.dir, '.git', 'info', 'exclude'), '\nnode_modules/\n');
+    await fs.mkdir(path.join(desk, 'node_modules', 'left-pad'), { recursive: true });
+    await fs.writeFile(path.join(desk, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1;\n');
+    // A git that died mid-command left its lock in the worktree's gitdir, 20 minutes ago.
+    const gitdir = path.resolve(desk, (await fs.readFile(path.join(desk, '.git'), 'utf8')).replace('gitdir:', '').trim());
+    const lock = path.join(gitdir, 'index.lock');
+    await fs.writeFile(lock, '');
+    const old = new Date(Date.now() - 20 * 60_000);
+    await fs.utimes(lock, old, old);
+    const notes: string[] = [];
+    expect(await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'tim-1a2b', 'swarm/issue-109-tim', (t) => notes.push(t))).toBe(desk);
+    expect(await branchOf(desk)).toBe('swarm/issue-109-tim');
+    expect(await fs.readFile(path.join(desk, 'node_modules', 'left-pad', 'index.js'), 'utf8')).toBe('module.exports = 1;\n');
+    await expect(fs.access(lock)).rejects.toThrow();
+    expect(notes).toEqual([expect.stringMatching(/^Removed a stale git lock/)]);
+  });
+
+  it("says why it couldn't reuse a desk, and still refuses one whose files can't be removed", async () => {
+    const r = await makeRepos();
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-01df', 'swarm/issue-108-ada');
+    // Reuse fails: the desk's .git points nowhere. (Replaced, not overwritten: git marks it hidden on Windows.)
+    await realRm(path.join(desk, '.git'));
+    await fs.writeFile(path.join(desk, '.git'), `gitdir: ${path.join(ROOT, 'nowhere')}\n`);
+    lockFolder(desk, { emptiesIt: false });
+    const notes: string[] = [];
+    await expect(prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-01df', 'swarm/issue-109-ada', (t) => notes.push(t))).rejects.toThrow(
+      /^Could not clear the desk folder .*EBUSY.*A program started by the previous task is probably still running there\. Close it and try again\.$/,
+    );
+    expect(notes).toEqual([expect.stringMatching(/^Couldn't reuse the desk in place, so it's rebuilt: /)]);
+    expect(await fs.readFile(path.join(desk, 'README.md'), 'utf8')).toMatch(/^# Test/);
+  });
+});
+
 describe('blocking files', () => {
   it('reads the paths from porcelain status, including a first line whose leading space was trimmed', () => {
     const porcelain = ['M package-lock.json', 'MM README.md', 'M  src/app.ts', 'R  old name.md -> docs/new name.md', 'R  "a -> b.md" -> c.md'].join('\n');
@@ -311,5 +382,166 @@ describe('leftoversInDesk', () => {
       `  8 node ${winDesk}\\server.js`,
     ].join('\n');
     expect(leftoversInDesk(listing, winDesk, winKeep)).toEqual([8]);
+  });
+});
+
+describe('planSweep', () => {
+  const top = path.parse(process.cwd()).root;
+  const root = path.join(top, 'home', 'ada', '.cubefarm', 'workspaces');
+  const desks = path.join(root, 'me__app', 'desks');
+  const oldDesks = path.join(top, 'home', 'ada', '.office-swarm', 'workspaces', 'me__app', 'desks');
+  const main = path.join(top, 'projects', 'app');
+  const wt = (p: string, branch: string | null = null, locked = false) => ({ path: p, branch, locked });
+  const keep = { desks: ['ada-1', 'preview'], branches: ['swarm/issue-9-ada', 'swarm/issue-4-open'] };
+
+  it("removes desks nobody uses, here and under an older home, but never the manager's worktrees or branches", () => {
+    const plan = planSweep(
+      {
+        fullName: 'me/app',
+        root,
+        worktrees: [
+          wt(main, 'main'),
+          wt(path.join(desks, 'ada-1'), 'swarm/issue-9-ada'),
+          wt(path.join(desks, 'preview'), 'swarm-preview'),
+          wt(path.join(desks, 'bob-2'), 'swarm/issue-5-bob'),
+          wt(path.join(oldDesks, 'ada-1'), 'swarm/issue-2-ada'), // a current agent's slug, but in the old home
+          wt(path.join(desks, 'held-3'), 'swarm/issue-6-held', true), // locked by someone: left alone
+          wt(path.join(top, 'projects', 'app-feature'), 'swarm/issue-7-manual'), // the manager's own worktree
+          wt(path.join(root, 'other__repo', 'desks', 'x'), 'swarm/issue-8-x'), // another floor's desk
+          wt(path.join(top, 'tmp', 'workspaces', 'me__app', 'desks', 'y')), // not under an office home
+        ],
+        branches: [
+          'main',
+          'fix/my-work',
+          'swarm/issue-1-old',
+          'qa/pr-3-x',
+          'swarm/issue-9-ada',
+          'swarm/issue-4-open',
+          'swarm/issue-5-bob',
+          'swarm/issue-2-ada',
+          'swarm/issue-6-held',
+          'swarm/issue-7-manual',
+          'swarm-preview',
+        ],
+        folders: ['ada-1', 'preview', 'bob-2', 'stray', 'eve-5'],
+      },
+      { ...keep, desks: [...keep.desks, 'eve-5'] },
+    );
+    expect(plan.worktrees.map((w) => w.path)).toEqual([path.join(desks, 'bob-2'), path.join(oldDesks, 'ada-1')]);
+    expect(plan.folders).toEqual(['stray']);
+    expect(plan.branches).toEqual(['swarm/issue-1-old', 'qa/pr-3-x', 'swarm/issue-5-bob', 'swarm/issue-2-ada']);
+  });
+
+  it('never removes the main worktree, even where a desk would be', () => {
+    const plan = planSweep({ fullName: 'me/app', root, worktrees: [wt(path.join(desks, 'odd'), 'swarm/issue-1-a')], branches: ['swarm/issue-1-a'], folders: [] }, keep);
+    expect(plan).toEqual({ worktrees: [], folders: [], branches: [] });
+  });
+
+  it.runIf(process.platform === 'win32')('matches Windows paths whatever their case', () => {
+    const upper = desks.toUpperCase();
+    const plan = planSweep({ fullName: 'Me/App', root, worktrees: [wt(main), wt(path.join(upper, 'ADA-1')), wt(path.join(upper, 'bob-2'))], branches: [], folders: [] }, keep);
+    expect(plan.worktrees.map((w) => w.path)).toEqual([path.join(upper, 'bob-2')]);
+  });
+
+  it('reads git worktree list --porcelain', () => {
+    const porcelain = ['worktree /projects/app', 'HEAD 1111', 'branch refs/heads/main', '', 'worktree /home/ada/desks/x', 'HEAD 2222', 'detached', '', 'worktree /home/ada/desks/y', 'HEAD 3333', 'branch refs/heads/qa/pr-3-y', 'locked', ''].join('\n');
+    expect(parseWorktrees(porcelain)).toEqual([
+      { path: path.resolve('/projects/app'), branch: 'main', locked: false },
+      { path: path.resolve('/home/ada/desks/x'), branch: null, locked: false },
+      { path: path.resolve('/home/ada/desks/y'), branch: 'qa/pr-3-y', locked: true },
+    ]);
+  });
+});
+
+describe('sweepDesks', { timeout: 120_000 }, () => {
+  const branchesOf = async (cwd: string) => (await git(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd })).split(/\r?\n/).sort();
+  // Compared as real paths: git may spell a temp folder differently (8.3 names on Windows, symlinks on macOS).
+  const reals = async (ps: string[]) => (await Promise.all(ps.map((p) => fs.realpath(p)))).sort();
+  const worktreesOf = async (cwd: string) => reals(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd })).map((w) => w.path));
+  const isDir = (p: string) => fs.stat(p).then((s) => s.isDirectory(), () => false);
+  const nothing = { desks: 0, folders: 0, branches: 0, patches: [], skipped: [] };
+
+  beforeAll(() => {
+    expect(WORKSPACE_ROOT.startsWith(path.join(ROOT, 'swarm home'))).toBe(true);
+  });
+
+  it('removes old desks, stray folders and finished branches, keeps what is in use, and saves unpushed work first', async () => {
+    const r = await makeRepos([], true);
+    const base = { defaultBranch: 'main' };
+    const ada = await prepareDesk(r.fullName, base, 'ada-1234', 'swarm/issue-9-ada'); // a current agent
+    const bob = await prepareDesk(r.fullName, base, 'bob-5678', 'swarm/issue-5-bob'); // left long ago
+    await fs.writeFile(path.join(bob, 'scratch.txt'), 'untracked notes\n'); // untracked only: nothing to save
+    const dan = await prepareDesk(r.fullName, base, 'dan-9999', 'swarm/issue-7-dan'); // left with work on no remote branch
+    await commitFile(dan, path.join('src', 'feature.ts'), 'export const x = 1;\n\n');
+    await fs.writeFile(path.join(dan, 'README.md'), '# Test\n\nUnfinished docs\n');
+    // A desk from before the rename, under the old home.
+    const oldDesk = path.join(ROOT, 'old home', '.office-swarm', 'workspaces', r.fullName.replace('/', '__'), 'desks', 'cara-0001');
+    await git(['worktree', 'add', '-q', '-b', 'swarm/issue-6-cara', oldDesk, 'origin/main'], { cwd: r.dir });
+    // The manager's own worktree and branches.
+    const mine = path.join(ROOT, 'projects', `repo ${seq} feature`);
+    await git(['worktree', 'add', '-q', '-b', 'feature/mine', mine, 'origin/main'], { cwd: r.dir });
+    for (const b of ['swarm/issue-1-old', 'qa/pr-3-x', 'fix/my-work', 'swarm/issue-4-open']) await git(['branch', b, 'origin/main'], { cwd: r.dir });
+    // A stray folder, and the folder of a current agent whose worktree isn't made yet.
+    const desks = path.dirname(deskDir(r.fullName, 'x'));
+    await fs.mkdir(path.join(desks, 'stray'), { recursive: true });
+    await fs.writeFile(path.join(desks, 'stray', 'left.txt'), 'x\n');
+    await fs.mkdir(path.join(desks, 'eve-0000'), { recursive: true });
+
+    // swarm/issue-4-open is an open PR's head.
+    const keep = { desks: ['ada-1234', 'eve-0000', 'preview'], branches: ['swarm/issue-9-ada', 'swarm/issue-4-open'] };
+    const result = await sweepDesks(r.fullName, keep);
+
+    expect(result).toMatchObject({ desks: 3, folders: 1, branches: 5, skipped: [] });
+    expect(await worktreesOf(r.dir)).toEqual(await reals([r.dir, ada, mine]));
+    for (const gone of [bob, dan, oldDesk, path.join(desks, 'stray')]) expect(await isDir(gone)).toBe(false);
+    for (const kept of [ada, mine, path.join(desks, 'eve-0000')]) expect(await isDir(kept)).toBe(true);
+    expect(await branchesOf(r.dir)).toEqual(['feature/mine', 'fix/my-work', 'main', 'swarm/issue-4-open', 'swarm/issue-9-ada']);
+
+    // Dan's commit and uncommitted change are in one patch that applies cleanly where Dan started from.
+    const d = new Date();
+    const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    expect(result.patches).toEqual([path.join(HOME_DIR, 'leftovers', r.fullName.replace('/', '__'), `dan-9999-${day}.patch`)]);
+    await git(['apply', '--check', result.patches[0]], { cwd: r.upstream });
+    await git(['apply', result.patches[0]], { cwd: r.upstream });
+    const text = async (...p: string[]) => (await fs.readFile(path.join(r.upstream, ...p), 'utf8')).replaceAll('\r\n', '\n'); // a system autocrlf may apply
+    expect(await text('src', 'feature.ts')).toBe('export const x = 1;\n\n');
+    expect(await text('README.md')).toBe('# Test\n\nUnfinished docs\n');
+
+    // Nothing left to do the second time.
+    expect(await sweepDesks(r.fullName, keep)).toEqual(nothing);
+    expect(await branchesOf(r.dir)).toHaveLength(5);
+  });
+
+  it.runIf(process.platform === 'win32')('skips a desk some process still works in, and removes it on a later sweep', async () => {
+    const r = await makeRepos([], true);
+    const bob = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'bob-5678', 'swarm/issue-5-bob');
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { cwd: bob, windowsHide: true, stdio: 'ignore' });
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const first = await sweepDesks(r.fullName, { desks: [], branches: [] });
+      expect(first).toMatchObject({ desks: 0, branches: 0, skipped: [await fs.realpath(bob)] });
+      expect(await isDir(bob)).toBe(true);
+      expect(await branchesOf(r.dir)).toContain('swarm/issue-5-bob');
+    } finally {
+      child.kill();
+      await exited;
+    }
+    expect(await sweepDesks(r.fullName, { desks: [], branches: [] })).toMatchObject({ desks: 1, branches: 1, skipped: [] });
+    expect(await isDir(bob)).toBe(false);
+  });
+
+  it('does nothing without a checkout', async () => {
+    expect(await sweepDesks('sync-test/nothing-here', { desks: [], branches: [] })).toEqual(nothing);
+  });
+
+  it('lets a desk go from the project folder after the floor stopped pointing at it (a disconnect)', async () => {
+    const r = await makeRepos([], true);
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-1234', 'swarm/issue-9-ada');
+    const main = mainDir(r.fullName);
+    setLocalPath(r.fullName, null); // disconnectRepo does this before the let-go's clean-up runs
+    await removeDesk(r.fullName, 'ada-1234', main);
+    expect(await worktreesOf(r.dir)).toEqual(await reals([r.dir]));
+    expect(await isDir(desk)).toBe(false);
   });
 });

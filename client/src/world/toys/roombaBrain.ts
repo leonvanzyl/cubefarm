@@ -28,6 +28,16 @@ export interface Pt {
   z: number;
 }
 
+/** Things that happened during a step, ORed into Roomba.events for the sounds to pick up (and clear). */
+export const ROOMBA_EVENT = {
+  leave: 1, // backing off the dock
+  home: 2, // run over: heading home
+  dock: 4, // parked on the dock
+  full: 8, // battery reached full while charging
+  stuck: 16, // no progress for stuckAfter seconds
+  bump: 32, // bumper met something
+} as const;
+
 /** Where the roomba parks on its dock (facing into it), and the dock's own footprint against the wall. */
 export interface Dock {
   x: number;
@@ -46,6 +56,8 @@ const DRAIN = 0.8 / (ROOMBA.cleanMax + 90); // battery per second while out, lea
 const LEAVE_BACK = 0.6; // metres it backs off the dock
 const APPROACH = 0.6; // metres in front of the dock where the final approach starts
 const PLAYER_STOP = 0.45; // gap it leaves in front of the player
+/** Battery level that counts as fully charged (the status light turns green). */
+export const FULL = 0.995;
 
 // ---------- where things are ----------
 
@@ -302,6 +314,8 @@ export interface Roomba {
   /** How fast it moved in the last step (m/s), for the brush and wheels. */
   speed: number;
   seed: number;
+  /** ROOMBA_EVENT bits since the reader (RoombaSounds.tsx) last cleared them. Never read here, so they can't change how it drives. */
+  events: number;
 }
 
 /** A roomba sitting on its dock, nearly charged: it heads out after a few seconds. */
@@ -329,6 +343,7 @@ export function createRoomba(dock: Dock, seed = 1): Roomba {
     resume: { move: 'idle', moveTime: 0 },
     speed: 0,
     seed: seed >>> 0 || 1,
+    events: 0,
   };
 }
 
@@ -345,7 +360,7 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** What the hint says it's doing. */
 export function roombaStatus(r: Roomba): string {
-  if (r.state === 'charging') return r.battery < 0.995 ? 'charging' : 'docked';
+  if (r.state === 'charging') return r.battery < FULL ? 'charging' : 'docked';
   if (r.state === 'returning' || r.state === 'docking') return 'heading home';
   return 'cleaning';
 }
@@ -390,6 +405,7 @@ export function stepRoomba(r: Roomba, dt: number, env: RoombaEnv) {
     chargeStep(r);
     if (r.stateTime >= ROOMBA.charge) {
       setState(r, 'leaving');
+      r.events |= ROOMBA_EVENT.leave;
       r.cleanFor = between(r, ROOMBA.cleanMin, ROOMBA.cleanMax);
       r.move = 'back';
       r.moveTime = LEAVE_BACK / ROOMBA.backSpeed;
@@ -519,7 +535,10 @@ export function stepRoomba(r: Roomba, dt: number, env: RoombaEnv) {
       }
       r.heading = wrap(r.heading + Math.sign(err) * Math.min(Math.abs(err), ROOMBA.turnRate * dt));
       if (yieldTo(r, p)) break;
-      if (!forward(r, Math.min(ROOMBA.speed, d / dt), dt, env)) backUp(r, 0.5);
+      if (!forward(r, Math.min(ROOMBA.speed, d / dt), dt, env)) {
+        r.events |= ROOMBA_EVENT.bump;
+        backUp(r, 0.5);
+      }
       break;
     }
     case 'park': {
@@ -529,13 +548,17 @@ export function stepRoomba(r: Roomba, dt: number, env: RoombaEnv) {
         r.z = env.dock.z;
         r.heading = env.dock.heading;
         setState(r, 'charging');
+        r.events |= ROOMBA_EVENT.dock;
         r.move = 'idle';
         r.chargeFrom = r.battery;
         break;
       }
       r.heading = Math.atan2(env.dock.z - r.z, env.dock.x - r.x);
       if (yieldTo(r, p)) break;
-      if (!forward(r, Math.min(0.15, d / dt), dt, env)) backUp(r, 0.8);
+      if (!forward(r, Math.min(0.15, d / dt), dt, env)) {
+        r.events |= ROOMBA_EVENT.bump;
+        backUp(r, 0.8);
+      }
       break;
     }
     case 'idle':
@@ -550,6 +573,7 @@ export function stepRoomba(r: Roomba, dt: number, env: RoombaEnv) {
     r.stuck += dt;
     if (r.stuck >= ROOMBA.stuckAfter) {
       r.stuck = 0;
+      r.events |= ROOMBA_EVENT.stuck;
       if (r.state === 'docking') setState(r, 'returning');
       backUp(r, 0.8);
     }
@@ -562,7 +586,9 @@ function setState(r: Roomba, s: RoombaState) {
 }
 
 function chargeStep(r: Roomba) {
+  const was = r.battery;
   r.battery = r.chargeFrom + (1 - r.chargeFrom) * Math.min(1, r.stateTime / ROOMBA.charge);
+  if (was < FULL && r.battery >= FULL) r.events |= ROOMBA_EVENT.full;
 }
 
 function playerAhead(r: Roomba, p: Pt) {
@@ -604,6 +630,7 @@ function forward(r: Roomba, speed: number, dt: number, env: RoombaEnv) {
 
 /** Hit something while cleaning: usually turn away at random, sometimes follow the wall for a bit. */
 function bump(r: Roomba) {
+  r.events |= ROOMBA_EVENT.bump;
   if (rand(r) < 0.3) {
     r.move = 'follow';
     r.moveTime = between(r, 6, 14);
@@ -639,6 +666,7 @@ function goHome(r: Roomba, env: RoombaEnv) {
     return;
   }
   setState(r, 'returning');
+  r.events |= ROOMBA_EVENT.home;
   r.path = path;
   r.move = 'path';
   r.waited = 0;

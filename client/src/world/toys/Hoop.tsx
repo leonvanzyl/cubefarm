@@ -11,7 +11,7 @@ import { useCanvasTexture } from '../interact';
 import { HALF_D } from '../layout';
 import { toon } from '../materials';
 import type { ToyFloor } from './balls';
-import { HOOP, HOOP_X, RIM_OUT, hoopRim, newTrack, stepHoop, type HoopTrack } from './hoopScore';
+import { HOOP, HOOP_X, RIM_OUT, hoopColliders, hoopRim, newTrack, stepHoop, type HoopTrack } from './hoopScore';
 import { setHoopSource, type HoopScore } from './probe';
 
 // The basketball hoop on the south wall of every floor: backboard, rim and net, physics colliders for the board
@@ -271,31 +271,15 @@ const Board = memo(function Board() {
 
 // ---------- physics ----------
 
-const RIM_BALLS = 24;
-
-/** The board (filled back to the wall, so nothing lodges behind it), the rim as a ring of small spheres, and its plate. */
+/** The hoop's fixed colliders (hoopColliders), so balls bounce off the board and rim. */
 const HoopColliders = memo(function HoopColliders({ groups }: { groups: number }) {
-  const { standoff, board, rim, score } = HOOP;
-  const back = standoff + board.t;
-  const top = score.bottom + score.h;
-  const ring = useMemo(
-    () => Array.from({ length: RIM_BALLS }, (_, i) => [Math.cos((i / RIM_BALLS) * Math.PI * 2) * rim.r, rim.y, -RIM_OUT + Math.sin((i / RIM_BALLS) * Math.PI * 2) * rim.r] as [number, number, number]),
-    [rim],
-  );
-  return (
-    <>
-      <CuboidCollider
-        args={[Math.max(board.w, score.w) / 2, (top - board.bottom) / 2, back / 2]}
-        position={[0, (board.bottom + top) / 2, -back / 2]}
-        restitution={0.6}
-        friction={0.5}
-        collisionGroups={groups}
-      />
-      <CuboidCollider args={[0.07, 0.013, rim.gap / 2]} position={[0, rim.y, -(back + rim.gap / 2)]} restitution={0.45} collisionGroups={groups} />
-      {ring.map((p, i) => (
-        <BallCollider key={i} args={[rim.tube + 0.004]} position={p} restitution={0.45} friction={0.4} collisionGroups={groups} />
-      ))}
-    </>
+  const parts = useMemo(hoopColliders, []);
+  return parts.map((c, i) =>
+    c.box ? (
+      <CuboidCollider key={i} args={c.box} position={c.at} restitution={c.restitution} friction={c.friction} collisionGroups={groups} />
+    ) : (
+      <BallCollider key={i} args={[c.ball ?? 0]} position={c.at} restitution={c.restitution} friction={c.friction} collisionGroups={groups} />
+    ),
   );
 });
 

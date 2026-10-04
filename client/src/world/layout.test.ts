@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
+import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
 
 const R = 0.3;
 const box: Rect = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 };
@@ -123,6 +123,28 @@ describe('collide', () => {
     expect(collide(consoleSpot.x, consoleSpot.z, lobby)).toEqual(consoleSpot);
     // and the counter blocks walking
     expect(collide(COFFEE_CORNER.x, corner.minZ + 0.1, lobby).z).toBeLessThanOrEqual(corner.minZ - PLAYER_RADIUS + 1e-9);
+  });
+
+  it('stands the gong against the north wall, clear of the whiteboard, the app monitor and the desks, with a free spot in front', () => {
+    const g = gongRect();
+    const office = officeColliders();
+    expect(office).toContainEqual(g);
+    expect(g.minZ).toBe(-HALF_D); // solid back to the wall: nothing gets stuck behind it
+    expect(g.maxX).toBeLessThan(-BOARD.w / 2 - 0.5);
+    expect(g.minX).toBeGreaterThan(APP_SCREEN.x + APP_SCREEN.w / 2 + 1);
+    expect(GONG.h).toBeLessThan(2.75 - 0.36); // under the wall clock (y 2.75, radius 0.36)
+    expect(GONG.y - GONG.r).toBeGreaterThan(0.3);
+    expect(GONG.y + GONG.r).toBeLessThan(GONG.h - 0.2);
+    const shell = shellColliders();
+    const same = (b: Rect, c: Rect) => b.minX === c.minX && b.maxX === c.maxX && b.minZ === c.minZ && b.maxZ === c.maxZ;
+    const touches = (b: Rect, c: Rect) => b.minX < c.maxX && b.maxX > c.minX && b.minZ < c.maxZ && b.maxZ > c.minZ;
+    const furniture = office.filter((b) => !same(b, g) && !shell.some((w) => same(w, b)));
+    expect(furniture.filter((b) => touches(b, g))).toEqual([]);
+    // the back row of desks (and their chairs) leaves a wide aisle in front of it
+    const backRow = furniture.filter((b) => b.maxZ < 0 && b.minZ > -8);
+    expect(Math.min(...backRow.map((b) => b.minZ)) - g.maxZ).toBeGreaterThan(3);
+    expect(collide(GONG_SPOT.x, GONG_SPOT.z, office)).toEqual(GONG_SPOT);
+    expect(GONG_SPOT.z - g.maxZ).toBeLessThan(1.2); // close enough to reach the disc
   });
 });
 
