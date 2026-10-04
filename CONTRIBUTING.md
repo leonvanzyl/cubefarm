@@ -64,7 +64,7 @@ server/  Node + Express + ws
   terminal.ts     each agent's terminal: a headless xterm mirror, its viewers, keystrokes to the running CLI
   github.ts       everything GitHub, via the gh CLI
   workspace.ts    clones + per-agent git worktrees
-  previews.ts     one preview per floor: ports, statuses, start / stop
+  previews.ts     one preview per floor, and the PR theatre's PR previews: ports, statuses, start / stop
   previewRunner.ts  checkout, install and run a floor's app in its preview worktree
   demo.ts         fake GitHub and fake agents for `npm run demo`
 shared/types.ts   the websocket / REST contract

@@ -19,6 +19,9 @@ export interface PreviewJob {
   fullName: string;
   defaultBranch: string;
   pr: number | null;
+  /** The worktree (desks/<slug>) and the branch it runs from: the floor's preview, or a PR preview's slot. */
+  slug: string;
+  branch: string;
   port: number;
   command: string | null;
   env: Record<string, string>;
@@ -134,7 +137,7 @@ class RealPreview implements PreviewHandle {
   private async run() {
     const { job, cb } = this;
     cb.status('preparing');
-    const wt = await workspace.prepareDesk(job.fullName, { defaultBranch: job.defaultBranch, pr: job.pr ?? undefined }, PREVIEW_SLUG, PREVIEW_BRANCH);
+    const wt = await workspace.prepareDesk(job.fullName, { defaultBranch: job.defaultBranch, pr: job.pr ?? undefined }, job.slug, job.branch);
     this.check();
     await workspace.ensureLocalExcludes(job.fullName).catch(() => undefined);
     cb.commit(await git(['rev-parse', '--short', 'HEAD'], { cwd: wt }).catch(() => ''));
