@@ -6,6 +6,7 @@ let retry = 0;
 let socket: WebSocket | null = null;
 // Back from the time-lapse: everything waits for the fresh snapshot asked for, so nothing applies on top of the replay.
 let awaitingSnapshot = false;
+const OUTSIDE_REPLAY = new Set<ServerEvent['type']>(['notify', 'notifyChannels', 'settings', 'officeUpdate', 'clis', 'voiceKey', 'voiceCache']);
 
 /** The time-lapse stopped: asks for the live office again (a reconnect brings a snapshot anyway). */
 export function requestSnapshot() {
@@ -48,11 +49,14 @@ export function connect() {
     try {
       const ev = JSON.parse(e.data) as ServerEvent;
       if (ev.type === 'snapshot' && ev.data.officeCommit && reloadForNewCommit(ev.data.officeCommit)) return;
-      // While the time-lapse plays it owns the office; it asks for a fresh snapshot when it stops.
-      if (useStore.getState().replaying) return;
-      if (awaitingSnapshot) {
-        if (ev.type !== 'snapshot') return;
-        awaitingSnapshot = false;
+      // While the time-lapse plays it owns the office; it asks for a fresh snapshot when it stops. What isn't part of
+      // the replayed office (notifications, settings, the office's own update…) still applies.
+      if (!OUTSIDE_REPLAY.has(ev.type)) {
+        if (useStore.getState().replaying) return;
+        if (awaitingSnapshot) {
+          if (ev.type !== 'snapshot') return;
+          awaitingSnapshot = false;
+        }
       }
       useStore.getState().apply(ev);
     } catch (err) {

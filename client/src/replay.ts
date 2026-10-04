@@ -74,6 +74,7 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
     voiceKeySet: s.voiceKeySet,
     voiceKeyHint: s.voiceKeyHint,
     voiceCache: s.voiceCache,
+    notifyChannels: s.notifyChannels,
   };
 }
 

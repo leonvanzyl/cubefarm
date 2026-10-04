@@ -62,6 +62,7 @@ const floor = (id: string, n: number, issues: number): RepoView => ({
   cloneStatus: 'ready',
   issues: Array.from({ length: issues }, (_, i) => ({ number: i + 1, title: `Issue ${i + 1}`, body: '', url: '', labels: [], createdAt: '' })),
   pulls: [],
+  held: [],
   lastSync: null,
   previewConfig: { command: null, env: {} },
   preview: { status: 'stopped', port: 6301, url: null, ref: null, pr: null, commit: null, startedAt: null, error: null, logTail: [] },

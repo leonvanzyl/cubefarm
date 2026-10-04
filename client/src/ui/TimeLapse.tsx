@@ -195,6 +195,8 @@ function Scrubber() {
 export function ReplayBar() {
   const replaying = useStore((s) => s.replaying);
   const v = useReplay();
+  // Pocket mode has no 3D office to replay in: leaving the office (switching to it) goes back to live.
+  useEffect(() => stopReplay, []);
   useEffect(() => {
     if (!replaying) return;
     // With the mouse captured, the browser takes Esc to free it (some browsers still pass the key on, just after).

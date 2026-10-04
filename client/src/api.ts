@@ -1,5 +1,5 @@
 import { useStore } from './store';
-import type { AgentCli, AgentPromptView, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, VoiceCacheView, VoiceOption } from '../../shared/types';
+import type { AgentCli, AgentPromptView, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, VoiceCacheView, VoiceOption } from '../../shared/types';
 import type { JournalChunk, JournalDayView } from '../../shared/journal';
 
 async function call<T = unknown>(method: string, url: string, body?: unknown, toast = true): Promise<T> {
@@ -75,6 +75,7 @@ export const api = {
   syncFolder: (repoId: string) => call<{ folderSync: string | null }>('POST', `${r(repoId)}/sync-folder`),
   createIssue: (repoId: string, title: string, body: string, assignTo?: string, specialty?: string) =>
     call<{ number: number }>('POST', `${r(repoId)}/issues`, { title, body, assignTo, specialty }),
+  closeIssue: (repoId: string, n: number) => call('POST', `${r(repoId)}/issues/${n}/close`),
   planFloor: (repoId: string, mission?: string) => call('POST', `${r(repoId)}/plan`, { mission }),
   onboardFloor: (repoId: string) => call('POST', `${r(repoId)}/onboard`),
   mergePull: (repoId: string, n: number, method: 'squash' | 'merge' | 'rebase' = 'squash') => call('POST', `${r(repoId)}/pulls/${n}/merge`, { method }),
@@ -111,4 +112,10 @@ export const api = {
   journalDays: () => call<JournalDayView[]>('GET', '/api/journal/days'),
   journalEvents: (from: number, to: number, seek: boolean) => call<JournalChunk>('GET', `/api/journal/events?from=${Math.floor(from)}&to=${Math.ceil(to)}${seek ? '&seek=1' : ''}`),
   journalSample: () => call<{ day: string }>('POST', '/api/journal/sample'),
+  /** Saves (or with empty fields removes) a chat app's webhook. No toast: the settings show why it was refused. */
+  setWebhook: (channel: NotifyWebhook, body: Record<string, string>) => call<NotifyChannelsView>('PUT', `/api/notify/webhooks/${channel}`, body, false),
+  testNotify: (channel: NotifyChannel) => call<{ ok: true; sent: number }>('POST', '/api/notify/test', { channel }, false),
+  pushKey: () => call<{ publicKey: string }>('GET', '/api/notify/push/key'),
+  pushSubscribe: (subscription: PushSubscriptionJSON) => call<NotifyChannelsView>('POST', '/api/notify/push/devices', { subscription }),
+  pushUnsubscribe: (endpoint: string) => call<NotifyChannelsView>('DELETE', '/api/notify/push/devices', { endpoint }),
 };

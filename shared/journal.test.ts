@@ -72,6 +72,7 @@ function repo(patch: Partial<RepoView> = {}): RepoView {
     cloneStatus: 'ready',
     issues: [{ number: 1, title: 'First', body: 'Long body text.\nDepends on #7', url: 'https://github.com/o/r/issues/1', labels: ['swarm:ui'], createdAt: '2026-10-01T09:00:00Z' }],
     pulls: [],
+    held: [],
     lastSync: 123,
     previewConfig: { command: 'npm run dev', env: { API_KEY: 'preview-env-secret-123' } },
     preview: { status: 'running', port: 6301, url: 'http://localhost:6301', ref: 'main', pr: null, commit: 'abc1234', startedAt: 1, error: null, logTail: ['listening on 6301'] },

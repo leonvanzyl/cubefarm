@@ -199,6 +199,7 @@ export function compactRepo(r: RepoView, secrets: readonly string[] = []): RepoV
     cloneStatus: r.cloneStatus,
     issues: r.issues.slice(0, 300).map((i) => compactIssue(i, secrets)),
     pulls: r.pulls.slice(0, 100).map((p) => compactPull(p, secrets)),
+    held: (r.held ?? []).slice(0, 100).map((h) => ({ issue: h.issue, pr: h.pr })),
     lastSync: null,
     previewConfig: { command: null, env: {} },
     preview: compactPreview(r.preview),
