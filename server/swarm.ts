@@ -736,8 +736,10 @@ export class Swarm {
     };
   }
 
+  /** The agent's latest screenshot: null when it has none right now, undefined for an unknown agent. */
   screenshot(agentId: string) {
-    return this.agentRt.get(agentId)?.screenshot ?? null;
+    const rt = this.agentRt.get(agentId);
+    return rt ? rt.screenshot : undefined;
   }
 
   // ---------- clients ----------

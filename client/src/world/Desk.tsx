@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, type Agent } from '../store';
+import { loadScreenshot } from '../screenshot';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
 import { drawSign, drawTag, drawTerminal } from './draw';
@@ -35,30 +36,25 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
     dirty.current = true;
   }, [agent]);
 
-  useEffect(
-    () =>
-      useStore.subscribe((s, prev) => {
-        if (s.logs[agent.id] !== prev.logs[agent.id]) dirty.current = true;
-        if (s.screens[agent.id] !== prev.screens[agent.id]) {
-          const img = new Image();
-          img.onload = () => {
-            shot.current = img;
-            dirty.current = true;
-          };
-          img.src = `/api/agents/${agent.id}/screen?t=${s.screens[agent.id]}`;
-        }
-      }),
-    [agent.id],
-  );
+  // Fetch only when there is a screenshot to fetch; a failed load keeps the last good one.
   useEffect(() => {
-    const at = useStore.getState().screens[agent.id];
-    if (!at) return;
-    const img = new Image();
-    img.onload = () => {
+    const show = (img: HTMLImageElement) => {
       shot.current = img;
       dirty.current = true;
     };
-    img.src = `/api/agents/${agent.id}/screen?t=${at}`;
+    let cancel = loadScreenshot(agent.id, useStore.getState().screens[agent.id], show);
+    const unsubscribe = useStore.subscribe((s, prev) => {
+      if (s.logs[agent.id] !== prev.logs[agent.id]) dirty.current = true;
+      const at = s.screens[agent.id];
+      if (at && at !== prev.screens[agent.id]) {
+        cancel();
+        cancel = loadScreenshot(agent.id, at, show);
+      }
+    });
+    return () => {
+      unsubscribe();
+      cancel();
+    };
   }, [agent.id]);
   useEffect(() => {
     document.fonts?.ready.then(() => (dirty.current = true));
