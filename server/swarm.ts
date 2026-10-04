@@ -33,7 +33,7 @@ import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
-import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
+import { CEO_ID, DEFAULT_DOG_NAME, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentCli,
   AgentLook,
@@ -388,6 +388,7 @@ export class Swarm {
       ceoHeartbeatMin: 60,
       managerName: '',
       companyName: '',
+      dogName: DEFAULT_DOG_NAME,
       projectsDir: DEFAULT_PROJECTS_DIR,
       setupDone: false,
       tutorialStep: 0,
@@ -2507,6 +2508,7 @@ export class Swarm {
     if (patch.ceoHeartbeatMin !== undefined) s.ceoHeartbeatMin = Math.max(0, Math.min(1440, Math.round(Number(patch.ceoHeartbeatMin)) || 0));
     if (typeof patch.managerName === 'string') s.managerName = patch.managerName.trim().slice(0, 40);
     if (typeof patch.companyName === 'string') s.companyName = patch.companyName.trim().slice(0, 60);
+    if (typeof patch.dogName === 'string') s.dogName = patch.dogName.trim().slice(0, 24) || DEFAULT_DOG_NAME;
     if (typeof patch.projectsDir === 'string' && patch.projectsDir.trim()) s.projectsDir = path.resolve(patch.projectsDir.trim());
     if (typeof patch.setupDone === 'boolean') s.setupDone = patch.setupDone;
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);

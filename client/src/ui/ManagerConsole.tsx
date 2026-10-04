@@ -663,6 +663,10 @@ function SettingsTab() {
           <input defaultValue={settings.companyName} placeholder="cubefarm" onBlur={(e) => e.target.value !== settings.companyName && set({ companyName: e.target.value })} />
         </label>
         <label className="field">
+          <span>The office dog's name</span>
+          <input key={settings.dogName} defaultValue={settings.dogName} placeholder="Biscuit" maxLength={24} onBlur={(e) => e.target.value.trim() !== settings.dogName && set({ dogName: e.target.value })} />
+        </label>
+        <label className="field">
           <span>Projects folder (new projects are created here)</span>
           <input key={settings.projectsDir} defaultValue={settings.projectsDir} onBlur={(e) => e.target.value.trim() && e.target.value !== settings.projectsDir && set({ projectsDir: e.target.value })} />
         </label>

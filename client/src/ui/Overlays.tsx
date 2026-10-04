@@ -164,6 +164,12 @@ function Help() {
           Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
           arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <kbd>E</kbd> for a happy spin.
         </p>
+        <h3>The office dog</h3>
+        <p>
+          One dog roams the whole building, taking the elevator between floors now and then. Aim at it and press <kbd>E</kbd> to pet it: it wiggles and follows you for a while (into the elevator too).
+          Hold a ball and it watches it eagerly; throw it and it fetches it back to your feet. It naps on the couch or a rug when the floor is quiet, sits with anyone having a hard time
+          (red checks, a third round of fixes, or a PR stuck for a human) and celebrates a merge with its author. Rename it in Settings.
+        </p>
         <h3>Foam blasters</h3>
         <p>
           Every floor has a rack of foam blasters by the south wall: aim at it and press <kbd>E</kbd> to take one. <b>Fire</b>: click or <kbd>F</kbd> (12 darts, up to four a second). <b>Reload</b>: <kbd>R</kbd>. <b>Drop</b>: <kbd>G</kbd>, then <kbd>E</kbd> picks it up again.

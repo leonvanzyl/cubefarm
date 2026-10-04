@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
@@ -148,6 +148,7 @@ export const useStore = create<State>((set, get) => ({
     ceoHeartbeatMin: 60,
     managerName: '',
     companyName: '',
+    dogName: DEFAULT_DOG_NAME,
     projectsDir: '',
     setupDone: true,
     tutorialStep: -1,

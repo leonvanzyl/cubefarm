@@ -122,6 +122,9 @@ export type AgentRole = 'dev' | 'qa' | 'ceo';
 /** Fixed id of the CEO agent. */
 export const CEO_ID = 'ceo';
 
+/** What the office dog is called until the manager renames it (Settings). */
+export const DEFAULT_DOG_NAME = 'Biscuit';
+
 /** An agent's currentTool while the office installs their desk's dependencies (status 'preparing'). */
 export const INSTALL_STEP = 'Installing dependencies';
 
@@ -254,6 +257,7 @@ export interface SwarmSettings {
   ceoHeartbeatMin: number; // minutes between the CEO's periodic reviews; 0 = off
   managerName: string; // what the office calls you
   companyName: string;
+  dogName: string; // the office dog's name, on its tag and in the hint when you aim at it
   projectsDir: string; // where your project folders live; new projects are created here
   setupDone: boolean; // the first-run setup wizard has been completed or skipped
   tutorialStep: number; // index of the current tutorial step; -1 when finished or skipped

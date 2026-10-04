@@ -45,6 +45,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 - **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model, effort and job description, and "What they're told" shows the full prompt the office gives them.
 - **Merges**: confetti bursts over the developer's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
 - **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`.
+- **The office dog**: one dog for the whole building (Biscuit, renameable in Settings). Pet it with `E` and it follows you, throw a ball and it fetches it, and it naps, keeps struggling agents company, celebrates merges and rides the elevator between floors.
 - **Sounds**: a master volume, `M` to mute, and a slider each for footsteps, typing, toys and alerts. Find them in help (`H`).
 
 ## Controls
