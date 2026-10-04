@@ -16,7 +16,7 @@ export interface FixRecord {
   fixReason: 'qa' | 'checks' | 'conflict' | null;
 }
 
-export type FixPatch = Partial<{ status: 'queued' | 'passed' | 'failed' | 'needs-human'; round: number; sessionFailures: number; mergeNote: string | null }>;
+export type FixPatch = Partial<{ status: 'queued' | 'passed' | 'failed' | 'needs-human'; round: number; sessionFailures: number; mergeNote: string | null; fixReason: 'qa' }>;
 
 export interface FixOutcome {
   set: FixPatch;
@@ -43,9 +43,14 @@ export function fixOutcome(rec: FixRecord, head: string | null, minutes: number,
       pushed: false,
     };
   }
-  if (rec.fixReason === 'checks' || rec.fixReason === 'conflict') {
+  if (rec.fixReason === 'checks' || (rec.fixReason === 'conflict' && rec.passedSha)) {
     // Back in line to merge: new commits go through QA again first, a re-run of flaky checks doesn't.
     return { set: { status: 'passed', sessionFailures: 0, mergeNote: 'waiting for fresh checks' }, log: { kind: 'done', text: `✔ PR #${pr} fixed in ${minutes}m. Back in line to merge.` }, pushed: true };
   }
-  return { set: { status: 'queued', round: rec.round + 1, sessionFailures: 0 }, log: { kind: 'done', text: `✔ Fix pushed for PR #${pr} in ${minutes}m. Back to QA.` }, pushed: true };
+  const back = { kind: 'done', text: `✔ Fix pushed for PR #${pr} in ${minutes}m. Back to QA.` } as const;
+  if (rec.fixReason === 'conflict') {
+    // QA never passed it (the manager sent it back): QA re-tests it as a fix of its last findings, not as a merged-up pass.
+    return { set: { status: 'queued', round: rec.round + 1, sessionFailures: 0, fixReason: 'qa' }, log: back, pushed: true };
+  }
+  return { set: { status: 'queued', round: rec.round + 1, sessionFailures: 0 }, log: back, pushed: true };
 }
