@@ -1,18 +1,31 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { RepoView } from '../../../shared/types';
-import { kanbanFor, useStore, type Agent, type KanbanCard } from '../store';
+import { kanbanFor, qaKey, useStore, type Agent, type KanbanCard } from '../store';
 import { BOARD } from './layout';
 import { drawKanban } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { StickyNotes, useStickyBoard } from './StickyNotes';
 import { Box, Cyl } from './Toon';
+import { boardStats, dayStartOf, minuteOf, statsChips } from './boardStats';
+import { activateBoard, makeBoardHands, notePaint } from './boardHands';
+import { CardLift } from './CardLift';
+import { BOARD_TEX, dependencyPairs } from './whiteboard';
 
 export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const qa = useStore((s) => s.qa);
   const real = useMemo(() => kanbanFor(repo, agents, qa), [repo, agents, qa]);
   // what the 3D board shows: the real board, with moves held back until whoever makes them has placed the sticky
   const { shown: cols, ctrl } = useStickyBoard(real, agents);
+  const strings = useMemo(() => dependencyPairs(repo.issues, repo.pulls, cols), [repo.issues, repo.pulls, cols]);
+  // worked out on the minute, so the stats corner changes the board at most once a minute
+  const stats = useMemo(() => {
+    const now = minuteOf(Date.now());
+    return boardStats(repo.pulls, (n) => qa[qaKey(repo.id, n)], now, dayStartOf(now));
+  }, [repo, qa]);
+  const hands = useMemo(() => makeBoardHands(repo.id, ctrl), [repo.id, ctrl]);
+  Object.assign(hands, { cols, agents, issues: repo.issues, pulls: repo.pulls, strings, stats });
+  useEffect(() => activateBoard(hands), [hands]);
   // Only repaint the big canvas when what's written on it changes.
   const signature = useMemo(
     () =>
@@ -21,12 +34,22 @@ export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] 
         repo.autoAssign,
         repo.lastSync ? Math.floor(repo.lastSync / 60000) : 0,
         ...(Object.values(cols) as KanbanCard[][]).map((list) => list.map((c) => [c.key, c.title, c.note, c.agent?.name, c.agent?.color, c.tone, c.ghost, c.ghost ? c.qa?.updatedAt : 0])),
+        strings.map((p) => [p.waiter, p.blocker, p.from, p.to]),
+        statsChips(stats).map((c) => c.text),
       ]),
-    [cols, repo],
+    [cols, repo, strings, stats],
   );
-  const texH = Math.round((2560 * BOARD.h) / BOARD.w);
-  const tex = useCanvasTexture(2560, texH, (ctx) => drawKanban(ctx, 2560, texH, repo, cols), [signature]);
-  const ref = useInteractable<THREE.Group>({ id: `board-${repo.id}`, label: 'Open the Kanban board', action: { kind: 'kanban', repoId: repo.id } }, 7);
+  const texH = BOARD_TEX.h;
+  const tex = useCanvasTexture(
+    BOARD_TEX.w,
+    texH,
+    (ctx) => {
+      drawKanban(ctx, BOARD_TEX.w, texH, repo, cols, { strings, stats });
+      notePaint();
+    },
+    [signature],
+  );
+  const ref = useInteractable<THREE.Group>({ id: `board-${repo.id}`, label: 'Open the Kanban board', action: { kind: 'kanban', repoId: repo.id } }, 7, hands.pick);
   const cy = BOARD.y + BOARD.h / 2;
   return (
     <>
@@ -41,6 +64,7 @@ export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] 
           <Cyl key={c} r={0.018} h={0.16} position={[2.6 + i * 0.22, BOARD.y - 0.075, 0.12]} rotation={[0, 0, Math.PI / 2]} color={c} />
         ))}
       </group>
+      <CardLift repoId={repo.id} cols={cols} />
       <StickyNotes ctrl={ctrl} />
     </>
   );
