@@ -370,6 +370,77 @@ export function lobbyColliders(): Rect[] {
   return out;
 }
 
+// ---------- the roof terrace (roof/Roof.tsx) ----------
+
+/** The roof's stop on the elevator (store.floor): always above the top floor, however many floors there are. */
+export const ROOF = -1;
+/** How far the roof deck is above the ground, for a building whose top floor is `top`. */
+export const roofElevation = (top: number) => (Math.max(0, top) + 1) * FLOOR_HEIGHT;
+/** How far the floor you're on (a floor number, or ROOF) is above the ground. */
+export const viewElevation = (floor: number, top: number) => (floor === ROOF ? roofElevation(top) : floorElevation(floor));
+
+/** The deck runs out to the walls' outer faces; a parapet `t` thick with a rail `h` high goes all round its edge. */
+export const ROOF_EDGE = { x: HALF_W + WALL_T, z: HALF_D + WALL_T, t: 0.3, parapet: 0.5, h: 1.1 };
+// The hut over the elevator shaft (and the stairs, west of it) stands on the south edge with its back out over the
+// street, like the cabin on every floor: its front wall holds the elevator's doorway (the same as every floor's).
+export const ROOF_HUT = { minX: -4.6, maxX: 2.2, minZ: HALF_D, maxZ: HALF_D + ELEVATOR.depth + 0.4, h: 3.9, front: 0.3, stairX: -3.4 };
+/** The lounge's wooden decking on the east half, under the string lights. */
+export const DECKING: Rect = { minX: 2, maxX: HALF_W - 0.3, minZ: -6.2, maxZ: 8.6 };
+/** Deck chairs in a row on the decking, facing north over the garden to downtown: x of each, z of their middles. */
+export const DECK_CHAIRS = { xs: [4.4, 6.9, 9.4, 11.9], z: -2.4, w: 0.72, l: 1.3, h: 0.95 };
+/** Where a deck chair's sitter sits (its seat, which faces north), and where they stand to sit down or get up. */
+export const deckChairSeat = (i: number) => ({ x: DECK_CHAIRS.xs[i], z: DECK_CHAIRS.z + 0.05 });
+export const deckChairFront = (i: number) => ({ x: DECK_CHAIRS.xs[i], z: DECK_CHAIRS.z - DECK_CHAIRS.l / 2 - 0.55 });
+/** Little round tables between the chairs. */
+export const SIDE_TABLES = [5.65, 10.65].map((x) => ({ x, z: DECK_CHAIRS.z - 0.1, r: 0.3 }));
+/** The string lights' poles round the decking; the lights zigzag between the north and south rows. */
+export const LIGHT_POLES = [2.3, 8.8, 15.3].flatMap((x) => [{ x, z: -5.9 }, { x, z: 8.3 }]);
+export const POLE = { r: 0.07, h: 2.9 };
+/** The barbecue grill (a kettle on legs, its side shelf `shelf` east of it) and the picnic table, at the decking's south end. */
+export const GRILL = { x: 13.6, z: 6.4, r: 0.42, h: 0.95, shelf: 0.72 };
+export const PICNIC = { x: 7.4, z: 5.4, w: 2.2, d: 1.9, h: 0.75 };
+/** The telescope on its tripod in the north-east corner, towards downtown; the eyepiece is `eye` up. */
+export const TELESCOPE = { x: 12.8, z: -8.8, r: 0.45, eye: 1.5 };
+/** The water tank on its stand in the north-west corner. */
+export const WATER_TANK = { x: -13.2, z: -9.2, r: 1.35, legs: 2.2, h: 2.4 };
+/** Raised garden beds along the north parapet, and two planters with little trees by the decking. */
+export const GARDEN_BEDS: Rect[] = [rect(-7.4, -11.4, 6, 1.1, 0.6), rect(-0.6, -11.4, 5.4, 1.1, 0.6), rect(5.6, -11.4, 4.6, 1.1, 0.6)];
+export const TREE_PLANTERS = [{ x: 1.3, z: -6.8 }, { x: 15.1, z: 9.8 }].map((p) => ({ ...p, w: 1.1, h: 0.6 }));
+/** The helipad painted on the west half, kept clear (world events can land a helicopter here). */
+export const HELIPAD = { x: -8.4, z: 1.2, r: 4.6 };
+/** The windsock's pole by the west parapet, beside the helipad. */
+export const WINDSOCK = { x: -15.2, z: 7.8, h: 3.4 };
+
+/** The roof's colliders: the parapet all round, the hut and the cabin, and everything standing on the deck. */
+export function roofColliders(): Rect[] {
+  const { x: X, z: Z, t, h } = ROOF_EDGE;
+  const { doorHalf, cabinHalf, depth } = ELEVATOR;
+  const hut = ROOF_HUT;
+  const out: Rect[] = [
+    { minX: -X, maxX: X, minZ: -Z, maxZ: -Z + t, h }, // north parapet
+    { minX: -X, maxX: -X + t, minZ: -Z, maxZ: Z, h }, // west
+    { minX: X - t, maxX: X, minZ: -Z, maxZ: Z, h }, // east
+    { minX: -X, maxX: hut.minX, minZ: Z - t, maxZ: Z, h }, // south, either side of the hut
+    { minX: hut.maxX, maxX: X, minZ: Z - t, maxZ: Z, h },
+    { minX: hut.minX, maxX: -doorHalf, minZ: HALF_D, maxZ: HALF_D + hut.front, h: hut.h }, // the hut's front, beside the doorway
+    { minX: doorHalf, maxX: hut.maxX, minZ: HALF_D, maxZ: HALF_D + hut.front, h: hut.h },
+    { minX: -cabinHalf - SHELL_T, maxX: -cabinHalf, minZ: HALF_D, maxZ: HALF_D + depth }, // the cabin, as on every floor
+    { minX: cabinHalf, maxX: cabinHalf + SHELL_T, minZ: HALF_D, maxZ: HALF_D + depth },
+    { minX: -cabinHalf, maxX: cabinHalf, minZ: HALF_D + depth, maxZ: HALF_D + depth + SHELL_T },
+    rect(WATER_TANK.x, WATER_TANK.z, 2.7, 2.7, WATER_TANK.legs + WATER_TANK.h),
+    ...GARDEN_BEDS,
+    ...TREE_PLANTERS.map((p) => rect(p.x, p.z, p.w, p.w, p.h)),
+    ...DECK_CHAIRS.xs.map((x) => rect(x, DECK_CHAIRS.z, DECK_CHAIRS.w, DECK_CHAIRS.l, DECK_CHAIRS.h)),
+    ...SIDE_TABLES.map((s) => rect(s.x, s.z, s.r * 2, s.r * 2, 0.55)),
+    ...LIGHT_POLES.map((p) => rect(p.x, p.z, POLE.r * 4, POLE.r * 4, POLE.h)),
+    { minX: GRILL.x - GRILL.r - 0.05, maxX: GRILL.x + GRILL.shelf + 0.32, minZ: GRILL.z - GRILL.r - 0.05, maxZ: GRILL.z + GRILL.r + 0.4, h: GRILL.h }, // with its shelf, and its lid propped open behind
+    rect(PICNIC.x, PICNIC.z, PICNIC.w, PICNIC.d, PICNIC.h),
+    rect(TELESCOPE.x, TELESCOPE.z, TELESCOPE.r * 2, TELESCOPE.r * 2, TELESCOPE.eye),
+    rect(WINDSOCK.x, WINDSOCK.z, 0.2, 0.2, WINDSOCK.h),
+  ];
+  return out;
+}
+
 // ---------- what's underfoot ----------
 
 export type Surface = 'wood' | 'rug' | 'lobby' | 'cabin';
@@ -378,9 +449,11 @@ const OFFICE_RUGS: Rect[] = [...DESK_RUGS, QA_RUG];
 const LOBBY_RUGS: Rect[] = [LOBBY_RUG, MANAGER_ROOM, CEO_ROOM];
 
 /** The floor under (x, z), for footsteps. A rug's edge counts as rug; past the doorway is the elevator cabin, and
- * outside, a balcony's (or the patio's) paving sounds like the lobby's tiles. */
-export function surfaceAt(floor: 'office' | 'lobby', x: number, z: number): Surface {
+ * outside, a balcony's (or the patio's) paving sounds like the lobby's tiles. On the roof, the decking is wood and
+ * the rest is paving. */
+export function surfaceAt(floor: 'office' | 'lobby' | 'roof', x: number, z: number): Surface {
   if (z > HALF_D && Math.abs(x) <= ELEVATOR.cabinHalf) return 'cabin';
+  if (floor === 'roof') return x >= DECKING.minX && x <= DECKING.maxX && z >= DECKING.minZ && z <= DECKING.maxZ ? 'wood' : 'lobby';
   if (Math.abs(x) > HALF_W) return 'lobby';
   for (const r of floor === 'lobby' ? LOBBY_RUGS : OFFICE_RUGS) {
     if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) return 'rug';

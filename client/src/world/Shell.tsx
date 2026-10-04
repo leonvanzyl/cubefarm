@@ -121,7 +121,7 @@ function CeilingLight({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
       <Box size={[1.4, 0.06, 0.5]} position={[0, 0, 0]} color="#e9ecef" shadow={false} />
-      <mesh position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} material={glow('#fffbe8')}>
+      <mesh position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} material={glow('#fffbe8', 'night')}>
         <planeGeometry args={[1.25, 0.38]} />
       </mesh>
     </group>

@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Focus } from '../store';
 import { api } from '../api';
-import { EYE_HEIGHT, SPAWN, collide, surfaceAt, type Rect } from './layout';
+import { EYE_HEIGHT, ROOF, SPAWN, collide, surfaceAt, type Rect } from './layout';
 import { interactables } from './interact';
 import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
@@ -28,6 +28,8 @@ import { bindings, keyName, useControls } from '../ui/controls';
 import { actionsForKey, anyHeld, isBound, type ActionId, type Scope } from '../ui/keymap';
 import { lookCurve, pad, padName, pollPad, wasPressed, wasReleased, watchPads } from './gamepad';
 import { arriveOnFloor, cameraMode, exitView, homeSpot, lookAllowed, playerAt, rigInput, rigOwnsCamera, rotateView, setHomeLook, stepRig, tapView } from './camera/rig';
+import { leavePerch, perch, takePerchTurn, type Perch } from './perch';
+import { roofAction } from './roof/roofState';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -94,6 +96,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'roof') {
+    roofAction(focus.action.op);
     return;
   }
   if (focus.action.kind === 'channel') {
@@ -165,6 +171,9 @@ const pressKey = (key: 'Escape' | 'Enter') => window.dispatchEvent(new KeyboardE
 /** Right stick at full tilt turns this many radians a second (times the pad sensitivity). */
 const PAD_TURN = 2.6;
 
+/** Whether `code` gets you up from a perch (a deck chair, the telescope): a walking key, or Space. */
+const gotUp = (b: ReturnType<typeof bindings>, code: string) => code === 'Space' || [...MOVES].some((a) => isBound(b, a, code));
+
 const isTyping = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
@@ -181,12 +190,14 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   const lookFilter = useMemo(createLookFilter, []);
   const padRun = useRef(false);
   useEffect(() => setHomeLook(() => look.current), []);
+  const perched = useRef<Perch | null>(null);
 
   // Arrive at the elevator whenever the floor changes; after a page reload, return to the remembered spot.
   const restored = useRef(false);
   useEffect(() => {
     const saved = restored.current ? null : loadView();
     restored.current = true;
+    perched.current = null; // a perch left behind on the old floor doesn't stand you at its exit here
     if (saved && saved.floor === floor) {
       camera.position.set(saved.x, EYE_HEIGHT, saved.z);
       look.current = { yaw: saved.yaw, pitch: saved.pitch };
@@ -244,9 +255,10 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       lookDiag.skipped = lookFilter.skipped;
       if (!d) return;
       const { sensitivity, invertY } = useLookPrefs.getState();
-      const k = LOOK_RADIANS_PER_PX * sensitivity;
+      const p = perch();
+      const k = LOOK_RADIANS_PER_PX * sensitivity * (p?.look ?? 1);
       look.current.yaw -= d[0] * k;
-      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
+      look.current.pitch = Math.max(p?.minPitch ?? -1.35, Math.min(p?.maxPitch ?? 1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
     };
     // Every key goes through the player's bindings (Help → Controls; ui/keymap.ts), the defaults being the office's keys.
     const onKeyDown = (e: KeyboardEvent) => {
@@ -261,6 +273,11 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       keys.current.add(e.code);
       const mode = cameraMode();
       if (e.code === 'Escape' && mode !== 'first') return exitView();
+      // Perched (a deck chair, the telescope): walking, Space or the use key gets you up, though with food in hand it still eats.
+      if (mode === 'first' && perch() && !e.repeat && (gotUp(b, e.code) || (isBound(b, 'interact', e.code) && eAction(s.held, s.focus?.action.kind ?? null) !== 'sip'))) {
+        leavePerch();
+        return;
+      }
       for (const action of actionsForKey(b, e.code, SCOPES[mode])) {
         if (MOVES.has(action) && mode === 'follow' && !e.repeat) leaveView(); // any movement key takes over again
         if (action === 'interact' && !e.repeat) {
@@ -411,19 +428,28 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       return;
     }
 
+    // Perched, the eye stays put and the view starts the perch's way; got up, you stand at its exit. The stick gets you up too.
+    const p = perch();
+    if (p && (px || py)) leavePerch();
+    if (p !== perched.current) {
+      if (!p && perched.current) camera.position.set(perched.current.exit.x, camera.position.y, perched.current.exit.z);
+      perched.current = p;
+    }
+    if (p && takePerchTurn()) look.current = { yaw: p.yaw, pitch: p.pitch };
+
     // the right stick looks around, no mouse grab needed
     if (padOn && (pad.rx || pad.ry)) {
-      const turn = PAD_TURN * useControls.getState().padSensitivity * dt;
+      const turn = PAD_TURN * useControls.getState().padSensitivity * (p?.look ?? 1) * dt;
       const flip = useLookPrefs.getState().invertY ? -1 : 1;
       look.current.yaw -= lookCurve(pad.rx) * turn;
-      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - lookCurve(pad.ry) * turn * 0.75 * flip));
+      look.current.pitch = Math.max(p?.minPitch ?? -1.35, Math.min(p?.maxPitch ?? 1.35, look.current.pitch - lookCurve(pad.ry) * turn * 0.75 * flip));
     }
     const { yaw, pitch } = look.current;
     let moving = false;
     walk.x = 0;
     walk.z = 0;
     const tilt = Math.min(1, Math.hypot(fwd, strafe));
-    if (tilt > 0 && !s.travel) {
+    if (tilt > 0 && !s.travel && !p) {
       const len = Math.hypot(fwd, strafe);
       const sin = Math.sin(yaw);
       const cos = Math.cos(yaw);
@@ -441,9 +467,13 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       moving = true;
     }
     bob.current += moving ? dt * speed * tilt * 2.2 : 0;
-    camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
-    footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
-    camera.rotation.set(pitch + sipPose.head, yaw, 0, 'YXZ');
+    if (p) {
+      camera.position.set(p.x, p.y, p.z);
+      p.yaw = yaw;
+      p.pitch = pitch;
+    } else camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
+    footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === ROOF ? 'roof' : floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
+    camera.rotation.set(pitch + (p?.tilt ?? 0) + sipPose.head, yaw, 0, 'YXZ');
     playerAt.x = camera.position.x;
     playerAt.z = camera.position.z;
     playerAt.yaw = yaw;
@@ -451,12 +481,13 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     const now = performance.now();
     if (s.started && !s.travel && now - lastSave.current > 1000) {
       lastSave.current = now;
-      saveView({ floor: s.floor, x: camera.position.x, z: camera.position.z, yaw, pitch });
+      const at = p ? p.exit : camera.position; // a reload stands you up beside your deck chair
+      saveView({ floor: s.floor, x: at.x, z: at.z, yaw, pitch });
     }
 
-    // what are we looking at?
+    // what are we looking at? (nothing while perched: E gets you up)
     if (++frame.current % 3 !== 0) return;
-    if (s.overlay || s.travel || isConfirmOpen()) {
+    if (s.overlay || s.travel || p || isConfirmOpen()) {
       if (s.focus) s.setFocus(null);
       return;
     }

@@ -6,9 +6,9 @@ import { CEO_ROOM, ELEVATOR, HALF_D, HALF_W, MANAGER_ROOM, QA_RUG, WALL_T, type 
 import type { SoundGroup } from './audioPrefs';
 import { MAX_DISTANCE } from './sfxMix';
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
-/** The kinds of space that sound different. Balconies and the lobby's patio are 'outside'. */
+/** The kinds of space that sound different. Balconies, the lobby's patio and the roof are 'outside'. */
 export type Room = 'lobby' | 'office' | 'qa' | 'kitchen' | 'cabin' | 'outside';
 export const ROOMS: readonly Room[] = ['lobby', 'office', 'qa', 'kitchen', 'cabin', 'outside'];
 
@@ -30,7 +30,7 @@ const KITCHEN = { minX: HALF_W - 3.4, maxX: HALF_W, minZ: 4.5, maxZ: HALF_D };
 /** The kind of space at (x, z) on a floor of `kind`. The lobby's glass offices are carpeted like an office floor. */
 export function roomAt(kind: FloorKind, x: number, z: number): Room {
   if (inCabin(x, z)) return 'cabin';
-  if (outside(x)) return 'outside';
+  if (outside(x) || kind === 'roof') return 'outside';
   if (kind === 'lobby') return inRect(MANAGER_ROOM, x, z) || inRect(CEO_ROOM, x, z) ? 'office' : 'lobby';
   if (inRect(KITCHEN, x, z)) return 'kitchen';
   if (inRect(QA_RUG, x, z, 0.8)) return 'qa';
@@ -40,6 +40,7 @@ export function roomAt(kind: FloorKind, x: number, z: number): Room {
 /** The enclosure at (x, z), for occlusion. */
 export function zoneAt(kind: FloorKind, x: number, z: number): Zone {
   if (inCabin(x, z)) return 'cabin';
+  if (kind === 'roof') return 'floor'; // the whole deck is one open space
   if (outside(x)) return x < 0 ? 'west' : 'east';
   if (kind === 'lobby' && inRect(MANAGER_ROOM, x, z)) return 'manager';
   if (kind === 'lobby' && inRect(CEO_ROOM, x, z)) return 'ceo';

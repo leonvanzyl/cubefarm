@@ -4,7 +4,7 @@
 // `yaw` (0: due south of it, looking north) and `el` radians above it.
 
 import { angleDelta } from '../body';
-import { BALCONY_OUT, FLOOR_HEIGHT, HALF_D, HALF_W, WALL_H, WALL_T, floorElevation } from '../layout';
+import { BALCONY_OUT, HALF_D, HALF_W, WALL_H, WALL_T, roofElevation, viewElevation } from '../layout';
 
 export interface Pose {
   x: number;
@@ -274,10 +274,10 @@ export const BUILDING = {
   margin: 0.12,
 };
 
-/** Ground and roof (relative to floor `floor`, which is at 0) of a tower whose top floor is `top`. */
+/** Ground and roof (relative to the floor you're on, a floor number or ROOF, which is at 0) of a tower whose top floor is `top`. */
 export function towerSpan(floor: number, top: number) {
-  const base = -floorElevation(floor);
-  return { bottom: base, top: base + (Math.max(top, floor) + 1) * FLOOR_HEIGHT };
+  const base = -viewElevation(floor, Math.max(top, floor));
+  return { bottom: base, top: base + roofElevation(Math.max(top, floor)) };
 }
 
 /** The building view's orbit: the whole south face in view, the field of view widening for tall towers (up to a cap). */

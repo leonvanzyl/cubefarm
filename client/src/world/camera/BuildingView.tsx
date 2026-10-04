@@ -5,7 +5,7 @@ import { CEO_ID } from '../../../../shared/types';
 import { repoOnFloor, useStore } from '../../store';
 import { SANS, roundRect } from '../draw';
 import { useCanvasTexture } from '../interact';
-import { FLOOR_HEIGHT, WALL_H } from '../layout';
+import { FLOOR_HEIGHT, WALL_H, viewElevation } from '../layout';
 import { mix } from '../materials';
 import { FACE_HALF_W, FACE_Z } from './cameraMath';
 import { CHIP_COLORS, floorSummary, lobbySummary, summaryLine, type ChipKind } from './overviewInfo';
@@ -125,7 +125,7 @@ function Slice({ f, here, y }: { f: number; here: boolean; y: number }) {
   );
 }
 
-/** Every floor's slice, from the lobby to the top, placed against your own floor (y 0). */
+/** Every floor's slice, from the lobby to the top, placed against the floor you're on (y 0; the roof is above them all). */
 export function BuildingView() {
   const floor = useStore((s) => s.floor);
   const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
@@ -145,7 +145,7 @@ export function BuildingView() {
   return (
     <group ref={group}>
       {floors.map((f) => (
-        <Slice key={f} f={f} here={f === floor} y={(f - floor) * FLOOR_HEIGHT} />
+        <Slice key={f} f={f} here={f === floor} y={f * FLOOR_HEIGHT - viewElevation(floor, top)} />
       ))}
     </group>
   );

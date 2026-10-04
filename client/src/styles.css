@@ -521,6 +521,38 @@ input.inline:focus {
   bottom: calc(22% - 56px);
   font-size: 0.95rem;
 }
+/* Looking through the roof's telescope: a round eyepiece, dark beyond its rim, with a fine crosshair. */
+.roof-scope {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, transparent 0, transparent 41vmin, rgba(6, 8, 18, 0.88) 43.5vmin, #05060c 47vmin);
+}
+.roof-scope::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84vmin;
+  height: 84vmin;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.14), inset 0 0 50px 12px rgba(0, 0, 0, 0.5);
+}
+.roof-scope-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.6)) center / 1px 100% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.6)) center / 100% 1px no-repeat;
+}
+.roof-scope-hint {
+  bottom: 5%;
+}
 /* Throw charge, just under the crosshair. */
 .charge {
   position: absolute;

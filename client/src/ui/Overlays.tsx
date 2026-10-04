@@ -16,6 +16,8 @@ import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
 import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
+import { GRAPHICS_PRESETS, type GraphicsPreset } from '../world/gfx/quality';
+import { effectiveTier, setGraphicsPreset, useGfx } from '../world/gfx/useGraphics';
 
 export { closeOverlay, Panel } from './Panel';
 
@@ -83,6 +85,30 @@ function DaySettings() {
           <input type="radio" name="day-mode" checked={mode === m} onChange={() => setDayMode(m)} /> {DAY_MODE_LABELS[m]}
         </label>
       ))}
+    </div>
+  );
+}
+
+const GRAPHICS_LABELS: Record<GraphicsPreset, string> = { low: 'Low', medium: 'Medium', high: 'High', auto: 'Auto' };
+
+/** Graphics quality: Low, Medium, High or Auto (which shows the tier it has settled on); saved in this browser. */
+function GraphicsSettings() {
+  const preset = useGfx((s) => s.preset);
+  const tier = useGfx(effectiveTier);
+  const blocked = useGfx((s) => s.blocked);
+  return (
+    <div className="day-settings" role="radiogroup" aria-label="Graphics quality">
+      <span>Graphics</span>
+      {GRAPHICS_PRESETS.map((p) => (
+        <label key={p} className="toggle">
+          <input type="radio" name="graphics" checked={preset === p} onChange={() => setGraphicsPreset(p)} /> {GRAPHICS_LABELS[p]}
+        </label>
+      ))}
+      {blocked ? (
+        <span className="muted small">Effects are off: {blocked}.</span>
+      ) : (
+        preset === 'auto' && <span className="muted small">now {GRAPHICS_LABELS[tier]}</span>
+      )}
     </div>
   );
 }
@@ -169,10 +195,22 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <h3>Outside</h3>
           <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
           <DaySettings />
+          <h3>Graphics</h3>
+          <p>
+            <b>Low</b> is the plain cartoon look and the lightest on your laptop. <b>Medium</b> adds glow: screens, lamps, the jukebox and, after dark, the city's windows and the moon, and the monitors light up desks
+            and faces at night. <b>High</b> adds soft shadows where things meet the floor and colour that follows the time of day. <b>Auto</b> starts on High and steps down when frames get slow, then back up once
+            there's room. Saved in this browser.
+          </p>
+          <GraphicsSettings />
           <h3>The building</h3>
           <p>
             The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo
             gets its own floor. To travel, walk into the elevator in the middle of the south wall and press <Key action="interact" /> on its panel. In the lobby, the directory beside it works too.
+          </p>
+          <p>
+            The elevator's top stop is the roof terrace (<kbd>R</kbd> on its panel). Sit back in a deck chair (<Key action="interact" />; walk or press <Key action="interact" /> to get up), grill a sausage at the barbecue (<Key action="interact" /> puts one on and turns it, 
+            <Key action="interact" /> again takes it once it's done, then <Key action="interact" /> eats it a bite at a time), or look through the telescope (<Key action="interact" />; the mouse aims and the wheel zooms): the billboards on the rooftops by day, the moon and the
+            constellations at night. The string lights come on at dusk. Idle teammates go up for a break now and then, and the CEO takes calls up there.
           </p>
           <h3>Mission control</h3>
           <p>

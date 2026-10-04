@@ -14,6 +14,9 @@ import { useCameraView } from '../world/camera/rig';
 import { CameraHud, OverviewButton } from './CameraHud';
 import { useKeyName } from './controls';
 import { Key, MoveKeys } from './Key';
+import { ROOF } from '../world/layout';
+import { useRoof } from '../world/roof/roofState';
+import { RoofHud } from './RoofHud';
 import { usageChip } from '../ops';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
@@ -104,7 +107,9 @@ export function HUD() {
   // In the overview, the building view and the follow cam there's no crosshair to aim (camera/rig.ts).
   const onFoot = useCameraView((s) => s.mode) === 'first';
 
-  const repo = floor === 0 ? null : repoOnFloor(repos, floor);
+  const roof = floor === ROOF;
+  const scope = useRoof((s) => s.telescope); // the telescope's eyepiece has its own crosshair
+  const repo = floor === 0 || roof ? null : repoOnFloor(repos, floor);
   const running = useMemo(() => Object.values(agents).filter((a) => a.status === 'working' || a.status === 'preparing').length, [agents]);
   const floorAgents = repo ? Object.values(agents).filter((a) => a.repoId === repo.id) : [];
   const qa = useStore((s) => s.qa);
@@ -112,14 +117,16 @@ export function HUD() {
 
   return (
     <div className="hud">
-      <div className="hud-floor" style={{ ['--accent' as string]: repo?.color ?? '#ff8a5b' }}>
-        <div className="floor-num">{repo ? repo.floor : 'G'}</div>
+      <div className="hud-floor" style={{ ['--accent' as string]: roof ? '#7cc6fe' : (repo?.color ?? '#ff8a5b') }}>
+        <div className="floor-num">{roof ? 'R' : repo ? repo.floor : 'G'}</div>
         <div>
-          <div className="floor-name">{repo ? repo.fullName : `${settings.companyName || 'cubefarm'} · Lobby`}</div>
+          <div className="floor-name">{roof ? `${settings.companyName || 'cubefarm'} · Roof terrace` : repo ? repo.fullName : `${settings.companyName || 'cubefarm'} · Lobby`}</div>
           <div className="floor-sub">
-            {repo && prs
-              ? `${floorAgents.length} agents · ${floorAgents.filter((a) => a.status === 'working' || a.status === 'preparing').length} working · ${prs.inQa} in QA · ${prs.ready} ready to merge${prs.needsYou ? ` · ${prs.needsYou} need${prs.needsYou === 1 ? 's' : ''} you` : ''}`
-              : `${repos.length} floor${repos.length === 1 ? '' : 's'} connected`}
+            {roof
+              ? 'deck chairs, the barbecue and the telescope'
+              : repo && prs
+                ? `${floorAgents.length} agents · ${floorAgents.filter((a) => a.status === 'working' || a.status === 'preparing').length} working · ${prs.inQa} in QA · ${prs.ready} ready to merge${prs.needsYou ? ` · ${prs.needsYou} need${prs.needsYou === 1 ? 's' : ''} you` : ''}`
+                : `${repos.length} floor${repos.length === 1 ? '' : 's'} connected`}
           </div>
         </div>
         <OverviewButton />
@@ -143,12 +150,13 @@ export function HUD() {
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
-      {started && !overlay && !travel && onFoot && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {started && !overlay && !travel && onFoot && !scope && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {started && !overlay && !travel && onFoot && <RoofHud />}
       <AgentCard />
       {started && !overlay && onFoot && (focus || sip) && (
         <div className="hud-hint">
           <Key action="interact" /> {!held && <>/ <kbd>Click</kbd> </>}
-          {sip ? 'Sip coffee' : (dropLabel ?? focus?.label)}
+          {sip ? (held?.kind === 'sausage' ? 'Take a bite' : 'Sip coffee') : (dropLabel ?? focus?.label)}
           {!held && focus?.action.kind === 'card' && focus.action.peel && (
             <>
               {' '}
@@ -174,7 +182,7 @@ export function HUD() {
       )}
 
       <div className={`fade ${travel?.phase === 'closing' ? 'fade-in' : ''}`}>
-        {travel && <div className="fade-label">{travel.to === 0 ? 'Lobby' : `Floor ${travel.to}`}</div>}
+        {travel && <div className="fade-label">{travel.to === 0 ? 'Lobby' : travel.to === ROOF ? 'Roof' : `Floor ${travel.to}`}</div>}
       </div>
 
       <CameraHud />
