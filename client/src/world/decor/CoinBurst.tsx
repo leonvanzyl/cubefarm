@@ -21,9 +21,10 @@ const DELAY_MS = 250; // after the confetti has popped
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let flying = 0;
-// window.__swarmCoins: bursts in the air right now, for QA.
+let burstHere: ((agentId: string | null) => void) | null = null;
+// window.__swarmCoins, for QA: bursts in the air right now, and burst(agentId?) one over that desk on this floor (no coins).
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmCoins')) {
-  Object.defineProperty(window, '__swarmCoins', { value: { active: () => flying }, enumerable: false });
+  Object.defineProperty(window, '__swarmCoins', { value: { active: () => flying, burst: (agentId?: string) => burstHere?.(agentId ?? null) }, enumerable: false });
 }
 
 export function CoinBurst({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
@@ -55,9 +56,8 @@ export function CoinBurst({ repo, agents }: { repo: RepoView; agents: Agent[] })
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
-    const off = onReward((r) => {
-      if (r.repoId !== repo.id) return;
-      const a = r.agentId ? agentsRef.current.find((x) => x.id === r.agentId) : undefined;
+    const burst = (agentId: string | null) => {
+      const a = agentId ? agentsRef.current.find((x) => x.id === agentId) : undefined;
       const desk = a?.role === 'dev' ? deskPosition(a.desk) : a?.role === 'qa' ? qaDeskPosition(a.desk) : null;
       const at = desk ? { x: desk.x, y: 2.1, z: desk.z } : { x: 0, y: BOARD.y + BOARD.h + 0.2, z: BOARD.z + 1.2 };
       timers.push(
@@ -79,9 +79,14 @@ export function CoinBurst({ repo, agents }: { repo: RepoView; agents: Agent[] })
           m.visible = true;
         }, DELAY_MS),
       );
+    };
+    const off = onReward((r) => {
+      if (r.repoId === repo.id) burst(r.agentId);
     });
+    burstHere = burst;
     return () => {
       off();
+      if (burstHere === burst) burstHere = null;
       timers.forEach(clearTimeout);
     };
   }, [repo.id, sim]);
