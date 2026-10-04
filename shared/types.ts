@@ -271,6 +271,14 @@ export interface VoiceSettings {
   voiceName: string;
   model: string; // ElevenLabs model id
   speakOffice: boolean; // read the office's own notes too, not just the CEO's messages
+  keepDays: number; // saved clips older than this are deleted (1–90; the newest 20 CEO messages' clips always stay)
+}
+
+/** The voice's saved clips: how many and how big, and which phone messages can be replayed from them. */
+export interface VoiceCacheView {
+  clips: number;
+  bytes: number;
+  saved: number[]; // message ids with every clip still on disk
 }
 
 /** GET /api/voice/voices: a voice the manager can pick. recommended: on docs/voice.md's shortlist. */
@@ -336,6 +344,7 @@ export interface PhoneMessage {
   text: string;
   at: number;
   requestId?: string; // a hire / let-go proposal this message is about
+  voice?: Exclude<VoiceProvider, 'off'>; // who read it aloud when it arrived (absent: nobody), for the phone's ▶ replay
 }
 
 export type CeoJobKind = 'onboard' | 'plan' | 'review' | 'chat';
@@ -367,6 +376,7 @@ export interface WorldSnapshot {
   clis: CliView[];
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
+  voiceCache: VoiceCacheView;
 }
 
 export type ServerEvent =
@@ -388,6 +398,7 @@ export type ServerEvent =
   | { type: 'usage'; usage: UsageView }
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
+  | { type: 'voiceCache'; voiceCache: VoiceCacheView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

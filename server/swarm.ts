@@ -27,7 +27,7 @@ import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, paci
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
-import { DEFAULT_VOICE, Voice, voiceSettings } from './voice.ts';
+import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
@@ -441,9 +441,11 @@ export class Swarm {
       secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
       cacheDir: path.join(HOME_DIR, backend.demo ? 'demo-voice' : 'voice'),
       settings: () => this.state.settings.voice,
-      message: (id) => this.state.messages.find((m) => m.id === id),
+      messages: () => this.state.messages,
       officeNote: (text) => this.postMessage('office', text),
       keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
+      cacheChanged: (voiceCache) => this.broadcast({ type: 'voiceCache', voiceCache }),
+      log: (line) => console.log(line),
     });
     this.previews = new Previews(backend, {
       emit: (id) => {
@@ -605,7 +607,10 @@ export class Swarm {
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
     setInterval(() => void this.saveTerminals(), TERMINAL_SAVE_MS);
     // Every minute in the demo, so a short idle time shows its phone message soon.
-    setInterval(() => void this.trimIdleDesks(), this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
+    setInterval(() => {
+      void this.trimIdleDesks();
+      void this.voice.prune();
+    }, this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
     void this.backend
       .detectClis()
@@ -745,6 +750,7 @@ export class Swarm {
       usage: this.usageNow(),
       clis: this.clis,
       ...this.voice.keyView(),
+      voiceCache: this.voice.cacheInfo(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
@@ -2345,7 +2351,11 @@ export class Swarm {
       s.trimIdleDesksMin = clampTrimIdleMin(patch.trimIdleDesksMin);
       setTimeout(() => void this.trimIdleDesks(), 1000);
     }
-    if (patch.voice !== undefined) s.voice = voiceSettings(s.voice, patch.voice);
+    if (patch.voice !== undefined) {
+      const keepDays = s.voice.keepDays;
+      s.voice = voiceSettings(s.voice, patch.voice);
+      if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
+    }
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
@@ -3046,6 +3056,8 @@ export class Swarm {
 
   private postMessage(from: PhoneMessage['from'], text: string, requestId?: string) {
     const m: PhoneMessage = { id: this.messageSeq++, from, text: text.trim().slice(0, 6000), at: Date.now(), ...(requestId ? { requestId } : {}) };
+    const v = this.state.settings.voice;
+    if (v.provider !== 'off' && speaks(m, v)) m.voice = v.provider; // what the phone's ▶ replays it with
     this.state.messages.push(m);
     if (this.state.messages.length > KEEP_MESSAGES) this.state.messages.splice(0, this.state.messages.length - KEEP_MESSAGES);
     this.broadcast({ type: 'message', message: m });

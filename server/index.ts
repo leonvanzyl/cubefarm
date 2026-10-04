@@ -157,18 +157,27 @@ const parse = <T>(schema: z.ZodType<T>, value: unknown): T => {
   if (!r.success) throw new HttpError(400, r.error.issues.map((i) => `${i.path.join('.') || 'request'}: ${i.message}`).join('; '));
   return r.data;
 };
-const sendAudio = (res: Response, audio: Buffer) => {
+const sendAudio = (res: Response, audio: Buffer, cache = 'private, max-age=3600') => {
   // Real clips are mp3; the demo's chime is a WAV.
   res.setHeader('Content-Type', audio.subarray(0, 4).toString('latin1') === 'RIFF' ? 'audio/wav' : 'audio/mpeg');
-  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('Cache-Control', cache);
   res.end(audio);
 };
 app.put('/api/voice/key', route((req) => swarm.voice.setKey(parse(z.object({ key: z.string().max(400) }), req.body).key)));
 app.get('/api/voice/voices', route(() => swarm.voice.voices()));
 app.get(
   '/api/voice/messages/:id',
-  route(async (req, res) => sendAudio(res, await swarm.voice.messageAudio(parse(z.object({ id: z.coerce.number().int().positive() }), req.params).id))),
+  route(async (req, res) => {
+    const { id } = parse(z.object({ id: z.coerce.number().int().positive() }), req.params);
+    const q = parse(z.object({ cached: z.literal('1').optional(), part: z.coerce.number().int().min(0).max(99).default(0) }), req.query);
+    if (!q.cached) return sendAudio(res, await swarm.voice.messageAudio(id));
+    // The phone's ▶: a saved clip or a 404, never a new synthesis. Not kept by the browser, so "Clear saved clips" holds.
+    const { audio, parts } = await swarm.voice.cachedAudio(id, q.part);
+    res.setHeader('X-Voice-Parts', String(parts));
+    sendAudio(res, audio, 'no-store');
+  }),
 );
+app.delete('/api/voice/cache', route(() => swarm.voice.clearCache()));
 app.get(
   '/api/voice/sample',
   route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),

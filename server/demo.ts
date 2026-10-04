@@ -1010,8 +1010,11 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
 
 // ---------- voice ----------
 
-/** A short two-note chime as 8 kHz mono WAV: something to hear without ElevenLabs, a little longer for longer text. */
-export function demoChime(chars: number): Buffer {
+/**
+ * A short two-note chime as 8 kHz mono WAV: something to hear without ElevenLabs, a little longer for longer text, and
+ * pitched by the voice, so a replayed clip is audibly the one made in the voice of its day.
+ */
+export function demoChime(chars: number, voiceId = ''): Buffer {
   const rate = 8000;
   const seconds = Math.min(0.4 + chars / 400, 2);
   const n = Math.round(rate * seconds);
@@ -1028,9 +1031,10 @@ export function demoChime(chars: number): Buffer {
   wav.writeUInt16LE(8, 34);
   wav.write('data', 36);
   wav.writeUInt32LE(n, 40);
+  const pitch = 2 ** ([...voiceId].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 7, 0) / 12);
   for (let i = 0; i < n; i++) {
     const t = i / rate;
-    const f = t < seconds / 2 ? 660 : 880;
+    const f = (t < seconds / 2 ? 660 : 880) * pitch;
     const fade = Math.min(1, (seconds - t) * 8, t * 40);
     wav[44 + i] = Math.round(128 + 40 * fade * Math.sin(2 * Math.PI * f * t));
   }
@@ -1049,8 +1053,8 @@ const demoVoice: VoiceApi = {
     if (/bad/i.test(key)) throw new VoiceApiError(401, '401: invalid_api_key (demo)');
   },
   listVoices: async () => demoVoices,
-  synthesize: async (_key, { text }) => {
+  synthesize: async (_key, { text, voiceId }) => {
     await new Promise((r) => setTimeout(r, 300));
-    return demoChime(text.length);
+    return demoChime(text.length, voiceId);
   },
 };

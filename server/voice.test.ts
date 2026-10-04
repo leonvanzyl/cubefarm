@@ -2,11 +2,29 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { PhoneMessage, VoiceSettings } from '../shared/types.ts';
+import type { PhoneMessage, VoiceCacheView, VoiceSettings } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
-import { cacheToPrune, DEFAULT_VOICE, KEY_REJECTED_NOTE, RECOMMENDED_VOICES, speaks, Voice, VoiceApiError, voiceSettings, type VoiceApi } from './voice.ts';
+import {
+  cacheToPrune,
+  clipsFor,
+  DEFAULT_VOICE,
+  KEY_REJECTED_NOTE,
+  newestClips,
+  parseManifest,
+  RECOMMENDED_VOICES,
+  savedMessages,
+  speaks,
+  Voice,
+  VoiceApiError,
+  voiceSettings,
+  withClips,
+  withoutMissing,
+  type ClipManifest,
+  type VoiceApi,
+} from './voice.ts';
 
-const DAY = 24 * 60 * 60_000;
+const HOUR = 60 * 60_000;
+const DAY = 24 * HOUR;
 
 describe('cacheToPrune', () => {
   const now = 100 * DAY;
@@ -22,6 +40,68 @@ describe('cacheToPrune', () => {
     const files = Array.from({ length: 203 }, (_, i) => ({ name: `${i}.mp3`, mtimeMs: now - i * 1000 }));
     expect(cacheToPrune(files, now).sort()).toEqual(['200.mp3', '201.mp3', '202.mp3']);
     expect(cacheToPrune(files.slice(0, 200), now)).toEqual([]);
+  });
+
+  it('never drops the kept clips, whatever their age, and counts them towards the 200', () => {
+    const files = [{ name: 'old.mp3', mtimeMs: now - 60 * DAY }, ...Array.from({ length: 200 }, (_, i) => ({ name: `${i}.mp3`, mtimeMs: now - i * 1000 }))];
+    expect(cacheToPrune(files, now, 200, 7 * DAY, new Set(['old.mp3']))).toEqual(['199.mp3']);
+    expect(cacheToPrune(files, now, 200, 7 * DAY)).toEqual(['old.mp3']);
+  });
+
+  it('follows the age it is given', () => {
+    const files = [
+      { name: 'a.mp3', mtimeMs: now - 2 * DAY },
+      { name: 'b.mp3', mtimeMs: now - 12 * HOUR },
+    ];
+    expect(cacheToPrune(files, now, 200, 1 * DAY)).toEqual(['a.mp3']);
+    expect(cacheToPrune(files, now, 200, 30 * DAY)).toEqual([]);
+  });
+});
+
+describe('keepDays', () => {
+  it('is part of the voice settings: clamped on save, kept through a restart, 7 for older offices', () => {
+    expect(DEFAULT_VOICE.keepDays).toBe(7);
+    const saved = voiceSettings(DEFAULT_VOICE, { keepDays: 500 });
+    expect(saved.keepDays).toBe(90);
+    expect(voiceSettings(DEFAULT_VOICE, JSON.parse(JSON.stringify(saved))).keepDays).toBe(90);
+    const before: Partial<VoiceSettings> = { ...DEFAULT_VOICE };
+    delete before.keepDays;
+    expect(voiceSettings(DEFAULT_VOICE, before).keepDays).toBe(7);
+    expect(voiceSettings({ ...DEFAULT_VOICE, keepDays: 30 }, { provider: 'browser' }).keepDays).toBe(30);
+  });
+});
+
+describe('the message to clip manifest', () => {
+  const m = (id: number, at = id * 1000, from: PhoneMessage['from'] = 'ceo'): PhoneMessage => ({ id, from, text: `m${id}`, at });
+
+  it('finds the clips recorded for a message, not for an older one that had the same id', () => {
+    const man = withClips({}, m(4), ['4-aaa.mp3']);
+    expect(clipsFor(man, m(4))).toEqual(['4-aaa.mp3']);
+    expect(clipsFor(man, m(4, 99))).toBeNull();
+    expect(clipsFor(man, m(5))).toBeNull();
+    expect(clipsFor(withClips(man, m(4), ['4-a.mp3', '4-b.mp3']), m(4))).toEqual(['4-a.mp3', '4-b.mp3']);
+  });
+
+  it('forgets a message once any of its clips is gone', () => {
+    const man = withClips(withClips({}, m(1), ['1-a.mp3', '1-b.mp3']), m(2), ['2-a.mp3']);
+    expect(Object.keys(withoutMissing(man, new Set(['1-a.mp3', '2-a.mp3'])))).toEqual(['2']);
+  });
+
+  it("keeps the newest CEO messages' clips", () => {
+    const messages = Array.from({ length: 30 }, (_, i) => m(i + 1, (i + 1) * 1000, i % 2 ? 'ceo' : 'manager'));
+    let man: ClipManifest = {};
+    for (const x of messages) man = withClips(man, x, [`${x.id}.mp3`]);
+    expect(newestClips(man, messages).size).toBe(15); // only 15 CEO messages so far
+    expect([...newestClips(man, messages, 5)]).toEqual(['22.mp3', '24.mp3', '26.mp3', '28.mp3', '30.mp3']);
+    // 20 newer CEO messages that were never spoken push them all out.
+    expect(newestClips(man, [...messages, ...Array.from({ length: 20 }, (_, i) => m(100 + i))]).size).toBe(0);
+    expect(savedMessages(man, messages.slice(0, 3))).toEqual([1, 2, 3]);
+  });
+
+  it('reads clips.json defensively', () => {
+    expect(parseManifest({ '3': { at: 5, files: ['3-abc.mp3'] } })).toEqual({ '3': { at: 5, files: ['3-abc.mp3'] } });
+    expect(parseManifest({ '3': { at: 5, files: ['../secrets.json'] }, x: { at: 1, files: ['a.mp3'] }, '4': { files: ['a.mp3'] }, '5': { at: 1, files: [] } })).toEqual({});
+    expect(parseManifest(null)).toEqual({});
   });
 });
 
@@ -55,6 +135,8 @@ describe('Voice', () => {
   let calls: { synth: number; list: number };
   let failWith: number | null;
   let release: (() => void) | null;
+  let views: VoiceCacheView[];
+  let clock: number;
   const messages: PhoneMessage[] = [
     { id: 1, from: 'ceo', text: 'Floor 2 shipped #12 🎉', at: 0 },
     { id: 2, from: 'manager', text: 'thanks', at: 0 },
@@ -84,9 +166,11 @@ describe('Voice', () => {
       secretsFile: path.join(dir, 'secrets.json'),
       cacheDir: path.join(dir, 'voice'),
       settings: () => settings,
-      message: (id) => messages.find((m) => m.id === id),
+      messages: () => messages,
       officeNote: (t) => notes.push(t),
       keyChanged: () => undefined,
+      cacheChanged: (v) => views.push(v),
+      now: () => clock,
     });
 
   beforeEach(async () => {
@@ -96,6 +180,8 @@ describe('Voice', () => {
     calls = { synth: 0, list: 0 };
     failWith = null;
     release = null;
+    views = [];
+    clock = Date.now();
   });
   afterEach(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 3 }));
 
@@ -192,6 +278,57 @@ describe('Voice', () => {
     await after.setKey('sk_new');
     expect(await status(after.messageAudio(1))).toBe(200);
     expect(calls.synth).toBe(2);
+  });
+
+  it('replays saved clips without ever calling ElevenLabs', async () => {
+    const v = make();
+    await v.init();
+    expect(await status(v.cachedAudio(1))).toBe(404); // never spoken
+    await v.setKey('sk_good');
+    expect(await status(v.cachedAudio(1))).toBe(404); // a key alone doesn't make a clip
+    expect(calls.synth).toBe(0);
+    const spoken = await v.messageAudio(1);
+    expect(calls.synth).toBe(1);
+    expect(await v.cachedAudio(1)).toEqual({ audio: spoken, parts: 1 });
+    expect(v.cacheInfo()).toMatchObject({ clips: 1, saved: [1] });
+    expect(views.at(-1)?.saved).toEqual([1]);
+
+    // A new voice, or ElevenLabs refusing: message 1 still replays its first clip, with no new call.
+    settings = { ...settings, voiceId: 'otherVoice', model: 'eleven_v4' };
+    failWith = 500;
+    expect(await v.cachedAudio(1)).toEqual({ audio: spoken, parts: 1 });
+    expect(await v.messageAudio(1)).toEqual(spoken);
+    settings = { ...settings, provider: 'off' };
+    expect((await v.cachedAudio(1)).audio).toEqual(spoken);
+    expect(await status(v.cachedAudio(3))).toBe(404);
+    expect(await status(v.cachedAudio(1, 1))).toBe(404);
+    expect(calls.synth).toBe(1);
+
+    // The manifest survives a restart.
+    const after = make();
+    await after.init();
+    expect((await after.cachedAudio(1)).audio).toEqual(spoken);
+    expect(after.cacheInfo()).toMatchObject({ clips: 1, saved: [1] });
+
+    // Cleared: nothing to replay, and still no call.
+    expect(await after.clearCache()).toEqual({ clips: 0, bytes: 0, saved: [] });
+    expect(await status(after.cachedAudio(1))).toBe(404);
+    expect(calls.synth).toBe(1);
+  });
+
+  it("prunes by the age setting, keeping the newest CEO messages' clips", async () => {
+    const v = make();
+    await v.init();
+    await v.setKey('sk_good');
+    await v.messageAudio(1);
+    await v.sampleAudio();
+    expect(v.cacheInfo().clips).toBe(2);
+    clock += 3 * DAY;
+    settings = { ...settings, keepDays: 2 };
+    expect(await v.prune()).toMatchObject({ clips: 1, saved: [1] }); // the sample goes; message 1 is one of the newest 20
+    settings = { ...settings, keepDays: 7 };
+    await v.sampleAudio();
+    expect(await v.prune()).toMatchObject({ clips: 2 });
   });
 
   it('other ElevenLabs failures are a 502 and keep trying', async () => {
