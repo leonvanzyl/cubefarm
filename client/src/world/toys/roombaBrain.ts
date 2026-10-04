@@ -379,6 +379,13 @@ export function spinRoomba(r: Roomba) {
   r.moveTime = ROOMBA.spin;
 }
 
+/** The evening round (the rituals' wind-down): off the dock for a clean now, rather than once it's charged. */
+export function sendOut(r: Roomba): boolean {
+  if (r.state !== 'charging' || r.move === 'spin') return false;
+  r.stateTime = Math.max(r.stateTime, ROOMBA.charge);
+  return true;
+}
+
 export interface RoombaEnv {
   nav: Nav;
   dock: Dock;
