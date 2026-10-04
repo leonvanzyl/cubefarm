@@ -10,6 +10,7 @@ The details behind the office: how an issue becomes a merged pull request, who d
    - If a session fails, its issue goes back on the board for someone else, and the agent gets new work after a two-minute cooldown. An issue that fails twice waits for you to assign it by hand.
    - If Claude turns a session away because your usage limit is reached, the office starts no new work until the limit resets.
    - Before that, when Claude warns that usage is getting high, the office paces itself until the window resets (an hour if Claude doesn't say): QA, fixes and CEO jobs start as usual, but new issues only start while fewer sessions than **Sessions while pacing** (manager's console → Settings, default 3) are running. Your phone gets a message when pacing starts and when it ends.
+   - While it paces (or pauses), a chip under the floor card says until when, and the Kanban's backlog cards show **⏸ paced**. Topped up, or was your usage reset? **Resume full speed** (manager's console → Mission control, or `E` on the usage meter in the lobby) ends pacing at once, and later warnings about the same window are ignored. A pause after Claude turned a session away can't be cleared early.
 2. **In progress.** The server fetches the repo and creates a git worktree for that developer on the branch `swarm/issue-<n>-<agent>`, branched from the default branch. The developer's coding agent starts there with the issue text. The developer implements the change, runs the project's checks, pushes the branch and opens a PR with `gh pr create` that says `Closes #<n>`.
 3. **In QA.** The PR is handed to the floor's QA lab. A free QA tester checks out the PR head in their own worktree; when every tester is busy, a free developer who didn't write the PR covers for them, `testing` specialists first. The tester then:
    - reads the PR and the linked issue to work out the acceptance criteria
@@ -49,6 +50,16 @@ You can message an agent at any time. While they're working, the message is inje
 
 Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
 
+## Mission control
+
+The curved bank of screens behind reception in the lobby shows how the company is doing, per floor and in total: the pipeline (issues ready to start, being built, in QA, being fixed, ready to merge, needing you), PRs merged today and in the last hour with a 24-hour chart, median lead time (issue to merge) and QA wait over the last 24 hours, GitHub's checks (pass rate and median duration over 7 days), who's busy, idle or in error, and today's cost per floor. The cost is an estimate from the cost finished sessions report. Each floor's team sign carries a compact line of its own numbers. The manager's console → **Mission control** has the same numbers as a table.
+
+The bottom middle screen is Claude's usage meter: normal, pacing or paused, the limit and how full it was at the last warning, and when it resets. While the office paces itself, `E` on the meter resumes full speed (after asking).
+
+When a PR needs you, or an agent has been stuck on an error for more than 10 minutes, the beacon on top of the wall and on that floor's sign spins red and a calm chime plays (at most every 30 seconds, under Alerts). `E` on either opens the console at that card, with what you can do about it. The beacon stops once it's handled.
+
+The server works the numbers out from what it already knows plus a rolling week of merges, QA verdicts, check runs and session costs kept in the state file, and pushes them to the browser when they change.
+
 ## Models and usage
 
 - Developers and QA default to **Claude Code with Claude Opus 5.5 (`claude-opus-5-5`) at medium effort**. In the manager's console, Settings sets the default coding agent, its model and the effort; the Team tab overrides any of them per agent. The default model belongs to the default coding agent: an agent on another one uses that agent's own default unless you name a model for them. The CEO runs Claude Code, with its own model and effort on the CEO tab.
@@ -76,7 +87,7 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 
 ## Where things live
 
-- `~/.cubefarm/state.json`: floors, agents, settings and terminal history (`SWARM_HOME` overrides the folder)
+- `~/.cubefarm/state.json`: floors, agents, settings, terminal history and mission control's last 7 days (`SWARM_HOME` overrides the folder)
 - `~/.cubefarm/terminals/<agent>.ansi`: each agent's terminal screen and scrollback
 - `~/.cubefarm/sessions/<token>/`: a running CLI session's settings, MCP config and instructions (removed when it ends); `~/.cubefarm/bin/`: the small scripts the CLIs call back to the office with
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
