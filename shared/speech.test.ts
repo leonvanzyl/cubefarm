@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPEECH_MAX_CHARS, speechText } from './speech.ts';
+import { SPEECH_MAX_CHARS, dayPart, speechText, standupLine } from './speech.ts';
 
 describe('speechText', () => {
   it('strips markdown', () => {
@@ -44,5 +44,18 @@ describe('speechText', () => {
   it('leaves short text whole', () => {
     expect(speechText('Hello.')).toBe('Hello.');
     expect(speechText('')).toBe('');
+  });
+});
+
+describe('standupLine', () => {
+  it('greets the team for the part of the day and counts the new issues', () => {
+    expect(standupLine(3, 'morning')).toBe('Morning team, three new features today!');
+    expect(standupLine(1, 'afternoon')).toBe('Afternoon team, one new feature today!');
+    expect(standupLine(12, 'evening')).toBe('Evening team, a pile of new features today!');
+    expect(standupLine(0, 'morning')).toBe('Morning team, one new feature today!');
+  });
+
+  it('splits the day into morning, afternoon and evening', () => {
+    expect([4, 5, 11.9, 12, 16.9, 17, 23].map(dayPart)).toEqual(['evening', 'morning', 'morning', 'afternoon', 'afternoon', 'evening', 'evening']);
   });
 });

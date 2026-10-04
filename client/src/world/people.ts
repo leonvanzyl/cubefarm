@@ -6,6 +6,7 @@
 import type { Appearance } from './appearance';
 import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gesture } from './body';
 import { EXPRESSIONS, type Expression } from './face';
+import type { Food } from './ritualSchedule';
 
 const targets = new Map<string, BodyTarget>();
 const live = new Map<string, BodyState>();
@@ -120,7 +121,7 @@ const changed = () => {
   for (const fn of mugListeners) fn();
 };
 
-/** Character.tsx and Desk.tsx redraw when someone's mugs change (rarely: a mug taken, a sip, back at the desk). */
+/** Character.tsx and Desk.tsx redraw when someone's mugs (or food) change (rarely: a mug taken, a sip, back at the desk). */
 export function subscribeMugs(fn: () => void) {
   mugListeners.add(fn);
   return () => void mugListeners.delete(fn);
@@ -173,6 +174,29 @@ export function forcedExpression(id: string, now: number) {
   return f && now <= f.until ? f.expression : null;
 }
 
+// ---------- food in hand, and out of sight (the rituals) ----------
+
+const food = new Map<string, Food>();
+const hidden = new Set<string>();
+
+/** What someone eats (lunch, a slice of pizza), drawn in their hand; null for nothing. Redraws like the mugs. */
+export function setHandFood(id: string, f: Food | null) {
+  if ((food.get(id) ?? null) === f) return;
+  if (f) food.set(id, f);
+  else food.delete(id);
+  changed();
+}
+
+export const handFood = (id: string) => food.get(id) ?? null;
+
+/** Someone gone home for the night, or the CEO off round the floors: Character.tsx doesn't draw them. */
+export function setHidden(id: string, on: boolean) {
+  if (on) hidden.add(id);
+  else hidden.delete(id);
+}
+
+export const isHidden = (id: string) => hidden.has(id);
+
 // ---------- errands asked for by hand ----------
 
 const asks = new Map<string, string>();
@@ -221,6 +245,8 @@ const probe = {
       expression: faces.get(id)?.expression ?? null,
       lid: round(faces.get(id)?.lid ?? 0),
       look: faces.get(id)?.look ?? null,
+      food: food.get(id) ?? null,
+      hidden: hidden.has(id),
     }));
   },
   /** Puts an expression on someone's face for `seconds` (the face.ts names), whatever they're up to. */
