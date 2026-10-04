@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { repoOnFloor, usePhoneBadge, useStore } from '../store';
+import { floorPrCounts, repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { HeldHint } from './HeldHint';
 import { eAction } from '../world/toys/sip';
@@ -65,7 +65,7 @@ export function HUD() {
   const running = useMemo(() => Object.values(agents).filter((a) => a.status === 'working' || a.status === 'preparing').length, [agents]);
   const floorAgents = repo ? Object.values(agents).filter((a) => a.repoId === repo.id) : [];
   const qa = useStore((s) => s.qa);
-  const floorQa = repo ? Object.values(qa).filter((q) => q.repoId === repo.id) : [];
+  const prs = useMemo(() => (repo ? floorPrCounts(repo, qa) : null), [repo, qa]);
 
   return (
     <div className="hud">
@@ -74,8 +74,8 @@ export function HUD() {
         <div>
           <div className="floor-name">{repo ? repo.fullName : `${settings.companyName || 'cubefarm'} · Lobby`}</div>
           <div className="floor-sub">
-            {repo
-              ? `${floorAgents.length} agents · ${floorAgents.filter((a) => a.status === 'working' || a.status === 'preparing').length} working · ${floorQa.filter((q) => q.status !== 'passed').length} in QA · ${floorQa.filter((q) => q.status === 'passed').length} ready to merge`
+            {repo && prs
+              ? `${floorAgents.length} agents · ${floorAgents.filter((a) => a.status === 'working' || a.status === 'preparing').length} working · ${prs.inQa} in QA · ${prs.ready} ready to merge${prs.needsYou ? ` · ${prs.needsYou} need${prs.needsYou === 1 ? 's' : ''} you` : ''}`
               : `${repos.length} floor${repos.length === 1 ? '' : 's'} connected`}
           </div>
         </div>

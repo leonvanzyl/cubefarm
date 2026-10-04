@@ -45,6 +45,10 @@ export interface Errand {
   steps: readonly ErrandStep[];
   /** What their hands do on the walk back (carrying something). */
   carry?: Gesture;
+  /** At most this many people on this errand per floor at once. */
+  max?: number;
+  /** Errands with more to them than gestures at one spot (coffee): run by an actor once they've arrived, instead of `steps`. */
+  act?: (agentId: string) => ErrandActor;
   /**
    * Errands that do more than stand and gesture (the toys, toyErrands.ts): once they reach the spot, a script runs
    * them frame by frame instead of `steps`. Null when it can't go after all (the toy is taken): they sit a while longer.
@@ -80,6 +84,20 @@ export interface ErrandScript {
   tick(me: Me): Act;
   /** The errand is over, however it ended (done, called back to work, the floor left): let go of anything held. */
   end(): void;
+}
+
+/** What an errand's actor asks for each frame: walk to a spot (then stand there), stand where they are, or head home. */
+export type ActStep = { walk: string; gesture: Gesture } | { stand: Gesture } | 'done';
+
+export interface ErrandActor {
+  /** Called every frame while there, on the director's clock; `arrived`: they reached the spot last walked to. */
+  step(now: number, arrived: boolean): ActStep;
+  /** What their hands do on the walk home. */
+  readonly carry: Gesture;
+  /** Work called them back: they're about to hurry home. */
+  abort(): void;
+  /** Sat back down (`seated`), or the floor was left. */
+  end(seated: boolean): void;
 }
 
 // ---------- who may go, and how many at once ----------

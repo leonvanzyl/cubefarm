@@ -2,8 +2,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
 import { MAX_DESKS, QA_LAB } from '../client/src/world/layout.ts';
+import type { QaStatus } from '../shared/types.ts';
 import type { HttpError } from './httpError.ts';
-import { checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, floorCapacity, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
 
 describe('seats', () => {
   it('match the desks and QA stations the client draws', () => {
@@ -206,7 +207,7 @@ describe('planRoute (route_issue)', () => {
   });
 
   it('refuses a chain deeper than two steps', () => {
-    expect(() => route({ number: 1, dependsOn: [6] })).toThrow('That makes a dependency chain 3 steps deep through #1.');
+    expect(() => route({ number: 1, dependsOn: [6] })).toThrow('That makes a dependency chain 3 steps deep through #1. Keep chains to 2 steps at most: fold the dependent pieces into one issue instead of splitting further.');
     expect(() => route({ number: 6, dependsOn: [3] })).toThrow(/3 steps deep/);
     expect(route({ number: 6, dependsOn: [2] }).body).toBe('Depends on #2\n\nFree');
   });
@@ -218,6 +219,77 @@ describe('planRoute (route_issue)', () => {
 
   it('needs something to change', () => {
     expect(() => route({})).toThrow(/Nothing to change/);
+  });
+});
+
+describe('planning guidance', () => {
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, teamCap: 6, hiring: 'approve' });
+  const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: 'Add voice messages', backlog: 0 };
+  const plan = ceoJobPrompt({ kind: 'plan', repoId: 'r1', at: 0 }, floor);
+  const review = ceoJobPrompt({ kind: 'review', at: 0 }, null);
+
+  it('plans whole features, not slices per developer', () => {
+    for (const old of ['small, well-specified', 'one agent-session each', 'at least one per developer', 'split big pieces', 'keep foundation issues small']) expect(system).not.toContain(old);
+    expect(system).toContain('An issue is a whole feature the manager would recognise');
+    expect(system).toContain('Split a feature only when its parts are truly independent AND touch different files, or when one risky foundation part should land and be tested first.');
+    expect(system).toContain('Never split a feature just to give idle developers something to do');
+  });
+
+  it('keeps the dependency rules and the issue cap, and points at the QA queue', () => {
+    expect(system).toContain('QA is usually the scarcer resource');
+    expect(system).toContain('capacity.prsAwaitingQa');
+    expect(system).toContain('Most briefs need 1 to 4 issues.');
+    expect(system).toContain('Keep dependency chains to two steps at most.');
+    expect(system).toContain('with route_issue');
+    expect(system).toContain('File at most 12 issues per job');
+  });
+
+  it('plan job: one issue per feature, a skeleton first only for an empty repo', () => {
+    expect(plan).not.toContain('side by side');
+    expect(plan).toContain('One issue per whole feature.');
+    expect(plan).toContain('Only for an empty or nearly empty repository does a skeleton issue come first');
+  });
+
+  it('review job: flags QA pile-ups, not idle developers', () => {
+    expect(review).not.toContain('free developers');
+    expect(review).toContain('PRs piling up in QA (then plan fewer, bigger issues)');
+    expect(review).toContain('Idle developers are not a reason to slice features');
+  });
+});
+
+describe('floorCapacity', () => {
+  // #1 ← #2 ← #3, and #5 waits for #4. #2 is already in progress.
+  const issues = [
+    { number: 1, body: 'Skeleton' },
+    { number: 2, body: 'Depends on #1' },
+    { number: 3, body: 'Depends on #2' },
+    { number: 4, body: 'Free' },
+    { number: 5, body: 'Depends on #4' },
+  ];
+  const qa: { prNumber: number; status: QaStatus }[] = [
+    { prNumber: 10, status: 'queued' },
+    { prNumber: 11, status: 'testing' },
+    { prNumber: 12, status: 'fixing' },
+    { prNumber: 13, status: 'passed' },
+    { prNumber: 14, status: 'failed' },
+    { prNumber: 15, status: 'needs-human' },
+    { prNumber: 16, status: 'queued' }, // a re-test round
+    { prNumber: 20, status: 'queued' }, // closed since
+  ];
+  const cap = floorCapacity({ issues, inProgress: (n) => n === 2, openPrs: [10, 11, 12, 13, 14, 15, 16], qa });
+
+  it('counts only issues not yet in progress as waiting on others', () => {
+    expect(cap.issuesWaitingOnOthers).toBe(2); // #3 and #5; #2 is in progress
+    expect(floorCapacity({ issues, inProgress: () => false, openPrs: [], qa: [] }).issuesWaitingOnOthers).toBe(3);
+  });
+
+  it('keeps the longest dependency chain', () => {
+    expect(cap.longestDependencyChain).toBe(2);
+    expect(floorCapacity({ issues: [], inProgress: () => false, openPrs: [], qa: [] }).longestDependencyChain).toBe(0);
+  });
+
+  it('counts open PRs queued for or in QA', () => {
+    expect(cap.prsAwaitingQa).toBe(3); // #10, #11, #16
   });
 });
 

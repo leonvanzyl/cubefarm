@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BALCONY_TOP, BENCH, FLOOR_HEIGHT, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFloor, balconyFurniture, balconyRailing, floorElevation, inBuilding, outsideAt, outsideColliders, sideDoorway, sideSign, toyOnlyAt } from './layout.ts';
 import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
 
 const R = 0.3;
@@ -201,5 +202,173 @@ describe('surfaceAt', () => {
       expect(surfaceAt(floor, 0, HALF_D + eps)).toBe('cabin');
       expect(surfaceAt(floor, 0, HALF_D)).toBe(floor === 'lobby' ? 'lobby' : 'wood');
     }
+  });
+});
+
+describe('outside: side doors, windows and balconies', () => {
+  const KINDS = ['office', 'lobby'] as const;
+  const all = (kind: (typeof KINDS)[number]) => (kind === 'office' ? officeColliders() : lobbyColliders());
+  const contains = (b: Rect, c: Rect) => c.minX >= b.minX - 1e-9 && c.maxX <= b.maxX + 1e-9 && c.minZ >= b.minZ - 1e-9 && c.maxZ <= b.maxZ + 1e-9;
+  const touches = (b: Rect, c: Rect) => b.minX < c.maxX && b.maxX > c.minX && b.minZ < c.maxZ && b.maxZ > c.minZ;
+
+  /** Walks towards `b` in steps of at most 0.1 m (a frame's worth, as Player.tsx does) from `a`; returns where it ends up. */
+  const walk = (a: { x: number; z: number }, b: { x: number; z: number }, rects: Rect[]) => {
+    let p = a;
+    for (let i = 0; i < 1000; i++) {
+      const d = Math.hypot(b.x - p.x, b.z - p.z);
+      if (d < 1e-9) break;
+      const k = Math.min(1, 0.1 / d);
+      p = collide(p.x + (b.x - p.x) * k, p.z + (b.z - p.z) * k, rects);
+    }
+    return p;
+  };
+
+  it('puts the lobby on the ground and each floor FLOOR_HEIGHT above the last, room and slab included', () => {
+    expect(floorElevation(0)).toBe(0);
+    expect(floorElevation(1)).toBeCloseTo(FLOOR_HEIGHT);
+    expect(floorElevation(5)).toBeCloseTo(5 * FLOOR_HEIGHT);
+    expect(FLOOR_HEIGHT).toBeGreaterThan(WALL_H + BALCONY.slab);
+  });
+
+  it.each(KINDS)("spaces the %s side walls' door and windows apart, inside the wall and along the balcony", (kind) => {
+    for (const side of SIDES) {
+      const { door, windows } = SIDE_OPENINGS[kind][side];
+      const spans = [[door - SIDE_DOOR.half, door + SIDE_DOOR.half], ...windows.map((z) => [z - WINDOW.w / 2, z + WINDOW.w / 2])].sort((a, b) => a[0] - b[0]);
+      for (let i = 1; i < spans.length; i++) expect(spans[i][0] - spans[i - 1][1], `${kind} ${side}`).toBeGreaterThanOrEqual(0.3);
+      expect(spans[0][0]).toBeGreaterThan(BALCONY.minZ);
+      expect(spans[spans.length - 1][1]).toBeLessThan(BALCONY.maxZ);
+    }
+    expect(WINDOW.y + WINDOW.h / 2).toBeLessThan(WALL_H - 0.3);
+    expect(SIDE_DOOR.h).toBeLessThan(WALL_H);
+    // the lobby's east window stays clear of the CEO's board (z -9.1 to -5.7) and the waiting room sign (from z 6.7)
+    for (const z of SIDE_OPENINGS.lobby.east.windows) expect(z - WINDOW.w / 2 > -5.7 && z + WINDOW.w / 2 < 6.7).toBe(true);
+  });
+
+  it.each(KINDS)('leaves a gap in each %s side wall for its door, and keeps the rest of the wall solid', (kind) => {
+    const shell = shellColliders(kind);
+    for (const side of SIDES) {
+      const s = sideSign(side);
+      const d = sideDoorway(kind, side);
+      expect(d.maxZ - d.minZ).toBeCloseTo(SIDE_DOOR.half * 2);
+      expect(s * ((d.minX + d.maxX) / 2)).toBeGreaterThan(HALF_W);
+      expect((d.minZ + d.maxZ) / 2).toBeCloseTo(SIDE_OPENINGS[kind][side].door);
+      expect(shell.filter((b) => touches(b, d))).toEqual([]);
+      // the wall either side of the doorway still runs from corner to corner
+      const wall = shell.filter((b) => b.minX === d.minX && b.maxX === d.maxX);
+      expect(wall.map((b) => [b.minZ, b.maxZ])).toEqual([
+        [-HALF_D, d.minZ],
+        [d.maxZ, HALF_D],
+      ]);
+      // no walking out through a window
+      for (const z of SIDE_OPENINGS[kind][side].windows) expect(Math.abs(walk({ x: s * (HALF_W - 1), z }, { x: s * (HALF_W + 1.5), z }, all(kind)).x)).toBeLessThan(HALF_W);
+    }
+  });
+
+  it.each(KINDS)('lets you walk from the %s floor straight out of each door to the railing, and back', (kind) => {
+    const rects = all(kind);
+    for (const side of SIDES) {
+      const s = sideSign(side);
+      const z = SIDE_OPENINGS[kind][side].door;
+      const inside = { x: s * (HALF_W - 2), z };
+      expect(collide(inside.x, inside.z, rects), `${kind} ${side} inside`).toEqual(inside);
+      // a clear path up to the door from the room, out through it, and over the balcony to its railing
+      const railing = { x: s * (BALCONY_OUT - BALCONY.railT - PLAYER_RADIUS - 0.01), z };
+      expect(walk(inside, railing, rects), `${kind} ${side} out`).toEqual(railing);
+      expect(walk(railing, inside, rects), `${kind} ${side} back`).toEqual(inside);
+      // but no further: the railing stops you
+      expect(s * walk(railing, { x: s * (BALCONY_OUT + 2), z }, rects).x).toBeCloseTo(BALCONY_OUT - BALCONY.railT - PLAYER_RADIUS);
+      // and you can walk along the balcony, past its bench and planters, to either end
+      const along = s * (BALCONY_OUT - BALCONY.railT - PLANTER.w - PLAYER_RADIUS - 0.05);
+      const out = walk({ x: s * (HALF_W + 1.2), z }, { x: along, z }, rects);
+      for (const end of [BALCONY.minZ, BALCONY.maxZ]) {
+        const far = walk(out, { x: along, z: end + Math.sign(end) * 3 }, rects);
+        expect(Math.abs(far.z), `${kind} ${side} along`).toBeLessThan(Math.abs(end));
+        expect(Math.abs(far.z), `${kind} ${side} along`).toBeGreaterThan(Math.abs(end) - BALCONY.railT - PLAYER_RADIUS - 0.05);
+      }
+    }
+  });
+
+  it.each(KINDS)("keeps the room's furniture out of the way of the %s doors", (kind) => {
+    const shell = shellColliders(kind);
+    const outside = outsideColliders(kind);
+    const same = (b: Rect, c: Rect) => b.minX === c.minX && b.maxX === c.maxX && b.minZ === c.minZ && b.maxZ === c.maxZ;
+    const furniture = all(kind).filter((b) => !shell.some((w) => same(w, b)) && !outside.some((o) => same(o, b)));
+    for (const side of SIDES) {
+      const s = sideSign(side);
+      const z = SIDE_OPENINGS[kind][side].door;
+      // a 2 m deep space, a little wider than the door, in front of it
+      const front: Rect = { minX: s < 0 ? -HALF_W : HALF_W - 2, maxX: s < 0 ? -HALF_W + 2 : HALF_W, minZ: z - SIDE_DOOR.half - 0.3, maxZ: z + SIDE_DOOR.half + 0.3 };
+      expect(furniture.filter((b) => touches(b, front)), `${kind} ${side}`).toEqual([]);
+    }
+  });
+
+  it.each(KINDS)('builds each %s balcony: a railing round it toys never fly over, planters and a bench out of the way', (kind) => {
+    for (const side of SIDES) {
+      const s = sideSign(side);
+      const floor = balconyFloor(side);
+      expect(floor.maxX - floor.minX).toBeCloseTo(BALCONY.depth + WALL_T);
+      expect(floor.maxZ - floor.minZ).toBeGreaterThan(3 * WINDOW.w);
+      const rail = balconyRailing(side);
+      expect(rail).toHaveLength(3);
+      for (const r of rail) {
+        expect(contains(floor, r)).toBe(true);
+        expect(r.h).toBe(BALCONY_TOP); // up to the balcony above: thrown balls stay on this one
+      }
+      const { planters, bench } = balconyFurniture(kind, side);
+      const door = SIDE_OPENINGS[kind][side].door;
+      for (const f of [...planters, bench]) {
+        expect(contains(floor, f)).toBe(true);
+        expect(rail.some((r) => touches(r, f))).toBe(false);
+        expect(Math.min(Math.abs(f.minZ - door), Math.abs(f.maxZ - door)), `${kind} ${side}`).toBeGreaterThan(SIDE_DOOR.half + 1.5);
+      }
+      expect((s * (bench.minX + bench.maxX)) / 2).toBeLessThan(HALF_W + WALL_T + BENCH.w); // its back to the wall
+      expect(outsideColliders(kind)).toEqual(expect.arrayContaining([...rail, ...planters, bench]));
+    }
+    expect(all(kind)).toEqual(expect.arrayContaining(outsideColliders(kind)));
+  });
+
+  it('hangs the balcony lamps along the middle of each balcony, under the balcony above', () => {
+    expect(BALCONY_LIGHTS.filter((l) => l.side === 'west')).toHaveLength(4);
+    expect(BALCONY_LIGHTS.filter((l) => l.side === 'east')).toHaveLength(4);
+    for (const l of BALCONY_LIGHTS) {
+      const f = balconyFloor(l.side);
+      expect(l.x > f.minX && l.x < f.maxX && l.z > f.minZ && l.z < f.maxZ).toBe(true);
+      expect(l.y).toBeLessThan(BALCONY_TOP);
+      expect(l.y).toBeGreaterThan(WALL_H - 0.5);
+    }
+  });
+
+  it('knows when the player is out, and where toys may be', () => {
+    expect(outsideAt(0)).toBeNull();
+    expect(outsideAt(HALF_W)).toBeNull();
+    expect(outsideAt(-HALF_W - WALL_T)).toBe('west');
+    expect(outsideAt(HALF_W + 1)).toBe('east');
+    expect(inBuilding(0, 0)).toBe(true);
+    expect(inBuilding(HALF_W + 1, 0)).toBe(true); // on a balcony
+    expect(inBuilding(-BALCONY_OUT + 0.1, BALCONY.maxZ - 0.1)).toBe(true);
+    expect(inBuilding(BALCONY_OUT + 0.1, 0)).toBe(false); // over the railing
+    expect(inBuilding(HALF_W + 1, BALCONY.maxZ + 0.2)).toBe(false); // past its end
+    expect(inBuilding(0, HALF_D + 1)).toBe(false); // in the elevator
+  });
+
+  it('marks the surfaces only toys meet, so darts never stick in mid-air', () => {
+    for (const kind of KINDS) {
+      for (const side of SIDES) {
+        const s = sideSign(side);
+        const z = SIDE_OPENINGS[kind][side].door;
+        expect(toyOnlyAt(kind, s * (HALF_W + 0.01), 1.2, z)).toBe(true); // a shut side door
+        expect(toyOnlyAt(kind, s * (BALCONY_OUT - BALCONY.railT), 2.5, 0)).toBe(true); // above the railing
+        expect(toyOnlyAt(kind, s * (BALCONY_OUT - BALCONY.railT), 0.6, 0)).toBe(false); // the railing's glass
+        expect(toyOnlyAt(kind, s * (HALF_W + 0.4), 2.5, -9)).toBe(false); // the building's wall, from the balcony
+        expect(toyOnlyAt(kind, s * HALF_W, 2, SIDE_OPENINGS[kind][side].windows[0])).toBe(false); // a window
+      }
+      expect(toyOnlyAt(kind, 0, 1, HALF_D)).toBe(true); // the elevator doorway
+      expect(toyOnlyAt(kind, 5, 1, -HALF_D)).toBe(false);
+    }
+  });
+
+  it('sounds like tiles underfoot outside', () => {
+    expect(surfaceAt('office', HALF_W + 1, 0)).toBe('lobby');
+    expect(surfaceAt('lobby', -HALF_W - 1, 5)).toBe('lobby');
   });
 });

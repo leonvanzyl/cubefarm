@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Outlines } from './Outlines';
@@ -9,11 +9,14 @@ import { PARTS } from './characterParts';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
 import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
-import { bodyTarget, seatBody, setBody, trackBody } from './people';
+import { bodyTarget, handMug, seatBody, setBody, subscribeMugs, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
+import { MugLook, mugColor } from './toys/mugLook';
 import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
 import { useHitReaction } from './useHitReaction';
 import { Zzz } from './Zzz';
+import { cheerVoice } from '../ui/cheerRules';
+import { cheerFrom } from '../ui/cheerSfx';
 import { hearBody, hearing } from '../ui/peopleSounds';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
@@ -48,6 +51,8 @@ const STAND = { x: 0.62, z: -0.1 };
 const CHAIR_ROLL = 0.18;
 const TAG_SEATED: [number, number, number] = [0, 1.98, -1.12]; // over the desk, where it has always been
 const HANG: Arm = { pitch: -1.42, yaw: -0.1 };
+// A mug in the right hand (arm space: the hand is at z -0.5), kept upright whatever the arm does, tipped to the lips for a sip.
+const HAND_MUG = { at: [0, -0.02, -0.52] as [number, number, number], ahead: -0.07, scale: 1.3, sipTilt: 1.0 };
 // Arm targets for each gesture (null: that arm keeps walking or idling). Pitch and yaw as in POSES.
 const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> = {
   none: { l: null, r: null, head: 0 },
@@ -61,6 +66,9 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   catch: { l: { pitch: -0.1, yaw: 0.1 }, r: { pitch: -0.1, yaw: 0.1 }, head: 0.1 }, // hands out, ready
   cheer: { l: { pitch: 1.45, yaw: -0.35 }, r: { pitch: 1.45, yaw: -0.35 }, head: 0.2 }, // arms up in a V
   shrug: { l: { pitch: -0.7, yaw: -0.75 }, r: { pitch: -0.7, yaw: -0.75 }, head: -0.12 }, // palms out: oh well
+  mug: { l: null, r: { pitch: -0.75, yaw: 0.3 }, head: -0.05 }, // a mug held in front
+  tap: { l: null, r: { pitch: -0.3, yaw: 0.05 }, head: -0.3 }, // a hand on the counter: the dispenser, the machine
+  chat: { l: { pitch: -0.55, yaw: -0.45 }, r: { pitch: -0.75, yaw: 0.3 }, head: 0.08 }, // mug in one hand, the other talking
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -203,11 +211,15 @@ export function Character({
   const tag = useRef<THREE.Group>(null);
   const bubbleLift = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
+  const handCup = useRef<THREE.Group>(null);
+  const carried = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
     () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
     [],
   );
+  // Their merge cheer (cheerSfx.ts): their own voice, whether they were cheering last frame and where their head is.
+  const voice = useMemo(() => ({ v: cheerVoice(agent.id, agent.look), party: false, head: new THREE.Vector3() }), [agent.id, agent.look]);
   // Fidgets: the schedule, the pose it writes, the stretch's body target, who they wave to and the mug's rest spot.
   const life = useMemo(
     () => ({
@@ -245,6 +257,12 @@ export function Character({
     const now = performance.now();
     const t = now / 1000 + seed;
     const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
+    if (party && !voice.party && head.current) {
+      // the arms go up: a "woo!" from their head
+      head.current.getWorldPosition(voice.head);
+      cheerFrom(voice.v, voice.head.x, voice.head.y, voice.head.z);
+    }
+    voice.party = party;
 
     // ---------- where the body is ----------
     const st = move.s;
@@ -390,6 +408,13 @@ export function Character({
         lerp(c.r.yaw + driftR * (1 - c.mouse) + glide - wave, o.r.yaw, wr) * k + ry * up - waveUp,
         0,
       );
+      const cup = handCup.current;
+      if (cup) {
+        // undo the arm's turn (XYZ, so inverted as YXZ) so the mug stays upright, then tip it for a sip
+        const sip = !party && goal?.gesture === 'sip' ? move.gr * HAND_MUG.sipTilt : 0;
+        cup.rotation.set(sip - armR.current.rotation.x, -armR.current.rotation.y, 0, 'YXZ');
+        cup.visible = !seated;
+      }
     }
     if (torso.current) {
       const breathe = Math.sin(t * 1.6) * 0.015;
@@ -562,6 +587,13 @@ export function Character({
                     <mesh geometry={PARTS.phone} material={dark} />
                     <mesh geometry={PARTS.phoneScreen} material={toon('#8ecae6', { emissive: '#8ecae6', emissiveIntensity: 0.5 })} />
                   </group>
+                  {carried && (
+                    <group ref={handCup} position={HAND_MUG.at} visible={false}>
+                      <group position={[0, 0, HAND_MUG.ahead]} rotation={[0, -Math.PI / 2, 0]} scale={HAND_MUG.scale}>
+                        <MugLook color={mugColor(carried.id)} sips={carried.sips} shadow={false} />
+                      </group>
+                    </group>
+                  )}
                 </>
               )}
             </group>

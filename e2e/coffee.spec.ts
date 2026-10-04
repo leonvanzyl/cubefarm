@@ -11,25 +11,35 @@ test('the coffee machine fills a mug you put under it', async ({ page }) => {
   const coffee = () => page.evaluate(() => (window as unknown as { __swarmCoffee: { state: string; mug: { sips: number } | null } }).__swarmCoffee);
   const held = () => page.evaluate(() => (window as unknown as { __swarmToys: { held: unknown } }).__swarmToys.held);
   const act = (op: string) => page.evaluate((o) => (window as unknown as { __swarmCoffeeDo(op: string): void }).__swarmCoffeeDo(o), op);
+  // The probe keeps only the last 50 sounds and a brew alone makes about 20: gather the machine's as they come.
+  type Sfx = { name: string; group: string | null; at: unknown; t: number };
+  const heard = new Map<string, Sfx>();
+  const listen = async () => {
+    for (const s of await page.evaluate(() => (window as unknown as { __swarmSfx: Sfx[] }).__swarmSfx.filter((s) => s.name.startsWith('coffee-')))) heard.set(`${s.name}@${s.t}`, s);
+  };
 
   await act('brew'); // no mug: nothing happens
   expect((await coffee()).state).toBe('empty');
+  await listen();
 
   await page.evaluate(() => (window as unknown as { __swarmGiveMug(sips: number): void }).__swarmGiveMug(0));
   await expect(page.getByText('Put mug under the machine')).toBeVisible({ timeout: 30_000 });
   await page.keyboard.press('e');
   await expect.poll(async () => (await coffee()).state).toBe('mugPlaced');
   expect(await held()).toBeNull();
+  await listen();
 
   await act('brew');
   expect((await coffee()).state).toBe('brewing');
+  await listen();
   await expect.poll(async () => (await coffee()).state, { timeout: 15_000 }).toBe('ready');
   await expect(page.getByText('Take coffee')).toBeVisible({ timeout: 30_000 });
   await page.keyboard.press('e');
   await expect.poll(held).toMatchObject({ kind: 'mug', sips: 3 });
   expect((await coffee()).state).toBe('empty');
+  await listen();
 
-  const sounds = await page.evaluate(() => (window as unknown as { __swarmSfx: { name: string; group: string | null; at: unknown }[] }).__swarmSfx.filter((s) => s.name.startsWith('coffee-')));
+  const sounds = [...heard.values()];
   expect(sounds.map((s) => s.name)).toEqual(expect.arrayContaining(['coffee-nope', 'coffee-mug', 'coffee-button']));
   expect(sounds.every((s) => s.group === 'toys' && s.at)).toBe(true);
 });
