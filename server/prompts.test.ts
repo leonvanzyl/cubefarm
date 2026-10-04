@@ -36,7 +36,7 @@ Related repositories you may read for context (do not modify them):
 Workflow:
 1. Read the issue and explore the relevant code before changing anything.
 2. Implement the change with focused commits and clear messages.
-3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed.
+3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed (e.g. npm install when node_modules is missing).
 4. If the project has a web UI, start its dev server in the background on port 5839 (reserved for you, so you don't collide with teammates), then check your change with the Playwright browser tools (mcp__playwright__browser_navigate, browser_snapshot, browser_click, browser_take_screenshot). Stop the dev server when you're done.
 5. Push: git push -u origin swarm/issue-7-margaret
 6. Open a pull request with the GitHub CLI: gh pr create --base main --head swarm/issue-7-margaret --title "<concise title>" --body "<what changed, how you verified it, assumptions>". The body must contain "Closes #<issue number>".
@@ -50,7 +50,7 @@ Your branch: swarm/issue-7-margaret (already checked out, created from origin/ma
 Workflow:
 1. Read the issue and explore the relevant code before changing anything.
 2. Implement the change with focused commits and clear messages.
-3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed.
+3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed (e.g. npm install when node_modules is missing).
 4. Verify the behaviour you changed as directly as you can.
 5. Push: git push -u origin swarm/issue-7-margaret
 6. Open a pull request with the GitHub CLI: gh pr create --base main --head swarm/issue-7-margaret --title "<concise title>" --body "<what changed, how you verified it, assumptions>". The body must contain "Closes #<issue number>".
@@ -72,7 +72,7 @@ Related repositories you may read for context (do not modify them):
 Workflow:
 1. Read the issue and explore the relevant code before changing anything.
 2. Implement the change with focused commits and clear messages.
-3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed.
+3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed (e.g. npm install when node_modules is missing).
 4. If the project has a web UI, start its dev server in the background on port 5839 (reserved for you, so you don't collide with teammates), then check your change with the Playwright browser tools (mcp__playwright__browser_navigate, browser_snapshot, browser_click, browser_take_screenshot). Stop the dev server when you're done.
 5. Push: git push origin HEAD:swarm/issue-7-margaret
 6. Reply with a short summary of what you fixed.
@@ -94,7 +94,7 @@ Your worktree: /desk/q. It has the pull request's code checked out on local bran
 How to test:
 1. Read the PR description and the linked issue, and work out the acceptance criteria.
 2. Review the code as a careful reviewer would: git diff origin/main...HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.
-3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).
+3. Install dependencies if needed (e.g. npm install when node_modules is missing), then run the project's test suite, linters, type checks and build (whichever exist).
 4. If the project has a UI, start it in the background on port 5839 (reserved for you) and exercise the change in a real browser with the Playwright tools: navigate, click, type, resize to a phone size, try edge cases, and check the console for errors. Take a screenshot with browser_take_screenshot (no filename) of every important state: the screenshots are attached to the PR as evidence. Stop the server afterwards.
 5. You may write throwaway scripts to probe behaviour, but do not commit them.
 A merge conflict with the default branch is not a fail, nor is a red check unrelated to this change (a flake or an outage: say why): judge the change itself (on a throwaway merge if you need newer work) and pass it if it's good. The office sends conflicting PRs back for a merge fix, then you re-test, and re-runs a failed check before anyone fixes it.
@@ -111,7 +111,7 @@ Your worktree: /desk/q. It has the pull request's code checked out on local bran
 How to test:
 1. Read the PR description and the linked issue, and work out the acceptance criteria.
 2. Review the code as a careful reviewer would: git diff origin/main...HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.
-3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).
+3. Install dependencies if needed (e.g. npm install when node_modules is missing), then run the project's test suite, linters, type checks and build (whichever exist).
 4. Exercise the changed behaviour directly (run the program, call the API, write a quick script).
 5. You may write throwaway scripts to probe behaviour, but do not commit them.
 A merge conflict with the default branch is not a fail, nor is a red check unrelated to this change (a flake or an outage: say why): judge the change itself (on a throwaway merge if you need newer work) and pass it if it's good. The office sends conflicting PRs back for a merge fix, then you re-test, and re-runs a failed check before anyone fixes it.

@@ -596,6 +596,112 @@ export function sweepDesks(fullName: string, keep: SweepKeep): Promise<SweepResu
   });
 }
 
+// ---------- trimming idle desks ----------
+
+/** What an idle desk loses: build and test output at its top level, and node_modules at any depth. */
+export const TRIM_DIRS = ['node_modules', 'dist', 'dist-server', 'test-results', 'playwright-report', '.swarm-home', '.preview-tmp', '.playwright-mcp'];
+
+export interface DeskTrim {
+  /** Bytes removed. */
+  freed: number;
+  /** Desk-relative folders removed (forward slashes). */
+  removed: string[];
+  /** Folders Windows still had locked: left for the next sweep. */
+  skipped: string[];
+}
+
+/** The total size of the files under a folder: an async walk a few folders at a time that never follows links. */
+export async function dirSize(dir: string, concurrency = 8): Promise<number> {
+  let total = 0;
+  const queue = [dir];
+  let active = 0;
+  const visit = async (d: string) => {
+    const entries = await fs.readdir(d, { withFileTypes: true }).catch(() => []);
+    const sizes = await Promise.all(
+      entries.map((e) => {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) queue.push(p);
+        return e.isFile() ? fs.lstat(p).then((s) => s.size, () => 0) : 0;
+      }),
+    );
+    for (const s of sizes) total += s;
+  };
+  await new Promise<void>((resolve) => {
+    const next = () => {
+      while (active < concurrency && queue.length) {
+        active++;
+        void visit(queue.pop()!).finally(() => {
+          active--;
+          next();
+        });
+      }
+      if (active === 0 && queue.length === 0) resolve();
+    };
+    next();
+  });
+  return total;
+}
+
+/** The folders of a desk trimDesk removes: TRIM_DIRS that hold no tracked files (desk-relative, forward slashes). */
+async function trimTargets(wt: string): Promise<string[]> {
+  // Ignored folders, collapsed: "node_modules/", "packages/app/node_modules/", "dist/".
+  const ignored = (await git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], { cwd: wt }))
+    .split('\0')
+    .filter((p) => p.endsWith('/'))
+    .map((p) => p.slice(0, -1))
+    .filter((p) => (p.includes('/') ? p.endsWith('/node_modules') : TRIM_DIRS.includes(p)));
+  // Output folders the project doesn't ignore (e.g. .swarm-home) still go when nothing in them is tracked.
+  const present = [];
+  for (const name of TRIM_DIRS) if ((await fs.lstat(path.join(wt, name)).catch(() => null))?.isDirectory()) present.push(name);
+  const candidates = [...new Set([...ignored, ...present])];
+  if (candidates.length === 0) return [];
+  const tracked = (await git(['ls-files', '-z', '--', ...candidates], { cwd: wt })).split('\0').filter(Boolean);
+  return candidates.filter((c) => !tracked.some((f) => f.startsWith(`${c}/`)));
+}
+
+/**
+ * Free disk space on an idle desk: remove its node_modules and build/test output (TRIM_DIRS). Tracked files, untracked
+ * source and the worktree's .git file stay. `stillIdle` is asked again inside the repo lock, so a task that just started
+ * on this desk is never pulled out from under it. Each folder is first moved out of the desk in one rename (a folder
+ * Windows has locked fails whole and is skipped until next time, never left half-deleted), then measured and deleted
+ * outside the lock. Never stops processes. Returns null when the desk doesn't exist or is busy.
+ */
+export async function trimDesk(fullName: string, agentSlug: string, stillIdle: () => boolean = () => true): Promise<DeskTrim | null> {
+  const wt = deskDir(fullName, agentSlug);
+  const trash = path.join(repoDir(fullName), 'trash');
+  // What an earlier trim couldn't delete (files that were still locked).
+  for (const name of await fs.readdir(trash).catch(() => [])) {
+    if (name.startsWith(`${agentSlug}-`)) await removeDir(path.join(trash, name)).catch(() => undefined);
+  }
+  const bin = path.join(trash, `${agentSlug}-${Date.now()}`);
+  const moved = await withRepoLock(fullName, async () => {
+    if (!stillIdle() || !(await exists(path.join(wt, '.git')))) return null;
+    const out = { removed: [] as string[], skipped: [] as string[] };
+    const targets = await trimTargets(wt);
+    for (const [i, rel] of targets.entries()) {
+      if (!stillIdle()) break;
+      try {
+        await fs.mkdir(bin, { recursive: true });
+        await fs.rename(path.join(wt, rel), path.join(bin, `${i}-${path.basename(rel)}`));
+        out.removed.push(rel);
+      } catch {
+        out.skipped.push(rel);
+      }
+    }
+    return out;
+  });
+  if (!moved) return null;
+  if (moved.removed.length === 0) return { freed: 0, ...moved };
+  const size = await dirSize(bin);
+  let left = 0;
+  try {
+    await removeDir(bin);
+  } catch {
+    left = await dirSize(bin);
+  }
+  return { freed: size - left, ...moved };
+}
+
 // ---------- leftover processes ----------
 
 // Only these kinds of processes are stopped when walking up from a leftover to its (orphaned) launcher.

@@ -113,6 +113,11 @@ export class Previews {
     };
   }
 
+  /** The floor's preview is being set up or running: its worktree is in use. */
+  active(f: PreviewFloor): boolean {
+    return ACTIVE.includes(this.runs.get(f.id)?.status ?? 'stopped');
+  }
+
   /** Re-check whether a floor without a command has a package.json to fall back on. */
   async refreshDefault(f: PreviewFloor) {
     const has = await this.backend.previews.hasDefault(f.fullName).catch(() => true);

@@ -25,6 +25,7 @@ import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, qaBranc
 import { QA_RESUME_PROMPT, qaRetry } from './qaRetry.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
+import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, Voice, voiceSettings } from './voice.ts';
@@ -381,6 +382,7 @@ export class Swarm {
       tutorialStep: 0,
       autoUpdate: true,
       pacingSessions: DEFAULT_PACING_SESSIONS,
+      trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
     },
     repos: [],
@@ -519,6 +521,7 @@ export class Swarm {
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
       if (this.state.settings.runtime !== 'sdk') this.state.settings.runtime = 'terminal';
       if (!isCli(this.state.settings.defaultCli)) this.state.settings.defaultCli = 'claude';
+      this.state.settings.trimIdleDesksMin = clampTrimIdleMin(this.state.settings.trimIdleDesksMin);
       if (!this.state.settings.defaultModel && this.state.settings.defaultCli === 'claude') this.state.settings.defaultModel = DEFAULT_MODEL;
       // "Max concurrent sessions" (default 4) became an optional session limit. The old default goes; a limit the manager chose stays.
       const old = this.state.settings as SwarmSettings & { maxConcurrent?: number; permissionMode?: string };
@@ -613,6 +616,8 @@ export class Swarm {
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
     setInterval(() => void this.saveTerminals(), TERMINAL_SAVE_MS);
+    // Every minute in the demo, so a short idle time shows its phone message soon.
+    setInterval(() => void this.trimIdleDesks(), this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
     void this.backend
       .detectClis()
@@ -2350,6 +2355,10 @@ export class Swarm {
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
     if (typeof patch.autoUpdate === 'boolean') s.autoUpdate = patch.autoUpdate;
     if (patch.pacingSessions !== undefined) s.pacingSessions = clampPacingSessions(patch.pacingSessions);
+    if (patch.trimIdleDesksMin !== undefined) {
+      s.trimIdleDesksMin = clampTrimIdleMin(patch.trimIdleDesksMin);
+      setTimeout(() => void this.trimIdleDesks(), 1000);
+    }
     if (patch.voice !== undefined) s.voice = voiceSettings(s.voice, patch.voice);
     this.save();
     this.broadcast({ type: 'settings', settings: s });
@@ -3135,6 +3144,68 @@ export class Swarm {
     const step = triageStep({ kind: 'escalate', reason: String(x.reason ?? '').split('\n')[0].slice(0, 300) });
     if (step.do === 'escalate') this.escalate(rec, step.note && `${this.ceo().name}: ${step.note}`);
     return `The manager has PR #${rec.prNumber} now, with your diagnosis.`;
+  }
+
+  // ---------- idle desks ----------
+
+  private bootAt = Date.now();
+  private deskWatch = new Map<string, { busyAt: number | null; trimmedAt: number | null }>(); // desk → what the sweeps saw
+  private trimming = false;
+
+  /** An agent's desk is in use: a task (preparing, working, testing or fixing) or a live CLI in their terminal. Hands off a fired agent's. */
+  private deskBusy(a: PersistedAgent) {
+    const rt = this.agentRt.get(a.id);
+    return !rt || !this.state.agents.includes(a) || BUSY.includes(a.status) || !!rt.session || !!rt.terminal?.live;
+  }
+
+  /**
+   * Free disk space on desks idle longer than settings.trimIdleDesksMin: every agent's desk, and each floor's preview
+   * worktree while no preview runs. One desk at a time, once per idle stretch; one phone message per sweep that freed anything.
+   */
+  private async trimIdleDesks() {
+    const min = this.state.settings.trimIdleDesksMin;
+    if (!min || this.trimming) return;
+    this.trimming = true;
+    try {
+      const now = Date.now();
+      const desks: { key: string; repo: PersistedRepo; slug: string; endedAt: number | null; busy: () => boolean }[] = [];
+      for (const a of this.state.agents) {
+        const repo = this.state.repos.find((r) => r.id === a.repoId);
+        if (repo) desks.push({ key: a.id, repo, slug: this.agentSlug(a), endedAt: a.endedAt, busy: () => this.deskBusy(a) });
+      }
+      for (const repo of this.state.repos) {
+        desks.push({ key: `preview:${repo.id}`, repo, slug: PREVIEW_SLUG, endedAt: null, busy: () => !this.state.repos.includes(repo) || this.previews.active(repo) });
+      }
+      for (const key of this.deskWatch.keys()) if (!desks.some((d) => d.key === key)) this.deskWatch.delete(key);
+      const seen = desks.map((d) => {
+        const w = this.deskWatch.get(d.key) ?? { busyAt: null, trimmedAt: null };
+        this.deskWatch.set(d.key, w);
+        const busy = d.busy();
+        if (busy) w.busyAt = now;
+        return { key: d.key, busy, idleSince: idleSince(d.endedAt, w.busyAt, this.bootAt), trimmedAt: w.trimmedAt };
+      });
+      const due = new Set(desksToTrim(seen, min, now));
+      let freed = 0;
+      let count = 0;
+      for (const d of desks.filter((x) => due.has(x.key))) {
+        // Asked again inside the repo lock: a task that started since is never pulled out from under its agent.
+        const result = await this.backend.trimDesk(d.repo.fullName, d.slug, () => !d.busy()).catch((err) => {
+          console.warn(`could not trim desk ${d.slug} of ${d.repo.fullName}:`, oneLine(err));
+          return undefined;
+        });
+        if (result === undefined) continue;
+        // Folders Windows still had locked are tried again at the next sweep.
+        if (!result?.skipped.length) this.deskWatch.get(d.key)!.trimmedAt = Date.now();
+        if (!result?.freed) continue;
+        freed += result.freed;
+        count++;
+        const locked = result.skipped.length ? `; still locked: ${result.skipped.join(', ')}` : '';
+        console.log(`trimmed idle desk ${d.slug} of ${d.repo.fullName}: freed ${formatBytes(result.freed)} (${result.removed.join(', ')})${locked}`);
+      }
+      if (count) this.postMessage('office', freedMessage(freed, count));
+    } finally {
+      this.trimming = false;
+    }
   }
 
   // ---------- the phone ----------

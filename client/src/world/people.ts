@@ -8,6 +8,7 @@ import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gestur
 const targets = new Map<string, BodyTarget>();
 const live = new Map<string, BodyState>();
 const busy = new Map<string, ErrandInfo>();
+const said = new Map<string, Saying>();
 let teleports = 0;
 let director: (() => unknown) | null = null;
 
@@ -27,8 +28,31 @@ export function setBody(id: string, patch: Partial<Omit<BodyTarget, 'teleport'>>
   targets.set(id, { ...t, ...patch });
 }
 
+/** Stands someone at (x, z) straight away, facing heading (a new hire inside the elevator, say). */
+export function placeBody(id: string, x: number, z: number, heading = 0) {
+  setBody(id, { mode: 'standing', x, z, heading });
+  targets.set(id, { ...targets.get(id)!, teleport: ++teleports });
+}
+
 /** Back to their chair: they walk to the standing spot beside it and sit down. */
 export const seatBody = (id: string) => void targets.delete(id);
+
+/** A speech bubble: what someone says (an emoji) and performance.now() when they started. */
+export interface Saying {
+  text: string;
+  at: number;
+}
+
+/** Shows a speech bubble over someone (null hides it). Character.tsx draws it. */
+export function say(id: string, text: string | null) {
+  if (text) said.set(id, { text, at: performance.now() });
+  else said.delete(id);
+}
+
+export const saying = (id: string) => said.get(id);
+
+/** Everyone drawn on the current floor, as they are now (the elevator opens for anyone near its doors). */
+export const bodies = () => live.values();
 
 /** Character.tsx registers each person's live state, so the probe can report it. */
 export function trackBody(id: string, s: BodyState) {
@@ -118,10 +142,7 @@ const modeOf = (s: BodyState): BodyMode => (s.stage === 'seated' ? 'seated' : s.
 
 const probe = {
   /** Stands someone up at (x, z) straight away, facing heading. */
-  place(id: string, x: number, z: number, heading = 0) {
-    setBody(id, { mode: 'standing', x, z, heading });
-    targets.set(id, { ...targets.get(id)!, teleport: ++teleports });
-  },
+  place: placeBody,
   /** Gets someone up (if seated) and walks them in a straight line to (x, z). speed in m/s. */
   walkTo(id: string, x: number, z: number, speed = WALK_SPEED, heading?: number) {
     const s = live.get(id);
@@ -146,6 +167,7 @@ const probe = {
       heading: round(s.heading),
       speed: round(s.speed),
       errand: busy.get(id) ?? null,
+      says: said.get(id)?.text ?? null,
       target: targets.get(id) ?? null,
       mug: hands.get(id) ?? null,
       deskMug: deskMug(id),

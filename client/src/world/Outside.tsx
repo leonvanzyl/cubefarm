@@ -7,6 +7,7 @@ import { doorOpen, resetDoors, tickDoors } from './doors';
 import { drawFacade } from './draw';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BENCH, FLOOR_HEIGHT, HALF_D, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFurniture, floorElevation, sideSign, type Side } from './layout';
 import { toon, toonMap } from './materials';
+import { OutsideSounds } from './OutsideSounds';
 import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { paneMaterial } from './Shell';
 import { LampHalos, balconyBulb } from './sky/lamps';
@@ -238,6 +239,7 @@ export function Outside({ kind, floor, top }: { kind: FloorKind; floor: number; 
   return (
     <group>
       <SideDoors kind={kind} floor={floor} />
+      <OutsideSounds kind={kind} />
       <Balconies kind={kind} floor={floor} top={Math.max(top, floor)} />
       <Facade floor={floor} top={Math.max(top, floor)} />
     </group>

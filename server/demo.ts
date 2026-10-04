@@ -551,6 +551,12 @@ export function createDemoBackend(): Backend {
     },
     removeDesk: async () => undefined,
     sweepDesks: async () => ({ desks: 0, folders: 0, branches: 0, patches: [], skipped: [] }),
+    // A made-up install and build of 300-900 MB, so the setting and the phone message can be seen.
+    trimDesk: async (_fullName, _slug, stillIdle) => {
+      await new Promise((r) => setTimeout(r, 300));
+      if (!stillIdle()) return null;
+      return { freed: Math.round((300 + Math.random() * 600) * 2 ** 20), removed: ['node_modules', 'dist'], skipped: [] };
+    },
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => {
       if (++sessionsStarted === USAGE_WARNING_AT) fakeUsageWarning(cb);
