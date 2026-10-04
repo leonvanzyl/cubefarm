@@ -198,7 +198,7 @@ export interface AgentView {
   hasScreenshot: boolean;
   screenshotAt: number | null;
   lastError: string | null;
-  log: LogLine[]; // tail of the terminal log (full buffer on snapshot)
+  log: LogLine[]; // the terminal log: hiring answers with it; snapshots leave it empty (tabs get lines by watch, shared/watch.ts)
   activity?: AgentActivity | null; // what they're doing right now, safe to show anyone (null: nothing, e.g. idle)
 }
 
@@ -502,13 +502,25 @@ export interface WorldSnapshot {
   notifyChannels: NotifyChannelsView;
 }
 
+/** What changed about an agent since the office last sent it, with its id; every field for one it never sent. */
+export type AgentPatch = Partial<Omit<AgentView, 'log'>> & { id: string };
+/** The same for a floor. */
+export type RepoPatch = Partial<RepoView> & { id: string };
+
 export type ServerEvent =
   | { type: 'snapshot'; data: WorldSnapshot }
   | { type: 'repo'; repo: RepoView }
+  /** Floor changes batched by the office (server/outbox.ts), like agents'. */
+  | { type: 'repos'; repos: RepoPatch[] }
   | { type: 'repoRemoved'; repoId: string }
   | { type: 'agent'; agent: Omit<AgentView, 'log'> }
+  /** Agent changes batched by the office (server/outbox.ts), a few times a second at most. */
+  | { type: 'agents'; agents: AgentPatch[] }
   | { type: 'agentRemoved'; agentId: string }
-  | { type: 'log'; agentId: string; lines: LogLine[] }
+  /** New terminal lines of the agents this tab watches (shared/watch.ts); `catchUp`: their recent buffer, replacing what it had. */
+  | { type: 'logs'; tails: Record<string, LogLine[]>; catchUp?: boolean }
+  /** The latest line worth listing of agents it doesn't watch, for the workers list. */
+  | { type: 'latest'; lines: Record<string, LogLine> }
   | { type: 'screen'; agentId: string; url: string | null; at: number }
   | { type: 'qa'; qa: QaView }
   | { type: 'qaRemoved'; repoId: string; prNumber: number }

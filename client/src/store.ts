@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
+import { latestListed } from '../../shared/watch';
 import { DEFAULT_NOTIFY } from '../../shared/notify';
 import { showDesktopNote } from './notifications';
 import { EMPTY_OPS, newAlarms } from './ops';
@@ -63,7 +64,9 @@ interface State {
   clis: CliView[]; // the coding-agent CLIs installed where the office runs
   repos: RepoView[];
   agents: Record<string, Agent>;
-  logs: Record<string, LogLine[]>;
+  logs: Record<string, LogLine[]>; // only for the agents this tab watches (shared/watch.ts): its floor and open panels
+  latest: Record<string, LogLine>; // everyone's latest line worth listing, for the workers list
+  workersOpen: boolean; // the workers list is showing (WorkersPanel.tsx), so the office sends everyone's latest line
   screens: Record<string, number>; // agentId -> screenshot timestamp (cache buster)
   qa: Record<string, QaView>; // `${repoId}#${prNumber}`
   requests: HireRequestView[];
@@ -103,6 +106,7 @@ interface State {
   setHeld(h: Held | null): void;
   setCharge(at: number | null): void;
   setLocked(v: boolean): void;
+  setWorkersOpen(v: boolean): void;
   start(): void;
   goToFloor(n: number): void;
   finishTravel(phase: 'arrived' | 'done'): void;
@@ -172,6 +176,8 @@ export const useStore = create<State>((set, get) => ({
   repos: [],
   agents: {},
   logs: {},
+  latest: {},
+  workersOpen: false,
   screens: {},
   qa: {},
   requests: [],
@@ -228,6 +234,7 @@ export const useStore = create<State>((set, get) => ({
           repos: d.repos.sort((a, b) => a.floor - b.floor),
           agents,
           logs,
+          latest: {},
           screens,
           qa,
           requests: d.requests,
@@ -249,16 +256,24 @@ export const useStore = create<State>((set, get) => ({
         });
         break;
       }
-      case 'repo': {
-        const before = get().repos.find((r) => r.id === ev.repo.id);
-        const qaFor = (n: number) => get().qa[qaKey(ev.repo.id, n)] ?? recentQaRecord(qaKey(ev.repo.id, n));
-        const bursts = mergeBursts(live, before, ev.repo, qaFor, Object.values(get().agents));
-        // A merge on the player's floor sends its author running to bang the gong (or it bangs by itself) and the
-        // floor celebrates; anywhere else it's the chime.
+      case 'repo':
+      case 'repos': {
+        // one floor in full, or a batch of floors' changes (server/outbox.ts)
+        let repos = get().repos;
+        const bursts: ReturnType<typeof mergeBursts> = [];
         const covered = coversView(get().overlay);
-        if (bursts.map((b) => gongForMerge(b, covered)).includes('absent')) cue('merged');
-        const repos = get().repos.filter((r) => r.id !== ev.repo.id);
-        repos.push(ev.repo);
+        for (const patch of ev.type === 'repo' ? [ev.repo] : ev.repos) {
+          const before = repos.find((r) => r.id === patch.id);
+          if (!before && patch.fullName === undefined) continue; // a change to a floor this tab no longer has
+          const next = { ...before, ...patch } as RepoView;
+          const qaFor = (n: number) => get().qa[qaKey(next.id, n)] ?? recentQaRecord(qaKey(next.id, n));
+          const merged = mergeBursts(live, before, next, qaFor, Object.values(get().agents));
+          // A merge on the player's floor sends its author running to bang the gong (or it bangs by itself) and the
+          // floor celebrates; anywhere else it's the chime.
+          if (merged.map((b) => gongForMerge(b, covered)).includes('absent')) cue('merged');
+          bursts.push(...merged);
+          repos = [...repos.filter((r) => r.id !== next.id), next];
+        }
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
         for (const b of bursts) emitMerge(b);
         break;
@@ -276,17 +291,45 @@ export const useStore = create<State>((set, get) => ({
         set({ agents: { ...get().agents, [ev.agent.id]: ev.agent } });
         break;
       }
+      case 'agents': {
+        // a batch of changes (server/outbox.ts): one update for all of them
+        const agents = { ...get().agents };
+        for (const patch of ev.agents) {
+          const prev = agents[patch.id];
+          if (!prev && patch.name === undefined) continue; // a change to someone this tab no longer has
+          const next = { ...prev, ...patch } as Agent;
+          if (live && !prev && next.role !== 'ceo') cue('welcome');
+          if (live && prev && prev.status !== 'error' && next.status === 'error') cue('error');
+          agents[patch.id] = next;
+        }
+        set({ agents });
+        break;
+      }
       case 'agentRemoved': {
         const { [ev.agentId]: _gone, ...agents } = get().agents;
         set({ agents });
         break;
       }
-      case 'log': {
-        const prev = get().logs[ev.agentId] ?? [];
-        const next = prev.concat(ev.lines);
-        set({ logs: { ...get().logs, [ev.agentId]: next.length > LOG_KEEP ? next.slice(-LOG_KEEP) : next } });
+      case 'logs': {
+        const logs = { ...get().logs };
+        const latest = { ...get().latest };
+        for (const [id, lines] of Object.entries(ev.tails)) {
+          // a catch-up replaces the buffer; live lines it already had (sent again after one) are skipped
+          const prev = ev.catchUp ? [] : (logs[id] ?? []);
+          const last = prev.length ? prev[prev.length - 1].id : -1;
+          const fresh = ev.catchUp ? lines : lines.filter((l) => l.id > last);
+          if (!fresh.length && !ev.catchUp) continue;
+          const next = prev.concat(fresh);
+          logs[id] = next.length > LOG_KEEP ? next.slice(-LOG_KEEP) : next;
+          const listed = latestListed(fresh, 80);
+          if (listed) latest[id] = listed;
+        }
+        set({ logs, latest });
         break;
       }
+      case 'latest':
+        set({ latest: { ...get().latest, ...ev.lines } });
+        break;
       case 'screen': {
         const a = get().agents[ev.agentId];
         set({
@@ -397,6 +440,7 @@ export const useStore = create<State>((set, get) => ({
   setHeld: (held) => set({ held, chargeAt: null }),
   setCharge: (chargeAt) => set({ chargeAt }),
   setLocked: (locked) => set({ locked }),
+  setWorkersOpen: (workersOpen) => set({ workersOpen }),
   start: () => set({ started: true }),
   goToFloor(n) {
     if (n === get().floor || get().travel) {

@@ -1,8 +1,20 @@
 import { useStore } from './store';
 import { restartExpected, shouldReload } from './officeUpdate';
 import type { ServerEvent } from '../../shared/types';
+import { currentWatch } from './watch';
 
 let retry = 0;
+let socket: WebSocket | null = null;
+let sentWatch = '';
+
+/** Tells the office what this tab shows (watch.ts) whenever that changes, so it sends only the lines it needs. */
+function sendWatch() {
+  const watch = JSON.stringify({ type: 'watch', ...currentWatch(useStore.getState()) });
+  if (socket?.readyState !== WebSocket.OPEN || watch === sentWatch) return;
+  sentWatch = watch;
+  socket.send(watch);
+}
+useStore.subscribe(sendWatch);
 
 // The commit this tab last reloaded for, so a new office commit reloads the page at most once.
 const RELOAD_KEY = 'office-swarm:reloaded-for';
@@ -30,9 +42,12 @@ function reloadForNewCommit(commit: string): boolean {
 export function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  socket = ws;
   ws.onopen = () => {
     retry = 0;
+    sentWatch = '';
     useStore.getState().setConnected(true);
+    sendWatch();
   };
   ws.onmessage = (e) => {
     try {

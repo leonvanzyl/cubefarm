@@ -42,6 +42,18 @@ export function frameStats(stamps) {
   };
 }
 
+/**
+ * CDP Performance metrics at the start and end of a window to CPU time per frame: the page's main thread
+ * (ThreadTime), the script in it (ScriptDuration) and its whole renderer process (ProcessTime), in ms, and the share
+ * of the window the main thread was busy.
+ */
+export function cpuStats(before, after, frames) {
+  const d = (k) => (typeof before?.[k] === 'number' && typeof after?.[k] === 'number' ? after[k] - before[k] : null);
+  const per = (k) => (d(k) === null || !frames ? null : round((d(k) * 1000) / frames, 2));
+  const wall = d('Timestamp');
+  return { mainMsPerFrame: per('ThreadTime'), scriptMsPerFrame: per('ScriptDuration'), processMsPerFrame: per('ProcessTime'), mainBusy: wall ? round(d('ThreadTime') / wall, 2) : null };
+}
+
 /** The `?stats` corner readout ("58 fps · 17.2 ms · 412 calls · 96k tris · dpr 1.00"): draw calls and triangles. */
 export function parseReadout(text) {
   const calls = /(\d+) calls/.exec(text ?? '');
@@ -79,6 +91,8 @@ export function medianRun(runs) {
     fps: round(pick((r) => r.fps)),
     frameMsP50: round(pick((r) => r.frameMs.p50)),
     frameMsP95: round(pick((r) => r.frameMs.p95)),
+    mainMsPerFrame: round(pick((r) => r.cpu?.mainMsPerFrame), 2),
+    scriptMsPerFrame: round(pick((r) => r.cpu?.scriptMsPerFrame), 2),
     drawCalls: pick((r) => r.renderer?.calls),
     triangles: pick((r) => r.renderer?.triangles),
     heapMB: round(pick((r) => r.heapMB)),

@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type { RepoView } from '../../../shared/types';
 import { EMPTY_NUMBERS, signLine } from '../ops';
 import { agentsOnRepo, floorPrCounts, useStore } from '../store';
@@ -51,15 +52,14 @@ export function WallSign({
 const DEV_DESKS = Array.from({ length: MAX_DESKS }, (_, slot): [number, number, number] => [deskPosition(slot).x, 0, deskPosition(slot).z]);
 const QA_DESKS = QA_LAB.stations.map((_, slot): [number, number, number] => [qaDeskPosition(slot).x, 0, qaDeskPosition(slot).z]);
 
-export function OfficeFloor({ repo }: { repo: RepoView }) {
-  const allAgents = useStore((s) => s.agents);
-  const agents = useMemo(() => agentsOnRepo(allAgents, repo.id), [allAgents, repo.id]);
+/** Memoised, and it only follows this floor's people and PRs: a big company's other floors change many times a second. */
+export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView }) {
+  const agents = useStore(useShallow((s) => agentsOnRepo(s.agents, repo.id)));
   const devBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'dev').map((a) => [a.desk, a])), [agents]);
   const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
   const { leavers, gone } = useLeavers(agents);
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
-  const qaRecords = useStore((s) => s.qa);
-  const { inQa, ready } = useMemo(() => floorPrCounts(repo, qaRecords), [repo, qaRecords]);
+  const { inQa, ready } = useStore(useShallow((s) => floorPrCounts(repo, s.qa)));
   // Mission control's numbers for this floor, compact, on its team sign; the beacon on top spins while something here needs you.
   const ops = useStore((s) => signLine(s.ops.floors.find((f) => f.repoId === repo.id) ?? EMPTY_NUMBERS));
   const { alarm, ref: signRef } = useFloorAlarm(repo.id);
@@ -177,4 +177,4 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       />
     </group>
   );
-}
+});

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentView, IssueInfo, OpsAlarm, PullInfo, QaStatus, QaView, RepoView, WorldSnapshot } from '../../shared/types';
+import type { AgentView, IssueInfo, LogLine, OpsAlarm, PullInfo, QaStatus, QaView, RepoView, WorldSnapshot } from '../../shared/types';
 
 // The merge trigger, through the store's own apply(): sounds and the gong are mocked (they need a browser).
 vi.mock('./ui/sfx', () => ({ alarm: vi.fn(), audioUnlocked: () => false, chirp: vi.fn(), cue: vi.fn() }));
@@ -61,6 +61,17 @@ describe('the merge gong trigger', () => {
     expect(vi.mocked(gongForMerge).mock.calls.map(([b]) => b)).toEqual([
       { repoId: 'acme/floor1', prNumber: 4, agentId: 'a1' },
       { repoId: 'acme/floor1', prNumber: 5, agentId: null },
+    ]);
+  });
+
+  it('fires the same for a merge in a batch of floor patches, which keep what they leave out', () => {
+    const { apply } = useStore.getState();
+    apply(snapshot([{ ...repo(1, pr(3, 'OPEN')), fullName: 'acme/floor1' }, repo(2)]));
+    apply({ type: 'repos', repos: [{ id: 'acme/floor1', pulls: [pr(3, 'MERGED')] }, { id: 'acme/gone', pulls: [] }] });
+    expect(gongForMerge).toHaveBeenCalledWith({ repoId: 'acme/floor1', prNumber: 3, agentId: null }, false);
+    expect(useStore.getState().repos.map((r) => [r.id, r.fullName])).toEqual([
+      ['acme/floor1', 'acme/floor1'],
+      ['acme/floor2', undefined],
     ]);
   });
 
@@ -165,5 +176,41 @@ describe('kanbanFor: In progress', () => {
     const held = { ...r(), held: [{ issue: 192, pr: 198 }] } as RepoView;
     expect(kanbanFor(held, [], {}).backlog).toMatchObject([{ number: 192, note: '⏸ PR #198 closed · assign by hand', tone: 'warn' }]);
     expect(kanbanFor(r(), [], {}).backlog[0].tone).toBeUndefined();
+  });
+});
+
+describe('batched agents and watched terminal lines (#228)', () => {
+  const line = (id: number, kind: LogLine['kind'] = 'tool') => ({ id, t: id, kind, text: `line ${id}` }) as LogLine;
+  const ken = { id: 'ken', name: 'Ken', role: 'dev', status: 'working', currentTool: 'Read', repoId: 'acme/floor1', log: [] } as Partial<AgentView>;
+
+  beforeEach(() => {
+    useStore.setState({ loaded: false });
+    useStore.getState().apply(snapshot([repo(1)], [ken]));
+    vi.mocked(cue).mockClear();
+  });
+
+  it('merges a batch of agent changes in one update, and makes someone new from a full view', () => {
+    const { apply } = useStore.getState();
+    apply({ type: 'agents', agents: [{ id: 'ken', currentTool: 'Edit' }, { ...ken, id: 'ada', name: 'Ada' } as AgentView, { id: 'gone', currentTool: 'Bash' }] });
+    const s = useStore.getState();
+    expect(s.agents.ken).toMatchObject({ name: 'Ken', currentTool: 'Edit', status: 'working' });
+    expect(s.agents.ada.name).toBe('Ada');
+    expect(s.agents.gone).toBeUndefined();
+    expect(cue).toHaveBeenCalledWith('welcome');
+    apply({ type: 'agents', agents: [{ id: 'ken', status: 'error' }] });
+    expect(cue).toHaveBeenCalledWith('error');
+  });
+
+  it('appends live lines once, replaces the buffer on a catch-up, and keeps the latest listed line', () => {
+    const { apply } = useStore.getState();
+    apply({ type: 'logs', catchUp: true, tails: { ken: [line(1), line(2, 'result')] } });
+    // a line the catch-up already had arrives again with the batch after it
+    apply({ type: 'logs', tails: { ken: [line(2, 'result'), line(3, 'text')] } });
+    expect(useStore.getState().logs.ken.map((l) => l.id)).toEqual([1, 2, 3]);
+    expect(useStore.getState().latest.ken.id).toBe(3);
+    apply({ type: 'latest', lines: { grace: line(9) } });
+    expect(useStore.getState().latest).toMatchObject({ ken: { id: 3 }, grace: { id: 9 } });
+    apply({ type: 'logs', catchUp: true, tails: { ken: [line(7)] } });
+    expect(useStore.getState().logs.ken.map((l) => l.id)).toEqual([7]);
   });
 });

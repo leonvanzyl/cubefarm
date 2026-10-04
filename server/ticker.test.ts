@@ -130,7 +130,7 @@ describe('Ticker', () => {
     expect(texts(t.observe({ type: 'qa', qa: qa('testing') }))).toEqual(['Marple is testing PR #12']);
     const [item] = t.recent();
     expect(t.observe({ type: 'ticker', item })).toEqual([]);
-    expect(t.observe({ type: 'log', agentId: 'ken', lines: [] })).toEqual([]);
+    expect(t.observe({ type: 'logs', tails: { ken: [] } })).toEqual([]);
   });
 
   it('keeps the last lines per floor and forgets a floor that goes', () => {

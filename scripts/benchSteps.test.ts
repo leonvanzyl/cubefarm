@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eventType, floorsToVisit, frameStats, medianRun, parseReadout, portProblem, wsStats, type BenchRun } from './benchSteps.mjs';
+import { cpuStats, eventType, floorsToVisit, frameStats, medianRun, parseReadout, portProblem, wsStats, type BenchRun } from './benchSteps.mjs';
 
 describe('the benchmark', () => {
   it('never uses the live office or the preview ports', () => {
@@ -26,6 +26,13 @@ describe('the benchmark', () => {
     expect(s.frameMs.p95).toBe(16);
     expect(s.frameMs.p99).toBe(50);
     expect(frameStats([5]).fps).toBe(0);
+  });
+
+  it('turns CPU time over a window into milliseconds per frame', () => {
+    const before = { Timestamp: 100, ThreadTime: 10, ScriptDuration: 4, ProcessTime: 20 };
+    const after = { Timestamp: 110, ThreadTime: 16, ScriptDuration: 7, ProcessTime: 32 };
+    expect(cpuStats(before, after, 600)).toEqual({ mainMsPerFrame: 10, scriptMsPerFrame: 5, processMsPerFrame: 20, mainBusy: 0.6 });
+    expect(cpuStats(null, after, 600).mainMsPerFrame).toBeNull();
   });
 
   it("reads the ?stats readout's counters", () => {

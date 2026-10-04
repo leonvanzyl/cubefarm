@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from '@playwright/test';
-import { eventType, floorsToVisit, frameStats, median, medianRun, parseReadout, portProblem, wsStats } from './benchSteps.mjs';
+import { cpuStats, eventType, floorsToVisit, frameStats, median, medianRun, parseReadout, portProblem, wsStats } from './benchSteps.mjs';
 
 const HELP = `
   node scripts/bench.mjs [options]       (after npm run build)
@@ -159,10 +159,16 @@ async function visit(browser, floor) {
     });
   });
 
-  await page.goto(`${base}/?stats`);
+  // A busy machine can take a while to serve and compile the page.
+  await page.goto(`${base}/?stats`, { timeout: 180_000, waitUntil: 'domcontentloaded' });
   await enterOffice(page);
   await sleep(num(values.warmup) * 1000);
 
+  // CPU time the page's main thread (and its renderer process) used: on a busy machine frames wait for a core, but
+  // the work done per frame stays comparable.
+  await cdp.send('Performance.enable').catch(() => undefined);
+  const metrics = async () => Object.fromEntries(((await cdp.send('Performance.getMetrics').catch(() => null))?.metrics ?? []).map((m) => [m.name, m.value]));
+  const before = await metrics();
   recording = true;
   await page.evaluate(() => {
     const b = { stamps: [], readouts: [], stop: false, timer: 0 };
@@ -183,6 +189,7 @@ async function visit(browser, floor) {
     return { stamps: b.stamps, readouts: b.readouts };
   });
   recording = false;
+  const after = await metrics();
 
   await cdp.send('HeapProfiler.collectGarbage').catch(() => undefined);
   await sleep(300);
@@ -191,9 +198,11 @@ async function visit(browser, floor) {
   const renderer = readouts.length
     ? Object.fromEntries(Object.keys(readouts[readouts.length - 1]).filter((k) => typeof readouts[readouts.length - 1][k] === 'number').map((k) => [k, median(readouts.map((r) => r[k]))]))
     : null;
+  const frameNumbers = frameStats(data.stamps);
   const result = {
     floor,
-    ...frameStats(data.stamps),
+    ...frameNumbers,
+    cpu: cpuStats(before, after, frameNumbers.frames),
     renderer,
     heapMB: heap ? Math.round((heap.usedSize / 2 ** 20) * 10) / 10 : null,
     audioNodes: audio ? audioNodes : null,
@@ -236,10 +245,14 @@ for (const floor of visits) {
   const runs = [];
   for (let r = 0; r < num(values.runs); r++) {
     const busy = (await officeState())?.agents.filter((a) => a.status === 'working' || a.status === 'preparing').length ?? null;
-    const run = await visit(browser, floor);
+    const run = await visit(browser, floor).catch((err) => ({ floor, failed: String(err?.message ?? err).split('\n')[0] }));
+    if (run.failed) {
+      console.log(`  ${floor ? `floor ${floor}` : 'lobby  '} run ${r + 1} failed: ${run.failed}`);
+      continue;
+    }
     runs.push({ ...run, busy });
     const ws = `${(run.ws.bytesPerSecond / 1024).toFixed(1)} KB/s`;
-    console.log(`  ${floor ? `floor ${floor}` : 'lobby  '} run ${r + 1}: ${run.fps} fps, p95 ${run.frameMs.p95} ms, ${run.renderer?.calls ?? '?'} calls, ${run.renderer?.triangles ?? '?'} tris, heap ${run.heapMB} MB, ${run.audioNodes ?? '?'} audio nodes, ws ${ws}${run.errors.length ? `, ${run.errors.length} console errors` : ''}`);
+    console.log(`  ${floor ? `floor ${floor}` : 'lobby  '} run ${r + 1}: ${run.fps} fps, p95 ${run.frameMs.p95} ms, main thread ${run.cpu.mainMsPerFrame} ms/frame, ${run.renderer?.calls ?? '?'} calls, ${run.renderer?.triangles ?? '?'} tris, heap ${run.heapMB} MB, ${run.audioNodes ?? '?'} audio nodes, ws ${ws}${run.errors.length ? `, ${run.errors.length} console errors` : ''}`);
   }
   const agents = state.agents.filter((a) => state.repos.find((x) => x.id === a.repoId)?.floor === floor).length;
   locations.push({ name: floor ? `floor ${floor}` : 'lobby', floor, people: agents, median: medianRun(runs), runs });
@@ -259,10 +272,10 @@ const report = {
 };
 const out = values.out ?? path.join(os.tmpdir(), `cubefarm-bench-${Date.now()}.json`);
 fs.writeFileSync(out, JSON.stringify(report, null, 2));
-console.log(`\n${'where'.padEnd(10)}${'fps'.padStart(7)}${'p95 ms'.padStart(9)}${'calls'.padStart(8)}${'tris'.padStart(10)}${'heap MB'.padStart(9)}${'audio'.padStart(7)}${'ws KB/s'.padStart(9)}`);
+console.log(`\n${'where'.padEnd(10)}${'fps'.padStart(7)}${'p95 ms'.padStart(9)}${'cpu ms'.padStart(8)}${'calls'.padStart(8)}${'tris'.padStart(10)}${'heap MB'.padStart(9)}${'audio'.padStart(7)}${'ws KB/s'.padStart(9)}`);
 for (const l of locations) {
   const m = l.median;
-  console.log(`${l.name.padEnd(10)}${String(m.fps).padStart(7)}${String(m.frameMsP95).padStart(9)}${String(m.drawCalls).padStart(8)}${String(m.triangles).padStart(10)}${String(m.heapMB).padStart(9)}${String(m.audioNodes).padStart(7)}${(m.wsBytesPerSecond / 1024).toFixed(1).padStart(9)}`);
+  console.log(`${l.name.padEnd(10)}${String(m.fps).padStart(7)}${String(m.frameMsP95).padStart(9)}${String(m.mainMsPerFrame).padStart(8)}${String(m.drawCalls).padStart(8)}${String(m.triangles).padStart(10)}${String(m.heapMB).padStart(9)}${String(m.audioNodes).padStart(7)}${(m.wsBytesPerSecond / 1024).toFixed(1).padStart(9)}`);
 }
 console.log(`\nreport: ${out}`);
 try {

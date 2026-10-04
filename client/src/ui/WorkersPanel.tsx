@@ -6,22 +6,17 @@ import { CEO_ID, INSTALL_STEP, type LogLine, type RepoView } from '../../../shar
 // thought, reply or tool call. Idle workers are left out; the floor you're on comes first. Click someone to watch
 // their screen; Tab shows and hides the list.
 
-const SHOWN: LogLine['kind'][] = ['tool', 'text', 'thinking', 'error', 'done', 'manager'];
 const isWorking = (a: Agent) => a.status === 'working' || a.status === 'preparing';
 const STORAGE_KEY = 'cubefarm:workers';
 
-/** The latest line worth showing, cleaned of the terminal's bullets. */
-function latest(log: LogLine[]): { text: string; kind: LogLine['kind']; t: number } | null {
-  for (let i = log.length - 1; i >= Math.max(0, log.length - 80); i--) {
-    const l = log[i];
-    if (!SHOWN.includes(l.kind) || !l.text.trim()) continue;
-    const text = l.text
-      .trim()
-      .replace(/^[⏺●✻✔⎿▶]\s*/u, '')
-      .replace(/^Manager:\s*/, 'you: ');
-    return { text: l.kind === 'thinking' ? 'thinking…' : text, kind: l.kind, t: l.t };
-  }
-  return null;
+/** Their latest line worth listing (the store keeps it, shared/watch.ts), cleaned of the terminal's bullets. */
+function latest(l: LogLine | undefined): { text: string; kind: LogLine['kind']; t: number } | null {
+  if (!l) return null;
+  const text = l.text
+    .trim()
+    .replace(/^[⏺●✻✔⎿▶]\s*/u, '')
+    .replace(/^Manager:\s*/, 'you: ');
+  return { text: l.kind === 'thinking' ? 'thinking…' : text, kind: l.kind, t: l.t };
 }
 
 function doing(a: Agent) {
@@ -38,9 +33,9 @@ function ago(t: number, now: number) {
 
 function Row({ a, now }: { a: Agent; now: number }) {
   const openOverlay = useStore((s) => s.openOverlay);
-  const log = useStore((s) => s.logs[a.id]);
+  const line = useStore((s) => s.latest[a.id]);
   // CLIs that don't report each step (Codex, OpenCode…) have nothing new until their turn ends: show what they're on.
-  const found = latest(log ?? []);
+  const found = latest(line);
   const last = found && (!a.startedAt || found.t >= a.startedAt) ? found : null;
   const task = doing(a);
   return (
@@ -127,6 +122,12 @@ export function WorkersPanel() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // While the list is out, the office sends everyone's latest line (net.ts).
+  const showing = open && started;
+  useEffect(() => {
+    useStore.getState().setWorkersOpen(showing);
+    return () => useStore.getState().setWorkersOpen(false);
+  }, [showing]);
   if (!started) return null;
 
   const ceo = agents[CEO_ID];
