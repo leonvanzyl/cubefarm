@@ -39,6 +39,8 @@ export interface DevPromptInput extends PromptBase {
 
 export interface QaPromptInput extends PromptBase {
   pr: { number: number | string; title: string; headRefName: string; url: string };
+  /** Step 3 of "How to test" for this PR (see qaPrompt.ts); the default when it has no checks. */
+  testStep?: string;
 }
 
 /** Stand-ins for a task's details in a preview. */
@@ -90,7 +92,7 @@ export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fix
     .join('\n');
 }
 
-export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr }: QaPromptInput) {
+export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, testStep }: QaPromptInput) {
   return [
     `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("cubefarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
     ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
@@ -106,7 +108,7 @@ export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr }: QaProm
     'How to test:',
     '1. Read the PR description and the linked issue, and work out the acceptance criteria.',
     `2. Review the code as a careful reviewer would: git diff origin/${repo.defaultBranch}...HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.`,
-    "3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).",
+    testStep ?? "3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).",
     repo.browserTesting
       ? `4. If the project has a UI, start it in the background on port ${port} (reserved for you) and exercise the change in a real browser with the Playwright tools: navigate, click, type, resize to a phone size, try edge cases, and check the console for errors. Take a screenshot with browser_take_screenshot (no filename) of every important state: the screenshots are attached to the PR as evidence. Stop the server afterwards.`
       : '4. Exercise the changed behaviour directly (run the program, call the API, write a quick script).',
