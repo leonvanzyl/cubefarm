@@ -1,5 +1,7 @@
 // Types shared between the swarm server and the 3D client.
 
+import type { AgentStyle } from './looks.ts';
+
 export type AgentStatus =
   | 'idle' // at desk, nothing assigned
   | 'preparing' // setting up the git worktree
@@ -144,6 +146,9 @@ export type AgentRole = 'dev' | 'qa' | 'ceo';
 /** Fixed id of the CEO agent. */
 export const CEO_ID = 'ceo';
 
+/** What the office dog is called until the manager renames it (Settings). */
+export const DEFAULT_DOG_NAME = 'Biscuit';
+
 /** An agent's currentTool while the office installs their desk's dependencies (status 'preparing'). */
 export const INSTALL_STEP = 'Installing dependencies';
 
@@ -197,6 +202,7 @@ export interface AgentView {
   color: string; // shirt color
   hair: string; // hair color
   skin: string;
+  style: AgentStyle | null; // the manager's picks in the look editor (null: the look seeded from their id)
   model: string; // '' = use the swarm default model, or a model id / alias
   effort: EffortLevel | ''; // '' = use the swarm default effort
   cli: AgentCli | ''; // the CLI they run in the terminal runtime ('' = the office default)
@@ -303,6 +309,7 @@ export interface SwarmSettings {
   ceoHeartbeatMin: number; // minutes between the CEO's periodic reviews; 0 = off
   managerName: string; // what the office calls you
   companyName: string;
+  dogName: string; // the office dog's name, on its tag and in the hint when you aim at it
   projectsDir: string; // where your project folders live; new projects are created here
   setupDone: boolean; // the first-run setup wizard has been completed or skipped
   tutorialStep: number; // index of the current tutorial step; -1 when finished or skipped
@@ -310,6 +317,7 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  listen: ListenSettings;
   notify: NotifySettings;
 }
 
@@ -354,6 +362,16 @@ export interface VoiceSettings {
   model: string; // ElevenLabs model id
   speakOffice: boolean; // read the office's own notes too, not just the CEO's messages
   keepDays: number; // saved clips older than this are deleted (1–90; the newest 20 CEO messages' clips always stay)
+}
+
+/** Who turns the manager's speech into text: nobody (no 🎙), the browser's own recognition, or ElevenLabs (with the key). */
+export type ListenProvider = 'off' | 'browser' | 'elevenlabs';
+
+/** Talking instead of typing (docs/voice.md): the 🎙 by every message box, and the phone's hands-free conversation. */
+export interface ListenSettings {
+  provider: ListenProvider;
+  autoSend: boolean; // send once you stop talking (about 1.2 s of quiet), not only when you press Send
+  handsFree: boolean; // after the CEO's spoken reply, the phone listens for up to 8 s and sends what it hears
 }
 
 /** The voice's saved clips: how many and how big, and which phone messages can be replayed from them. */

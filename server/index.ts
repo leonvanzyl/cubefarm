@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { CLIP_MAX_BYTES, CLIP_TOO_BIG } from '../shared/clipLimits.ts';
 import { DAY_PARTS } from '../shared/speech.ts';
 import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
@@ -209,6 +210,17 @@ app.get(
   }),
 );
 app.delete('/api/voice/cache', route(() => swarm.voice.clearCache()));
+// The 🎙 with ElevenLabs: the recorded clip as the raw body (its Content-Type, X-Clip-Ms its length). A body over the
+// cap is refused before it's read, in the same words as clipProblem's.
+const clipBody = express.raw({ type: () => true, limit: CLIP_MAX_BYTES });
+app.post(
+  '/api/voice/transcribe',
+  (req, res, next) => clipBody(req, res, (err?: unknown) => next((err as { type?: unknown } | undefined)?.type === 'entity.too.large' ? new HttpError(413, CLIP_TOO_BIG) : err)),
+  route(async (req) => {
+    const audio = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    return { text: await swarm.voice.transcribe(audio, req.get('content-type'), Number(req.get('x-clip-ms'))) };
+  }),
+);
 app.get(
   '/api/voice/sample',
   route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),

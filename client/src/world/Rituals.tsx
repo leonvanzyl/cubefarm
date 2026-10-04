@@ -99,6 +99,7 @@ const COURIER: Agent = {
   color: '#e63946',
   hair: '#3d2b1f',
   skin: '#d9a066',
+  style: null,
   model: '',
   effort: '',
   cli: '',
