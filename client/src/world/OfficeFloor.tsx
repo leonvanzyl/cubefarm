@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
 import { EMPTY_NUMBERS, signLine } from '../ops';
 import { agentsOnRepo, floorPrCounts, useStore } from '../store';
+import { useKeyName } from '../ui/controls';
 import { ActivityIcon } from './ActivityIcon';
 import { ActivityTicker } from './ActivityTicker';
 import { AppMonitor } from './AppMonitor';
@@ -55,6 +56,7 @@ const DEV_DESKS = Array.from({ length: MAX_DESKS }, (_, slot): [number, number, 
 const QA_DESKS = QA_LAB.stations.map((_, slot): [number, number, number] => [qaDeskPosition(slot).x, 0, qaDeskPosition(slot).z]);
 
 export function OfficeFloor({ repo }: { repo: RepoView }) {
+  const use = useKeyName('interact');
   const allAgents = useStore((s) => s.agents);
   const agents = useMemo(() => agentsOnRepo(allAgents, repo.id), [allAgents, repo.id]);
   const devBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'dev').map((a) => [a.desk, a])), [agents]);
@@ -145,12 +147,12 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
                 { text: `👩‍💻 ${agents.length} on the team`, size: 50, color: '#2d3142' },
                 { text: `⚙️ ${working} busy · 🔍 ${inQa} in QA · ✅ ${ready} to merge`, size: 42, color: '#2d3142', weight: 600 },
                 { text: `📋 ${repo.issues.length} open issue${repo.issues.length === 1 ? '' : 's'}${repo.autoAssign ? ' · ⚡ auto' : ''}`, size: 40, color: '#5c6078', weight: 500 },
-                alarm ? { text: `🚨 ${alarm.text.split(':')[0]} · press E`, size: 38, color: '#d62839' } : { text: ops, size: 36, color: '#3a6ea5', weight: 600 },
+                alarm ? { text: `🚨 ${alarm.text.split(':')[0]} · press ${use}`, size: 38, color: '#d62839' } : { text: ops, size: 36, color: '#3a6ea5', weight: 600 },
               ],
               '#fffdf5',
             )
           }
-          deps={[agents.length, working, inQa, ready, repo.issues.length, repo.autoAssign, ops, alarm?.text]}
+          deps={[agents.length, working, inQa, ready, repo.issues.length, repo.autoAssign, ops, alarm?.text, use]}
         />
         <group position={[4.6, 2.62, HALF_D - 0.12]}>
           <Beacon on={!!alarm} size={0.12} />

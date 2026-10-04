@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useStore } from '../store';
 import { requestLook } from '../world/Player';
 import { CEO_ID, type RepoView } from '../../../shared/types';
+import { Key } from './Key';
 import { ProjectPicker } from './ProjectPicker';
 
 // First run: who you are, the company, your CEO and your first project. Every field has a default, so
@@ -218,10 +219,10 @@ export function SetupWizard() {
                 {hiring === 'approve' ? "Hires wait for your OK." : 'Hires up to 6 per floor go through on their own.'}
               </li>
               <li>
-                📱 Press <kbd>P</kbd> anywhere for your phone: chat with {ceo}, approve hires, and see every project at a glance.
+                📱 Press <Key action="phone" /> anywhere for your phone: chat with {ceo}, approve hires, and see every project at a glance.
               </li>
               <li>
-                🧭 A short tour starts when you walk in. Press <kbd>H</kbd> any time for help.
+                🧭 A short tour starts when you walk in. Press <Key action="help" /> any time for help.
               </li>
             </ul>
             <button className="btn btn-big" onClick={finish} disabled={busy}>

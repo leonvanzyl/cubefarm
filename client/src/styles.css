@@ -634,6 +634,87 @@ input.inline:focus {
   text-shadow: 0 2px 0 var(--ink), 0 0 6px var(--ink);
   pointer-events: none;
 }
+/* The camera's HUD (CameraHud.tsx): the overview button on the floor card, the views' toolbars and the follow banner. */
+.cam-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 0 2px 0 var(--ink);
+  cursor: pointer;
+}
+.cam-btn:hover {
+  background: #fff3e6;
+}
+.cam-btn kbd {
+  font-size: 0.7rem;
+}
+.cam-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--ink);
+}
+.cam-bar kbd {
+  font-size: 0.75rem;
+}
+.cam-title {
+  font-weight: 700;
+  margin-right: 4px;
+}
+.cam-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 4px 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 2px 0 var(--ink), 0 0 6px var(--ink);
+  pointer-events: none;
+}
+.cam-follow {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 8px 6px 14px;
+  font-weight: 600;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 0 4px 0 var(--ink);
+}
+.cam-reticle {
+  pointer-events: none;
+}
 /* Who's working: top right under the status pills. */
 .workers {
   position: absolute;
@@ -1068,6 +1149,92 @@ input.inline:focus {
 }
 .day-settings input[type='radio'] {
   accent-color: var(--accent, #ff8a5b);
+}
+
+/* Help → Controls (ControlsSettings.tsx) */
+.controls h3 {
+  margin: 14px 0 6px;
+}
+.controls-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px 10px;
+  align-items: center;
+}
+.controls-row {
+  display: contents;
+}
+.controls-name {
+  font-size: 0.92rem;
+}
+.controls-slot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 96px;
+}
+.key-btn {
+  min-width: 70px;
+  padding: 3px 10px;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 2px 0 var(--ink);
+  cursor: pointer;
+}
+.key-btn:hover {
+  background: #fff3e6;
+}
+.key-btn-empty {
+  color: var(--muted);
+  border-style: dashed;
+  box-shadow: none;
+}
+.key-btn-wait {
+  background: #ffe066;
+  animation: pop 0.25s ease-out;
+}
+.key-btn-clash {
+  background: #ffd6de;
+  border-color: var(--bad);
+}
+.key-clear {
+  padding: 0 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.controls-note {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.controls-clash {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #9d0208;
+  background: #ffe3e3;
+  border: 2px solid var(--bad);
+  border-radius: 10px;
+}
+.controls-reset {
+  margin-top: 14px;
+}
+.pad-status {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.pad-map {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .sound {

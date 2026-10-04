@@ -10,6 +10,7 @@ import { useInteractable } from '../interact';
 import { GONG_SPOT, HALF_D, SPAWN } from '../layout';
 import { toon } from '../materials';
 import { Outlines } from '../Outlines';
+import { playerAt } from '../camera/rig';
 import { bodyState, liveBodies } from '../people';
 import { walkways } from '../walkways';
 import { Zzz } from '../Zzz';
@@ -299,7 +300,6 @@ function spawn(floor: ToyFloor): Brain {
 }
 
 function DogBody({ floor, level, groups }: { floor: ToyFloor; level: number; groups: number }) {
-  const camera = useThree((s) => s.camera);
   const repoId = useStore((s) => (level === 0 ? null : (repoOnFloor(s.repos, level)?.id ?? null)));
   const brain = useMemo(() => spawn(floor), [floor]);
   const body = useRef<RapierRigidBody>(null);
@@ -421,10 +421,10 @@ function DogBody({ floor, level, groups }: { floor: ToyFloor; level: number; gro
 
     // ---------- what it sees ----------
     const p = env.player!;
-    p.x = camera.position.x;
-    p.z = camera.position.z;
-    p.fx = -Math.sin(camera.rotation.y);
-    p.fz = -Math.cos(camera.rotation.y);
+    p.x = playerAt.x; // where you stand, even while the overview or the follow cam has the camera
+    p.z = playerAt.z;
+    p.fx = -Math.sin(playerAt.yaw);
+    p.fz = -Math.cos(playerAt.yaw);
     p.holding = held;
     s.walking = 0;
     liveBodies().forEach(s.walker);

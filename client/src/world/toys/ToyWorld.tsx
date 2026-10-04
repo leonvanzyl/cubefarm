@@ -6,6 +6,7 @@ import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { DOOR_PASSABLE, doorOpen } from '../doors';
 import { BALCONY_OUT, BALCONY_TOP, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, sideDoorway, type Rect } from '../layout';
+import { playerAt } from '../camera/rig';
 import { bodyState } from '../people';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
@@ -102,15 +103,14 @@ function Building({ floor }: { floor: ToyFloor }) {
 const ZERO = { x: 0, y: 0, z: 0 };
 const STILL = { x: 0, z: 0 };
 
-// The player as the physics world sees them: a capsule from just above the floor to head height that chases the
-// camera. It shoves balls (harder when running, because it moves faster) but nothing ever pushes back on the
+// The player as the physics world sees them: a capsule from just above the floor to head height that chases where
+// they stand (the camera, unless another view has it). It shoves balls (harder when running, because it moves faster) but nothing ever pushes back on the
 // player, who keeps moving with collide() exactly as before.
 // It's a dynamic body steered with force-limited impulses rather than a kinematic one: a kinematic body always
 // wins, so pinning a ball against a wall would squeeze the ball into the wall. This one gives way instead.
 const PUSHER = { half: 0.62, y: 0.95, mass: 4, maxSpeed: 12, maxImpulse: 600 * STEP, teleport: 1.5 };
 
 function Pusher() {
-  const camera = useThree((s) => s.camera);
   const body = useRef<RapierRigidBody>(null);
   const at = useMemo(() => ({ x: 0, y: PUSHER.y, z: 0 }), []);
   const push = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
@@ -118,7 +118,7 @@ function Pusher() {
   useBeforePhysicsStep(() => {
     const b = body.current;
     if (!b) return;
-    const { x, z } = camera.position;
+    const { x, z } = playerAt;
     const l = last.current;
     const still = x === l.x && z === l.z;
     l.x = x;
@@ -158,7 +158,7 @@ function Pusher() {
     <RigidBody
       ref={body}
       colliders={false}
-      position={[camera.position.x, PUSHER.y, camera.position.z]}
+      position={[playerAt.x, PUSHER.y, playerAt.z]}
       gravityScale={0}
       enabledTranslations={[true, false, true]}
       lockRotations
@@ -464,7 +464,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       const b = bodies.current[j];
       if (!b) continue;
       const p = b.translation();
-      if (now > until || Math.hypot(p.x - camera.position.x, p.z - camera.position.z) > defs[j].r + PLAYER_RADIUS + 0.15) {
+      if (now > until || Math.hypot(p.x - playerAt.x, p.z - playerAt.z) > defs[j].r + PLAYER_RADIUS + 0.15) {
         grace.current[j] = 0;
         b.collider(0).setCollisionGroups(TOY_GROUPS);
       }

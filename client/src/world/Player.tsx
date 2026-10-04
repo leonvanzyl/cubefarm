@@ -24,6 +24,10 @@ import { decorationAction } from './decor/actions';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 import { peelAimed, placeSticky, pressBoard, releaseBoard } from './boardHands';
+import { bindings, keyName, useControls } from '../ui/controls';
+import { actionsForKey, anyHeld, isBound, type ActionId, type Scope } from '../ui/keymap';
+import { lookCurve, pad, padName, pollPad, wasPressed, wasReleased, watchPads } from './gamepad';
+import { arriveOnFloor, cameraMode, exitView, homeSpot, lookAllowed, playerAt, rigInput, rigOwnsCamera, rotateView, setHomeLook, stepRig, tapView } from './camera/rig';
 import { leavePerch, perch, takePerchTurn, type Perch } from './perch';
 import { roofAction } from './roof/roofState';
 
@@ -41,7 +45,7 @@ const hushMouse = () => {
 /** Grab the mouse for looking around. Must be called from a click handler. */
 export function requestLook() {
   const s = useStore.getState();
-  if (!canvasEl || s.overlay || !s.started || isConfirmOpen()) return;
+  if (!canvasEl || s.overlay || !s.started || isConfirmOpen() || !lookAllowed()) return;
   const el = canvasEl;
   // Raw (unadjusted) input skips the OS mouse path that produces bogus spikes on Windows.
   // Browsers that can't do it reject with NotSupportedError (Firefox ignores the option).
@@ -131,8 +135,44 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   s.openOverlay(focus.action);
 }
 
-// The keys that walk, and so get you up from a perch (a deck chair, the telescope).
-const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
+/** E (or the pad's A): act on the crosshair's target, even with your hands full (a panel opening drops the ball).
+ * With coffee in hand it takes a sip instead, except at the coffee machine. */
+function interact() {
+  const s = useStore.getState();
+  const act = eAction(s.held, s.focus?.action.kind ?? null);
+  if (act === 'sip') sipCoffee();
+  else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
+  else if (s.focus) runFocusAction(s.focus);
+}
+
+function openPhone() {
+  const s = useStore.getState();
+  s.openOverlay({ kind: 'phone', tab: pendingRequests(s.requests).length && !unreadMessages(s.messages, s.phoneReadAt) ? 'hires' : 'chat' });
+}
+
+/** Which keys are live: on foot everything, the overview its own (Q and E turn it), other views only the basics. */
+const SCOPES: Record<ReturnType<typeof cameraMode>, readonly Scope[]> = {
+  first: ['global', 'move', 'walk'],
+  overview: ['global', 'move', 'overview'],
+  building: ['global', 'move'],
+  follow: ['global', 'move'],
+};
+const MOVES = new Set<ActionId>(['forward', 'back', 'left', 'right']);
+
+/** Back to first person from a view, grabbing the mouse again (a key press may take it) if that setting is on. */
+function leaveView() {
+  exitView();
+  if (useLookPrefs.getState().grabOnClose) requestLook();
+}
+
+/** The pad's B and A while a panel or question is up: Esc and Enter, so each panel closes its own way. */
+const pressKey = (key: 'Escape' | 'Enter') => window.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, bubbles: true }));
+
+/** Right stick at full tilt turns this many radians a second (times the pad sensitivity). */
+const PAD_TURN = 2.6;
+
+/** Whether `code` gets you up from a perch (a deck chair, the telescope): a walking key, or Space. */
+const gotUp = (b: ReturnType<typeof bindings>, code: string) => code === 'Space' || [...MOVES].some((a) => isBound(b, a, code));
 
 const isTyping = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
@@ -148,6 +188,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   const center = useMemo(() => new THREE.Vector2(0, 0), []);
   const frame = useRef(0);
   const lookFilter = useMemo(createLookFilter, []);
+  const padRun = useRef(false);
+  useEffect(() => setHomeLook(() => look.current), []);
   const perched = useRef<Perch | null>(null);
 
   // Arrive at the elevator whenever the floor changes; after a page reload, return to the remembered spot.
@@ -159,10 +201,11 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     if (saved && saved.floor === floor) {
       camera.position.set(saved.x, EYE_HEIGHT, saved.z);
       look.current = { yaw: saved.yaw, pitch: saved.pitch };
-      return;
+    } else {
+      camera.position.set(SPAWN.x, EYE_HEIGHT, SPAWN.z);
+      look.current = { yaw: SPAWN.yaw, pitch: -0.05 };
     }
-    camera.position.set(SPAWN.x, EYE_HEIGHT, SPAWN.z);
-    look.current = { yaw: SPAWN.yaw, pitch: -0.05 };
+    arriveOnFloor({ x: camera.position.x, z: camera.position.z, ...look.current }); // a view carries on from here
   }, [floor, camera]);
   const lastSave = useRef(0);
 
@@ -217,44 +260,50 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       look.current.yaw -= d[0] * k;
       look.current.pitch = Math.max(p?.minPitch ?? -1.35, Math.min(p?.maxPitch ?? 1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
     };
+    // Every key goes through the player's bindings (Help → Controls; ui/keymap.ts), the defaults being the office's keys.
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
       const s = useStore.getState();
-      if (e.code === 'KeyM' && !e.repeat && !isConfirmOpen()) {
+      const b = bindings();
+      if (isBound(b, 'mute', e.code) && !e.repeat && !isConfirmOpen()) {
         toggleMute();
-        s.pushToast('info', getAudioPrefs().muted ? '🔇 Sound off (M to turn it back on)' : '🔊 Sound on');
+        s.pushToast('info', getAudioPrefs().muted ? `🔇 Sound off (${keyName('mute')} to turn it back on)` : '🔊 Sound on');
       }
       if (s.overlay || !s.started || isConfirmOpen()) return;
       keys.current.add(e.code);
-      // Perched (a deck chair, the telescope): walking, Space or E gets you up, though E with food in hand still eats.
-      if (perch() && !e.repeat && (MOVE_KEYS.has(e.code) || (e.code === 'KeyE' && eAction(s.held, s.focus?.action.kind ?? null) !== 'sip'))) {
+      const mode = cameraMode();
+      if (e.code === 'Escape' && mode !== 'first') return exitView();
+      // Perched (a deck chair, the telescope): walking, Space or the use key gets you up, though with food in hand it still eats.
+      if (mode === 'first' && perch() && !e.repeat && (gotUp(b, e.code) || (isBound(b, 'interact', e.code) && eAction(s.held, s.focus?.action.kind ?? null) !== 'sip'))) {
         leavePerch();
         return;
       }
-      // E acts on the crosshair's target, even with your hands full (a panel opening drops the ball). With coffee in
-      // hand it takes a sip instead, except at the coffee machine.
-      if (e.code === 'KeyE' && !e.repeat) {
-        const act = eAction(s.held, s.focus?.action.kind ?? null);
-        if (act === 'sip') sipCoffee();
-        else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
-        else if (s.focus) {
-          if (s.focus.action.kind === 'phone') e.preventDefault(); // don't type the "e" into the phone's message box
-          runFocusAction(s.focus);
+      for (const action of actionsForKey(b, e.code, SCOPES[mode])) {
+        if (MOVES.has(action) && mode === 'follow' && !e.repeat) leaveView(); // any movement key takes over again
+        if (action === 'interact' && !e.repeat) {
+          if (s.focus?.action.kind === 'phone') e.preventDefault(); // don't type the key into the phone's message box
+          interact();
         }
-      }
-      // − and + turn the jukebox down and up while you look at it.
-      if (s.focus?.action.kind === 'jukebox') {
-        if (e.code === 'Minus' || e.code === 'NumpadSubtract') jukeboxAction('vol-');
-        if (e.code === 'Equal' || e.code === 'NumpadAdd') jukeboxAction('vol+');
-      }
-      if (e.code === 'KeyF' && !e.repeat && !s.travel) startCharge();
-      // G puts a sticky down where you aim (or back on the board), peels the one you aim at off, or drops what you hold
-      if (e.code === 'KeyG' && !e.repeat && !placeSticky(s.focus, true) && !peelAimed(s.focus)) dropHeld();
-      if (e.code === 'KeyR' && !e.repeat && !s.travel) reloadHeld();
-      if (e.code === 'KeyH') s.openOverlay({ kind: 'help' });
-      if (e.code === 'KeyP') {
-        e.preventDefault(); // don't type the "p" into the phone's message box
-        s.openOverlay({ kind: 'phone', tab: pendingRequests(s.requests).length && !unreadMessages(s.messages, s.phoneReadAt) ? 'hires' : 'chat' });
+        // − and + turn the jukebox down and up while you look at it.
+        if (action === 'volumeDown' && s.focus?.action.kind === 'jukebox') jukeboxAction('vol-');
+        if (action === 'volumeUp' && s.focus?.action.kind === 'jukebox') jukeboxAction('vol+');
+        if (action === 'throw' && !e.repeat && !s.travel) startCharge();
+        // G puts a sticky down where you aim (or back on the board), peels the one you aim at off, or drops what you hold
+        if (action === 'drop' && !e.repeat && !placeSticky(s.focus, true) && !peelAimed(s.focus)) dropHeld();
+        if (action === 'reload' && !e.repeat && !s.travel) reloadHeld();
+        if (action === 'help') s.openOverlay({ kind: 'help' });
+        if (action === 'phone') {
+          e.preventDefault(); // don't type the "p" into the phone's message box
+          openPhone();
+        }
+        if (action === 'overview') {
+          e.preventDefault(); // Tab: not on to the next button
+          if (e.repeat) continue;
+          tapView(e.timeStamp); // when it was pressed, not when a slow frame let us see it: two quick taps stay quick
+          if (cameraMode() === 'first' && useLookPrefs.getState().grabOnClose) requestLook();
+        }
+        if (action === 'rotateLeft' && !e.repeat) rotateView(-1);
+        if (action === 'rotateRight' && !e.repeat) rotateView(1);
       }
     };
     // The mouse wheel turns the jukebox up and down while you look at it: one step a notch (or a trackpad's worth).
@@ -272,7 +321,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
-      if (e.code === 'KeyF') throwHeld();
+      if (isBound(bindings(), 'throw', e.code)) throwHeld();
     };
     const onBlur = () => {
       keys.current.clear();
@@ -288,8 +337,12 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     window.addEventListener('wheel', onWheel, { passive: true });
     window.addEventListener('blur', onBlur);
     const stopLookLock = watchLookLock(requestLook, hushMouse);
+    const stopPads = watchPads((on, id) =>
+      useStore.getState().pushToast('info', on ? `🎮 ${padName(id)} connected: left stick walks, right stick looks, A uses, Start for the phone` : `🎮 ${padName(id)} disconnected`),
+    );
     return () => {
       stopLookLock();
+      stopPads();
       gl.domElement.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
       for (const type of QUIET_EVENTS) window.removeEventListener(type, onQuietMouse, true);
@@ -302,33 +355,106 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     };
   }, [gl, lookFilter]);
 
+  // The pad's buttons, once a frame after polling: the same actions as the keys (B is Esc, A is E, X picks up or drops).
+  const padButtons = () => {
+    if (!pad.pressed && !pad.released) return;
+    const s = useStore.getState();
+    if (!s.started) return;
+    if (isConfirmOpen()) {
+      if (wasPressed('A')) pressKey('Enter');
+      if (wasPressed('B')) pressKey('Escape');
+      return;
+    }
+    if (wasPressed('B') && (s.overlay || cameraMode() !== 'first')) pressKey('Escape');
+    if (wasPressed('START')) {
+      if (s.overlay?.kind === 'phone') s.openOverlay(null);
+      else if (!s.overlay) openPhone();
+    }
+    if (s.overlay) return;
+    const mode = cameraMode();
+    if (wasPressed('SELECT')) tapView();
+    if (wasPressed('LB')) rotateView(-1);
+    if (wasPressed('RB')) rotateView(1);
+    if (mode !== 'first' || rigOwnsCamera()) return; // in a view, A clicks the middle of the screen (CameraRig.tsx)
+    if (wasPressed('A')) interact();
+    if (wasPressed('X') && !placeSticky(s.focus, true) && !peelAimed(s.focus)) {
+      if (s.held) dropHeld();
+      else if (s.focus?.action.kind === 'pickup') runFocusAction(s.focus);
+    }
+    if (wasPressed('Y') && !s.travel) reloadHeld();
+    if ((wasPressed('RT') || wasPressed('LT')) && !s.travel) startCharge();
+    if (wasReleased('RT') || wasReleased('LT')) throwHeld();
+    if (wasPressed('L3')) padRun.current = !padRun.current;
+  };
+
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
     const s = useStore.getState();
     if (s.overlay || isConfirmOpen()) keys.current.clear();
+    pollPad(performance.now());
+    padButtons();
 
-    // movement
+    // movement: the keys, plus the left stick (which walks slower when pushed less far); L3 runs until you stop
     const k = keys.current;
-    const fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    const strafe = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    const speed = k.has('ShiftLeft') || k.has('ShiftRight') ? 6.5 : 3.6;
-    // Perched, the eye stays put and the view starts the perch's way; got up, you stand at its exit.
+    const b = bindings();
+    const padOn = !s.overlay && !isConfirmOpen() && s.started;
+    const px = padOn ? pad.lx : 0;
+    const py = padOn ? pad.ly : 0;
+    if (!px && !py) padRun.current = false;
+    const fwd = Math.max(-1, Math.min(1, (anyHeld(b, 'forward', k) ? 1 : 0) - (anyHeld(b, 'back', k) ? 1 : 0) - py));
+    const strafe = Math.max(-1, Math.min(1, (anyHeld(b, 'right', k) ? 1 : 0) - (anyHeld(b, 'left', k) ? 1 : 0) + px));
+    const running = anyHeld(b, 'run', k) || padRun.current;
+    const speed = running ? 6.5 : 3.6;
+    tickSip();
+
+    // another view has the camera (camera/rig.ts): you stay where you were standing
+    if (rigOwnsCamera()) {
+      if (cameraMode() === 'follow' && (px || py)) exitView();
+      rigInput.right = strafe;
+      rigInput.forward = fwd;
+      rigInput.fast = running;
+      rigInput.zoom = padOn ? pad.ry : 0;
+      walk.x = 0;
+      walk.z = 0;
+      if (s.focus) s.setFocus(null);
+      footstepsFollow(bob.current, false, false, 'wood');
+      stepRig(dt);
+      const home = homeSpot();
+      const now = performance.now();
+      if (s.started && !s.travel && now - lastSave.current > 1000) {
+        lastSave.current = now;
+        saveView({ floor: s.floor, x: home.x, z: home.z, yaw: home.yaw, pitch: home.pitch });
+      }
+      return;
+    }
+
+    // Perched, the eye stays put and the view starts the perch's way; got up, you stand at its exit. The stick gets you up too.
     const p = perch();
+    if (p && (px || py)) leavePerch();
     if (p !== perched.current) {
       if (!p && perched.current) camera.position.set(perched.current.exit.x, camera.position.y, perched.current.exit.z);
       perched.current = p;
     }
     if (p && takePerchTurn()) look.current = { yaw: p.yaw, pitch: p.pitch };
+
+    // the right stick looks around, no mouse grab needed
+    if (padOn && (pad.rx || pad.ry)) {
+      const turn = PAD_TURN * useControls.getState().padSensitivity * (p?.look ?? 1) * dt;
+      const flip = useLookPrefs.getState().invertY ? -1 : 1;
+      look.current.yaw -= lookCurve(pad.rx) * turn;
+      look.current.pitch = Math.max(p?.minPitch ?? -1.35, Math.min(p?.maxPitch ?? 1.35, look.current.pitch - lookCurve(pad.ry) * turn * 0.75 * flip));
+    }
     const { yaw, pitch } = look.current;
     let moving = false;
     walk.x = 0;
     walk.z = 0;
-    if ((fwd || strafe) && !s.travel && !p) {
+    const tilt = Math.min(1, Math.hypot(fwd, strafe));
+    if (tilt > 0 && !s.travel && !p) {
       const len = Math.hypot(fwd, strafe);
       const sin = Math.sin(yaw);
       const cos = Math.cos(yaw);
-      const dx = ((-sin * fwd + cos * strafe) / len) * speed * dt;
-      const dz = ((-cos * fwd - sin * strafe) / len) * speed * dt;
+      const dx = ((-sin * fwd + cos * strafe) / len) * speed * tilt * dt;
+      const dz = ((-cos * fwd - sin * strafe) / len) * speed * tilt * dt;
       let p = collide(camera.position.x + dx, camera.position.z + dz, colliders);
       const shut = shutDoorways(); // a side door still sliding open
       if (shut.length) p = collide(p.x, p.z, shut);
@@ -340,15 +466,17 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       camera.position.z = p.z;
       moving = true;
     }
-    bob.current += moving ? dt * speed * 2.2 : 0;
+    bob.current += moving ? dt * speed * tilt * 2.2 : 0;
     if (p) {
       camera.position.set(p.x, p.y, p.z);
       p.yaw = yaw;
       p.pitch = pitch;
     } else camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
     footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === ROOF ? 'roof' : floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
-    tickSip();
     camera.rotation.set(pitch + (p?.tilt ?? 0) + sipPose.head, yaw, 0, 'YXZ');
+    playerAt.x = camera.position.x;
+    playerAt.z = camera.position.z;
+    playerAt.yaw = yaw;
 
     const now = performance.now();
     if (s.started && !s.travel && now - lastSave.current > 1000) {
