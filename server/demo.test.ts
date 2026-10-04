@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoPastWeek, demoUsage, fixPromptPull } from './demo.ts';
+import { demoPastWeek, demoTeam, demoUsage, fixPromptPull } from './demo.ts';
 import { KEEP_MS, opsView, startOfDay } from './metrics.ts';
 
 describe('fixPromptPull', () => {
@@ -51,5 +51,18 @@ describe("the demo's mission control", () => {
   it('warns about the weekly limit until midnight, or reaches the limit for 3 minutes', () => {
     expect(demoUsage('warning', NOW)).toEqual({ resetsAt: startOfDay(NOW) + 24 * 3_600_000, rateLimitType: 'seven_day', utilization: 0.91 });
     expect(demoUsage('limit', NOW)).toEqual({ limitResetsAt: NOW + 3 * 60_000 });
+  });
+});
+
+describe("the demo's teams", () => {
+  it('are five developers on floor 1 and three elsewhere, with a tester each, in the usual demo', () => {
+    expect(demoTeam(null, 1)).toEqual({ dev: 5, qa: 1 });
+    expect(demoTeam(null, 2)).toEqual({ dev: 3, qa: 1 });
+  });
+
+  it('fill a big company floor: 15 people are 12 developers and 3 testers', () => {
+    expect(demoTeam({ floors: 10, agents: 15 }, 7)).toEqual({ dev: 12, qa: 3 });
+    expect(demoTeam({ floors: 3, agents: 4 }, 1)).toEqual({ dev: 3, qa: 1 });
+    expect(demoTeam({ floors: 1, agents: 1 }, 1)).toEqual({ dev: 0, qa: 1 });
   });
 });

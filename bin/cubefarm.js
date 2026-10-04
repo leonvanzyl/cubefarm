@@ -24,6 +24,8 @@ const HELP = `
   Options
     --port <n>   port for the office (default 4317)
     --demo       fake GitHub and fake agents: look around without spending any usage
+    --floors <n> --agents <n>
+                 with --demo: a bigger company, n floors with n people each (up to 20 and 15)
     --no-open    don't open the browser
     -v, --version
     -h, --help
@@ -50,6 +52,8 @@ try {
     options: {
       port: { type: 'string', short: 'p' },
       demo: { type: 'boolean' },
+      floors: { type: 'string' },
+      agents: { type: 'string' },
       'no-open': { type: 'boolean' },
       version: { type: 'boolean', short: 'v' },
       help: { type: 'boolean', short: 'h' },
@@ -269,6 +273,8 @@ if (!fs.existsSync(entry)) fail(`${path.relative(process.cwd(), entry) || entry}
 
 process.env.SWARM_PORT = String(port);
 if (demo) process.env.SWARM_DEMO = '1';
+if (values.floors) process.env.SWARM_DEMO_FLOORS = values.floors;
+if (values.agents) process.env.SWARM_DEMO_AGENTS = values.agents;
 process.setSourceMapsEnabled(true);
 // The server loads its state, then listens.
 await import(pathToFileURL(entry).href);

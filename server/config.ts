@@ -11,7 +11,37 @@ export const VERSION: string = JSON.parse(fs.readFileSync(path.resolve(import.me
 export const HOME_DIR = process.env.SWARM_HOME ?? path.join(os.homedir(), '.cubefarm');
 export const WORKSPACE_ROOT = path.join(HOME_DIR, 'workspaces');
 export const DEMO = process.argv.includes('--demo') || process.env.SWARM_DEMO === '1' || process.env.SWARM_DEMO === 'true';
-export const STATE_FILE = path.join(HOME_DIR, DEMO ? 'demo-state.json' : 'state.json');
+
+/** A demo company bigger than the usual two floors, for scale tests: floors, and people on each (#228). */
+export interface DemoScale {
+  floors: number;
+  /** People per floor: up to 12 developers and 3 QA testers (the desks and stations a floor has). */
+  agents: number;
+}
+
+export const DEMO_MAX = { floors: 20, agents: 15 };
+
+/**
+ * `--floors 10 --agents 15` (or `--floors=10`, or SWARM_DEMO_FLOORS / SWARM_DEMO_AGENTS) for the demo's big company;
+ * null when neither is given: the usual demo. Either one alone takes the other from the usual demo's busier floor.
+ */
+export function demoScale(argv: string[], env: NodeJS.ProcessEnv): DemoScale | null {
+  const read = (flag: string, name: string) => {
+    const i = argv.findIndex((a) => a === flag || a.startsWith(`${flag}=`));
+    const raw = i < 0 ? env[name] : argv[i].includes('=') ? argv[i].slice(flag.length + 1) : argv[i + 1];
+    const n = Number(raw);
+    return raw === undefined || raw === '' || !Number.isFinite(n) ? null : Math.round(n);
+  };
+  const floors = read('--floors', 'SWARM_DEMO_FLOORS');
+  const agents = read('--agents', 'SWARM_DEMO_AGENTS');
+  if (floors === null && agents === null) return null;
+  const clamp = (n: number, max: number) => Math.max(1, Math.min(max, n));
+  return { floors: clamp(floors ?? 2, DEMO_MAX.floors), agents: clamp(agents ?? 6, DEMO_MAX.agents) };
+}
+
+export const DEMO_SCALE = DEMO ? demoScale(process.argv, process.env) : null;
+// A big company keeps its own state, so it never mixes with the usual demo's.
+export const STATE_FILE = path.join(HOME_DIR, DEMO ? (DEMO_SCALE ? `demo-${DEMO_SCALE.floors}x${DEMO_SCALE.agents}-state.json` : 'demo-state.json') : 'state.json');
 
 // How often each connected repo's issues and PRs are refreshed from GitHub.
 export const SYNC_INTERVAL_MS = 45_000;

@@ -86,6 +86,8 @@ export interface Backend {
   notify: NotifyTransport;
   /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
   seedOps?(repos: string[], now: number): OpsHistory;
+  /** The demo only: how many developers and QA testers a fresh demo office hires on floor `floor`. */
+  demoTeam?(floor: number): { dev: number; qa: number };
   /** The demo only: Claude's usage warning, or its limit, on demand, as a session would report it. */
   simulateUsage?(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number };
 }

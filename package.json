@@ -39,6 +39,7 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build && node scripts/build-server.mjs",
     "start": "node scripts/office.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "bench": "node scripts/bench.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "pretest:e2e": "node scripts/e2e-check.mjs",

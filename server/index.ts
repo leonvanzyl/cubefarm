@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { DAY_PARTS } from '../shared/speech.ts';
-import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
+import { DEMO, DEMO_SCALE, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
@@ -16,7 +16,7 @@ import { screenStatus } from './screenReply.ts';
 import { parseSendBackNote } from './sendBack.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
-const swarm = new Swarm(DEMO ? createDemoBackend() : realBackend);
+const swarm = new Swarm(DEMO ? createDemoBackend(DEMO_SCALE) : realBackend);
 // Sessions the office picks back up while it starts need the address their CLIs call back on before it listens.
 if (PORT) setOfficeUrl(`http://127.0.0.1:${PORT}`);
 await swarm.init();
@@ -252,7 +252,8 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   setOfficeUrl(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
-  console.log(`\n  🏢 cubefarm on http://localhost:${PORT}${DEMO ? '  (DEMO MODE: fake GitHub + fake agents)' : ''}`);
+  const scale = DEMO_SCALE ? `, ${DEMO_SCALE.floors} floors × ${DEMO_SCALE.agents} people` : '';
+  console.log(`\n  🏢 cubefarm on http://localhost:${PORT}${DEMO ? `  (DEMO MODE: fake GitHub + fake agents${scale})` : ''}`);
   console.log(`     state: ${STATE_FILE}`);
   console.log(`     workspaces: ${WORKSPACE_ROOT}\n`);
 });

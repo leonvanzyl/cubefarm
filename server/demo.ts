@@ -7,7 +7,7 @@ import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionH
 import { CLIS } from './clis.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
-import { HOME_DIR } from './config.ts';
+import { HOME_DIR, type DemoScale } from './config.ts';
 import { DAY_MS, emptyHistory, HOUR_MS, prune, startOfDay, type OpsHistory } from './metrics.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
 import type { UsageWarning } from './pacing.ts';
@@ -75,6 +75,69 @@ seed('demo-co/weather-api', 'Tiny weather REST API', [
   ['Rate limit anonymous callers', '60 requests per minute per IP.'],
   ['OpenAPI spec', 'Publish an OpenAPI 3.1 document at /openapi.json.'],
 ]);
+
+// ---------- the big company (--floors / --agents, #228) ----------
+
+const PRODUCTS: [string, string][] = [
+  ['pixel-todo', 'A cheerful todo app'],
+  ['weather-api', 'Tiny weather REST API'],
+  ['recipe-box', 'Recipes with a shopping list'],
+  ['budget-buddy', 'Personal budgets and bills'],
+  ['chat-lite', 'A small team chat'],
+  ['photo-wall', 'Shared photo albums'],
+  ['fit-log', 'Workouts and streaks'],
+  ['book-club', 'Reading lists for friends'],
+  ['trip-planner', 'Itineraries and packing lists'],
+  ['beat-maker', 'A browser drum machine'],
+  ['garden-diary', 'What to plant and when'],
+  ['habit-hero', 'Daily habits, gently tracked'],
+  ['invoice-flow', 'Invoices for freelancers'],
+  ['pet-pals', 'Vet visits and walks'],
+  ['study-cards', 'Flashcards with spaced repetition'],
+  ['parking-spot', 'Find and share parking'],
+  ['meal-prep', 'Weekly meal plans'],
+  ['job-board', 'A tiny job board'],
+  ['event-hub', 'Meetups and RSVPs'],
+  ['link-short', 'A link shortener with stats'],
+];
+
+const FEATURES = [
+  'Add dark mode', 'Search with filters', 'Export to CSV', 'Keyboard shortcuts', 'Offline support', 'Undo and redo',
+  'Email reminders', 'Drag and drop to reorder', 'Share links', 'Profile pictures', 'Paginate long lists', 'Rate limiting',
+  'An audit log', 'Two-factor login', 'Bulk edit', 'Tags and colours', 'An activity feed', 'Translations',
+  'Accessibility pass', 'Friendly empty states', 'Loading skeletons', 'Fix the flaky date test', 'Speed up the build',
+  'Clearer error messages',
+];
+
+/** The big company's floors: `floors` products, each with a long backlog (topped up as it shrinks, see listIssues). */
+function seedBigCompany(floors: number) {
+  repos.clear();
+  for (let f = 0; f < floors; f++) {
+    const [name, description] = PRODUCTS[f] ?? [`project-${f + 1}`, `Project number ${f + 1}`];
+    seed(`demo-co/${name}`, description, []);
+    topUp(repos.get(`demo-co/${name}`)!, 30);
+  }
+}
+
+/** Files new issues until the repo has `open` of them, so a big floor's developers always have something to pick up. */
+function topUp(r: FakeRepo, open: number) {
+  while (r.issues.length < open) {
+    const n = r.nextNumber++;
+    const feature = FEATURES[n % FEATURES.length];
+    const title = n > FEATURES.length ? `${feature} (part ${Math.ceil(n / FEATURES.length)})` : feature;
+    r.issues.push(issue(n, title, `Users of ${r.fullName.split('/')[1]} asked for this: ${feature.toLowerCase()}.`, r.fullName));
+  }
+}
+
+/**
+ * The people on each demo floor: the usual demo's five developers on floor 1 and three on the others, each with one
+ * QA tester; a big company's `agents` per floor, about one in five a tester (up to the lab's three stations).
+ */
+export function demoTeam(scale: DemoScale | null, floor: number): { dev: number; qa: number } {
+  if (!scale) return { dev: floor === 1 ? 5 : 3, qa: 1 };
+  const qa = Math.max(1, Math.min(3, Math.round(scale.agents / 5)));
+  return { dev: Math.max(0, Math.min(12, scale.agents - qa)), qa };
+}
 
 function screenshotSvg(title: string, url: string, hue: number) {
   const safe = (s: string) => s.replace(/[<>&"]/g, '');
@@ -469,7 +532,9 @@ function fakeUsageWarning(cb: SessionCallbacks) {
   }, 3000);
 }
 
-export function createDemoBackend(): Backend {
+/** The demo's fake world; `scale` (--floors / --agents) makes it the big company instead of the usual two floors. */
+export function createDemoBackend(scale: DemoScale | null = null): Backend {
+  if (scale) seedBigCompany(scale.floors);
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
   // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
@@ -518,7 +583,11 @@ export function createDemoBackend(): Backend {
       if (folders.has(name)) throw new Error(`/demo/projects/${name} already exists. Pick another name, or connect that folder instead.`);
       return { fullName: newRepo(name, opts.description), path: `/demo/projects/${name}` };
     },
-    listIssues: async (fullName) => [...(repos.get(fullName)?.issues ?? [])],
+    listIssues: async (fullName) => {
+      const r = repos.get(fullName);
+      if (r && scale) topUp(r, scale.agents * 2);
+      return [...(r?.issues ?? [])];
+    },
     // Like GitHub's list: the open PRs and the 8 latest merges, never closed ones, so the office asks about those.
     listPulls: async (fullName) => {
       const pulls = repos.get(fullName)?.pulls ?? [];
@@ -660,7 +729,8 @@ export function createDemoBackend(): Backend {
     },
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => {
-      if (++sessionsStarted === USAGE_WARNING_AT) fakeUsageWarning(cb);
+      // The big company is for measuring the office at full speed, so it never paces.
+      if (++sessionsStarted === USAGE_WARNING_AT && !scale) fakeUsageWarning(cb);
       return inTerminal(opts, cb, (c) => (opts.role === 'ceo' ? ceoSession(opts, c) : fakeSession(opts, c, deskRepo.get(opts.cwd) ?? [...repos.keys()][0])));
     },
     terminals: true,
@@ -674,6 +744,7 @@ export function createDemoBackend(): Backend {
     voice: demoVoice,
     notify: demoNotify,
     seedOps: (ids, at) => demoPastWeek(ids, at),
+    demoTeam: (floor) => demoTeam(scale, floor),
     simulateUsage: demoUsage,
   };
 }

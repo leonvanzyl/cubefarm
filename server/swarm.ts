@@ -659,7 +659,9 @@ export class Swarm {
       Object.assign(this.state.settings, { setupDone: true, managerName: 'Demo Manager', companyName: 'Demo Co.' });
       for (const r of await this.backend.listMyRepos()) {
         const repo = await this.connectRepo(r.nameWithOwner);
-        for (let i = 0; i < (repo.floor === 1 ? 5 : 3); i++) this.hireAgent(repo.id, {});
+        const team = this.backend.demoTeam?.(repo.floor) ?? { dev: 3, qa: 1 };
+        for (let i = 0; i < team.dev; i++) this.hireAgent(repo.id, {});
+        for (let i = 1; i < team.qa; i++) this.hireAgent(repo.id, { role: 'qa' }); // connecting hired the first
         this.updateRepo(repo.id, { autoAssign: true });
       }
       // Mission control opens on a week that already happened.
