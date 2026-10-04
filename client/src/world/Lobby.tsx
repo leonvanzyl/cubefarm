@@ -5,6 +5,7 @@ import { CEO_ID } from '../../../shared/types';
 import { ActivityIcon } from './ActivityIcon';
 import { WaitingRoom } from './Candidates';
 import { Desk } from './Desk';
+import { Kiosk, TrophyShelf } from './decor/RewardsCorner';
 import { drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
@@ -368,6 +369,8 @@ export function Lobby() {
       <Toys floor="lobby" />
       <Directory />
       <TrophyCabinet />
+      <Kiosk />
+      <TrophyShelf />
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
       <Couch position={[11.5, 0, 4]} rotationY={Math.PI} color="#4cc9f0" />
       <CoffeeTable position={[11.5, 0, 6.2]} />

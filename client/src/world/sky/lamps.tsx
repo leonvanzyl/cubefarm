@@ -48,8 +48,14 @@ const BULB_ON = new THREE.Color('#fffbe8');
 /** The balcony lamps' bulbs: a dull diffuser by day, lit at night. */
 export const balconyBulb = new THREE.MeshBasicMaterial({ color: BULB_OFF, toneMapped: false });
 
+let lampLevel = 0;
+
+/** How far the lamps are on, 0..1 (the roof's string lights follow it). */
+export const lampsOn = () => lampLevel;
+
 /** How far the lamps are on, 0..1: called by DayLights when the time of day moves. */
 export function setLamps(level: number) {
+  lampLevel = level;
   lampHalo.opacity = level * HALO;
   lampHalo.visible = level > 0.01;
   balconyBulb.color.lerpColors(BULB_OFF, BULB_ON, level);

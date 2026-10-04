@@ -38,6 +38,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 ## What's in the office
 
 - **Floors**: one per project. Ride the elevator between them.
+- **The roof**: the elevator's top stop. A garden, deck chairs to sit back in, a barbecue for a sausage, a telescope for the billboards by day and the moon and constellations by night, string lights at dusk and a helipad. Idle agents come up for a break now and then.
 - **Desks**: walk up behind an agent to watch their monitor. Open it to see their real terminal: every agent is an actual coding agent running on your machine, and you can type into it. It also shows a live browser when they test the UI. Pick the coding agent, model and effort for the whole team or per agent.
 - **The QA lab**: every floor has at least one QA tester.
 - **The whiteboard**: the Kanban board, from backlog to merged. Aim at a sticky and press `E` to read it up close, or peel a Backlog sticky off with `G` and carry it to a free developer's desk to hand them the issue. Red strings join issues to the ones they depend on, and the corner counts today's merges, the issue-to-merge time, the QA queue and anything that needs you.
@@ -59,6 +60,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | mouse | look around (click the view first) |
 | `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine |
 | `E` with coffee | take a sip (three to a mug, the last a big gulp) |
+| `E` on the roof | sit back in a deck chair, grill (and eat) a sausage, look through the telescope (mouse wheel zooms) |
 | `F` / left click, holding something | throw a ball (hold to charge) or fire a blaster |
 | `G` | drop what you're holding, or peel the whiteboard sticky you aim at off the board |
 | `R` | reload a blaster |

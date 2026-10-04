@@ -4,6 +4,7 @@ import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
 import { CardView } from './CardView';
+import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ElevatorPanel } from './ElevatorPanel';
 import { Interview } from './Interview';
 import { KanbanView } from './KanbanView';
@@ -168,6 +169,11 @@ function Help() {
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the glass door. Walk up to one and press <kbd>E</kbd> to interview them: hire them and they shake your hand and take the elevator up to their floor for a welcome tour; decline and they leave by the door. When the CEO suggests letting someone go, an envelope waits on their desk. Every connected GitHub repo gets its own
           floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
         </p>
+        <p>
+          The elevator's top stop is the roof terrace (<kbd>R</kbd> on its panel). Sit back in a deck chair (<kbd>E</kbd>; walk or press <kbd>E</kbd> to get up), grill a sausage at the barbecue (<kbd>E</kbd> puts one
+          on and turns it, <kbd>E</kbd> again takes it once it's done, then <kbd>E</kbd> eats it a bite at a time), or look through the telescope (<kbd>E</kbd>; the mouse aims and the wheel zooms): the
+          billboards on the rooftops by day, the moon and the constellations at night. The string lights come on at dusk. Idle teammates go up for a break now and then, and the CEO takes calls up there.
+        </p>
         <h3>Mission control</h3>
         <p>
           The curved bank of screens behind reception shows the whole company at a glance: the pipeline (issues ready, being built, in QA, being fixed, ready to merge, needing you), merges today and over the last 24 hours, lead time, QA wait and CI, who's busy, and an estimate of today's cost. Each floor's team sign has a short line of its own numbers. The bottom middle screen is Claude's usage meter: while the office paces itself after a usage warning, press <kbd>E</kbd> on it to resume full speed (if you've topped up or your usage was reset). When a PR needs you, or someone has been stuck on an error for 10 minutes, the beacon on top spins (and the one on that floor's sign) with a calm chime: press <kbd>E</kbd> on it to open the console at that card. The manager's console has it all too, under Mission control.
@@ -196,6 +202,17 @@ function Help() {
         <p>
           <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model, effort, title, specialty and job description. Changes apply from their next task, so nothing is interrupted.
           Open <b>What they're told</b> there to read the full prompt the office gives them, with their job description highlighted. The CEO's model, effort and prompt are in the console's CEO tab.
+        </p>
+        <h3>Coins, decorations and trophies</h3>
+        <p>
+          Every merged PR earns its floor coins (🪙 at the top right): 10 a merge, 5 more when QA passed it first time, 5 when its checks were green first time, and 10 for the third merge on a floor within an hour. Nothing
+          ever costs coins but the catalogue. Spend them at the catalogue kiosk in the lobby; what you buy waits in the floor's 📦 decor box by its elevator. Take something out, walk to a glowing spot and press <kbd>E</kbd>:
+          it snaps in. <kbd>E</kbd> on a placed decoration picks it up to move it, and the box puts things away. The arcade cabinet plays your phone's games. Achievements fill the trophy shelf in the lobby: <kbd>E</kbd> on a
+          trophy says what it was for and when.
+        </p>
+        <p>
+          Desks tell their owner's story: a plaque on the monitor for every merged PR, a gold star for ten first-time QA passes, specialty stickers, and a plant, a photo and a desk toy that arrive with time on the team. Look at a
+          desk for a moment to see its career card (or open <b>🏅 Career</b> in their panel); the console's Team tab compares everyone.
         </p>
         <h3>The QA lab</h3>
         <p>
@@ -244,5 +261,9 @@ export function Overlays() {
       return <Interview requestId={overlay.requestId} />;
     case 'help':
       return <Help />;
+    case 'catalogue':
+      return <Catalogue repoId={overlay.repoId} />;
+    case 'decor-box':
+      return <DecorBoxPanel repoId={overlay.repoId} />;
   }
 }
