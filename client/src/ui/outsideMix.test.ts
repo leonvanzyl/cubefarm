@@ -14,9 +14,11 @@ import {
   nextBirdIn,
   nextCarIn,
   nextCricketIn,
+  nextDueAt,
   OPEN_HZ,
   outsideHearing,
   outsideLayers,
+  RECHECK,
 } from './outsideMix';
 
 const SHUT = { west: 0, east: 0 };
@@ -154,6 +156,24 @@ describe('bursts are rate-limited', () => {
     expect(nextBirdIn(0, 0.5)).toBe(Infinity);
     expect(nextCricketIn(0, 0.5)).toBe(Infinity);
     expect(nextCarIn(0, 0.5)).toBe(Infinity);
+  });
+
+  it('keeps checking through the night, so the birds come back in the morning', () => {
+    expect(nextDueAt(10, Infinity)).toBe(10 + RECHECK);
+    expect(nextDueAt(10, 3)).toBe(13);
+    expect(outsideLayers(0.95).birds).toBeLessThan(0.05);
+    // Tick a bird schedule second by second through a night (t 0.95), then a day (t 0.5), as outsideSfx does.
+    let first = -1;
+    for (let now = 0, due = 0; now < 600 && first < 0; now++) {
+      if (now < due) continue;
+      const wait = nextBirdIn(outsideLayers(now < 300 ? 0.95 : 0.5).birds, 0.5);
+      due = nextDueAt(now, wait);
+      expect(Number.isFinite(due)).toBe(true);
+      if (Number.isFinite(wait)) first = now;
+    }
+    // No call at night; the first of the day within one recheck of sunrise.
+    expect(first).toBeGreaterThanOrEqual(300);
+    expect(first).toBeLessThanOrEqual(300 + RECHECK);
   });
 });
 

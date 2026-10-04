@@ -18,8 +18,10 @@ import {
   nextBirdIn,
   nextCarIn,
   nextCricketIn,
+  nextDueAt,
   outsideHearing,
   outsideLayers,
+  RECHECK,
   type Note,
   type OutsideHearing,
   type OutsideLayers,
@@ -151,17 +153,19 @@ function tick() {
     return;
   }
   if (now >= next.bird) {
-    next.bird = now + nextBirdIn(layers.birds, Math.random());
-    if (layers.birds >= 0.05) bird(g, level);
+    const wait = nextBirdIn(layers.birds, Math.random());
+    next.bird = nextDueAt(now, wait);
+    if (Number.isFinite(wait)) bird(g, level);
   }
   if (now >= next.car) {
-    next.car = now + nextCarIn(layers.carsPerMin, Math.random());
-    car(g, level);
+    const wait = nextCarIn(layers.carsPerMin, Math.random());
+    next.car = nextDueAt(now, wait);
+    if (Number.isFinite(wait)) car(g, level);
   }
   for (let i = 0; i < CRICKETS; i++) {
     if (now < next.cricket[i]) continue;
     if (layers.crickets < 0.05) {
-      next.cricket[i] = now + 5;
+      next.cricket[i] = now + RECHECK;
       continue;
     }
     const pulses = cricketPhrase(Math.random);

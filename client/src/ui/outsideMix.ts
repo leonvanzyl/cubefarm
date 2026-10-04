@@ -131,6 +131,14 @@ export function nextCricketIn(crickets: number, roll: number): number {
   return MIN_GAP.cricket + (0.5 + 4 * clamp01(roll)) / crickets;
 }
 
+/** Seconds before looking again for a burst that isn't due at all (no birds at night, no crickets by day). */
+export const RECHECK = 5;
+
+/** When a burst checked `now` is next due, given its wait: never Infinity, so it comes back when its layer does. */
+export function nextDueAt(now: number, wait: number): number {
+  return now + (Number.isFinite(wait) ? wait : RECHECK);
+}
+
 // ---------- the calls themselves ----------
 
 /** One note: starts `at` seconds into the call, glides from `from` to `to` Hz over `dur`, at `peak` (0-1 of the call's level). */
