@@ -7,6 +7,7 @@ import { ACCENTS, appearanceFor } from './appearance';
 import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
+import { FaceGlow } from './gfx/ScreenGlow';
 import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
@@ -44,6 +45,8 @@ const POSES: Record<PoseName, Pose> = {
 const clone = (p: Pose): Pose => ({ ...p, l: { ...p.l }, r: { ...p.r } });
 const lerp = THREE.MathUtils.lerp;
 const INK = '#1f1d2b';
+/** Marks a person's root, so High's contact-shadow bake (gfx/ContactShadows.tsx) can leave people out of it. */
+const PERSON = { person: true };
 // Glasses frames, picked by the same accent index as hats and stripes.
 const FRAMES = ['#1f1d2b', '#7f5539', '#1f1d2b', '#c1121f', '#355070', '#1f1d2b'];
 
@@ -533,7 +536,7 @@ export function Character({
   );
 
   return (
-    <group ref={root}>
+    <group ref={root} userData={PERSON}>
       <group ref={body}>
         <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />
@@ -638,6 +641,7 @@ export function Character({
             <mesh geometry={PARTS.head} material={skin} castShadow>
               <Outlines thickness={0.015} color={INK} angle={0} />
             </mesh>
+            {chair && <FaceGlow id={agent.id} geometry={PARTS.head} />}
             {hairGeo && (
               <mesh geometry={hairGeo} material={hair} castShadow={outlinedHair}>
                 {outlinedHair && <Outlines thickness={0.012} color={INK} angle={0} />}

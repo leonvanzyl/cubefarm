@@ -6,6 +6,8 @@ import { loadScreenshot } from '../screenshot';
 import { drawAppScreen } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { APP_SCREEN, HALF_D } from './layout';
+import { BLOOM } from './gfx/bloomMarks';
+import { AppScreenGlow } from './gfx/ScreenGlow';
 import { glow, mix } from './materials';
 import { Box } from './Toon';
 
@@ -67,8 +69,9 @@ export function AppMonitor({ repo, agents }: { repo: RepoView; agents: Agent[] }
       <Box size={[outerW, outerH, s.depth]} position={[0, 0, s.depth / 2]} color={BEZEL} outline shadow={false} />
       <mesh position={[0, 0, s.depth + 0.002]}>
         <planeGeometry args={[s.w, s.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
+      <AppScreenGlow color={repo.color} height={s.y} />
       <mesh position={[s.w / 2 - 0.04, -s.h / 2 - s.bezel / 2, s.depth + 0.002]} material={glow(LED[p.status] ?? '#6c7086')}>
         <circleGeometry args={[0.022, 12]} />
       </mesh>

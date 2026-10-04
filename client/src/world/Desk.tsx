@@ -8,6 +8,8 @@ import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
+import { BLOOM } from './gfx/bloomMarks';
+import { DeskGlow } from './gfx/ScreenGlow';
 import { glow, shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
@@ -133,7 +135,7 @@ function LiveMonitor({ agent, accent }: { agent: Agent; accent: string }) {
     <Monitor accent={accent}>
       <mesh ref={screenRef} position={[0, 0, 0.026]}>
         <planeGeometry args={[SCREEN.w, SCREEN.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
     </Monitor>
   );
@@ -158,7 +160,7 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
     <Monitor accent={accent}>
       <mesh position={[0, 0, 0.026]}>
         <planeGeometry args={[SCREEN.w, SCREEN.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
     </Monitor>
   );
@@ -293,6 +295,7 @@ export const Desk = memo(function Desk({
       ) : (
         <VacantMonitor accent={accent} qa={qa} />
       )}
+      <DeskGlow color={accent} />
       {qa ? (
         // test-tube rack: every good QA desk has one
         <group position={[-0.72, 0.77, -0.2]}>

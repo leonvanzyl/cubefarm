@@ -5,6 +5,7 @@ import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders } from './layout';
+import { Graphics } from './gfx/Graphics';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Outside } from './Outside';
@@ -72,6 +73,7 @@ export function Game() {
       <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
+      <Graphics paused={paused} />
       {statsEnabled && <StatsProbe paused={paused} />}
     </Canvas>
   );
