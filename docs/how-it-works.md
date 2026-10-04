@@ -43,7 +43,7 @@ You can message an agent at any time. While they're working, the message is inje
 
 ## The team
 
-Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team.
+Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
 
 ## Models and usage
 
@@ -77,6 +77,9 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 - `~/.cubefarm/sessions/<token>/`: a running CLI session's settings, MCP config and instructions (removed when it ends); `~/.cubefarm/bin/`: the small scripts the CLIs call back to the office with
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
 - `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent
+- `~/.cubefarm/leftovers/<owner>__<repo>/`: work saved from desks the office swept away
+
+Every 30 minutes (and when a floor starts, or someone is let go) the office sweeps each floor: it removes desks nobody uses any more and the finished `swarm/issue-*` and `qa/pr-*` branches nobody has checked out or has an open PR for. A desk with uncommitted changes to tracked files or unpushed commits is saved as a `.patch` in `leftovers/` first, and a folder that a program still has open is left for the next sweep. Your own branches and worktrees outside `desks/` are never touched.
 
 Workspaces live outside this project on purpose: agents working in them never pick up this project's `CLAUDE.md`.
 

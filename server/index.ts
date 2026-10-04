@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
+import { z } from 'zod';
 import { DEMO, PORT, STATE_FILE, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
 import { underLauncher } from './officeUpdate.ts';
+import { parseSendBackNote } from './sendBack.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
 const swarm = new Swarm(DEMO ? createDemoBackend() : realBackend);
@@ -114,6 +116,7 @@ app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(r
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
+app.post('/api/repos/:repo/pulls/:n/fix', route((req) => swarm.sendBackToDev(repoId(req), num(req.params.n), parseSendBackNote(req.body))));
 app.post(
   '/api/repos/:repo/agents',
   route((req) =>
@@ -146,6 +149,29 @@ app.get('/api/agents/:id/screen', (req, res) => {
 });
 
 app.patch('/api/settings', route((req) => swarm.updateSettings(req.body ?? {})));
+
+// Phone messages read aloud (docs/voice.md). The key goes in and never comes back out.
+const parse = <T>(schema: z.ZodType<T>, value: unknown): T => {
+  const r = schema.safeParse(value);
+  if (!r.success) throw new HttpError(400, r.error.issues.map((i) => `${i.path.join('.') || 'request'}: ${i.message}`).join('; '));
+  return r.data;
+};
+const sendAudio = (res: Response, audio: Buffer) => {
+  // Real clips are mp3; the demo's chime is a WAV.
+  res.setHeader('Content-Type', audio.subarray(0, 4).toString('latin1') === 'RIFF' ? 'audio/wav' : 'audio/mpeg');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.end(audio);
+};
+app.put('/api/voice/key', route((req) => swarm.voice.setKey(parse(z.object({ key: z.string().max(400) }), req.body).key)));
+app.get('/api/voice/voices', route(() => swarm.voice.voices()));
+app.get(
+  '/api/voice/messages/:id',
+  route(async (req, res) => sendAudio(res, await swarm.voice.messageAudio(parse(z.object({ id: z.coerce.number().int().positive() }), req.params).id))),
+);
+app.get(
+  '/api/voice/sample',
+  route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),
+);
 // The office's own update: Update now / Later
 app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.action)));
 

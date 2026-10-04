@@ -113,6 +113,27 @@ export function KanbanView({ repoId }: { repoId: string }) {
     );
     if (ok) void act(c.key, () => api.mergePull(repo.id, c.number));
   };
+  const sendBack = async (c: KanbanCard) => {
+    let note = '';
+    const ok = await confirmDialog({
+      icon: '🔧',
+      title: `Send PR #${c.number} back to a developer?`,
+      body: (
+        <>
+          <p>Its author, or any free developer, fixes it with QA's findings, then QA tests it once more.</p>
+          <input
+            maxLength={1000}
+            placeholder="Optional note, e.g. merge main and keep both e2e tests"
+            aria-label="Note for the developer"
+            ref={(el) => void (el && setTimeout(() => el.focus(), 0))}
+            onChange={(e) => (note = e.target.value)}
+          />
+        </>
+      ),
+      confirm: 'Send back',
+    });
+    if (ok) void act(c.key, () => api.sendBack(repo.id, c.number, note.trim() || undefined));
+  };
   const previewButton = (c: KanbanCard) => (
     <button
       className="btn btn-small"
@@ -251,6 +272,11 @@ export function KanbanView({ repoId }: { repoId: string }) {
                 {(!st || st === 'needs-human') && (
                   <button className="btn btn-small btn-good" disabled={pending === c.key} onClick={() => act(c.key, () => api.sendToQa(repo.id, c.number))}>
                     {st === 'needs-human' ? 'Retry QA' : 'Send to QA'}
+                  </button>
+                )}
+                {(st === 'needs-human' || st === 'failed') && (
+                  <button className="btn btn-small" disabled={pending === c.key} title="Hand it to a developer with QA's findings and your note, without another QA round first" onClick={() => sendBack(c)}>
+                    Send back to dev
                   </button>
                 )}
                 {st === 'needs-human' && (

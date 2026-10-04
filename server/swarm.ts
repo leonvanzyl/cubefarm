@@ -7,14 +7,17 @@ import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { depsPromptLine, type DepsOutcome } from './deps.ts';
 import { setUpDesk } from './deskSetup.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
+import { conflictFixInstructions, lastQaRound, qaOutcome, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
+import { sendBackPatch } from './sendBack.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
@@ -22,9 +25,10 @@ import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type La
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
+import { DEFAULT_VOICE, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
-import { CEO_ID } from '../shared/types.ts';
+import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentCli,
   AgentLook,
@@ -217,7 +221,6 @@ const FEMININE_NAMES = new Set(
 const lookFor = (name: string): AgentLook => (FEMININE_NAMES.has(name.trim().split(/\s+/)[0].toLowerCase()) ? 'feminine' : 'masculine');
 const LOOKS: AgentLook[] = ['feminine', 'masculine'];
 const MAX_DESKS: Record<AgentRole, number> = { ...FLOOR_DESKS, ceo: 1 };
-const MAX_QA_ROUNDS = 3;
 // Every agent runs Claude Opus 5.5 at medium effort unless the manager overrides it.
 const DEFAULT_MODEL = 'claude-opus-5-5';
 const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -369,6 +372,7 @@ export class Swarm {
       tutorialStep: 0,
       autoUpdate: true,
       pacingSessions: DEFAULT_PACING_SESSIONS,
+      voice: { ...DEFAULT_VOICE },
     },
     repos: [],
     agents: [],
@@ -420,8 +424,19 @@ export class Swarm {
   };
   private lastOfficeView = '';
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
+  /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
+  readonly voice: Voice;
 
   constructor(private backend: Backend) {
+    this.voice = new Voice({
+      api: backend.voice,
+      secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
+      cacheDir: path.join(HOME_DIR, backend.demo ? 'demo-voice' : 'voice'),
+      settings: () => this.state.settings.voice,
+      message: (id) => this.state.messages.find((m) => m.id === id),
+      officeNote: (text) => this.postMessage('office', text),
+      keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
+    });
     this.previews = new Previews(backend, {
       emit: (id) => {
         const r = this.state.repos.find((x) => x.id === id);
@@ -491,6 +506,7 @@ export class Swarm {
         delete old.maxConcurrent;
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
+      this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -498,6 +514,7 @@ export class Swarm {
     } catch {
       // first run
     }
+    await this.voice.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
     for (const a of this.state.agents) {
@@ -713,6 +730,7 @@ export class Swarm {
       phoneReadAt: this.state.phoneReadAt,
       usage: this.usageNow(),
       clis: this.clis,
+      ...this.voice.keyView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
@@ -1585,8 +1603,8 @@ export class Swarm {
     t.attach(ws);
   }
 
-  private buildSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, fixing?: { pr: number; headRef: string }) {
-    return devSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, linked: this.linkedDirs(repo), fixing });
+  private buildSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, fixing?: { pr: number; headRef: string }, deps?: DepsOutcome) {
+    return devSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, linked: this.linkedDirs(repo), fixing, depsLine: depsPromptLine(deps) });
   }
 
   private linkedDirs(repo: PersistedRepo) {
@@ -1626,7 +1644,7 @@ export class Swarm {
     this.save();
   }
 
-  private async prepare(a: PersistedAgent, repo: PersistedRepo, base: { pr?: number }, branch: string): Promise<string | null> {
+  private async prepare(a: PersistedAgent, repo: PersistedRepo, base: { pr?: number }, branch: string): Promise<{ cwd: string; deps: DepsOutcome } | null> {
     try {
       if (this.repoRt.get(repo.id)?.cloneStatus !== 'ready') await this.cloneRepo(repo.id);
       const slug = this.agentSlug(a);
@@ -1636,7 +1654,10 @@ export class Swarm {
         prepare: () => this.backend.prepareDesk(repo.fullName, { defaultBranch: repo.defaultBranch, pr: base.pr }, slug, branch, note),
       });
       this.deskAlerts.delete(a.id);
-      return a.status === 'preparing' ? cwd : null; // null: stopped or fired while preparing
+      if (a.status !== 'preparing') return null; // stopped or fired while preparing
+      // Outside the repo's git lock, so other desks keep checking out meanwhile. A failed install never fails the task.
+      const deps = await this.installDeps(a, cwd);
+      return a.status === 'preparing' ? { cwd, deps } : null;
     } catch (err) {
       if (a.status !== 'preparing') return null;
       a.status = 'error';
@@ -1654,6 +1675,26 @@ export class Swarm {
     }
   }
 
+  /** The desk's dependencies, shown on the agent's card ("Installing dependencies") while npm runs. */
+  private async installDeps(a: PersistedAgent, cwd: string): Promise<DepsOutcome> {
+    const rt = this.agentRt.get(a.id);
+    try {
+      return await this.backend.installDeps(cwd, {
+        log: (lines) => this.appendLog(a, lines.map((text) => ({ kind: text.startsWith('⚠') ? 'error' : 'system', text }))),
+        installing: () => {
+          if (!rt) return;
+          rt.currentTool = INSTALL_STEP;
+          this.emitAgent(a);
+        },
+      });
+    } finally {
+      if (rt?.currentTool === INSTALL_STEP) {
+        rt.currentTool = null;
+        this.emitAgent(a);
+      }
+    }
+  }
+
   private async runTask(a: PersistedAgent, repo: PersistedRepo, issue: IssueInfo, note?: string) {
     const branch = devBranch(issue.number, slugify(a.name));
     this.beginTask(
@@ -1662,8 +1703,9 @@ export class Swarm {
       `Issue #${issue.number}: ${issue.title}`,
       `Preparing worktree on ${branch}…`,
     );
-    const cwd = await this.prepare(a, repo, {}, branch);
-    if (!cwd) return;
+    const desk = await this.prepare(a, repo, {}, branch);
+    if (!desk) return;
+    const { cwd } = desk;
 
     const prompt = [
       `Please resolve GitHub issue #${issue.number}: ${issue.title}`,
@@ -1676,7 +1718,7 @@ export class Swarm {
       .filter(Boolean)
       .join('\n');
 
-    this.startAgentSession(a, repo, cwd, prompt, this.buildSystemAppend(a, repo, cwd, branch));
+    this.startAgentSession(a, repo, cwd, prompt, this.buildSystemAppend(a, repo, cwd, branch, undefined, desk.deps));
   }
 
   private startAgentSession(
@@ -1888,8 +1930,24 @@ export class Swarm {
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
-  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string) {
-    return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr, testStep });
+  /** Manager's "send back to dev" for a PR that needs a human or failed QA: a developer fixes it, with the note. */
+  async sendBackToDev(repoId: string, prNumber: number, note?: string) {
+    const repo = this.repo(repoId);
+    const find = () => this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === prNumber);
+    const listed = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === prNumber);
+    sendBackPatch(prNumber, listed, find(), repo.defaultBranch, note); // refuse before asking GitHub
+    // The last sync's mergeability may be stale or UNKNOWN: ask about the PR itself whether it conflicts now.
+    const details = await this.backend.prDetails(repo.fullName, prNumber).catch(() => null);
+    const pr = details && listed ? { ...listed, state: details.state, mergeable: details.mergeable, mergeState: details.mergeState } : listed;
+    const rec = find();
+    const patch = sendBackPatch(prNumber, pr, rec, repo.defaultBranch, note);
+    this.setQa(rec!, patch);
+    setTimeout(() => this.schedule(), 200);
+    this.toast('info', `PR #${prNumber} goes back to a developer${patch.fixReason === 'conflict' ? ' to resolve its conflicts' : ''}`);
+  }
+
+  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string, deps?: DepsOutcome) {
+    return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr, testStep, depsLine: depsPromptLine(deps) });
   }
 
   private async runQa(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord) {
@@ -1929,18 +1987,21 @@ export class Swarm {
       return;
     }
 
-    const cwd = await this.prepare(a, repo, { pr: rec.prNumber }, branch);
-    if (!cwd) {
+    const desk = await this.prepare(a, repo, { pr: rec.prNumber }, branch);
+    if (!desk) {
       if (this.state.qa.includes(rec) && rec.status === 'testing') this.setQa(rec, { status: 'queued', qaAgentId: null });
       return;
     }
+    const { cwd } = desk;
 
     const dev = rec.devAgentId ? this.state.agents.find((x) => x.id === rec.devAgentId) : null;
+    // A last-round fail sent back for a merge fix (QA never passed it): QA's findings first, then a full re-check.
+    const failedConflict = rec.fixReason === 'conflict' && !rec.passedSha;
     const qa = qaInstructions({
       ...pr,
       round: rec.round,
-      fixReason: rec.fixReason,
-      lastTestedSha,
+      fixReason: failedConflict ? 'qa' : rec.fixReason,
+      lastTestedSha: failedConflict ? null : lastTestedSha,
       summary: rec.summary,
       fixInstructions: rec.fixInstructions,
       defaultBranch: repo.defaultBranch,
@@ -1959,7 +2020,7 @@ export class Swarm {
       .filter((l) => l !== '')
       .join('\n');
 
-    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr, qa.testStep), undefined, QA_SCHEMA);
+    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr, qa.testStep, desk.deps), undefined, QA_SCHEMA);
   }
 
   private async onQaFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
@@ -1988,22 +2049,26 @@ export class Swarm {
     // Evidence + comment on the PR
     let commentUrl: string | null = null;
     if (rec) {
+      // A fail that would use up QA's rounds: a conflict with the default branch is the merge gate's job, not the manager's.
+      const pull = !pass && lastQaRound(rec) ? await this.backend.prDetails(repo.fullName, rec.prNumber).catch(() => null) : null;
+      const next = qaOutcome(pass, rec, pull);
       try {
         this.appendLog(a, [{ kind: 'system', text: '📎 Uploading evidence and posting the QA report on the PR…' }]);
-        const body = await this.renderQaComment(a, repo, rec, report, rt.shots);
+        const body = await this.renderQaComment(a, repo, rec, report, rt.shots, next);
         commentUrl = (await this.backend.commentPull(repo.fullName, rec.prNumber, body)) || null;
         this.appendLog(a, [{ kind: 'system', text: `  ⎿ ${commentUrl ?? 'comment posted'}` }]);
       } catch (err) {
         this.appendLog(a, [{ kind: 'error', text: `  ⎿ Could not post the QA report: ${(err as Error).message}` }]);
       }
       const qaRounds = rec.round - rec.retests; // rounds QA itself asked for
-      const nextStatus = pass ? 'passed' : qaRounds >= MAX_QA_ROUNDS ? 'needs-human' : 'failed';
+      const nextStatus = next === 'conflict' ? 'failed' : next;
+      const fixInstructions = report.fixInstructions ?? report.checks.filter((c) => c.result === 'fail').map((c) => `${c.name}: ${c.details}`).join('\n');
       this.setQa(rec, {
         status: nextStatus,
         summary: report.summary,
         checks: report.checks,
         commentUrl: commentUrl ?? rec.commentUrl,
-        fixInstructions: report.fixInstructions ?? report.checks.filter((c) => c.result === 'fail').map((c) => `${c.name}: ${c.details}`).join('\n'),
+        fixInstructions,
         sessionFailures: 0,
         fixReason: pass ? null : 'qa',
         passedSha: pass ? rec.testedSha : null,
@@ -2012,18 +2077,22 @@ export class Swarm {
         mergeRetryAt: null,
         alerted: false,
       });
+      // QA's findings travel with the merge fix; the developer's push then gets one more QA round.
+      if (next === 'conflict') this.sendBack(repo, rec, 'conflict', conflictFixInstructions(fixInstructions, repo.defaultBranch), false);
       this.toast(
         pass ? 'success' : 'error',
         pass
           ? `✅ ${a.name} passed PR #${rec.prNumber}${repo.autoMerge ? "; it merges once GitHub's checks are green" : ': ready to merge'}`
           : nextStatus === 'needs-human'
             ? `❌ PR #${rec.prNumber} failed QA ${qaRounds} times and needs a human`
-            : `❌ ${a.name} failed PR #${rec.prNumber}; sending it back to the developer`,
+            : next === 'conflict'
+              ? `❌ ${a.name} failed PR #${rec.prNumber}, and it conflicts with ${repo.defaultBranch}; sending it back to merge and fix`
+              : `❌ ${a.name} failed PR #${rec.prNumber}; sending it back to the developer`,
       );
     }
   }
 
-  private async renderQaComment(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord, report: QaReport, shots: Shot[]) {
+  private async renderQaComment(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord, report: QaReport, shots: Shot[], next: QaNext) {
     const pass = report.verdict === 'pass';
     const images: string[] = [];
     const evidence = shots.slice(-8);
@@ -2059,7 +2128,7 @@ export class Swarm {
     if (images.length) lines.push('', '### 📸 Evidence', '', ...images.flatMap((img) => [img, '']));
     else lines.push('', '_No browser screenshots were taken in this round._');
     const merge = repo.autoMerge ? "merges automatically once GitHub's checks pass" : 'ready for the manager to merge';
-    lines.push('', `<sub>Posted by cubefarm · ${pass ? merge : rec.round - rec.retests >= MAX_QA_ROUNDS ? 'needs a human decision' : 'sent back to the developer for fixes'}</sub>`);
+    lines.push('', `<sub>Posted by cubefarm · ${pass ? merge : next === 'needs-human' ? 'needs a human decision' : next === 'conflict' ? `sent back to the developer to merge ${repo.defaultBranch} and fix` : 'sent back to the developer for fixes'}</sub>`);
     return lines.join('\n');
   }
 
@@ -2077,18 +2146,21 @@ export class Swarm {
       rec.fixReason === 'conflict' ? `Resolving conflicts on PR #${rec.prNumber}` : rec.fixReason === 'checks' ? `Fixing checks on PR #${rec.prNumber}` : `Fixing PR #${rec.prNumber} after QA round ${rec.round}`,
       `Checking out PR #${rec.prNumber}…`,
     );
-    const cwd = await this.prepare(dev, repo, { pr: rec.prNumber }, headRef);
-    if (!cwd) {
+    const desk = await this.prepare(dev, repo, { pr: rec.prNumber }, headRef);
+    if (!desk) {
       if (rec.status === 'fixing') this.setQa(rec, { status: 'failed' });
       return;
     }
+    const { cwd } = desk;
     const failed = rec.checks.filter((c) => c.result === 'fail');
     const takeover = original ? '' : ' A teammate wrote it, so read the PR and the linked issue first.';
     const push = `push to the same branch: git push origin HEAD:${headRef}`;
+    // A conflict QA never passed (it failed the last round) goes out as a QA fix: its instructions add the merge.
     const mergeFix =
-      rec.fixReason === 'conflict'
+      rec.fixReason === 'conflict' && rec.passedSha
         ? [
             `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but it now conflicts with ${repo.defaultBranch} because other work was merged first.${takeover}`,
+            rec.fixInstructions ? `\nWhat needs fixing:\n${rec.fixInstructions}` : '',
             '',
             `Bring it up to date: git fetch origin && git merge origin/${repo.defaultBranch}. Resolve the conflicts so both this change and the newly merged work keep working, run the project's checks, and ${push}`,
           ]
@@ -2118,7 +2190,7 @@ export class Swarm {
     const mergeEnd = 'Then reply with a short summary of what you did. Do not open a new pull request; the office merges it once the checks pass, after another QA round if the code changed.';
     const prompt = (mergeFix ? [...mergeFix, '', mergeEnd] : qaFix).filter((l) => l !== '').join('\n');
     const resume = original && rec.devSessionId ? rec.devSessionId : undefined;
-    this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }), resume);
+    this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }, desk.deps), resume);
   }
 
   private async onFixFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
@@ -2221,6 +2293,7 @@ export class Swarm {
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
     if (typeof patch.autoUpdate === 'boolean') s.autoUpdate = patch.autoUpdate;
     if (patch.pacingSessions !== undefined) s.pacingSessions = clampPacingSessions(patch.pacingSessions);
+    if (patch.voice !== undefined) s.voice = voiceSettings(s.voice, patch.voice);
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
