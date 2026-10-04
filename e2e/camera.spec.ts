@@ -66,6 +66,7 @@ test('Tab twice shows every floor, and a click on one goes there', async ({ page
   await page.mouse.click(at!.x, at!.y, { delay: 80 });
   await expect(page.locator('.floor-num')).toHaveText('2', { timeout: 60_000 });
   await settled(page, 'overview'); // you land looking over the floor you picked
+  await expect(page.locator('.fade-label')).toHaveCount(0); // the elevator's fade is over (Tab waits for it)
   await page.keyboard.press('Tab');
   await expect.poll(async () => (await camera(page)).owns, { timeout: 60_000 }).toBe(false);
   expect((await savedView(page))?.floor).toBe(2);

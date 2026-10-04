@@ -78,12 +78,15 @@ interface VirtualButton {
   /** For a press: let go at this time, but only once a poll has seen it down. */
   until: number;
   seen: boolean;
+  /** Taps asked for while it was still down: each comes after a frame with it up, so each is its own press. */
+  queued: number;
+  ms: number;
 }
 
 const virtual = {
   on: false,
   axes: [0, 0, 0, 0],
-  buttons: Array.from({ length: BUTTONS }, (): VirtualButton => ({ down: false, until: Infinity, seen: false })),
+  buttons: Array.from({ length: BUTTONS }, (): VirtualButton => ({ down: false, until: Infinity, seen: false, queued: 0, ms: 0 })),
 };
 
 const listeners = new Set<(connected: boolean, id: string) => void>();
@@ -125,6 +128,11 @@ export function pollPad(now: number): PadState {
       if (b.down && b.seen && now >= b.until) {
         b.down = false;
         b.until = Infinity;
+      } else if (!b.down && b.queued > 0 && !(pad.down & (1 << i))) {
+        b.queued--;
+        b.down = true;
+        b.seen = false;
+        b.until = now + b.ms;
       }
       if (b.down) {
         bits |= 1 << i;
@@ -179,7 +187,10 @@ const probe = {
     if (!virtual.on) return;
     virtual.on = false;
     virtual.axes.fill(0);
-    for (const b of virtual.buttons) b.down = false;
+    for (const b of virtual.buttons) {
+      b.down = false;
+      b.queued = 0;
+    }
     for (const fn of listeners) fn(false, VIRTUAL_ID);
   },
   /** Pushes a stick: x right, y down, -1 to 1 (0, 0 lets go). */
@@ -191,6 +202,8 @@ const probe = {
   /** Taps a button: down for at least `ms` and at least one frame. */
   press(name: ButtonName, ms = 80) {
     const b = virtual.buttons[BUTTON[name]];
+    b.ms = ms;
+    if (b.down) return void b.queued++;
     b.down = true;
     b.seen = false;
     b.until = performance.now() + ms;
