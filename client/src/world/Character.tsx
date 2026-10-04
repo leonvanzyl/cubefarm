@@ -10,7 +10,7 @@ import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, ty
 import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
-import { bodyTarget, handMug, seatBody, setBody, subscribeMugs, trackBody } from './people';
+import { bodyTarget, handMug, isHidden, seatBody, setBody, subscribeMugs, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
 import { MugLook, mugColor } from './toys/mugLook';
@@ -80,6 +80,7 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
+  call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -288,6 +289,7 @@ export function Character({
     const r0 = root.current;
     const goal = bodyTarget(agent.id);
     if (r0) {
+      r0.visible = !isHidden(agent.id); // gone up to the roof
       if (!move.placed) {
         r0.updateWorldMatrix(true, false);
         move.placed = true;
@@ -419,7 +421,7 @@ export function Character({
     // browsing: lean in closer to the screen, slowly
     life.browse += ((name === 'browsing' ? 1 : 0) - life.browse) * (1 - Math.exp(-dt * 1.2));
     asleep.current = seated && ls.fidget === 'doze' && fw > 0.5;
-    if (phone.current) phone.current.visible = seated && ls.fidget === 'phone' && fw > 0.35;
+    if (phone.current) phone.current.visible = (seated && ls.fidget === 'phone' && fw > 0.35) || (st.stage === 'up' && goal?.gesture === 'call');
     if (seated && body.current) body.current.rotation.y = o.spin * fw;
     if (chair?.current) chair.current.rotation.y = seated ? o.spin * fw : 0;
 

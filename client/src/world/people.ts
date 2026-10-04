@@ -9,6 +9,7 @@ const targets = new Map<string, BodyTarget>();
 const live = new Map<string, BodyState>();
 const busy = new Map<string, ErrandInfo>();
 const said = new Map<string, Saying>();
+const hidden = new Set<string>();
 let teleports = 0;
 let director: (() => unknown) | null = null;
 
@@ -51,8 +52,18 @@ export function say(id: string, text: string | null) {
 
 export const saying = (id: string) => said.get(id);
 
-/** Everyone drawn on the current floor, as they are now (the elevator opens for anyone near its doors). */
-export const bodies = () => live.values();
+/** Everyone you can see on the current floor, as they are now (the elevator opens for anyone near its doors). */
+export function* bodies() {
+  for (const [id, s] of live) if (!hidden.has(id)) yield s;
+}
+
+/** Someone out of sight: gone up to the roof in the elevator (roof/roofErrand.ts). Character.tsx doesn't draw them. */
+export function hideBody(id: string, on: boolean) {
+  if (on) hidden.add(id);
+  else hidden.delete(id);
+}
+
+export const isHidden = (id: string) => hidden.has(id);
 
 /** Character.tsx registers each person's live state, so the probe can report it. */
 export function trackBody(id: string, s: BodyState) {
@@ -185,13 +196,14 @@ const probe = {
       heading: round(s.heading),
       speed: round(s.speed),
       errand: busy.get(id) ?? null,
+      hidden: hidden.has(id),
       says: said.get(id)?.text ?? null,
       target: targets.get(id) ?? null,
       mug: hands.get(id) ?? null,
       deskMug: deskMug(id),
     }));
   },
-  /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch') as soon as the rules and the cap allow. */
+  /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch', 'roof') as soon as the rules and the cap allow. */
   send(id: string, errand: string) {
     asks.set(id, errand);
   },

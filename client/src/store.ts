@@ -7,6 +7,7 @@ import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { gongForMerge } from './world/gongRunner';
+import { ROOF } from './world/layout';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -26,7 +27,7 @@ export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' } | { kind: 'roof'; op: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -35,7 +36,9 @@ export type Held =
   /** A foam blaster: darts left in the magazine, and performance.now() when a reload started (null when not reloading). */
   | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null }
   /** A coffee mug: sips of coffee left, 0 (empty) to 3 (full). */
-  | { kind: 'mug'; id: string; sips: number };
+  | { kind: 'mug'; id: string; sips: number }
+  /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
+  | { kind: 'sausage'; id: string; bites: number; charred: boolean };
 
 export interface Toast {
   id: number;
@@ -199,8 +202,8 @@ export const useStore = create<State>((set, get) => ({
         }
         const qa: Record<string, QaView> = {};
         for (const q of d.qa) qa[qaKey(q.repoId, q.prNumber)] = q;
-        // Stay on the current (or remembered) floor if it still exists; otherwise go to the lobby.
-        const floorExists = d.repos.some((r) => r.floor === get().floor);
+        // Stay on the current (or remembered) floor if it still exists (the roof always does); otherwise go to the lobby.
+        const floorExists = get().floor === ROOF || d.repos.some((r) => r.floor === get().floor);
         set({
           loaded: true,
           user: d.user,

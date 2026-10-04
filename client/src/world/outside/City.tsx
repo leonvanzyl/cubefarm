@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { useStore } from '../../store';
 import { dayTime } from '../sky/useDayTime';
 import { skyAt, sunDirection } from '../sky/time';
-import { floorElevation } from '../layout';
+import { viewElevation } from '../layout';
 import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, type CityBox } from './cityLayout';
 
 // The city around the building (cityLayout.ts says where everything is). Six draw calls: the buildings (one
@@ -450,10 +450,11 @@ let probe: { buildings: number; cars: number; elevation: number } = { buildings:
 /** The city around the building, at the current floor's height below you. Mounted once, in Game.tsx. */
 export function City() {
   const floor = useStore((s) => s.floor);
+  const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
   const city = useMemo(buildCity, []);
   useEffect(() => () => city.dispose(), [city]);
   // A hair below street level, so the plaza never fights the lobby's floor.
-  const elevation = floorElevation(floor);
+  const elevation = viewElevation(floor, top);
   probe = { buildings: city.layout.buildings.length, cars: city.routes.length, elevation };
 
   useFrame(({ clock }) => {
