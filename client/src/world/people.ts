@@ -31,6 +31,10 @@ export function trackBody(id: string, s: BodyState) {
 
 /** Where someone drawn on the current floor is right now, or undefined when they aren't drawn. */
 export const bodyState = (id: string): Readonly<BodyState> | undefined => live.get(id);
+
+/** In their chair and staying there (nobody told to get up, not rising, walking or sitting back down). */
+export const isSeated = (id: string) => !targets.has(id) && (live.get(id)?.stage ?? 'seated') === 'seated';
+
 /** Everyone drawn on the current floor, by agent id. */
 export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
 

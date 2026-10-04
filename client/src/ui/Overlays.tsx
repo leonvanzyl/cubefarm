@@ -60,7 +60,7 @@ export function Panel({
   );
 }
 
-const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts' };
+const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music' };
 
 /** Office volume, mute and a level per kind of sound; saved in this browser. */
 export function SoundControls() {
@@ -80,7 +80,7 @@ export function SoundControls() {
       </div>
       <div className="sound-groups" role="group" aria-label="Volume for each kind of sound">
         {SOUND_GROUPS.map((g) => (
-          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : undefined}>
+          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : g === 'music' ? "Each floor's jukebox" : undefined}>
             <span className="muted small sound-group-name">{SOUND_GROUP_LABELS[g]}</span>
             <input
               type="range"
@@ -181,8 +181,8 @@ function Help() {
         </p>
         <h3>Sound</h3>
         <p>
-          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
-          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba) and alerts (the phone, the elevator, the gong and these cues) up or down on their own. Your
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. Every floor's jukebox plays quietly in its corner: <kbd>E</kbd> on it skips to the next song, and its red button stops or starts the music. It goes quiet while a panel or the phone is open and in the elevator. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
+          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues) and music (the jukebox) up or down on their own. Your
           settings are saved in this browser.
         </p>
         <SoundControls />

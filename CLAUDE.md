@@ -145,6 +145,7 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - Test pure functions directly; extract logic into pure helpers rather than mocking. No network, no `gh`, no Claude
   sessions, no real `~/.cubefarm`: `npm test` already points `SWARM_HOME` at a temp folder and `SWARM_PORT` at 0.
 - Must pass on both CI runners (ubuntu + windows): don't hardcode `/` or `\` in expected paths.
+- E2E: one spec file per feature, setup from `e2e/helpers.ts`; new e2e tests go in their feature's spec file or a new one, never appended to `smoke.spec.ts`.
 
 ## Pull requests
 
