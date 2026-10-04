@@ -209,6 +209,15 @@ export const gongRect = (): Rect => ({ minX: GONG.x - GONG.w / 2, maxX: GONG.x +
 /** Where you stand to hit the gong (facing north): part 2 walks a merged PR's author here. */
 export const GONG_SPOT = { x: GONG.x, z: GONG.z + GONG.d / 2 + 0.9 };
 
+// The ping-pong table in each office floor's play area, south of the front row of desks and west of the walk from
+// the elevator, clear of every walkway. Its length runs east–west (x), so the ends face each other along the room;
+// regulation sizes, `top` the playing surface's height. Players stand `stand` behind an end. The net and posts are
+// physics of their own (toys/PingPong.tsx); the leaderboard hangs on the south wall behind the table, between the
+// blaster rack and the floor sign (y is its middle).
+export const PONG_TABLE = { x: -6.6, z: 8.2, len: 2.74, wid: 1.525, top: 0.76, stand: 0.65 };
+export const pongTableRect = (): Rect => rect(PONG_TABLE.x, PONG_TABLE.z, PONG_TABLE.len, PONG_TABLE.wid, PONG_TABLE.top);
+export const PONG_BOARD = { x: -8.4, y: 1.95, w: 1.5, h: 1.3 };
+
 // The QA lab: test stations along the east wall. Testers face the wall, with their backs to the room.
 export const QA_LAB = { x: HALF_W - 2.0, stations: [-5.2, -2.0, 1.2] };
 export const QA_ROTATION = -Math.PI / 2;
@@ -234,6 +243,7 @@ export function officeColliders(): Rect[] {
   out.push(blasterRack(BLASTER_RACK.officeX));
   out.push(jukeboxRect(JUKEBOX.officeX));
   out.push(gongRect());
+  out.push(pongTableRect());
   out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5, SOLID_H.kitchen)); // kitchenette counter + fridge
   out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7, SOLID_H.cooler)); // water cooler
   return out;

@@ -20,6 +20,9 @@ import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
+import { joinPong, pongCamera, pongMouse, tickPaddle } from './toys/pongState';
+
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -81,6 +84,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'pong') {
+    joinPong(focus.action.end); // a paddle in hand: the mouse and the view are the match's now
     return;
   }
   if (focus.action.kind === 'hire') {
@@ -182,6 +189,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       lookDiag.skipped = lookFilter.skipped;
       if (!d) return;
       const { sensitivity, invertY } = useLookPrefs.getState();
+      if (useStore.getState().held?.kind === 'paddle') return pongMouse(d[0], d[1], sensitivity); // playing: the mouse moves the paddle
       const k = LOOK_RADIANS_PER_PX * sensitivity;
       look.current.yaw -= d[0] * k;
       look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
@@ -266,6 +274,21 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     const dt = Math.min(rawDt, 0.05);
     const s = useStore.getState();
     if (s.overlay || isConfirmOpen()) keys.current.clear();
+
+    // Playing ping-pong: the view sits behind your end of the table, and you don't walk anywhere.
+    if (s.held?.kind === 'paddle') {
+      tickPaddle(dt);
+      const v = pongCamera(s.held.id);
+      const shake = reducedMotion() ? 0 : 1;
+      camera.position.set(v.x + v.shake.x * shake, v.y + v.shake.y * shake, v.z + v.shake.z * shake);
+      camera.rotation.set(v.pitch, v.yaw, 0, 'YXZ');
+      look.current = { yaw: v.yaw, pitch: v.pitch };
+      walk.x = 0;
+      walk.z = 0;
+      footstepsFollow(bob.current, false, false, surfaceAt('office', camera.position.x, camera.position.z));
+      if (s.focus) s.setFocus(null);
+      return;
+    }
 
     // movement
     const k = keys.current;

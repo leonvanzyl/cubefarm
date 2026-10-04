@@ -357,6 +357,17 @@ export interface CeoInfo {
   nextReviewAt: number | null; // null when the heartbeat is off
 }
 
+/** One player on a floor's ping-pong leaderboard: the manager or an agent, with their games on that floor. */
+export interface PongRow {
+  id: string; // 'player' for the manager (shared/pong.ts PONG_PLAYER), else an agent id
+  name: string; // as of their last game
+  wins: number;
+  losses: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  lastAt: number; // epoch ms of their last game
+}
+
 export interface WorldSnapshot {
   user: string | null; // gh login
   ghReady: boolean;
@@ -378,6 +389,7 @@ export interface WorldSnapshot {
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard by repo id, best first
 }
 
 export type ServerEvent =
@@ -400,6 +412,7 @@ export type ServerEvent =
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'pong'; repoId: string; board: PongRow[] }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

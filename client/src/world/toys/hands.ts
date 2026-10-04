@@ -1,6 +1,7 @@
 import { useStore } from '../../store';
 import { noise } from '../../ui/sfx';
 import { pullTrigger } from './gun';
+import { pongClick } from './pongState';
 import { chargePower } from './throwing';
 
 // The player's hands. store.held says what is being carried; input (Player.tsx) charges and throws here,
@@ -18,6 +19,7 @@ export function startCharge() {
   const s = useStore.getState();
   if (s.held?.kind === 'blaster') return pullTrigger(); // a blaster fires on the press; there's nothing to charge
   if (s.held?.kind === 'mug') return; // a mug can't be thrown
+  if (s.held?.kind === 'paddle') return pongClick(); // the toss for a serve, or a rematch
   if (s.held && s.chargeAt === null) s.setCharge(performance.now());
 }
 

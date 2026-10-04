@@ -462,6 +462,54 @@ input.inline:focus {
 .charge-full .charge-fill {
   background: #ff8a5b;
 }
+/* Ping-pong: the score at the top of the screen while you play, and what just happened under it. */
+.hud-pong {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 18px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 0 4px 0 var(--ink);
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+.hud-pong-score {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hud-pong-score b {
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+}
+.hud-pong-score i {
+  font-style: normal;
+  opacity: 0.5;
+}
+.hud-pong-serving::after {
+  content: ' 🏓';
+}
+.hud-pong-status {
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0.8;
+  text-align: center;
+}
+/* The controls while you play sit low, out of the way of the paddle. */
+.hud-pong-keys {
+  bottom: 64px;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+}
 /* Foam blaster ammo, bottom right above the phone, next to where the blaster sits in view. */
 .hud-ammo {
   position: absolute;

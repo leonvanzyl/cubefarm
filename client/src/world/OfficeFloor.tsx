@@ -15,6 +15,7 @@ import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
+import { PongTable } from './PongTable';
 import { Shell } from './Shell';
 import { Toys } from './toys';
 
@@ -87,6 +88,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
       <Gong repoId={repo.id} />
+      <PongTable repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
       <ErrandDirector floor="office" agents={agents} leavers={leavers} onGone={gone} repoId={repo.id} />

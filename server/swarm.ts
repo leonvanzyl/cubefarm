@@ -32,6 +32,7 @@ import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
+import { parsePongResult, PONG_PLAYER, recordGame } from '../shared/pong.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
@@ -50,6 +51,7 @@ import type {
   LogLine,
   OfficeUpdateView,
   PhoneMessage,
+  PongRow,
   PreviewConfig,
   PreviewView,
   ProjectFolderView,
@@ -169,6 +171,7 @@ interface Persisted {
   messages: PhoneMessage[];
   phoneReadAt: number;
   prLimits: number; // the PR budgets (PR_LIMITS_VERSION) needs-human records were judged by
+  pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard, by repo id
 }
 
 interface Shot {
@@ -404,6 +407,7 @@ export class Swarm {
     messages: [],
     phoneReadAt: 0,
     prLimits: PR_LIMITS_VERSION,
+    pong: {},
   };
   /**
    * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
@@ -534,6 +538,7 @@ export class Swarm {
         messages: loaded.messages ?? [],
         phoneReadAt: loaded.phoneReadAt ?? 0,
         prLimits: loaded.prLimits ?? 1,
+        pong: loaded.pong && typeof loaded.pong === 'object' ? loaded.pong : {},
       };
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
@@ -797,6 +802,7 @@ export class Swarm {
       voiceCache: this.voice.cacheInfo(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
+      pong: this.state.pong,
     };
   }
 
@@ -1033,6 +1039,7 @@ export class Swarm {
     this.state.repos = this.state.repos.filter((r) => r.id !== id);
     for (const q of this.state.qa.filter((x) => x.repoId === id)) this.broadcast({ type: 'qaRemoved', repoId: id, prNumber: q.prNumber });
     this.state.qa = this.state.qa.filter((q) => q.repoId !== id);
+    delete this.state.pong[id];
     for (const r of this.state.repos) r.links = r.links.filter((l) => l !== id);
     this.repoRt.delete(id);
     // Keep floors contiguous.
@@ -3398,6 +3405,29 @@ export class Swarm {
     this.state.phoneReadAt = t;
     this.broadcast({ type: 'phoneRead', at: t });
     this.save();
+  }
+
+  // ---------- ping-pong ----------
+
+  /**
+   * A ping-pong game finished on `repoId`'s floor (the client plays it): onto that floor's leaderboard it goes.
+   * `players` are 'player' (the manager) or agents on the floor, `score` their points in the same order.
+   */
+  recordPong(repoId: string, body: unknown) {
+    this.repo(repoId);
+    const game = parsePongResult(body);
+    if ('error' in game) throw new HttpError(400, game.error);
+    const [a, b] = game.players.map((id) => {
+      if (id === PONG_PLAYER) return { id, name: this.state.settings.managerName.trim() || 'Manager' };
+      const agent = this.state.agents.find((x) => x.id === id && x.repoId === repoId);
+      if (!agent) throw new HttpError(400, `${id} doesn't work on this floor`);
+      return { id, name: agent.name };
+    });
+    const board = recordGame(this.state.pong[repoId] ?? [], { players: [a, b], score: game.score, at: Date.now() });
+    this.state.pong[repoId] = board;
+    this.broadcast({ type: 'pong', repoId, board });
+    this.save();
+    return board;
   }
 
   // ---------- hire and let-go proposals ----------

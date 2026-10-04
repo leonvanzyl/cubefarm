@@ -107,7 +107,7 @@ export function HUD() {
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
-      {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {started && !overlay && !travel && held?.kind !== 'paddle' && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
       {started && !overlay && (focus || sip) && (
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}
