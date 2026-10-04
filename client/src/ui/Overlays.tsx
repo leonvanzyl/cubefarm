@@ -10,6 +10,8 @@ import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
 import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
+import type { DayMode } from '../world/sky/time';
+import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 
 // Closing a panel grabs the mouse again right away (world/lookLock.ts; "Grab the mouse when panels
 // close" in help turns that off), and mouse presses are swallowed for a moment so a double click on
@@ -123,6 +125,23 @@ function MouseSettings() {
   );
 }
 
+const DAY_MODE_LABELS: Record<DayMode, string> = { cycle: '30-minute day', clock: 'Follow my clock', day: 'Always day' };
+
+/** How the sky outside moves: a fast day, the viewer's own clock or always afternoon; saved in this browser. */
+function DaySettings() {
+  const { mode } = useDayTime();
+  return (
+    <div className="day-settings" role="radiogroup" aria-label="Day and night">
+      <span>Day and night</span>
+      {(Object.keys(DAY_MODE_LABELS) as DayMode[]).map((m) => (
+        <label key={m} className="toggle">
+          <input type="radio" name="day-mode" checked={mode === m} onChange={() => setDayMode(m)} /> {DAY_MODE_LABELS[m]}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function Help() {
   return (
     <Panel title="How the office works">
@@ -158,6 +177,9 @@ function Help() {
           The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys and alerts (the phone, the elevator, the gong and these cues) up or down on their own.
         </p>
         <SoundControls />
+        <h3>Outside</h3>
+        <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
+        <DaySettings />
         <h3>The building</h3>
         <p>
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
