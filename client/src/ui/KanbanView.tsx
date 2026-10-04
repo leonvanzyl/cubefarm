@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { agentsOnRepo, kanbanFor, useStore, type Agent, type KanbanCard } from '../store';
 import { confirmDialog } from './Confirm';
-import { Panel } from './Overlays';
+import { Panel } from './Panel';
 
 function AgentChip({ agent }: { agent?: Agent }) {
   if (!agent) return null;
@@ -60,6 +60,17 @@ export function IssueForm({ repoId, agents, onDone }: { repoId: string; agents: 
   );
 }
 
+/** The board's frame: a panel over the office, or (in pocket mode) a plain section of the page. */
+function Frame({ embedded, ...props }: Parameters<typeof Panel>[0] & { embedded?: boolean }) {
+  if (!embedded) return <Panel {...props} />;
+  return (
+    <section className="kanban-embedded" style={{ ['--accent' as string]: props.accent }}>
+      <h2 className="kanban-embedded-title">{props.title}</h2>
+      {props.children}
+    </section>
+  );
+}
+
 function QaLink({ card }: { card: KanbanCard }) {
   if (!card.qa?.commentUrl) return null;
   return (
@@ -69,7 +80,7 @@ function QaLink({ card }: { card: KanbanCard }) {
   );
 }
 
-export function KanbanView({ repoId }: { repoId: string }) {
+export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: boolean }) {
   const repo = useStore((s) => s.repos.find((r) => r.id === repoId));
   const allAgents = useStore((s) => s.agents);
   const qaRecords = useStore((s) => s.qa);
@@ -81,9 +92,9 @@ export function KanbanView({ repoId }: { repoId: string }) {
 
   if (!repo || !cols) {
     return (
-      <Panel title="Kanban">
+      <Frame title="Kanban" embedded={embedded}>
         <p className="muted">This floor no longer exists.</p>
-      </Panel>
+      </Frame>
     );
   }
 
@@ -181,7 +192,8 @@ export function KanbanView({ repoId }: { repoId: string }) {
   );
 
   return (
-    <Panel
+    <Frame
+      embedded={embedded}
       wide
       accent={repo.color}
       title={
@@ -335,6 +347,6 @@ export function KanbanView({ repoId }: { repoId: string }) {
           'Nothing merged yet.',
         )}
       </div>
-    </Panel>
+    </Frame>
   );
 }

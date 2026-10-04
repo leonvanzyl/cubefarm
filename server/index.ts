@@ -5,11 +5,12 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
-import { DEMO, PORT, STATE_FILE, WORKSPACE_ROOT } from './config.ts';
+import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
 import { underLauncher } from './officeUpdate.ts';
+import { serviceWorkerSource, swVersion } from './pwa.ts';
 import { screenStatus } from './screenReply.ts';
 import { parseSendBackNote } from './sendBack.ts';
 import { HttpError, Swarm } from './swarm.ts';
@@ -182,6 +183,12 @@ app.get(
   '/api/voice/sample',
   route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),
 );
+// Notifications (docs/pocket.md). Webhook URLs, tokens and push subscriptions go in; only hints come back out.
+app.put('/api/notify/webhooks/:channel', route((req) => swarm.notifier.setWebhook(String(req.params.channel), req.body ?? {})));
+app.post('/api/notify/test', route((req) => swarm.notifier.test(str(req.body?.channel))));
+app.get('/api/notify/push/key', route(() => swarm.notifier.pushKey()));
+app.post('/api/notify/push/devices', route((req) => swarm.notifier.subscribe(req.body?.subscription)));
+app.delete('/api/notify/push/devices', route((req) => swarm.notifier.unsubscribe(str(req.body?.endpoint))));
 // The office's own update: Update now / Later
 app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.action)));
 
@@ -198,6 +205,13 @@ app.post('/api/requests/:id/reject', route((req) => swarm.rejectRequest(String(r
 // Serve the built client: the published package, or `npm start` after `npm run build`.
 const dist = path.resolve(import.meta.dirname, '../dist');
 if (fs.existsSync(dist)) {
+  // The installable app's worker, versioned by the build and the office's commit so an update replaces it (server/pwa.ts).
+  app.get('/sw.js', (_req, res) => {
+    const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+    res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.end(serviceWorkerSource(swVersion(html, VERSION, swarm.officeCommit())));
+  });
   app.use(express.static(dist));
   app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }

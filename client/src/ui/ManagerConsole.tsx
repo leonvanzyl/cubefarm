@@ -9,6 +9,7 @@ import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../o
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { LiveTerminal } from './LiveTerminal';
+import { NotifySettings } from './NotifySettings';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
@@ -692,6 +693,7 @@ function SettingsTab() {
         </div>
       </div>
       <VoiceSettings />
+      <NotifySettings />
     </div>
   );
 }

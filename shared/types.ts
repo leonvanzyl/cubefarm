@@ -261,6 +261,38 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  notify: NotifySettings;
+}
+
+/** What the office tells the manager about when they're away (docs/pocket.md). */
+export type NotifyEvent = 'needsHuman' | 'ceoMessage' | 'hire' | 'agentError' | 'usage' | 'merge';
+
+/** Where it tells them: this browser, Web Push to their devices, or a chat app's webhook. */
+export type NotifyChannel = 'desktop' | 'push' | 'discord' | 'slack' | 'telegram' | 'ntfy';
+
+/** The chat apps, whose webhook URLs and tokens live in the server's secrets file. */
+export type NotifyWebhook = 'discord' | 'slack' | 'telegram' | 'ntfy';
+
+export interface NotifySettings {
+  events: Record<NotifyEvent, boolean>;
+  channels: Record<NotifyChannel, boolean>; // a chat app also needs its webhook saved
+  officeUrl: string; // where messages link back to ('' = no link), e.g. a Tailscale Serve URL
+}
+
+/** Which chat apps have a webhook saved (only a hint of it: the secret never leaves the server) and how many devices get push. */
+export interface NotifyChannelsView {
+  webhooks: Record<NotifyWebhook, { set: boolean; hint: string }>;
+  pushDevices: number;
+}
+
+/** A notification the office sent: a browser with the office open but hidden shows it as a desktop notification. */
+export interface NoteView {
+  id: string;
+  event: NotifyEvent | 'test';
+  title: string;
+  body: string;
+  at: number;
+  url: string; // in-app link, e.g. '/?tab=approvals'
 }
 
 /** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */
@@ -378,6 +410,7 @@ export interface WorldSnapshot {
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  notifyChannels: NotifyChannelsView;
 }
 
 export type ServerEvent =
@@ -400,6 +433,8 @@ export type ServerEvent =
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'notifyChannels'; notifyChannels: NotifyChannelsView }
+  | { type: 'notify'; note: NoteView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

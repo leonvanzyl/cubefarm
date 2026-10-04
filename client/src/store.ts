@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
+import { DEFAULT_NOTIFY } from '../../shared/notify';
+import { showDesktopNote } from './notifications';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
@@ -69,6 +71,7 @@ interface State {
   voiceKeyHint: string; // its last 4 characters
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
+  notifyChannels: NotifyChannelsView; // which chat apps have a webhook saved (hints only) and how many devices get push
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -154,6 +157,7 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    notify: DEFAULT_NOTIFY,
   },
   clis: [],
   repos: [],
@@ -170,6 +174,7 @@ export const useStore = create<State>((set, get) => ({
   voiceKeyHint: '',
   voiceCache: { clips: 0, bytes: 0, saved: [] },
   voiceSpeaking: null,
+  notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -225,6 +230,7 @@ export const useStore = create<State>((set, get) => ({
           voiceKeySet: d.voiceKeySet ?? false,
           voiceKeyHint: d.voiceKeyHint ?? '',
           voiceCache: d.voiceCache ?? { clips: 0, bytes: 0, saved: [] },
+          notifyChannels: d.notifyChannels ?? get().notifyChannels,
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -343,6 +349,13 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'voiceCache':
         set({ voiceCache: ev.voiceCache });
+        break;
+      case 'notifyChannels':
+        set({ notifyChannels: ev.notifyChannels });
+        break;
+      case 'notify':
+        // This tab shows it only while it's hidden (notifications.ts); a visible office already chimes and toasts.
+        showDesktopNote(ev.note, get().settings.notify?.channels.desktop !== false);
         break;
     }
   },
