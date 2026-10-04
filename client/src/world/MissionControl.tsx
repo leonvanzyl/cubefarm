@@ -4,6 +4,7 @@ import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OpsAlarm } from '../../../shared/types';
 import { usageMeter } from '../ops';
+import { officeNow } from '../officeTime';
 import { useStore, type Focus } from '../store';
 import { drawCost, drawFlow, drawPipeline, drawStrip, drawTeam, drawThroughput, drawUsage, type FloorTag, type UsageScreen } from './drawOps';
 import { useCanvasTexture, useInteractable } from './interact';
@@ -154,7 +155,7 @@ export function MissionControl() {
     { floors: tags.map(({ tag, n }) => ({ ...tag, busy: n.busy, idle: n.idle, errors: n.errors })), total: { busy: t.busy, idle: t.idle, errors: t.errors } },
     drawTeam,
   );
-  const m = usageMeter(usage, Date.now());
+  const m = usageMeter(usage, officeNow());
   const meterData: UsageScreen = {
     ...m,
     hint: usage.state === 'pacing' ? 'Press E to resume full speed' : usage.state === 'paused' ? "A pause at the limit can't be cleared early" : 'New work starts at full speed',

@@ -602,23 +602,25 @@ const GONG_PARTIALS: [number, number, number][] = [
 /**
  * The merge gong: a soft mallet thud, a long low boom with a slow beat, inharmonic partials and a shimmer that swells
  * in after the hit and rings for ~6 s. The loudest sound in the office (its peaks add up to under 1, and the
- * compressor catches the rest). Non-positional, so it carries across the floor. At most one a second.
+ * compressor catches the rest). Non-positional, so it carries across the floor. At most one a second. `level` (0-1)
+ * plays it quieter (the time-lapse's merges).
  */
-export function gong() {
+export function gong(level = 1) {
   if (micOpen || performance.now() - lastGong < 1000) return; // never into the 🎙
   lastGong = performance.now();
   const o = { name: 'gong', group: 'alerts' } as const;
+  const k = Math.max(0, Math.min(1, level));
   // the padded mallet: a low thud and a dull puff, no click
-  tone({ ...o, freq: 150, to: 62, dur: 0.35, peak: 0.12, attack: 0.004 });
-  noise({ ...o, dur: 0.14, peak: 0.07, filter: 'lowpass', freq: 900, to: 180, attack: 0.003 });
+  tone({ ...o, freq: 150, to: 62, dur: 0.35, peak: 0.12 * k, attack: 0.004 });
+  noise({ ...o, dur: 0.14, peak: 0.07 * k, filter: 'lowpass', freq: 900, to: 180, attack: 0.003 });
   // the boom: the fundamental (a triangle, so small speakers still hear its overtones) and a near twin that beats with it
-  tone({ ...o, freq: GONG_F0, type: 'triangle', dur: 6.5, peak: 0.2, attack: 0.02 });
-  tone({ ...o, freq: GONG_F0 * 1.008, dur: 6, peak: 0.08, attack: 0.04 });
-  for (const [ratio, peak, dur] of GONG_PARTIALS) tone({ ...o, freq: GONG_F0 * ratio, dur, peak, attack: 0.015 });
+  tone({ ...o, freq: GONG_F0, type: 'triangle', dur: 6.5, peak: 0.2 * k, attack: 0.02 });
+  tone({ ...o, freq: GONG_F0 * 1.008, dur: 6, peak: 0.08 * k, attack: 0.04 });
+  for (const [ratio, peak, dur] of GONG_PARTIALS) tone({ ...o, freq: GONG_F0 * ratio, dur, peak: peak * k, attack: 0.015 });
   // the shimmer: bright partials and a hiss that bloom in after the hit, the way a struck gong swells
-  tone({ ...o, freq: GONG_F0 * 8.9, type: 'triangle', at: 0.05, dur: 4, peak: 0.016, attack: 0.9 });
-  tone({ ...o, freq: GONG_F0 * 11.7, at: 0.05, dur: 3.5, peak: 0.012, attack: 1.1 });
-  noise({ ...o, at: 0.05, dur: 4.5, peak: 0.028, filter: 'bandpass', freq: 1800, to: 3200, q: 1.5, attack: 1.2 });
+  tone({ ...o, freq: GONG_F0 * 8.9, type: 'triangle', at: 0.05, dur: 4, peak: 0.016 * k, attack: 0.9 });
+  tone({ ...o, freq: GONG_F0 * 11.7, at: 0.05, dur: 3.5, peak: 0.012 * k, attack: 1.1 });
+  noise({ ...o, at: 0.05, dur: 4.5, peak: 0.028 * k, filter: 'bandpass', freq: 1800, to: 3200, q: 1.5, attack: 1.2 });
 }
 
 let lastAlarm = -Infinity;

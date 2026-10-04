@@ -2,6 +2,7 @@
 import { StatsReadout, statsEnabled } from './perf';
 import { Game } from './world/Game';
 import { HUD } from './ui/HUD';
+import { ReplayBar } from './ui/TimeLapse';
 import { Overlays } from './ui/Overlays';
 import { StartScreen } from './ui/StartScreen';
 import { Tutorial } from './ui/Tutorial';
@@ -11,6 +12,7 @@ export default function Office() {
     <>
       <Game />
       <HUD />
+      <ReplayBar />
       <Overlays />
       <Tutorial />
       <StartScreen />

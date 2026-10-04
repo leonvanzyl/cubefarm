@@ -236,6 +236,11 @@ export class Voice {
     return { voiceKeySet: !!this.key, voiceKeyHint: this.key.slice(-4) };
   }
 
+  /** The key itself, only so the journal can scrub it out of anything it writes ('' when none). */
+  secret(): string {
+    return this.key;
+  }
+
   /** PUT /api/voice/key: '' removes the key; anything else must pass one cheap ElevenLabs call first. */
   async setKey(raw: string): Promise<VoiceKeyView> {
     const key = raw.trim();

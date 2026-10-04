@@ -11,6 +11,7 @@ import { boardStats, dayStartOf, minuteOf, statsChips } from './boardStats';
 import { activateBoard, makeBoardHands, notePaint } from './boardHands';
 import { CardLift } from './CardLift';
 import { BOARD_TEX, dependencyPairs } from './whiteboard';
+import { officeNow } from '../officeTime';
 
 export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const qa = useStore((s) => s.qa);
@@ -21,7 +22,7 @@ export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] 
   const strings = useMemo(() => dependencyPairs(repo.issues, repo.pulls, cols), [repo.issues, repo.pulls, cols]);
   // worked out on the minute, so the stats corner changes the board at most once a minute
   const stats = useMemo(() => {
-    const now = minuteOf(Date.now());
+    const now = minuteOf(officeNow()); // the replayed moment during the time-lapse
     return boardStats(repo.pulls, (n) => qa[qaKey(repo.id, n)], now, dayStartOf(now));
   }, [repo, qa]);
   const hands = useMemo(() => makeBoardHands(repo.id, ctrl), [repo.id, ctrl]);

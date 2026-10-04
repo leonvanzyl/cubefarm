@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import type { Backend } from './backend.ts';
+import type { Backend, DemoHire } from './backend.ts';
 import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { CLIS } from './clis.ts';
@@ -704,6 +704,7 @@ export function createDemoBackend(): Backend {
     notify: demoNotify,
     seedOps: (ids, at) => demoPastWeek(ids, at),
     simulateUsage: demoUsage,
+    demoCandidate,
   };
 }
 
@@ -931,6 +932,52 @@ const GENERIC: Profile = {
   ],
 };
 
+/** More people the demo CEO can propose on demand (asked on the phone, or the demo's own button), after a floor's own. */
+const CANDIDATES: DemoHire[] = [
+  {
+    title: 'HTML/CSS front-end developer',
+    specialty: 'css',
+    job_description: 'You own the markup and the styles: semantic HTML, a tidy CSS layer and layouts that hold up from **375px to 1440px**.',
+    reason: 'Half the open issues are layout and styling work, and the developers who have them keep stopping to fight the CSS.',
+  },
+  {
+    title: 'Test automation engineer',
+    specialty: 'testing',
+    job_description: 'You write the tests nobody else gets to: end-to-end flows in Playwright, flaky tests made reliable, and coverage on the risky parts.',
+    reason: 'QA keeps finding the same regressions round after round; tests that catch them first would save every PR a trip.',
+  },
+  {
+    title: 'DevOps engineer',
+    specialty: 'devops',
+    job_description: 'You own the pipeline: CI that stays green and fast, preview deploys, and the scripts everyone else runs.',
+    reason: 'CI runs are slow, and a red check sends a PR back to a developer every few hours.',
+  },
+  {
+    title: 'Database engineer',
+    specialty: 'data',
+    job_description: 'You own the schema and the queries: migrations that run both ways, indexes where they matter, and no N+1s.',
+    reason: 'The next milestone adds sync and history, and nobody on the floor has designed a schema for that before.',
+  },
+  {
+    title: 'Technical writer',
+    specialty: 'docs',
+    job_description: 'You keep the README, the API reference and the in-app help in step with what actually ships.',
+    reason: "Features are shipping faster than the docs: the README still describes last month's app.",
+  },
+  {
+    title: 'Performance engineer',
+    specialty: 'perf',
+    job_description: 'You measure first: bundle size, load time and slow renders, with a budget in CI so they stay fixed.',
+    reason: 'The app got noticeably slower over the last few merges, and nobody owns its speed.',
+  },
+];
+
+/** The next made-up candidate for a floor: its project's own hires first, then the shared ones; null when all are taken. */
+export function demoCandidate(fullName: string, taken: readonly string[]): DemoHire | null {
+  const own = (PROFILES[fullName.split('/')[1] ?? ''] ?? GENERIC).hires;
+  return [...own, ...CANDIDATES].find((c) => !taken.includes(c.specialty)) ?? null;
+}
+
 interface DemoFloor {
   floor: number;
   repo: string;
@@ -1096,6 +1143,19 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
         const reason = close[2].trim() || 'No longer wanted.';
         const out = await use('close_issue', { floor: closeFloor.floor, number: Number(close[1]), reason });
         return out.startsWith('Refused') ? `I couldn't close #${close[1]}: ${out.replace(/^Refused: /, '')}` : `Done: ${out} I left "${short(reason, 80)}" on it as a comment.`;
+      }
+      // Asked whether anyone new is needed: a candidate for the first floor with a free desk, through the real tool.
+      if (/\b(hire|hiring|anyone new|candidates?|recruit)\b/i.test(text)) {
+        const proposed = s.pendingProposals as { floor: number | null; specialty: string | null }[];
+        for (const f of s.floors.filter((x) => x.seats.dev.free > 0)) {
+          const taken = [...f.team.map((a) => a.specialty ?? ''), ...proposed.filter((p) => p.floor === f.floor).map((p) => p.specialty ?? '')];
+          const c = demoCandidate(f.repo, taken);
+          if (!c) continue;
+          const out = await use('propose_hire', { floor: f.floor, role: 'dev', ...c });
+          if (out.startsWith('Refused')) return `I wanted to propose a ${c.title} for floor ${f.floor}, but the office said no: ${out.replace(/^Refused: /, '')}`;
+          return `Yes: a **${c.title}** for floor ${f.floor}. ${c.reason} They're waiting in the lobby to meet you, or you can decide in Hires.`;
+        }
+        return "Not right now: every floor either has no free desk or already has the people I'd hire.";
       }
       const people = s.floors.reduce((n, f) => n + f.team.length, 0);
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);

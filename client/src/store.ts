@@ -27,11 +27,13 @@ export type Overlay =
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string; card?: string } // card: an OpsAlarm id, or 'usage', to open at
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
+  /** A proposal face to face: a candidate's interview in the lobby, or the CEO's let-go note on a desk. */
+  | { kind: 'interview'; requestId: string }
   | { kind: 'help' }
   | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
   | { kind: 'decor-box'; repoId: string }; // a floor's decor box
 
-export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings';
+export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings' | 'timelapse';
 
 export interface Focus {
   id: string;
@@ -92,6 +94,7 @@ interface State {
   ticker: TickerItem[]; // the floors' recent activity lines, oldest first (world/ActivityTicker.tsx)
   notifyChannels: NotifyChannelsView; // which chat apps have a webhook saved (hints only) and how many devices get push
   restarting: boolean; // the connection dropped because the office is restarting to update
+  replaying: boolean; // the time-lapse (replay.ts) is showing a recorded day: live events wait, live actions are off
 
   floor: number; // 0 = lobby
   travel: { to: number; phase: 'closing' | 'opening' } | null;
@@ -104,8 +107,13 @@ interface State {
   /** performance.now() when the player started charging a throw; null when they aren't. */
   chargeAt: number | null;
 
-  apply(ev: ServerEvent): void;
+  /**
+   * Folds an event into the state. The time-lapse passes `replay`: 'play' shows it (gong and confetti, no cues, toasts
+   * or voice), 'seek' only moves the state (fast-forwarding to a point on the timeline).
+   */
+  apply(ev: ServerEvent, replay?: 'play' | 'seek'): void;
   setConnected(v: boolean): void;
+  setReplaying(v: boolean): void;
   setRestarting(v: boolean): void;
   setOfficeUpdate(u: OfficeUpdateView): void;
   openOverlay(o: Overlay | null): void;
@@ -203,6 +211,7 @@ export const useStore = create<State>((set, get) => ({
   ticker: [],
   notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
   restarting: false,
+  replaying: false,
 
   floor: loadView()?.floor ?? 0,
   travel: null,
@@ -214,10 +223,11 @@ export const useStore = create<State>((set, get) => ({
   held: null,
   chargeAt: null,
 
-  apply(ev) {
+  apply(ev, replay) {
     // Cues compare the old state with the new, so each change sounds once; snapshots (page load,
-    // reconnect) never do, and nothing sounds before the first snapshot.
-    const live = get().loaded;
+    // reconnect) never do, and nothing sounds before the first snapshot. A replay shows merges but makes no cues.
+    const live = get().loaded && replay !== 'seek';
+    const cues = live && !replay;
     switch (ev.type) {
       case 'snapshot': {
         const d: WorldSnapshot = ev.data;
@@ -276,7 +286,7 @@ export const useStore = create<State>((set, get) => ({
         // A merge on the player's floor sends its author running to bang the gong (or it bangs by itself) and the
         // floor celebrates; anywhere else it's the chime.
         const covered = coversView(get().overlay);
-        if (bursts.map((b) => gongForMerge(b, covered)).includes('absent')) cue('merged');
+        if (bursts.map((b) => gongForMerge(b, covered)).includes('absent') && cues) cue('merged');
         const repos = get().repos.filter((r) => r.id !== ev.repo.id);
         repos.push(ev.repo);
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
@@ -291,8 +301,8 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'agent': {
         const prev = get().agents[ev.agent.id];
-        if (live && !prev && ev.agent.role !== 'ceo') cue('welcome');
-        if (live && prev && prev.status !== 'error' && ev.agent.status === 'error') cue('error');
+        if (cues && !prev && ev.agent.role !== 'ceo') cue('welcome');
+        if (cues && prev && prev.status !== 'error' && ev.agent.status === 'error') cue('error');
         set({ agents: { ...get().agents, [ev.agent.id]: ev.agent } });
         break;
       }
@@ -318,8 +328,8 @@ export const useStore = create<State>((set, get) => ({
       case 'qa': {
         const prev = get().qa[qaKey(ev.qa.repoId, ev.qa.prNumber)]?.status;
         const failed = (st?: QaView['status']) => st === 'failed' || st === 'needs-human';
-        if (live && ev.qa.status === 'passed' && prev !== 'passed') cue('ready');
-        if (live && failed(ev.qa.status) && !failed(prev)) cue('qaFailed');
+        if (cues && ev.qa.status === 'passed' && prev !== 'passed') cue('ready');
+        if (cues && failed(ev.qa.status) && !failed(prev)) cue('qaFailed');
         set({ qa: { ...get().qa, [qaKey(ev.qa.repoId, ev.qa.prNumber)]: ev.qa } });
         break;
       }
@@ -345,7 +355,7 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'request': {
         const prev = get().requests.find((r) => r.id === ev.request.id);
-        if (live && ev.request.kind === 'hire' && ev.request.status === 'approved' && prev?.status === 'pending') cue('welcome');
+        if (cues && ev.request.kind === 'hire' && ev.request.status === 'approved' && prev?.status === 'pending') cue('welcome');
         const requests = get().requests.filter((r) => r.id !== ev.request.id);
         requests.push(ev.request);
         set({ requests: requests.sort((a, b) => a.createdAt - b.createdAt) });
@@ -356,6 +366,7 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'message': {
         set({ messages: [...get().messages.slice(-199), ev.message] });
+        if (replay) break; // a replayed message is only shown on the phone
         const o = get().overlay;
         const reading = o?.kind === 'phone' && (o.tab ?? 'chat') === 'chat';
         // Read aloud, in this tab or another; the voice plays the chirp itself if it can't. Locked audio can't speak.
@@ -387,7 +398,7 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'ops':
         // A new alarm sounds once (rate-limited); the beacons spin until it's handled.
-        if (live && newAlarms(get().ops.alarms, ev.ops.alarms).length) alarm();
+        if (cues && newAlarms(get().ops.alarms, ev.ops.alarms).length) alarm();
         set({ ops: ev.ops });
         break;
       case 'voiceKey':
@@ -416,9 +427,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setConnected: (connected) => set({ connected }),
+  setReplaying: (replaying) => set({ replaying }),
   setRestarting: (restarting) => set({ restarting }),
   setOfficeUpdate: (officeUpdate) => set({ officeUpdate }),
   openOverlay(overlay) {
+    // Terminals and the floor's app are live, whatever the time-lapse shows.
+    if (overlay && get().replaying && (overlay.kind === 'terminal' || overlay.kind === 'app')) {
+      get().pushToast('info', '▶ That shows the live office: press Esc to leave the replay first.');
+      return;
+    }
     // Opening any panel drops whatever you're carrying, so nothing is left floating behind it.
     set(overlay ? { overlay, focus: null, held: null, chargeAt: null } : { overlay });
     if (overlay && document.pointerLockElement) document.exitPointerLock();
