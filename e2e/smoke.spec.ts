@@ -208,6 +208,31 @@ test('the coffee machine fills a mug you put under it', async ({ page }) => {
   expect(sounds.every((s) => s.group === 'toys' && s.at)).toBe(true);
 });
 
+test('E sips a full mug twice, gulps the last, then the empty mug drops with a clunk', async ({ page }) => {
+  await enterOffice(page);
+  type Toys = { held: { kind: string; sips: number } | null; sipping: boolean; mugs: { sips: number }[] };
+  const toys = () => page.evaluate(() => (window as unknown as { __swarmToys: Toys }).__swarmToys);
+  await page.evaluate(() => (window as unknown as { __swarmGiveMug(sips: number): void }).__swarmGiveMug(3));
+  await expect(page.getByText('Sip coffee')).toBeVisible();
+
+  for (const left of [2, 1]) {
+    await page.keyboard.press('e');
+    await expect.poll(async () => (await toys()).held?.sips).toBe(left);
+    await expect.poll(async () => (await toys()).sipping).toBe(false);
+  }
+  await page.keyboard.press('e'); // the big last gulp
+  await expect.poll(async () => (await toys()).held, { timeout: 10_000 }).toBeNull();
+  await expect.poll(async () => (await toys()).mugs).toEqual([expect.objectContaining({ sips: 0 })]);
+
+  type Rec = { name: string; group: string | null; at: unknown };
+  const sounds = () => page.evaluate(() => (window as unknown as { __swarmSfx: Rec[] }).__swarmSfx.filter((s) => s.name.startsWith('mug-')));
+  await expect.poll(async () => (await sounds()).some((s) => s.name === 'mug-clunk'), { timeout: 10_000 }).toBe(true);
+  const recs = await sounds();
+  expect(new Set(recs.map((s) => s.name))).toEqual(new Set(['mug-sip', 'mug-mm', 'mug-gulp', 'mug-ahh', 'mug-clunk']));
+  expect(recs.every((s) => s.group === 'toys')).toBe(true);
+  expect(recs.filter((s) => s.name === 'mug-clunk').every((s) => s.at)).toBe(true);
+});
+
 test('__swarmSfx records sounds, fading and panning with where you stand', async ({ page }) => {
   type Rec = { name: string; at: { x: number } | null; gain: number; pan: number; played: boolean };
   const ping = (x: number, z: number) =>

@@ -16,6 +16,8 @@ import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
+import { eAction } from './toys/sip';
+import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -187,8 +189,14 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       }
       if (s.overlay || !s.started || isConfirmOpen()) return;
       keys.current.add(e.code);
-      // E always acts on the crosshair's target, even with your hands full (a panel opening drops the ball).
-      if (e.code === 'KeyE' && !e.repeat && s.focus) runFocusAction(s.focus);
+      // E acts on the crosshair's target, even with your hands full (a panel opening drops the ball). With coffee in
+      // hand it takes a sip instead, except at the coffee machine.
+      if (e.code === 'KeyE' && !e.repeat) {
+        const act = eAction(s.held, s.focus?.action.kind ?? null);
+        if (act === 'sip') sipCoffee();
+        else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
+        else if (s.focus) runFocusAction(s.focus);
+      }
       if (e.code === 'KeyF' && !e.repeat && !s.travel) startCharge();
       if (e.code === 'KeyG' && !e.repeat) dropHeld();
       if (e.code === 'KeyR' && !e.repeat && !s.travel) reloadHeld();
@@ -260,7 +268,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     bob.current += moving ? dt * speed * 2.2 : 0;
     camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
     footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
-    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    tickSip();
+    camera.rotation.set(pitch + sipPose.head, yaw, 0, 'YXZ');
 
     const now = performance.now();
     if (s.started && !s.travel && now - lastSave.current > 1000) {
