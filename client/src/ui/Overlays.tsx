@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { useStore, type HelpTab } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
@@ -8,6 +8,7 @@ import { ElevatorPanel } from './ElevatorPanel';
 import { Key, MoveKeys } from './Key';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
+import { Panel } from './Panel';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
@@ -15,52 +16,7 @@ import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 
-// Closing a panel grabs the mouse again right away (world/lookLock.ts; "Grab the mouse when panels
-// close" in help turns that off), and mouse presses are swallowed for a moment so a double click on
-// ✕ or the backdrop can't act on whatever the crosshair lands on.
-export function closeOverlay() {
-  useStore.getState().openOverlay(null);
-}
-
-export function Panel({
-  title,
-  children,
-  wide,
-  accent,
-  className,
-  onClose,
-}: {
-  title: ReactNode;
-  children: ReactNode;
-  wide?: boolean;
-  accent?: string;
-  className?: string;
-  onClose?: () => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose ? onClose() : closeOverlay();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
-      <div className={`panel ${wide ? 'panel-wide' : ''} ${className ?? ''}`} style={{ ['--accent' as string]: accent ?? '#ff8a5b' }}>
-        <div className="panel-head">
-          <div className="panel-title">{title}</div>
-          <button className="panel-x" onClick={() => (onClose ? onClose() : closeOverlay())} aria-label="Close">
-            ✕
-          </button>
-        </div>
-        <div className="panel-body">{children}</div>
-      </div>
-    </div>
-  );
-}
+export { closeOverlay, Panel } from './Panel';
 
 const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
 const SOUND_GROUP_TITLES: Partial<Record<SoundGroup, string>> = {
