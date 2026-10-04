@@ -167,7 +167,7 @@ function flow(h: OpsHistory, mine: (repo: string) => boolean, now: number): Flow
 }
 
 /** A floor as mission control sees it: what can start, who's on it, and its open PRs with their QA records. */
-export interface FloorState {
+export interface OpsFloorState {
   repoId: string;
   floor: number;
   ready: number; // backlog issues that can start now
@@ -178,7 +178,7 @@ export interface FloorState {
 const BUSY: AgentStatus[] = ['preparing', 'working'];
 
 /** The pipeline and the team as they are now. */
-function rightNow(f: FloorState) {
+function rightNow(f: OpsFloorState) {
   const stages = f.prs.map((p) => prStage(p.qa));
   const count = (s: string) => stages.filter((x) => x === s).length;
   const people = f.agents.filter((a) => a.role !== 'ceo');
@@ -202,7 +202,7 @@ const firstLine = (s: string, max = 120) => {
 };
 
 /** What on this floor needs the manager: PRs that need you, and agents in error for over ALARM_ERROR_MS. */
-export function floorAlarms(f: FloorState, now: number): OpsAlarm[] {
+export function floorAlarms(f: OpsFloorState, now: number): OpsAlarm[] {
   const base = { repoId: f.repoId, floor: f.floor };
   const prs: OpsAlarm[] = f.prs
     .filter((p) => prStage(p.qa) === 'needsYou')
@@ -214,7 +214,7 @@ export function floorAlarms(f: FloorState, now: number): OpsAlarm[] {
 }
 
 /** Mission control: every floor's numbers, the total (connected floors and the CEO) and the alarms, oldest first. */
-export function opsView(floors: FloorState[], h: OpsHistory, now: number): OpsView {
+export function opsView(floors: OpsFloorState[], h: OpsHistory, now: number): OpsView {
   const sorted = [...floors].sort((a, b) => a.floor - b.floor);
   const rows: OpsFloor[] = sorted.map((f) => ({ repoId: f.repoId, floor: f.floor, ...rightNow(f), ...flow(h, (r) => r === f.repoId, now), alarms: floorAlarms(f, now).length }));
   const connected = new Set(sorted.map((f) => f.repoId));

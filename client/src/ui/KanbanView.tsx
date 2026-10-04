@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { agentsOnRepo, kanbanFor, useStore, type Agent, type KanbanCard } from '../store';
 import { confirmDialog } from './Confirm';
-import { Panel } from './Overlays';
+import { Panel } from './Panel';
 
 function AgentChip({ agent }: { agent?: Agent }) {
   if (!agent) return null;
@@ -60,6 +60,17 @@ export function IssueForm({ repoId, agents, onDone }: { repoId: string; agents: 
   );
 }
 
+/** The board's frame: a panel over the office, or (in pocket mode) a plain section of the page. */
+function Frame({ embedded, ...props }: Parameters<typeof Panel>[0] & { embedded?: boolean }) {
+  if (!embedded) return <Panel {...props} />;
+  return (
+    <section className="kanban-embedded" style={{ ['--accent' as string]: props.accent }}>
+      <h2 className="kanban-embedded-title">{props.title}</h2>
+      {props.children}
+    </section>
+  );
+}
+
 function QaLink({ card }: { card: KanbanCard }) {
   if (!card.qa?.commentUrl) return null;
   return (
@@ -69,7 +80,7 @@ function QaLink({ card }: { card: KanbanCard }) {
   );
 }
 
-export function KanbanView({ repoId }: { repoId: string }) {
+export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: boolean }) {
   const repo = useStore((s) => s.repos.find((r) => r.id === repoId));
   const allAgents = useStore((s) => s.agents);
   const qaRecords = useStore((s) => s.qa);
@@ -82,9 +93,9 @@ export function KanbanView({ repoId }: { repoId: string }) {
 
   if (!repo || !cols) {
     return (
-      <Panel title="Kanban">
+      <Frame title="Kanban" embedded={embedded}>
         <p className="muted">This floor no longer exists.</p>
-      </Panel>
+      </Frame>
     );
   }
 
@@ -135,6 +146,20 @@ export function KanbanView({ repoId }: { repoId: string }) {
     });
     if (ok) void act(c.key, () => api.sendBack(repo.id, c.number, note.trim() || undefined));
   };
+  const closePr = async (c: KanbanCard) => {
+    const ok = await confirmDialog({
+      tone: 'danger',
+      title: `Close PR #${c.number}?`,
+      body: `“${c.title}” will be closed without merging, and any QA or fix work on it stops. Its issue stays open and waits for you to assign it again. The branch stays on GitHub.`,
+      confirm: 'Close PR',
+    });
+    if (ok) void act(c.key, () => api.closePull(repo.id, c.number));
+  };
+  const closeButton = (c: KanbanCard) => (
+    <button className="btn btn-small btn-ghost" disabled={pending === c.key} onClick={() => void closePr(c)}>
+      Close
+    </button>
+  );
   const previewButton = (c: KanbanCard) => (
     <button
       className="btn btn-small"
@@ -182,7 +207,8 @@ export function KanbanView({ repoId }: { repoId: string }) {
   );
 
   return (
-    <Panel
+    <Frame
+      embedded={embedded}
       wide
       accent={repo.color}
       title={
@@ -285,6 +311,7 @@ export function KanbanView({ repoId }: { repoId: string }) {
                     Merge anyway
                   </button>
                 )}
+                {closeButton(c)}
               </div>
             );
           },
@@ -309,16 +336,7 @@ export function KanbanView({ repoId }: { repoId: string }) {
                 <button className="btn btn-small btn-good" disabled={pending === c.key || pr?.isDraft} onClick={() => merge(c)}>
                   Merge
                 </button>
-                <button
-                  className="btn btn-small btn-ghost"
-                  disabled={pending === c.key}
-                  onClick={async () => {
-                    const ok = await confirmDialog({ tone: 'danger', title: `Close PR #${c.number}?`, body: `“${c.title}” will be closed without merging. The branch stays on GitHub.`, confirm: 'Close PR' });
-                    if (ok) void act(c.key, () => api.closePull(repo.id, c.number));
-                  }}
-                >
-                  Close
-                </button>
+                {closeButton(c)}
               </div>
             );
           },
@@ -336,6 +354,6 @@ export function KanbanView({ repoId }: { repoId: string }) {
           'Nothing merged yet.',
         )}
       </div>
-    </Panel>
+    </Frame>
   );
 }

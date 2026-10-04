@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import type { PreviewStatus, RepoView } from '../../../shared/types';
-import { Panel } from './Overlays';
+import { Panel } from './Panel';
 
 const STATUS_LABEL: Record<PreviewStatus, string> = {
   unconfigured: 'not set up',

@@ -7,6 +7,7 @@ import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
 import { realPreviews, type PreviewBackend } from './previewRunner.ts';
 import { realOffice, type OfficeHost } from './officeUpdate.ts';
 import { elevenLabs } from './elevenlabs.ts';
+import { httpTransport, type NotifyTransport } from './notifier.ts';
 import type { VoiceApi } from './voice.ts';
 import type { AgentTerminal } from './terminal.ts';
 import type { OpsHistory } from './metrics.ts';
@@ -81,6 +82,8 @@ export interface Backend {
   office: OfficeHost;
   /** Text to speech for the manager's phone (ElevenLabs). */
   voice: VoiceApi;
+  /** Notifications to the chat apps and push services (docs/pocket.md). */
+  notify: NotifyTransport;
   /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
   seedOps?(repos: string[], now: number): OpsHistory;
   /** The demo only: Claude's usage warning, or its limit, on demand, as a session would report it. */
@@ -132,4 +135,5 @@ export const realBackend: Backend = {
   previews: realPreviews,
   office: realOffice,
   voice: elevenLabs,
+  notify: httpTransport,
 };

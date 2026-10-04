@@ -15,7 +15,7 @@ import {
   recordMerges,
   recordQa,
   startOfDay,
-  type FloorState,
+  type OpsFloorState,
   type OpsHistory,
 } from './metrics.ts';
 
@@ -32,11 +32,11 @@ const merged = (number: number, mergedAt: number, createdAt: number, issueCreate
   issueCreatedAt: issueCreatedAt === null ? null : iso(issueCreatedAt),
 });
 
-function floor(over: Partial<FloorState> = {}): FloorState {
+function floor(over: Partial<OpsFloorState> = {}): OpsFloorState {
   return { repoId: 'o/a', floor: 1, ready: 0, agents: [], prs: [], ...over };
 }
 
-const agent = (over: Partial<FloorState['agents'][number]>) => ({ id: 'x', name: 'Ada', role: 'dev' as const, task: null, status: 'idle' as const, endedAt: null, lastError: null, ...over });
+const agent = (over: Partial<OpsFloorState['agents'][number]>) => ({ id: 'x', name: 'Ada', role: 'dev' as const, task: null, status: 'idle' as const, endedAt: null, lastError: null, ...over });
 const pr = (number: number, status: string | null, ceoLooking = false, why: string | null = null) => ({
   number,
   qa: status ? { status: status as 'queued', ceoLooking, updatedAt: NOW - 30 * MIN } : null,
