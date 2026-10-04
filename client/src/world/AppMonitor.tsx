@@ -6,6 +6,7 @@ import { loadScreenshot } from '../screenshot';
 import { channelLabel, channelLed, channelPulls, chipRects, prAsPreview, qaShotUrl, stripPulls, type ChipRect } from '../ui/channels';
 import { useChannel } from '../ui/theatre';
 import { drawAppScreen, type ScreenChip } from './draw';
+import { useKeyName } from '../ui/controls';
 import { useCanvasTexture, useInteractable } from './interact';
 import { APP_SCREEN, HALF_D } from './layout';
 import { BLOOM } from './gfx/bloomMarks';
@@ -100,11 +101,12 @@ export function AppMonitor({ repo, agents }: { repo: RepoView; agents: Agent[] }
     return loadScreenshot(id, Number(at), (img) => setShot({ img, caption: `latest from ${by}'s browser` }));
   }, [live, latest, channel, qaShot]);
 
+  const use = useKeyName('interact');
   const tex = useCanvasTexture(
     PX[0],
     PX[1],
-    (ctx) => drawAppScreen(ctx, PX[0], PX[1], { floor: repo.floor, name, color: repo.color, preview: p, shot: shot?.img ?? null, shotCaption: shot?.caption ?? null, channels: chips }),
-    [repo.floor, name, repo.color, p.status, p.url, p.ref, p.commit, p.startedAt, p.error, shot, chipKey],
+    (ctx) => drawAppScreen(ctx, PX[0], PX[1], { floor: repo.floor, name, color: repo.color, preview: p, shot: shot?.img ?? null, shotCaption: shot?.caption ?? null, channels: chips, use }),
+    [repo.floor, name, repo.color, p.status, p.url, p.ref, p.commit, p.startedAt, p.error, shot, chipKey, use],
   );
   const ref = useInteractable<THREE.Group>({ id: `app-${repo.id}`, label: channel == null ? 'Open the app' : `Open PR #${channel}`, action: { kind: 'app', repoId: repo.id, pr: channel } }, 6);
 

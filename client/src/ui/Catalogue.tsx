@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useStore } from '../store';
 import { carry, decorName, kaching } from '../world/decor/actions';
 import { SLOT_NAMES } from '../world/decor/decor';
+import { Key } from './Key';
 import { Panel } from './Overlays';
 
 const EMPTY: FloorProgressView = { coins: 0, earned: 0, merges: 0, owned: {}, placed: {}, firstPr: null };
@@ -78,7 +79,7 @@ export function Catalogue({ repoId }: { repoId?: string }) {
             })}
           </div>
           <p className="muted small">
-            Bought decorations wait in the floor's 📦 decor box, next to its elevator. Take one out, walk to a glowing spot and press <kbd>E</kbd>: it snaps in. <kbd>E</kbd> on a placed decoration picks it up again; <kbd>G</kbd> puts it back where it was.
+            Bought decorations wait in the floor's 📦 decor box, next to its elevator. Take one out, walk to a glowing spot and press <Key action="interact" />: it snaps in. <Key action="interact" /> on a placed decoration picks it up again; <Key action="drop" /> puts it back where it was.
           </p>
         </>
       )}
@@ -148,7 +149,7 @@ export function DecorBoxPanel({ repoId }: { repoId: string }) {
         </div>
       )}
       <p className="muted small">
-        Carrying one, glowing spots show where it fits: aim at one and press <kbd>E</kbd>. <kbd>G</kbd> puts it back where it came from.
+        Carrying one, glowing spots show where it fits: aim at one and press <Key action="interact" />. <Key action="drop" /> puts it back where it came from.
       </p>
     </Panel>
   );

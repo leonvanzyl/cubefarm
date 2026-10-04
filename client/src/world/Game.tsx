@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
+import { CameraRig } from './camera/CameraRig';
+import { CUT_PLANES } from './camera/rig';
 import { lobbyColliders, officeColliders, ROOF, roofColliders } from './layout';
 import { decorRects } from './decor/decor';
 import { Graphics } from './gfx/Graphics';
@@ -81,6 +83,7 @@ export function Game() {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.0;
         gl.shadowMap.type = THREE.PCFSoftShadowMap;
+        gl.clippingPlanes = CUT_PLANES; // the overview's cutaway, out of the way until it's used (camera/rig.ts)
       }}
     >
       <DayClock />
@@ -91,6 +94,7 @@ export function Game() {
       {!onRoof && <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />}
       {!onRoof && <ThemeLayer key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} repoId={repo?.id ?? null} />}
       <Player colliders={colliders} floor={floor} />
+      <CameraRig />
       <Travel />
       <SoundListener />
       <Soundscape kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />

@@ -66,10 +66,13 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `G` | drop what you're holding, or peel the whiteboard sticky you aim at off the board |
 | `R` | reload a blaster |
 | `P` | your phone |
-| `Tab` | show or hide who's working |
+| `Tab` | the overview: the whole floor from above, dollhouse style (drag to pan, scroll to zoom, `Q` / `E` to turn, click someone to open their panel); `Tab` again flies you back, twice quickly shows the whole building |
+| `L` | show or hide who's working |
 | `M` | mute or unmute |
-| `H` | help, with every control and the sound settings |
-| `Esc` | let go of the mouse, or close a panel |
+| `H` | help, with every control and the sound settings; its Controls tab rebinds every key and sets up the mouse and gamepad |
+| `Esc` | let go of the mouse, close a panel, or leave the overview |
+
+A gamepad works too (left stick walks, right stick looks, A uses, B goes back, X picks up or drops, the triggers throw, Start opens the phone, Select the overview), and **🎥 Follow** in an agent's panel trails them with the camera.
 
 ## Commands
 

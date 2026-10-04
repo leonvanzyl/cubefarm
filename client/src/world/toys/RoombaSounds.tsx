@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useRenderPaused } from '../../perf';
 import { useStore } from '../../store';
-import { audio, createPanner, groupOutput, noise, recordSfx, setPannerPosition, tone, type Vec3 } from '../../ui/sfx';
+import { audio, createPanner, groupOutput, listenerAt, noise, recordSfx, setPannerPosition, tone, type Vec3 } from '../../ui/sfx';
 import { ROOMBA_EVENT, type Roomba } from './roombaBrain';
 import { bumpAllowed, humFor, humReach, type Hum } from './roombaSound';
 
@@ -173,7 +173,7 @@ export function RoombaSounds({ brain }: { brain: Roomba }) {
     [],
   );
 
-  useFrame(({ camera }, dt) => {
+  useFrame((_, dt) => {
     const st = s.current;
     pos.x = brain.x;
     pos.z = brain.z;
@@ -198,7 +198,8 @@ export function RoombaSounds({ brain }: { brain: Roomba }) {
 
     // ---- the hum ----
     humFor(brain.state, brain.move, brain.speed, hum);
-    const d = Math.hypot(camera.position.x - pos.x, camera.position.y - pos.y, camera.position.z - pos.z);
+    const ear = listenerAt();
+    const d = Math.hypot(ear.x - pos.x, ear.y - pos.y, ear.z - pos.z);
     const level = st.quiet ? 0 : hum.level * humReach(d);
     if (level > 0 && !st.humming) recordSfx('roomba:hum', { group: 'toys', pos, peak: HUM_PEAK * hum.level, played: !!audio() });
     st.humming = level > 0;

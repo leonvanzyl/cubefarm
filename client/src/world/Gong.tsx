@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import * as THREE from 'three';
 import { markBloom } from './gfx/bloomMarks';
 import { gongState, hitGong, setGongHere } from './gongState';

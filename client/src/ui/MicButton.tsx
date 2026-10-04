@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import { useStore } from '../store';
 import { finishListening, keepListening, listen, micProblem, registerTarget, stopListening, useMic, type MicTarget, type MicView } from './mic';
 import { TAP_MS } from './micKeys';
+import { useKeyName } from './controls';
 
 // The 🎙 next to a message box's Send (mic.ts does the listening). Hold it (or V) to talk; a quick tap listens until
 // you stop talking; tap again to finish. The live transcript goes into the box, to edit before sending. Put it in the
@@ -35,6 +36,7 @@ export function MicButton({ kind, value, onChange, onSend, disabled }: Props) {
   useStore((s) => s.voiceKeySet); // re-render when the key comes or goes: it changes micProblem()
   const mic = useMic();
   const press = useRef<number | null>(null);
+  const talkKey = useKeyName('talk');
 
   useEffect(
     () =>
@@ -85,7 +87,7 @@ export function MicButton({ kind, value, onChange, onSend, disabled }: Props) {
   };
 
   const status = statusLine(mic, mine, chiming);
-  const title = why || (on ? 'Listening: Esc stops' : 'Hold to talk (or hold V); tap to talk until you stop');
+  const title = why || (on ? 'Listening: Esc stops' : `Hold to talk (or hold ${talkKey}); tap to talk until you stop`);
 
   return (
     <span className="mic">

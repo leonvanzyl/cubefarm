@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import type { AgentStatus } from '../../../shared/types';
 import { useRenderPaused } from '../perf';
 import { useStore, type Agent } from '../store';
 import { ding } from '../ui/sfx';
 import { WALK_SPEED, type Gesture } from './body';
+import { playerAt } from './camera/rig';
 import './coffeeErrand';
 import {
   HURRY_SPEED,
@@ -136,7 +137,6 @@ export function ErrandDirector({
   /** The floor's repo, for what chats are about. */
   repoId?: string;
 }) {
-  const camera = useThree((s) => s.camera);
   const paused = useRenderPaused();
   const w = walkways(floor);
   const people = useMemo(() => new Map<string, Person>(), []);
@@ -479,7 +479,7 @@ export function ErrandDirector({
     if (d > 0.05) {
       const ux = dx / d;
       const uz = dz / d;
-      const player = { x: camera.position.x, z: camera.position.z };
+      const player = { x: playerAt.x, z: playerAt.z };
       const s = steer({ id: p.id, x, z, dx: ux, dz: uz }, p.ghost > 0 ? [] : run.walkers, player, (sx, sz) => standable(w, sx, sz));
       if (s.wait) {
         tx = x;
@@ -512,8 +512,8 @@ export function ErrandDirector({
     me.heading = st.heading;
     me.arrived = p.arrived;
     me.dt = dt;
-    me.player.x = camera.position.x;
-    me.player.z = camera.position.z;
+    me.player.x = playerAt.x;
+    me.player.z = playerAt.z;
     const act = sc.tick(me);
     if (p.script !== sc) return; // it ended meanwhile
     if (act.do === 'done') return goHome(p, false, st, 'done');
@@ -670,7 +670,7 @@ export function ErrandDirector({
             // The doors open: out round you if you're in front of them (you may have ridden up together).
             const lift = p.hold <= 0 && e === TOUR ? spotById(w, 'elevator') : undefined;
             if (lift) {
-              const out = stepOut(lift, { x: camera.position.x, z: camera.position.z }, planTour(w, lift)[0]?.spot ?? null);
+              const out = stepOut(lift, { x: playerAt.x, z: playerAt.z }, planTour(w, lift)[0]?.spot ?? null);
               p.path = [out];
               p.dest = { ...lift, ...out, facing: -Math.PI / 2 };
             }

@@ -708,6 +708,8 @@ export interface AppScreenInfo {
   shot: HTMLImageElement | null; // shown while the app is live: the latest agent screenshot on the floor, or QA's of the PR
   shotCaption: string | null; // what the screenshot is, e.g. "latest from Ada's browser"
   channels?: ScreenChip[]; // the channel strip, drawn when the floor has open PRs
+  /** The player's interact key (Help → Controls). */
+  use: string;
 }
 
 /** The wall screen at the front of an office floor: the floor's app and how it's doing. */
@@ -778,13 +780,13 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.lineTo(w / 2 + 44, cy);
     ctx.closePath();
     ctx.fill();
-    centred('Press E to open the app', midY + 80, 70, '#ffffff');
+    centred(`Press ${info.use} to open the app`, midY + 80, 70, '#ffffff');
     footer("The app isn't running. Start it from the viewer.");
   } else if (p.status === 'unconfigured') {
     centred('⚙️', midY - 90, 110, '#ffffff', 400);
     centred('No run command yet.', midY + 40, 66, '#ffffff');
     centred("Set one in the manager's console.", midY + 120, 44, '#b8b8cc', 600);
-    footer('Press E to open the app');
+    footer(`Press ${info.use} to open the app`);
   } else if (p.status === 'error') {
     const firstLine = (p.error ?? '').split(/\r?\n/).find((l) => l.trim())?.trim() || 'The app stopped unexpectedly.';
     ctx.fillStyle = '#e63946';
@@ -793,7 +795,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fitText(ctx, `⚠ ${firstLine}`, w - 100), 50, midY - 55);
     centred("The app couldn't start.", midY + 90, 52, '#ffffff');
-    footer('Press E to see the log and try again', '#ffb4ba');
+    footer(`Press ${info.use} to see the log and try again`, '#ffb4ba');
   } else if (p.status !== 'running') {
     const at = Math.max(0, APP_STEPS.findIndex((s) => s.status === p.status));
     centred(`Getting ${ref} ready…`, bodyTop + 80, 46, '#b8b8cc', 600);
@@ -813,7 +815,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillText(`${i < at ? '✓ ' : ''}${s.label}`, x + segW / 2, y + 70);
       ctx.textAlign = 'left';
     });
-    footer(`Step ${at + 1} of ${APP_STEPS.length} · press E to watch`);
+    footer(`Step ${at + 1} of ${APP_STEPS.length} · press ${info.use} to watch`);
   } else {
     // running: where it's served and what's deployed, plus the latest thing an agent on this floor looked at
     const left = 56;
@@ -858,7 +860,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillStyle = '#8d8da8';
       ctx.fillText(fitText(ctx, info.shotCaption ?? 'latest agent screenshot', tw), tx, ty + th + 36);
     }
-    footer('Press E to open the app', TERM.done);
+    footer(`Press ${info.use} to open the app`, TERM.done);
   }
   if (strip) drawChannelStrip(ctx, w, h, strip, info.color);
 }
