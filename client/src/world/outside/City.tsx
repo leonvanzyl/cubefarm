@@ -5,9 +5,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { useStore } from '../../store';
 import { markBloom } from '../gfx/bloomMarks';
 import { dayTime } from '../sky/useDayTime';
-import { skyAt, sunDirection } from '../sky/time';
+import { skyAt, sunDirection, type SkyPalette } from '../sky/time';
 import { viewElevation } from '../layout';
-import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, type CityBox } from './cityLayout';
+import { hazeRange, weatherSky } from '../weather/weatherRules';
+import { weather } from '../weather/weatherState';
+import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, waterTowers, type CityBox } from './cityLayout';
 
 // The city around the building (cityLayout.ts says where everything is). Six draw calls: the buildings (one
 // InstancedMesh with a shared window texture), roof bits as instanced boxes, cylinders and cones, the ground
@@ -15,7 +17,9 @@ import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, type Cit
 // lights itself from the time of day (time.ts), not from the office's lights, and fades into the horizon colour
 // with distance. The windows, lamps and headlights come on through one shared uniform (cityLights), so the
 // evening costs nothing. Drawn after the office (renderOrder 1), so indoors the walls hide it before it shades.
-// window.__swarmCity reports what's there, for QA.
+// The weather (weather/) greys its light, darkens it in the rain, settles snow on everything facing up, pulls the haze
+// in with fog, flashes with lightning and sways the park's trees in a gale; a world event can knock a water tower
+// over (setTowerDown). window.__swarmCity reports what's there, for QA.
 
 /** The shared uniforms every city material reads; the useFrame below changes them, never React. */
 const shared = {
@@ -26,7 +30,16 @@ const shared = {
   uAmbient: { value: 0.18 },
   uHaze: { value: new THREE.Color() },
   uLights: { value: 0 },
+  uWet: { value: 0 },
+  uSnow: { value: 0 },
+  uFlash: { value: 0 },
+  uHazeRange: { value: new THREE.Vector2(40, 500) },
+  uSway: { value: 0 },
+  uTime: { value: 0 },
 };
+
+/** The city's haze (its colour and range), for things out among the buildings to fade into it alike (world events). */
+export const cityHaze = { uHaze: shared.uHaze, uHazeRange: shared.uHazeRange };
 
 const COMMON = /* glsl */ `
 uniform vec3 uSunDir;
@@ -36,18 +49,25 @@ uniform vec3 uHemiGround;
 uniform float uAmbient;
 uniform vec3 uHaze;
 uniform float uLights;
+uniform float uWet;
+uniform float uSnow;
+uniform float uFlash;
+uniform vec2 uHazeRange;
 varying vec3 vWorld;
 
-// The office's three-step toon ramp (materials.ts) under the time of day's sun and sky.
+// The office's three-step toon ramp (materials.ts) under the time of day's sun and sky, and the weather: snow on
+// whatever faces up, everything darker when wet, and a lightning flash.
 vec3 toonLight(vec3 albedo, vec3 n) {
+  albedo = mix(albedo, vec3(0.92, 0.94, 0.98), uSnow * smoothstep(0.15, 0.6, n.y));
+  albedo *= 1.0 - 0.3 * uWet;
   float k = dot(n, uSunDir) * 0.5 + 0.5;
   float ramp = k < 0.3333 ? 0.43 : (k < 0.6667 ? 0.745 : 1.0);
   vec3 hemi = mix(uHemiGround, uHemiSky, n.y * 0.5 + 0.5) * 0.95;
-  return albedo * (vec3(uAmbient) + hemi + uSun * ramp) * 0.3183099;
+  return albedo * (vec3(uAmbient + uFlash) + hemi + uSun * ramp) * 0.3183099;
 }
 
 float hazeAt() {
-  float h = clamp((distance(vWorld, cameraPosition) - 40.0) / 460.0, 0.0, 1.0);
+  float h = clamp((distance(vWorld, cameraPosition) - uHazeRange.x) / (uHazeRange.y - uHazeRange.x), 0.0, 1.0);
   return h * (2.0 - h);
 }
 `;
@@ -170,12 +190,24 @@ function windowTexture() {
 // ---------- roof bits, trees, the park ----------
 
 const PROP_VERT = /* glsl */ `
+uniform float uSway;
+uniform float uTime;
 varying vec3 vWorld;
 varying vec3 vN;
 varying vec3 vCol;
 void main() {
   vec3 s = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
   vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
+#ifdef SWAY
+  // the park's trees (crowns standing near the ground) bend in a gale, each in its own time
+  vec3 base = instanceMatrix[3].xyz;
+  if (uSway > 0.0 && base.y < 3.0) {
+    float bend = position.y * position.y * s.y * 0.22 * uSway;
+    float t = uTime * 2.1 + base.x * 0.37 + base.z * 0.23;
+    wp.x += bend * (0.7 + 0.3 * sin(t));
+    wp.z += bend * 0.35 * sin(t * 1.3);
+  }
+#endif
   vWorld = wp.xyz;
   vN = normalize(mat3(modelMatrix) * (normal / s));
   vCol = instanceColor;
@@ -377,9 +409,11 @@ function buildCity() {
   const buildings = instanced(buildingGeo, markBloom(material(BUILDING_VERT, BUILDING_FRAG, { uWindows: { value: windows } }), 'night'), layout.buildings);
 
   const propMat = material(PROP_VERT, PROP_FRAG);
+  const coneMat = material(PROP_VERT, PROP_FRAG);
+  coneMat.defines = { SWAY: '' };
   const boxes = instanced(unitBox(), propMat, layout.boxes);
   const cylinders = instanced(new THREE.CylinderGeometry(0.5, 0.5, 1, 10).translate(0, 0.5, 0), propMat, layout.cylinders);
-  const cones = instanced(new THREE.ConeGeometry(0.5, 1, 10).translate(0, 0.5, 0), propMat, layout.cones);
+  const cones = instanced(new THREE.ConeGeometry(0.5, 1, 10).translate(0, 0.5, 0), coneMat, layout.cones);
 
   const cars = routes.map(() => new THREE.Vector4(0, 1e5, 0, 1));
   const ground = new THREE.Mesh(
@@ -413,6 +447,7 @@ function buildCity() {
     routes,
     meshes,
     traffic,
+    props: { boxes, cylinders, cones },
     cars,
     scales: routes.map((r) => new THREE.Vector3(r.w, r.h, r.len)),
     dispose() {
@@ -420,6 +455,7 @@ function buildCity() {
         mesh.geometry.dispose();
         (mesh.material as THREE.Material).dispose();
       }
+      propMat.dispose();
       windows.dispose();
     },
   };
@@ -430,14 +466,28 @@ function buildCity() {
 const pose = { x: 0, z: 0, yaw: 0 };
 const carMatrix = new THREE.Matrix4();
 let lastT = -1;
+let lastWeather = -1;
+const palette = {} as SkyPalette;
+const sunDir: [number, number, number] = [0, 0, 0];
+const haze: [number, number] = [40, 500];
 
-/** The time of day into the shared uniforms. skyAt allocates, so only when the clock has moved on noticeably. */
+/** The time of day and the weather into the shared uniforms, only when either has moved on noticeably. */
 function followSky() {
   const t = dayTime.t;
-  if (Math.abs(t - lastT) < 1e-4) return;
+  if (Math.abs(t - lastT) < 1e-4 && weather.version === lastWeather) return;
   lastT = t;
-  const sky = skyAt(t);
-  const [x, y, z] = sunDirection(t);
+  lastWeather = weather.version;
+  const sky = skyAt(t, palette);
+  const w = weather.active ? weather.mix : null;
+  if (w) weatherSky(sky, w);
+  shared.uWet.value = weather.active ? Math.max(weather.wet, w ? w.rain * 0.6 : 0) * (1 - weather.snow) : 0;
+  shared.uSnow.value = weather.active ? weather.snow : 0;
+  shared.uFlash.value = weather.flash * 1.4;
+  if (w) hazeRange(w, haze);
+  else [haze[0], haze[1]] = [40, 500];
+  shared.uHazeRange.value.set(haze[0], haze[1]);
+  shared.uSway.value = w ? Math.max(0, w.wind - 0.5) * 2 * w.cloud : 0;
+  const [x, y, z] = sunDirection(t, sunDir);
   // by night the moon lights the city from the other side of the sky
   shared.uSunDir.value.set(y < 0 ? -x : x, Math.max(Math.abs(y), 0.15), y < 0 ? -z : z).normalize();
   shared.uSun.value.setHex(sky.sunColor).multiplyScalar(sky.sunIntensity);
@@ -455,7 +505,14 @@ export function City() {
   const floor = useStore((s) => s.floor);
   const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
   const city = useMemo(buildCity, []);
-  useEffect(() => () => city.dispose(), [city]);
+  useEffect(() => {
+    live = city;
+    for (const i of towersDown) placeTower(city, i, true);
+    return () => {
+      if (live === city) live = null;
+      city.dispose();
+    };
+  }, [city]);
   // A hair below street level, so the plaza never fights the lobby's floor.
   const elevation = viewElevation(floor, top);
   probe = { buildings: city.layout.buildings.length, cars: city.routes.length, elevation };
@@ -463,6 +520,7 @@ export function City() {
   useFrame(({ clock }) => {
     followSky();
     const time = clock.elapsedTime;
+    if (shared.uSway.value > 0) shared.uTime.value = time;
     const { traffic, routes, scales, cars } = city;
     for (let i = 0; i < routes.length; i++) {
       const r = routes[i];
@@ -485,10 +543,46 @@ export function City() {
   );
 }
 
+// ---------- water towers ----------
+
+let live: ReturnType<typeof buildCity> | null = null;
+let towers: ReturnType<typeof waterTowers> | null = null;
+const towersDown = new Set<number>();
+const towerMatrix = new THREE.Matrix4();
+
+/** The water towers on the city's roofs (cityLayout.ts), for a world event to knock one over. */
+export function cityWaterTowers() {
+  towers ??= waterTowers(live?.layout ?? cityLayout());
+  return towers;
+}
+
+function placeTower(city: ReturnType<typeof buildCity>, i: number, down: boolean) {
+  const t = cityWaterTowers()[i];
+  if (!t) return;
+  const parts: [THREE.InstancedMesh, number, CityBox][] = [
+    [city.props.boxes, t.box, city.layout.boxes[t.box]],
+    [city.props.cylinders, t.cylinder, city.layout.cylinders[t.cylinder]],
+    [city.props.cones, t.cone, city.layout.cones[t.cone]],
+  ];
+  for (const [mesh, index, b] of parts) {
+    if (down) towerMatrix.makeScale(0, 0, 0);
+    else towerMatrix.makeScale(b.w, b.h, b.d).setPosition(b.x, b.y, b.z);
+    mesh.setMatrixAt(index, towerMatrix);
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+/** Hides water tower `i` (knocked over: the event draws it falling) or puts it back up (rebuilt). */
+export function setTowerDown(i: number, down: boolean) {
+  if (down) towersDown.add(i);
+  else towersDown.delete(i);
+  if (live) placeTower(live, i, down);
+}
+
 // For QA: __swarmCity tells what the city holds and how far below you the street is.
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmCity')) {
   Object.defineProperty(window, '__swarmCity', {
-    get: () => ({ ...probe, drawCalls: 6, lights: shared.uLights.value }),
+    get: () => ({ ...probe, drawCalls: 6, lights: shared.uLights.value, towersDown: [...towersDown] }),
     enumerable: false,
     configurable: false,
   });

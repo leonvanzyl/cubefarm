@@ -2,7 +2,8 @@
 // golden hour) and the moon, puffy toon clouds drifting with the wind, stars at night, and the scene's fog and
 // background colour. Three draw calls (the stars only at night), everything updated through refs and uniforms in
 // one useFrame with no allocations. The whole sky moves with the camera and sits at the far end of the depth
-// range, so it is drawn only where nothing else is and never cuts through the building or the city.
+// range, so it is drawn only where nothing else is and never cuts through the building or the city. The weather
+// (weather/) greys and darkens it, swells and darkens the clouds, hides the sun and stars and flashes with lightning.
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -10,12 +11,18 @@ import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
 import { dayTime } from './useDayTime';
+import { coverOf, weatherSky } from '../weather/weatherRules';
+import { weather } from '../weather/weatherState';
 
 const STARS = 700;
 const FOG_NEAR = 30;
 const FOG_FAR_DAY = 70;
 const FOG_FAR_NIGHT = 62;
 const NIGHT_CLOUD = new THREE.Color(0x5d6788);
+const STORM_CLOUD = new THREE.Color(0x6c7380);
+const FLASH = new THREE.Color(0xe8eeff);
+/** How much closer the fog comes in thick fog (metres off its near and far), kept off the office's own far wall. */
+const FOG_IN = { near: 6, far: 26 };
 
 // On the far plane (z = w): drawn after the building, only where nothing else is.
 const DOME_VERT = /* glsl */ `
@@ -33,6 +40,8 @@ uniform vec3 uFog;
 uniform vec3 uSunColor;
 uniform vec3 uSunDir;
 uniform float uNight;
+uniform float uCover;
+uniform float uFlash;
 varying vec3 vDir;
 
 float disc(float c, float cosR) {
@@ -50,7 +59,7 @@ void main() {
   float aboveHorizon = smoothstep(-0.012, 0.008, h);
 
   // the sun: a soft glow and a hard cartoon disc, both bigger and warmer near the horizon
-  float sunUp = smoothstep(-0.12, 0.04, uSunDir.y);
+  float sunUp = smoothstep(-0.12, 0.04, uSunDir.y) * (1.0 - uCover);
   float low = 1.0 - smoothstep(0.02, 0.45, uSunDir.y);
   float c = dot(d, uSunDir);
   float cp = max(c, 0.0);
@@ -62,7 +71,7 @@ void main() {
   // the moon, opposite the sun: a cream disc with a few craters and a cool halo
   vec3 m = -uSunDir;
   float mc = dot(d, m);
-  float moonUp = uNight * smoothstep(-0.02, 0.06, m.y) * aboveHorizon;
+  float moonUp = uNight * smoothstep(-0.02, 0.06, m.y) * aboveHorizon * (1.0 - uCover);
   col += vec3(0.5, 0.58, 0.9) * moonUp * (pow(max(mc, 0.0), 260.0) * 0.4 + pow(max(mc, 0.0), 40.0) * 0.08);
   vec3 tx = normalize(cross(m, vec3(0.0, 1.0, 0.0)) + vec3(0.0001));
   vec3 ty = cross(tx, m);
@@ -72,6 +81,8 @@ void main() {
                       1.0 - smoothstep(0.11, 0.15, length(q - vec2(0.12, -0.45))));
   vec3 moonCol = mix(vec3(0.95, 0.88, 0.66), vec3(0.6, 0.56, 0.46), crater);
   col = mix(col, moonCol, disc(mc, 0.99942) * moonUp);
+  // lightning lights the whole sky, the clouds overhead most
+  col += vec3(0.72, 0.78, 1.0) * uFlash * (0.55 + 0.45 * smoothstep(-0.1, 0.5, h));
 
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
@@ -156,6 +167,7 @@ export function Sky() {
       background: new THREE.Color(0xbfe3ff),
       drift: 0,
       lastDrift: -1,
+      lastSwell: -1,
       motion: reducedMotionQuery(),
       domeGeometry: new THREE.SphereGeometry(50, 32, 16),
       dome: new THREE.ShaderMaterial({
@@ -170,6 +182,8 @@ export function Sky() {
           uSunColor: { value: new THREE.Color() },
           uSunDir: { value: new THREE.Vector3(0, 1, 0) },
           uNight: { value: 0 },
+          uCover: { value: 0 },
+          uFlash: { value: 0 },
         },
         // the moon blooms after dusk (the dark sky round it is too dim to), and so do the stars
         userData: BLOOM_AT_NIGHT,
@@ -224,6 +238,9 @@ export function Sky() {
 
     const t = dayTime.t;
     const p = skyAt(t, sky.palette);
+    const w = weather.active ? weather.mix : null;
+    if (w) weatherSky(p, w);
+    const cover = w ? coverOf(w) : 0;
     const sun = sunDirection(t, sky.sun);
     const night = nightFactor(t);
 
@@ -234,8 +251,11 @@ export function Sky() {
     (u.uSunColor.value as THREE.Color).setHex(p.sunColor);
     (u.uSunDir.value as THREE.Vector3).set(sun[0], sun[1], sun[2]);
     u.uNight.value = night;
+    u.uCover.value = cover;
+    u.uFlash.value = weather.flash;
     sky.fog.color.setHex(p.fog);
-    sky.fog.far = FOG_FAR_DAY + (FOG_FAR_NIGHT - FOG_FAR_DAY) * night;
+    sky.fog.near = FOG_NEAR - (w ? FOG_IN.near * w.fog : 0);
+    sky.fog.far = FOG_FAR_DAY + (FOG_FAR_NIGHT - FOG_FAR_DAY) * night - (w ? FOG_IN.far * w.fog + 6 * w.rain : 0);
     sky.background.setHex(p.horizon);
 
     // Clouds: white at noon, gold and pink at golden hour (the sun's and the horizon's colours), dim blue-grey at night.
@@ -244,21 +264,29 @@ export function Sky() {
     const shade = cu.uShade.value as THREE.Color;
     const low = 1 - Math.min(1, Math.max(0, sun[1] / 0.45));
     lit.setRGB(1, 1, 1).lerp(sky.tmp.setHex(p.sunColor), 0.4).lerp(sky.tmp.setHex(p.horizon), 0.35 * low).lerp(NIGHT_CLOUD, night * 0.85);
-    shade.copy(lit).multiplyScalar(0.8).lerp(sky.tmp.setHex(p.horizon), 0.3);
+    if (w) lit.lerp(STORM_CLOUD, Math.min(1, w.cloud * 0.5 + w.storm * 0.3 + w.rain * 0.15) * (1 - night * 0.6));
+    shade.copy(lit).multiplyScalar(w ? 0.8 - 0.15 * w.cloud : 0.8).lerp(sky.tmp.setHex(p.horizon), 0.3);
+    if (weather.flash > 0) {
+      lit.lerp(FLASH, weather.flash * 0.85);
+      shade.lerp(FLASH, weather.flash * 0.6);
+    }
     // lit from above, leaning towards the sun (or the moon at night), side-lit when it's low
     const s = sun[1] >= 0 ? 1 : -1;
     const lean = 0.6 + 1.4 * low;
     (cu.uLight.value as THREE.Vector3).set(sun[0] * s * lean, 1, sun[2] * s * lean).normalize();
 
     // Drift with real time, so a frozen ?daytime still has moving clouds; still for prefers-reduced-motion.
-    if (!sky.motion?.matches) sky.drift += Math.min(delta, 0.1);
+    if (!sky.motion?.matches) sky.drift += Math.min(delta, 0.1) * (1 + 2 * (w?.wind ?? 0)); // a storm's wind hurries them on
     const m = clouds.current;
-    if (m && sky.drift !== sky.lastDrift) {
+    // heavier skies: bigger, lower-hanging clouds
+    const swell = 1 + 0.5 * cover;
+    if (m && (sky.drift !== sky.lastDrift || swell !== sky.lastSwell)) {
       sky.lastDrift = sky.drift;
+      sky.lastSwell = swell;
       let i = 0;
       for (const c of sky.layout) {
         const z = cloudZ(c, sky.drift);
-        const k = cloudScale(c.x, z) * c.size;
+        const k = cloudScale(c.x, z) * c.size * swell;
         for (const f of c.puffs) {
           const r = f.r * k;
           // flat-bottomed puffs: squashed a little in y

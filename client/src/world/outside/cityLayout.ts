@@ -256,6 +256,31 @@ function addPark(out: CityLayout, r: () => number, bx: Span, bz: Span) {
     }
 }
 
+// ---------- water towers ----------
+
+/** A water tower on a roof: where it stands (its base on the roof, y) and its three parts' indices in the layout. */
+export interface WaterTower {
+  x: number;
+  z: number;
+  y: number;
+  box: number;
+  cylinder: number;
+  cone: number;
+}
+
+/** Every water tower in the city: a stand (box), a tank (cylinder) and a hat (cone) at the same spot. */
+export function waterTowers(layout: CityLayout): WaterTower[] {
+  const out: WaterTower[] = [];
+  layout.boxes.forEach((b, box) => {
+    if (b.color !== TOWER_STAND) return;
+    const at = (c: CityBox) => c.x === b.x && c.z === b.z;
+    const cylinder = layout.cylinders.findIndex((c) => c.color === TOWER_TANK && at(c));
+    const cone = layout.cones.findIndex((c) => c.color === TOWER_HAT && at(c));
+    if (cylinder >= 0 && cone >= 0) out.push({ x: b.x, z: b.z, y: b.y, box, cylinder, cone });
+  });
+  return out;
+}
+
 // ---------- traffic ----------
 
 /** One car or bus going back and forth along one lane of one street, wrapping at ±CAR_RANGE. */
