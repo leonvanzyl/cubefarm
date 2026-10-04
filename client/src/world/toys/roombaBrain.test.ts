@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HALF_D, PLAYER_RADIUS, coffeeCorner, type Rect } from '../layout';
+import { BALCONY_OUT, HALF_W, SIDE_OPENINGS, SIDES, sideSign } from '../layout';
 import type { ToyFloor } from './balls';
 import { FULL, NAV_R, ROOMBA, ROOMBA_EVENT, clear, createRoomba, dockFor, makeNav, planPath, roombaRects, roombaStatus, segmentClear, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba, type RoombaEnv, type RoombaState } from './roombaBrain';
 
@@ -34,6 +35,25 @@ describe('roomba docks', () => {
         at = p;
       }
       expect(at).toEqual(approach);
+    }
+  });
+});
+
+describe('the balconies', () => {
+  it.each(FLOORS)('are off-limits to the %s roomba: it never drives into a side doorway or out of one', (floor) => {
+    const e = env(floor);
+    for (const side of SIDES) {
+      const s = sideSign(side);
+      const door = SIDE_OPENINGS[floor][side].door;
+      for (const x of [HALF_W, HALF_W + 0.2, HALF_W + 1.5, BALCONY_OUT - 0.5]) expect(clear(e.nav.rects, s * x, door), `${side} ${x}`).toBe(false);
+      // right in front of the doorway it stays a wall's distance off, like anywhere else along the wall
+      expect(clear(e.nav.rects, s * (HALF_W - NAV_R + 0.01), door)).toBe(false);
+      expect(clear(e.nav.rects, s * (HALF_W - NAV_R - 0.01), door)).toBe(true);
+      // asked to go out there, the nearest it gets is inside
+      const path = planPath(e.nav, { x: s * (HALF_W - 3), z: door }, { x: s * (HALF_W + 1.5), z: door });
+      expect(path).not.toBeNull();
+      for (const p of path!) expect(Math.abs(p.x)).toBeLessThanOrEqual(HALF_W + 1.5); // the goal itself is passed back as asked
+      for (const p of path!.slice(0, -1)) expect(Math.abs(p.x)).toBeLessThan(HALF_W);
     }
   });
 });

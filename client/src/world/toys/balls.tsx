@@ -1,6 +1,6 @@
 import { Outlines } from '../Outlines';
 import * as THREE from 'three';
-import { HALF_D, HALF_W } from '../layout';
+import { inBuilding } from '../layout';
 import { shade, toon, toonMap } from '../materials';
 import { BasketballLook } from './Hoop';
 import { HOOP, hoopRim } from './hoopScore';
@@ -40,8 +40,8 @@ export const BALLS: Record<ToyFloor, BallDef[]> = {
   lobby: [ball('beach-ball', 'beach', -11, 5.6), ball('exercise-ball', 'exercise', -7.6, 8.2), ball('yarn-ball', 'yarn', -5.4, 4.4), basketball('lobby')],
 };
 
-/** Somewhere a ball should never be: outside the walls, in the elevator, through the floor or above the ceiling. */
-export const escaped = (p: { x: number; y: number; z: number }) => Math.abs(p.x) > HALF_W || Math.abs(p.z) > HALF_D || p.y < -0.5 || p.y > 6;
+/** Somewhere a ball should never be: outside the walls and balconies, in the elevator, through the floor or above the ceiling. */
+export const escaped = (p: { x: number; y: number; z: number }) => !inBuilding(p.x, p.z) || p.y < -0.5 || p.y > 6;
 
 // Beach ball: six bold gores with white caps. Nearest filtering keeps the stripes crisp like the rest of the toon look.
 const GORES = ['#ef476f', '#ffffff', '#ffd166', '#ffffff', '#118ab2', '#ffffff'];

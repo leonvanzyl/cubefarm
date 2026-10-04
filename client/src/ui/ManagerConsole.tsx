@@ -666,6 +666,18 @@ function SettingsTab() {
           <span>Projects folder (new projects are created here)</span>
           <input key={settings.projectsDir} defaultValue={settings.projectsDir} onBlur={(e) => e.target.value.trim() && e.target.value !== settings.projectsDir && set({ projectsDir: e.target.value })} />
         </label>
+        <label className="field">
+          <span>Free idle desks after (minutes, 0 = never)</span>
+          <input
+            key={settings.trimIdleDesksMin}
+            type="number"
+            min={0}
+            max={10080}
+            defaultValue={settings.trimIdleDesksMin}
+            onBlur={(e) => e.target.value !== '' && Number(e.target.value) !== settings.trimIdleDesksMin && set({ trimIdleDesksMin: Number(e.target.value) })}
+          />
+        </label>
+        <p className="muted small">A desk left idle this long loses its node_modules and build output to save disk space. Its next task installs them again.</p>
         <div className="row">
           <button className="btn btn-small" onClick={() => set({ tutorialStep: 0 })}>
             🧭 Replay the tour

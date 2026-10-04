@@ -386,8 +386,7 @@ export function Lobby() {
   const boss = managerName || user;
   return (
     <group>
-      {/* east windows clear of the CEO's board (z -9.1 to -5.7) and the waiting room sign (from z 6.7) */}
-      <Shell accent={ACCENT} floorColor="#e2c7a3" westWindows={[1.5, 8]} eastWindows={[-2.5, 3.6]} seed={0} />
+      <Shell kind="lobby" accent={ACCENT} floorColor="#e2c7a3" />
       <Rug position={[(LOBBY_RUG.minX + LOBBY_RUG.maxX) / 2, 0.004, (LOBBY_RUG.minZ + LOBBY_RUG.maxZ) / 2]} size={[LOBBY_RUG.maxX - LOBBY_RUG.minX, LOBBY_RUG.maxZ - LOBBY_RUG.minZ]} color="#ffd6a5" />
 
       {/* manager's office */}

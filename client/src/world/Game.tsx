@@ -7,8 +7,10 @@ import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
+import { Outside } from './Outside';
+import { City } from './outside/City';
 import { Player } from './Player';
-import { Lights } from './Shell';
+import { DayLights } from './sky/DayLights';
 import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
@@ -39,6 +41,7 @@ export function Game() {
   const repos = useStore((s) => s.repos);
   const repo = floor === 0 ? null : repoOnFloor(repos, floor);
   const isOffice = !!repo;
+  const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
   const colliders = useMemo(() => (isOffice ? officeColliders() : lobbyColliders()), [isOffice]);
   // Stop drawing while nobody can see the office; switching back to 'always' draws a fresh frame at once.
   const paused = useRenderPaused();
@@ -49,7 +52,7 @@ export function Game() {
       shadows
       frameloop={paused ? 'never' : 'always'}
       dpr={[1, maxDpr]}
-      camera={{ fov: 72, near: 0.05, far: 90, position: [0, 1.65, 10] }}
+      camera={{ fov: 72, near: 0.05, far: 560, position: [0, 1.65, 10] }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -59,8 +62,10 @@ export function Game() {
     >
       <DayClock />
       <Sky />
-      <Lights />
+      <DayLights />
+      <City />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
+      <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />

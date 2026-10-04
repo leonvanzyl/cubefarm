@@ -19,7 +19,7 @@ const input = (i: Partial<QaPromptInput> = {}): QaPromptInput => ({
   ...i,
 });
 
-const TODAYS_STEP = "3. Install dependencies if needed, then run the project's test suite, linters, type checks and build (whichever exist).";
+const TODAYS_STEP = "3. Install dependencies if needed (e.g. npm install when node_modules is missing), then run the project's test suite, linters, type checks and build (whichever exist).";
 
 describe('qaInstructions: GitHub checks', () => {
   it('passing: names them and says not to re-run what they cover', () => {

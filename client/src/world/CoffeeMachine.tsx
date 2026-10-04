@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { noise, tone, type Vec3 } from '../ui/sfx';
+import { PLAYER, type Mug, type Slot } from './coffeeBreak';
 import { BREW, BREW_CUES, EMPTY, canPlace, cuesPassed, level, placeMug, pouring, pressButton, progress, takeMug, tick, type BrewState } from './coffee';
 import { useInteractable } from './interact';
 import { glow, toon } from './materials';
@@ -13,15 +14,23 @@ import { Box, Cyl } from './Toon';
 // The kitchenette's coffee machine: put a mug under the spout, press the button, and it grinds, hisses and pours
 // for a few seconds, then beeps. The rules are in coffee.ts; this draws them and plays the sounds. There is one
 // machine on screen (only the current floor is drawn), so its state lives here and a floor change starts it afresh.
+// Agents on a coffee break (coffeeBreak.ts) use it too, through `machine`: one brew at a time, the player first.
 
 let state: BrewState = EMPTY;
 let brews = 0;
 let cue = 0; // the next of BREW_CUES to play
+// Whose mug is in the slot: PLAYER, an agent's id, or null (none, or one left behind for anyone).
+let owner: string | null = null;
+// The player is beside the machine with a mug they could put in.
+let playerNear = false;
+/** Agents waiting their turn at the machine, first in line first. */
+export const line: string[] = [];
 const listeners = new Set<() => void>();
 
 function set(next: BrewState) {
   if (next === state) return;
   state = next;
+  if (state.kind === 'empty') owner = null;
   for (const fn of listeners) fn();
 }
 
@@ -38,7 +47,7 @@ const sounds = {
     tone({ ...SFX, name: 'coffee-nope', freq: 240, to: 170, type: 'square', dur: 0.12, peak: 0.05 });
     tone({ ...SFX, name: 'coffee-nope', freq: 200, to: 140, type: 'square', at: 0.14, dur: 0.14, peak: 0.05 });
   },
-  clink: () => tone({ ...SFX, name: 'coffee-mug', freq: 2400, type: 'triangle', dur: 0.08, peak: 0.04, attack: 0.003 }),
+  clink: (pos: Vec3 = spot) => tone({ ...SFX, pos, name: 'coffee-mug', freq: 2400, type: 'triangle', dur: 0.08, peak: 0.04, attack: 0.003 }),
   grind: () => {
     noise({ ...SFX, name: 'coffee-grind', dur: 1.0, peak: 0.05, filter: 'bandpass', freq: 2400, to: 1500, q: 2.5, attack: 0.04 });
     tone({ ...SFX, name: 'coffee-grind', freq: 118, to: 96, type: 'sawtooth', dur: 1.0, peak: 0.025, attack: 0.04 });
@@ -69,6 +78,7 @@ export function coffeeAction(op: CoffeeOp) {
     const mug = stowMug();
     if (!mug) return;
     set(placeMug(state, { id: mug.id, sips: mug.sips }));
+    owner = PLAYER;
     sounds.clink();
   } else if (op === 'brew') {
     const r = pressButton(state, now);
@@ -91,6 +101,54 @@ export function coffeeAction(op: CoffeeOp) {
   }
 }
 
+// ---------- agents (coffeeBreak.ts) ----------
+
+/** The machine as an agent on a coffee break sees and uses it. Agents only ever take their own mug, or one left for anyone. */
+export const machine = {
+  slot(): Slot | null {
+    // Not committed: the frame loop moves a brew on to ready, so the beep still plays.
+    const s = tick(state, performance.now());
+    return s.kind === 'empty' ? null : { kind: s.kind, owner };
+  },
+  /** The player's mug is in it, or they're beside it with a mug to put in: they go first. */
+  playerFirst: () => (state.kind !== 'empty' && owner === PLAYER) || playerNear,
+  /** The player's mug is sitting in it: no point going for a coffee. */
+  playerOwns: () => state.kind !== 'empty' && owner === PLAYER,
+  place(who: string, mug: Mug): boolean {
+    const next = placeMug(state, mug);
+    if (next === state) return false;
+    set(next);
+    owner = who;
+    sounds.clink();
+    return true;
+  },
+  press(who: string): boolean {
+    if (state.kind === 'empty' || (owner !== who && owner !== null)) return false;
+    const r = pressButton(state, performance.now());
+    if (r.result !== 'started') return false;
+    owner = who;
+    set(r.state);
+    cue = 0;
+    brews++;
+    sounds.button();
+    return true;
+  },
+  take(who: string): Mug | null {
+    if (state.kind === 'empty' || (owner !== who && owner !== null)) return null;
+    const r = takeMug(state, performance.now());
+    if (!r) return null;
+    set(r.state);
+    sounds.clink();
+    return r.mug;
+  },
+  /** Called back to work: their mug stays (and any brew finishes) for anyone. */
+  abandon(who: string) {
+    if (owner === who) owner = null;
+  },
+  /** A mug clinks on the counter at `pos` (the dispenser). */
+  clink: (pos: Vec3) => sounds.clink(pos),
+};
+
 // ---------- probe ----------
 
 /** window.__swarmCoffee: the current floor's machine, for QA and Playwright. */
@@ -103,6 +161,9 @@ export interface CoffeeSnapshot {
   level: number;
   /** Brews started since the machine was drawn. */
   brews: number;
+  /** Whose mug is in it ('player', an agent's id, or null: anyone's), and agents waiting their turn. */
+  owner: string | null;
+  line: string[];
 }
 
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmCoffee')) {
@@ -111,7 +172,7 @@ if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '_
       const now = performance.now();
       const s = tick(state, now);
       const lvl = level(s, now);
-      return { state: s.kind, mug: s.kind === 'empty' ? null : { id: s.mug.id, sips: Math.round(lvl) }, progress: progress(s, now), level: lvl, brews };
+      return { state: s.kind, mug: s.kind === 'empty' ? null : { id: s.mug.id, sips: Math.round(lvl) }, progress: progress(s, now), level: lvl, brews, owner: s.kind === 'empty' ? null : owner, line: [...line] };
     },
     enumerable: false,
     configurable: false,
@@ -143,18 +204,23 @@ export function CoffeeMachine({ position }: { position: [number, number, number]
   const stream = useRef<THREE.Mesh>(null);
   const coffee = useRef<THREE.Mesh>(null);
   const located = useRef(false);
+  const camera = useThree((s) => s.camera);
 
   // A fresh floor gets a fresh machine.
   useEffect(() => {
     state = EMPTY;
     brews = 0;
     cue = 0;
+    owner = null;
+    line.length = 0;
     setView(state);
     const fn = () => setView(state);
     listeners.add(fn);
     return () => {
       listeners.delete(fn);
       state = EMPTY;
+      owner = null;
+      playerNear = false;
     };
   }, []);
 
@@ -181,6 +247,9 @@ export function CoffeeMachine({ position }: { position: [number, number, number]
       spot.y = at.y;
       spot.z = at.z;
     }
+
+    const near = Math.hypot(camera.position.x - spot.x, camera.position.z - spot.z) < 2.6;
+    playerNear = near && heldSips !== null && canPlace(state, heldSips);
 
     if (state.kind === 'brewing') {
       const doneAt = state.start + BREW.ms;

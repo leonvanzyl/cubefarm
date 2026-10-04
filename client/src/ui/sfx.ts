@@ -3,6 +3,7 @@
 // volume and mute apply to everything at once, then a gentle compressor. Sounds placed in the world pan
 // and fade with distance from the camera (SoundListener.tsx). Audio is optional: when it's blocked or
 // unavailable (headless browsers), sounds just don't play, but window.__swarmSfx still records them.
+// Messages read aloud (voiceMessages.ts) have their own 'voice' group, which skips the bus that ducks everything else.
 
 import { normalizeAudioPrefs, parseAudioPrefs, SOUND_GROUPS, sliderGain, type AudioPrefs, type SoundGroup } from './audioPrefs';
 import { audible, distance, distanceGain, DROP_NEW, MAX_DISTANCE, panOf, PLAY, REF_DISTANCE, ROLLOFF, type Vec3, voiceToDrop } from './sfxMix';
@@ -25,12 +26,14 @@ const listeners = new Set<() => void>();
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let bus: GainNode | null = null; // every sound but the voice, so a message read aloud can duck them
 let unlocked = false;
 const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
 const groupLevels = {} as Record<SoundGroup, number>;
 for (const g of SOUND_GROUPS) groupLevels[g] = sliderGain(prefs[g]);
 
 const COMPRESSOR_TRIM = 10 ** (-2.81 / 20);
+const DUCKED = 10 ** (-8 / 20);
 
 const masterLevel = () => (prefs.muted ? 0 : sliderGain(prefs.volume));
 
@@ -55,10 +58,12 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       const trim = ctx.createGain();
       trim.gain.value = COMPRESSOR_TRIM;
       master.connect(comp).connect(trim).connect(ctx.destination);
+      bus = ctx.createGain();
+      bus.connect(master);
       for (const g of SOUND_GROUPS) {
         const gain = ctx.createGain();
         gain.gain.value = groupLevels[g];
-        gain.connect(master);
+        gain.connect(g === 'voice' ? master : bus);
         groupGains[g] = gain;
       }
       writeListener();
@@ -78,6 +83,9 @@ export function unlockAudio() {
 }
 
 for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, unlockAudio, { once: true, capture: true });
+
+/** Whether the first click or key has happened (sounds may still be unavailable). */
+export const audioUnlocked = () => unlocked;
 
 // ---------- volume & mute ----------
 
@@ -121,6 +129,17 @@ export function setAudioPrefs(patch: Partial<AudioPrefs>) {
 }
 
 export const toggleMute = () => setAudioPrefs({ muted: !prefs.muted });
+
+/** Turns every sound but the voice down by about 8 dB (while a message is read aloud), or back up. */
+export function duckOthers(on: boolean) {
+  if (!ctx || !bus) return;
+  try {
+    bus.gain.cancelScheduledValues(ctx.currentTime);
+    bus.gain.setTargetAtTime(on ? DUCKED : 1, ctx.currentTime, on ? 0.06 : 0.25);
+  } catch {
+    // audio is optional
+  }
+}
 
 // ---------- the listener (the camera's ears) ----------
 
@@ -185,6 +204,9 @@ export interface SfxRecord {
   played: boolean;
   /** Where its panner really was when it played, for sounds on long-lived panners (typing); else absent. */
   from?: Vec3 | null;
+  /** The jukebox's music: its volume level (1-6) and whether it's ducked under an alert or speech. */
+  level?: number;
+  ducked?: boolean;
   /** performance.now() when it was asked for. */
   t: number;
 }
@@ -196,19 +218,21 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
 /**
  * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
  * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
- * Sounds frequent enough to crowd everything else out (typing) pass a `log` of their own.
+ * Sounds frequent enough to crowd everything else out (typing) pass a `log` of their own. A sound with its own distance
+ * model (the jukebox) passes `falloff`: its gain at `d` metres, in place of the office's.
  */
 export function recordSfx(
   name: string,
-  { group, pos, pan = 0, peak, played = false }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean },
+  { group, pos, pan = 0, peak, played = false, falloff }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean; falloff?: (d: number) => number },
   log: SfxRecord[] = probe,
 ) {
   const d = pos ? distance(ear, pos) : 0;
+  const atDistance = !pos ? 1 : falloff ? falloff(d) : audible(d) ? distanceGain(d) : 0;
   const rec: SfxRecord = {
     name,
     group: group ?? null,
     at: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
-    gain: (!pos || audible(d) ? peak * (pos ? distanceGain(d) : 1) : 0) * (group ? groupLevels[group] : 1),
+    gain: peak * atDistance * (group ? groupLevels[group] : 1),
     pan: pos ? panOf(ear, earFwd, earUp, pos) : pan,
     played,
     t: performance.now(),
@@ -224,7 +248,7 @@ export function recordSfx(
 export function groupOutput(group?: SoundGroup): AudioNode | null {
   const a = audio();
   if (!a) return null;
-  return (group && groupGains[group]) || a.out;
+  return (group && groupGains[group]) || bus || a.out;
 }
 
 /** A PannerNode with the office's distance model, placed at `pos`. Connect it to groupOutput(). */
@@ -237,6 +261,18 @@ export function createPanner(c: BaseAudioContext, pos: Vec3) {
   p.maxDistance = MAX_DISTANCE;
   setPannerPosition(p, pos.x, pos.y, pos.z);
   return p;
+}
+
+type AlertListener = (c: BaseAudioContext, start: number, end: number) => void;
+let alertListener: AlertListener | null = null;
+
+/** The music ducks under the alerts group: `fn` hears of every alert sound that plays (context times). */
+export function onAlertSound(fn: AlertListener | null) {
+  alertListener = fn;
+}
+
+function alerted(opts: PlaceOpts, c: BaseAudioContext, start: number, end: number) {
+  if (opts.group === 'alerts') alertListener?.(c, start, end);
 }
 
 /** Moves a panner (safe to call every frame: allocates nothing). */
@@ -301,7 +337,7 @@ function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: n
     }
   }
 
-  let dest: AudioNode = (group && groupGains[group]) || a.out;
+  let dest: AudioNode = (group && groupGains[group]) || bus || a.out;
   try {
     if (pos) {
       const p = createPanner(a.ctx, pos);
@@ -352,6 +388,7 @@ export function tone(opts: ToneOpts) {
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src: osc });
+    alerted(opts, a.ctx, t0, t0 + dur);
   } catch {
     // audio is optional
   }
@@ -398,6 +435,7 @@ export function noise(opts: NoiseOpts) {
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src });
+    alerted(opts, a.ctx, t0, t0 + dur);
   } catch {
     // audio is optional
   }
@@ -428,15 +466,22 @@ export function roombaChirp(pos: Vec3) {
   tone({ ...o, freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07 });
 }
 
-/** The elevator "ding": two soft sine tones. */
-export function ding() {
-  [880, 1318.5].forEach((freq, i) => tone({ name: 'ding', group: 'alerts', freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02 }));
+/** The elevator "ding": two soft sine tones (from the doors at `pos`, when someone else arrives). */
+export function ding(pos?: Vec3) {
+  [880, 1318.5].forEach((freq, i) => tone({ name: 'ding', group: 'alerts', pos, freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02 }));
 }
 
 /** Air rushing past the elevator car while it travels, rising then settling. */
 export function whoosh(dur = 0.75) {
   noise({ name: 'whoosh', group: 'alerts', dur, peak: 0.1, filter: 'bandpass', freq: 220, to: 900, q: 0.8, attack: dur * 0.45 });
   tone({ name: 'whoosh', group: 'alerts', freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4 });
+}
+
+/** A side door sliding open (a rising whoosh) or shut (a falling one, with a soft bump at the end), from the doorway. */
+export function doorSlide(pos: Vec3, opening: boolean) {
+  const name = opening ? 'door:open' : 'door:close';
+  noise({ name, group: 'alerts', pos, dur: 0.45, peak: 0.07, filter: 'bandpass', freq: opening ? 300 : 1100, to: opening ? 1300 : 280, q: 0.9, attack: 0.15 });
+  if (!opening) tone({ name, group: 'alerts', pos, at: 0.4, freq: 110, to: 70, dur: 0.12, peak: 0.05, attack: 0.005 });
 }
 
 /** Someone hit by a toy: a soft, round "boop", from where they sit (`pos`). */

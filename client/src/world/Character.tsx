@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Outlines } from './Outlines';
@@ -9,11 +9,15 @@ import { PARTS } from './characterParts';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
 import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
-import { bodyTarget, seatBody, setBody, trackBody } from './people';
+import { bodyTarget, handMug, seatBody, setBody, subscribeMugs, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
+import { SpeechBubble } from './SpeechBubble';
+import { MugLook, mugColor } from './toys/mugLook';
 import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
 import { useHitReaction } from './useHitReaction';
 import { Zzz } from './Zzz';
+import { cheerVoice } from '../ui/cheerRules';
+import { cheerFrom } from '../ui/cheerSfx';
 import { hearBody, hearing } from '../ui/peopleSounds';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
@@ -48,13 +52,22 @@ const STAND = { x: 0.62, z: -0.1 };
 const CHAIR_ROLL = 0.18;
 const TAG_SEATED: [number, number, number] = [0, 1.98, -1.12]; // over the desk, where it has always been
 const HANG: Arm = { pitch: -1.42, yaw: -0.1 };
+// A mug in the right hand (arm space: the hand is at z -0.5), kept upright whatever the arm does, tipped to the lips for a sip.
+const HAND_MUG = { at: [0, -0.02, -0.52] as [number, number, number], ahead: -0.07, scale: 1.3, sipTilt: 1.0 };
 // Arm targets for each gesture (null: that arm keeps walking or idling). Pitch and yaw as in POSES.
 const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> = {
   none: { l: null, r: null, head: 0 },
   reach: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // touch the board
+  post: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // a reach that's silent: StickyNotes.tsx plays its sticky's own sounds
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.55, yaw: 0.22 }, r: { pitch: 1.55, yaw: 0.22 }, head: 0.3 }, // arms overhead
+  mug: { l: null, r: { pitch: -0.75, yaw: 0.3 }, head: -0.05 }, // a mug held in front
+  tap: { l: null, r: { pitch: -0.3, yaw: 0.05 }, head: -0.3 }, // a hand on the counter: the dispenser, the machine
+  chat: { l: { pitch: -0.55, yaw: -0.45 }, r: { pitch: -0.75, yaw: 0.3 }, head: 0.08 }, // mug in one hand, the other talking
+  cheer: { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch }, // the seated cheer's arms up in a V
+  wave: { l: null, r: { pitch: 1.25, yaw: -0.3 }, head: 0.1 }, // a hand up beside the head, waving (below)
+  talk: { l: null, r: { pitch: -0.3, yaw: 0.45 }, head: 0.05 }, // a hand out in front, moving as they talk
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -165,16 +178,22 @@ function fidgetPose(f: Fidget | null, p: number, t: number, toward: number, o: O
   return o;
 }
 
+/**
+ * `carrying` is drawn in their hands while they hold something (the 'hold' gesture), in the torso's frame, which
+ * faces -Z with the shoulders at y 0.44.
+ */
 export function Character({
   agent,
   chair,
   mug,
+  carrying,
   children,
 }: {
   agent: Agent;
   chair?: RefObject<THREE.Object3D | null>;
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
+  carrying?: ReactNode;
   children?: ReactNode;
 }) {
   const torso = useRef<THREE.Group>(null);
@@ -195,12 +214,17 @@ export function Character({
   const kneeL = useRef<THREE.Group>(null);
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
+  const held = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
+  const handCup = useRef<THREE.Group>(null);
+  const carried = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
     () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
     [],
   );
+  // Their merge cheer (cheerSfx.ts): their own voice, whether they were cheering last frame and where their head is.
+  const voice = useMemo(() => ({ v: cheerVoice(agent.id, agent.look), party: false, head: new THREE.Vector3() }), [agent.id, agent.look]);
   // Fidgets: the schedule, the pose it writes, the stretch's body target, who they wave to and the mug's rest spot.
   const life = useMemo(
     () => ({
@@ -238,6 +262,12 @@ export function Character({
     const now = performance.now();
     const t = now / 1000 + seed;
     const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
+    if (party && !voice.party && head.current) {
+      // the arms go up: a "woo!" from their head
+      head.current.getWorldPosition(voice.head);
+      cheerFrom(voice.v, voice.head.x, voice.head.y, voice.head.z);
+    }
+    voice.party = party;
 
     // ---------- where the body is ----------
     const st = move.s;
@@ -266,10 +296,17 @@ export function Character({
         b.position.set(te[0] * dx + te[2] * dz, 0, te[8] * dx + te[10] * dz);
         b.rotation.y = st.heading - st.seatHeading;
       }
-      const g = party ? PARTY_ARMS : GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
+      const gesture = st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none';
+      const g = party ? PARTY_ARMS : GESTURES[gesture];
       const kg = 1 - Math.exp(-dt * 6);
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
+      if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'talk') {
+        move.r.pitch += Math.sin(t * 4.3) * 0.18;
+        move.r.yaw += Math.sin(t * 2.6) * 0.2;
+      }
+      if (held.current) held.current.visible = gesture === 'hold';
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
       move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
       move.gh += (g.head - move.gh) * kg;
@@ -383,6 +420,13 @@ export function Character({
         lerp(c.r.yaw + driftR * (1 - c.mouse) + glide - wave, o.r.yaw, wr) * k + ry * up - waveUp,
         0,
       );
+      const cup = handCup.current;
+      if (cup) {
+        // undo the arm's turn (XYZ, so inverted as YXZ) so the mug stays upright, then tip it for a sip
+        const sip = !party && goal?.gesture === 'sip' ? move.gr * HAND_MUG.sipTilt : 0;
+        cup.rotation.set(sip - armR.current.rotation.x, -armR.current.rotation.y, 0, 'YXZ');
+        cup.visible = !seated;
+      }
     }
     if (torso.current) {
       const breathe = Math.sin(t * 1.6) * 0.015;
@@ -554,6 +598,13 @@ export function Character({
                     <mesh geometry={PARTS.phone} material={dark} />
                     <mesh geometry={PARTS.phoneScreen} material={toon('#8ecae6', { emissive: '#8ecae6', emissiveIntensity: 0.5 })} />
                   </group>
+                  {carried && (
+                    <group ref={handCup} position={HAND_MUG.at} visible={false}>
+                      <group position={[0, 0, HAND_MUG.ahead]} rotation={[0, -Math.PI / 2, 0]} scale={HAND_MUG.scale}>
+                        <MugLook color={mugColor(carried.id)} sips={carried.sips} shadow={false} />
+                      </group>
+                    </group>
+                  )}
                 </>
               )}
             </group>
@@ -592,7 +643,14 @@ export function Character({
             )}
             {busy && phones}
           </group>
+          {carrying && (
+            <group ref={held} visible={false}>
+              {carrying}
+            </group>
+          )}
         </group>
+        {/* just above their name tag */}
+        <SpeechBubble id={agent.id} y={HIP.standY + look.height * 0.86 + 0.4} />
         {children && (
           <group ref={tag} position={TAG_SEATED}>
             {children}
