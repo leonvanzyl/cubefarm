@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { PONG_PLAYER } from '../../../shared/pong';
 import { useStore } from '../store';
+import { Key } from './Key';
 import { pongView, subscribePong, type PongView } from '../world/toys/pongState';
 import type { PointWhy } from '../world/toys/pongRules';
 
@@ -22,7 +23,7 @@ export function pongStatus(v: PongView, name: (end: 'west' | 'east') => string, 
   const other = you === 'west' ? 'east' : 'west';
   if (v.phase === 'waiting') {
     if (you && v[other]) return `${name(other)} is on the way…`;
-    return waited > 20 ? "Nobody's free to play right now · G to leave" : 'Waiting for someone free to come and play…';
+    return waited > 20 ? "Nobody's free to play right now" : 'Waiting for someone free to come and play…';
   }
   if (v.phase === 'over' && v.last) {
     const w = v.last.winner;
@@ -74,7 +75,7 @@ export function PongHud() {
         {status && <div className="hud-pong-status">{status}</div>}
       </div>
       <div className="hud-hint hud-pong-keys">
-        <kbd>Mouse</kbd> paddle (up: towards the net) · swing through for pace and spin · <kbd>Click</kbd> serve · <kbd>G</kbd> / <kbd>Esc</kbd> leave
+        <kbd>Mouse</kbd> paddle (up: towards the net) · swing through for pace and spin · <kbd>Click</kbd> / <Key action="throw" /> serve · <Key action="drop" /> / <kbd>Esc</kbd> leave
       </div>
     </>
   );

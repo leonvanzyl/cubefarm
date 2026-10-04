@@ -29,9 +29,12 @@ export type Overlay =
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
   /** A proposal face to face: a candidate's interview in the lobby, or the CEO's let-go note on a desk. */
   | { kind: 'interview'; requestId: string }
-  | { kind: 'help' }
+  | { kind: 'help'; tab?: HelpTab }
   | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
   | { kind: 'decor-box'; repoId: string }; // a floor's decor box
+
+/** Help's tabs: how the office works, and the controls (keys, mouse, gamepad). */
+export type HelpTab = 'office' | 'controls';
 
 export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings' | 'timelapse';
 

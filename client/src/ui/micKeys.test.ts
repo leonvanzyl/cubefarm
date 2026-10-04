@@ -24,9 +24,18 @@ describe('isTalkKey', () => {
   it('goes by the key, so it is V on any keyboard layout', () => {
     expect(isTalkKey(key('KeyV', 'k'), 'none')).toBe(true); // Dvorak's V position
   });
+  it("follows the player's own talk key (Help → Controls)", () => {
+    expect(isTalkKey(key('KeyT', 't'), 'mic-box', ['KeyT'])).toBe(true);
+    expect(isTalkKey(V, 'mic-box', ['KeyT'])).toBe(false);
+  });
 });
 
 describe('closesMic', () => {
+  it("follows the player's own mute key", () => {
+    expect(closesMic(key('KeyK', 'k'), true, 'none', ['KeyK'])).toBe(true);
+    expect(closesMic(M, true, 'none', ['KeyK'])).toBe(false);
+  });
+
   it('Esc always closes it', () => {
     for (const place of ['mic-box', 'field', 'none'] as const) {
       expect(closesMic(Esc, false, place)).toBe(true);

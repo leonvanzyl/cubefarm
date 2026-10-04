@@ -4,6 +4,7 @@ import { agentsOnRepo, kanbanFor, useStore, type Agent, type KanbanCard } from '
 import { elapsedLabel } from '../qaCard';
 import { bodyExcerpt, cardLabel, canPeel, locateCard } from '../world/whiteboard';
 import type { Col } from '../world/stickies';
+import { Key } from './Key';
 import { Markdown } from './Markdown';
 import { Panel } from './Panel';
 
@@ -110,7 +111,7 @@ export function CardView({ repoId, cardKey, number, pr }: { repoId: string; card
         <span className="muted small">
           {canPeel(col, card) && (
             <>
-              <kbd>G</kbd> on the sticky takes it {col === 'backlog' ? "to a developer's desk" : 'to the QA lab'} ·{' '}
+              <Key action="drop" /> on the sticky takes it {col === 'backlog' ? "to a developer's desk" : 'to the QA lab'} ·{' '}
             </>
           )}
           <kbd>Esc</kbd> closes

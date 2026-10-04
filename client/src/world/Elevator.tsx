@@ -1,7 +1,8 @@
 import { useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
+import { playerAt, wallCut } from './camera/rig';
 import { ELEVATOR, HALF_D, WALL_H } from './layout';
 import { drawSign } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
@@ -13,10 +14,10 @@ import { Box } from './Toon';
 const METAL = '#b9c2cf';
 
 export function Elevator({ floorLabel, accent }: { floorLabel: string; accent: string }) {
-  const camera = useThree((s) => s.camera);
   const left = useRef<THREE.Mesh>(null);
   const right = useRef<THREE.Mesh>(null);
   const open = useRef(0);
+  const root = useRef<THREE.Group>(null);
   const { doorHalf, cabinHalf, depth, doorHeight } = ELEVATOR;
   const zDoor = HALF_D + 0.15;
 
@@ -27,8 +28,8 @@ export function Elevator({ floorLabel, accent }: { floorLabel: string; accent: s
 
   useFrame((_, dt) => {
     const travel = useStore.getState().travel;
-    const dx = camera.position.x;
-    const dz = camera.position.z - zDoor;
+    const dx = playerAt.x;
+    const dz = playerAt.z - zDoor;
     let near = Math.hypot(dx, dz) < 2.8;
     // People on foot (a new hire stepping out, someone leaving) open the doors too.
     for (const b of bodies()) if (b.stage !== 'seated' && Math.abs(b.x) < doorHalf + 0.6 && Math.abs(b.z - zDoor) < 2) near = true;
@@ -38,10 +39,12 @@ export function Elevator({ floorLabel, accent }: { floorLabel: string; accent: s
     const slide = open.current * doorHalf * 0.98;
     if (left.current) left.current.position.x = -doorHalf / 2 - slide;
     if (right.current) right.current.position.x = doorHalf / 2 + slide;
+    // the overview's cutaway takes the south wall: the frame that stands proud of it goes with it
+    if (root.current) root.current.visible = wallCut().z !== 1;
   });
 
   return (
-    <group>
+    <group ref={root}>
       <group ref={frameRef}>
         {/* frame */}
         <Box size={[0.22, doorHeight + 0.1, 0.36]} position={[-doorHalf - 0.05, (doorHeight + 0.1) / 2, HALF_D]} color={METAL} outline />

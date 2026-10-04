@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import type { HireRequestView } from '../../../shared/types';
 import { useStore, type Agent } from '../store';
 import { WALK_SPEED } from './body';
+import { playerAt } from './camera/rig';
 import { Character } from './Character';
 import { drawCandidateTag, drawSign } from './draw';
 import { headingFor, nextWaypoint } from './errands';
@@ -172,7 +173,6 @@ interface Leaving {
 
 /** Walks decided candidates through their reaction and out; `gone` once they're out of the building (or the cabin). */
 function useDepartures(list: LobbyCandidate[], gone: (id: string) => void) {
-  const camera = useThree((s) => s.camera);
   const w = walkways('lobby');
   const runs = useMemo(() => new Map<string, Leaving>(), []);
   const latest = useRef(list);
@@ -187,8 +187,8 @@ function useDepartures(list: LobbyCandidate[], gone: (id: string) => void) {
   );
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
-    player.x = camera.position.x;
-    player.z = camera.position.z;
+    player.x = playerAt.x; // where you stand, even while the overview or the follow cam has the camera
+    player.z = playerAt.z;
     const finish = (id: string) => {
       runs.delete(id);
       doorWalkers.delete(id);

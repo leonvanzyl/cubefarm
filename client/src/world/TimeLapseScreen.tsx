@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { useStore } from '../store';
+import { useKeyName } from '../ui/controls';
 import { roundRect, SANS } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { HALF_D } from './layout';
@@ -13,7 +14,7 @@ const W = 2.2;
 const H = 1.25;
 const PX: [number, number] = [704, 400];
 
-function drawScreen(ctx: CanvasRenderingContext2D, replaying: boolean) {
+function drawScreen(ctx: CanvasRenderingContext2D, replaying: boolean, use: string) {
   const [w, h] = PX;
   const g = ctx.createLinearGradient(0, 0, w, h);
   g.addColorStop(0, '#2b1d3f');
@@ -38,13 +39,14 @@ function drawScreen(ctx: CanvasRenderingContext2D, replaying: boolean) {
   ctx.fillText('you were away?', 40, 222);
   ctx.fillStyle = replaying ? '#ff8fa3' : '#7CFFB2';
   ctx.font = `700 32px ${SANS}`;
-  ctx.fillText(replaying ? '▶ REPLAY · Esc for live' : 'Press E to replay the day', 40, 306);
+  ctx.fillText(replaying ? '▶ REPLAY · Esc for live' : `Press ${use} to replay the day`, 40, 306);
 }
 
 export function TimeLapseScreen() {
   const replaying = useStore((s) => s.replaying);
+  const use = useKeyName('interact');
   const ref = useInteractable<THREE.Group>({ id: 'timelapse', label: 'Time-lapse: replay the office’s day', action: { kind: 'manager', tab: 'timelapse' } }, 4);
-  const tex = useCanvasTexture(PX[0], PX[1], (ctx) => drawScreen(ctx, replaying), [replaying]);
+  const tex = useCanvasTexture(PX[0], PX[1], (ctx) => drawScreen(ctx, replaying, use), [replaying, use]);
   return (
     <group ref={ref} position={AT} rotation={[0, Math.PI, 0]}>
       <Box size={[W + 0.14, H + 0.14, 0.06]} position={[0, 0, -0.04]} color="#2b2d42" outline shadow={false} />
