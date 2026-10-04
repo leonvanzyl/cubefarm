@@ -10,8 +10,9 @@ import type { Pt } from './toys/roombaBrain';
 export const RUN_SPEED = 2.8;
 /** Hurrying back to their desk afterwards. */
 export const HURRY_SPEED = 1.9;
-/** Not struck this long after setting off (path blocked, tab hidden): the gong strikes by itself. */
-export const REACH_MS = 12_000;
+/** Not at the gong this long after setting off (path blocked, tab hidden): the gong strikes by itself. The farthest
+ * desk is about 26 m away, some 13 s with getting up and the corners. */
+export const REACH_MS = 18_000;
 /** How long each beat at the gong lasts (ms): take the mallet, wind up, the strike, the victory pose. */
 export const BEATS = { take: 600, windup: 450, strike: 300, pose: 1600 };
 
@@ -76,8 +77,11 @@ export function startRun(job: GongJob & { agentId: string }, now: number, legs: 
   return { agentId: job.agentId, celebrate: job.celebrate, beat: 'run', since: now, started: now, legs, leg: 0 };
 }
 
-/** Whether a run should give up and let the gong strike by itself: not struck within REACH_MS of setting off. */
-export const timedOut = (r: GongRun, now: number) => (r.beat === 'run' || r.beat === 'take' || r.beat === 'windup') && now - r.started > REACH_MS;
+/**
+ * Whether a run should give up and let the gong strike by itself: not at the gong within REACH_MS of setting off.
+ * Once they're there, the take, wind-up and strike always play out, so the boom lands with the mallet.
+ */
+export const timedOut = (r: GongRun, now: number) => r.beat === 'run' && now - r.started > REACH_MS;
 
 /**
  * The beat after this one at the gong once it's time, or null to stay. The wind-up holds until the gong would boom,

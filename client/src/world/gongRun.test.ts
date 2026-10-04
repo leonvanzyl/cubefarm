@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { PullInfo, QaView } from '../../../shared/types';
 import { mergeAuthor } from './confetti';
-import { BEATS, REACH_MS, createRuns, nextBeat, nextJob, planGong, startRun, timedOut, type GongJob, type GongRuns } from './gongRun';
+import { SIT_SECONDS } from './body';
+import { BEATS, REACH_MS, RUN_SPEED, createRuns, nextBeat, nextJob, planGong, startRun, timedOut, type GongJob, type GongRuns } from './gongRun';
 import { GONG_GAP_MS } from './gongRules';
+import { GONG_SPOT, MAX_DESKS, deskPosition } from './layout';
+import { findPath, walkways } from './walkways';
 
 const agents = [
   { id: 'a1', name: 'Ada', role: 'dev' as const, repoId: 'o/r' },
@@ -87,13 +90,35 @@ describe('a run at the gong', () => {
     expect(nextBeat(r, hitAt + GONG_GAP_MS, hitAt)).toBe('strike');
   });
 
-  it('gives up (and the gong strikes by itself) when they haven’t struck within REACH_MS', () => {
+  it('gives up (and the gong strikes by itself) when they haven’t reached it within REACH_MS', () => {
     const r = startRun({ agentId: 'a1', celebrate: true }, 1000, []);
     expect(timedOut(r, 1000 + REACH_MS)).toBe(false);
     expect(timedOut(r, 1001 + REACH_MS)).toBe(true);
-    r.beat = 'windup';
-    expect(timedOut(r, 1001 + REACH_MS)).toBe(true);
-    r.beat = 'pose'; // already struck: nothing to give up on
-    expect(timedOut(r, 1001 + REACH_MS)).toBe(false);
+    for (const beat of ['take', 'windup', 'strike', 'pose'] as const) {
+      r.beat = beat; // at the gong: the strike plays out, however long the run took
+      expect(timedOut(r, 1001 + REACH_MS)).toBe(false);
+    }
+  });
+
+  it('every desk’s developer reaches the gong and winds up well within REACH_MS', () => {
+    const w = walkways('office');
+    const longest = Math.max(
+      ...Array.from({ length: MAX_DESKS }, (_, slot) => {
+        // where they stand up: Character.tsx's STAND beside the chair, which Desk.tsx puts 0.8 behind the desk
+        const d = deskPosition(slot);
+        let at = { x: d.x + 0.62, z: d.z + 0.7 };
+        let m = 0;
+        for (const p of findPath(w, at, GONG_SPOT)!) {
+          m += Math.hypot(p.x - at.x, p.z - at.z);
+          at = p;
+        }
+        return m;
+      }),
+    );
+    expect(longest).toBeGreaterThan(25); // the far corner desk (slot 3)
+    // getting up, the run (the corners and speeding up cost about a fifth: allow a quarter, and the step closer to
+    // strike), then taking the mallet and the wind-up, which may wait out the last merge's ring
+    const ms = SIT_SECONDS * 1000 + ((longest + 1) / (RUN_SPEED * 0.75)) * 1000 + BEATS.take + BEATS.windup + GONG_GAP_MS;
+    expect(ms).toBeLessThan(REACH_MS);
   });
 });
