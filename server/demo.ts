@@ -706,24 +706,40 @@ const demoOffice: OfficeHost = {
 
 // ---------- the demo preview ----------
 
-function placeholderPage(title: string, hue: number) {
-  const safe = title.replace(/[<>&"]/g, '');
+/**
+ * The demo's stand-in for a floor's app: a page per path (Home and About link to each other), long enough to scroll.
+ * A PR's build says so and shows its change, so main and the PR look different side by side.
+ */
+function placeholderPage(title: string, hue: number, at: string, pr: { number: number; title: string } | null) {
+  const safe = (s: string) => s.replace(/[<>&"]/g, '');
+  const rows = Array.from({ length: 24 }, (_, i) => `<li>Todo ${i + 1}: ${['water the plants', 'reply to Sam', 'book the dentist', 'buy coffee', 'fix the bike', 'plan the trip'][i % 6]}</li>`);
+  if (pr) rows.splice(2, 0, `<li class="new">✨ New in PR #${pr.number}: ${safe(pr.title)}</li>`);
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe}</title><link rel="icon" href="data:,">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe(title)}</title><link rel="icon" href="data:,">
 <style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
-  main { text-align: center; padding: 32px 40px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
+  body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
+  nav { position: sticky; top: 0; display: flex; gap: 18px; align-items: center; padding: 12px 24px; background: hsl(${hue},70%,55%); color: #fff; }
+  nav a { color: #fff; font-weight: 600; }
+  nav .at { margin-left: auto; font-family: Consolas, monospace; font-size: 14px; opacity: .9; }
+  .pr { margin: 18px auto 0; max-width: 560px; padding: 10px 16px; border-radius: 12px; background: #fff3c4; border: 2px dashed hsl(${hue},60%,45%); font-weight: 600; }
+  main { margin: 22px auto; max-width: 560px; padding: 28px 36px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
   h1 { margin: 0 0 6px; font-size: 26px; color: hsl(${hue},60%,38%); }
-  p { margin: 0 0 22px; color: #666; }
+  p { margin: 0 0 18px; color: #666; }
   button { font: inherit; font-size: 18px; padding: 10px 26px; border: 0; border-radius: 999px; background: hsl(${hue},70%,55%); color: #fff; cursor: pointer; }
   button:active { transform: scale(.97); }
   #count { display: block; margin-top: 16px; font-size: 15px; color: #444; }
+  ol { margin: 22px 0 0; padding-left: 22px; line-height: 2.2; }
+  li.new { font-weight: 700; color: hsl(${hue},60%,32%); background: #fff3c4; border-radius: 6px; padding: 0 6px; }
 </style></head>
-<body><main>
-  <h1>${safe}</h1>
-  <p>A placeholder app served by the demo office.</p>
+<body>
+<nav><a href="/">Home</a><a href="/about">About</a><span class="at">${safe(at)}</span></nav>
+${pr ? `<div class="pr">🧪 This is PR #${pr.number}'s build: ${safe(pr.title)}</div>` : ''}
+<main>
+  <h1>${safe(title)}</h1>
+  <p>${at === '/about' ? 'About this app: a placeholder served by the demo office.' : 'A placeholder app served by the demo office.'}</p>
   <button id="btn" type="button">Click me</button>
   <span id="count">Clicked 0 times</span>
+  <ol>${rows.join('')}</ol>
 </main>
 <script>
   let n = 0;
@@ -750,8 +766,9 @@ const demoPreviews: PreviewBackend = {
     let server: http.Server | null = null;
     const timers: NodeJS.Timeout[] = [];
     const later = (ms: number, fn: () => void) => timers.push(setTimeout(() => !stopped && fn(), ms));
-    const hue = [...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-    const sha = (job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr)?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
+    const pull = job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr) : undefined;
+    const hue = ([...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7) + (job.pr ? 150 : 0)) % 360;
+    const sha = (job.pr ? pull?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
       .split('')
       .reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381)
       .toString(16)
@@ -783,9 +800,10 @@ const demoPreviews: PreviewBackend = {
         return;
       }
       server = http.createServer((req, res) => {
-        if (req.url !== '/' && !req.url?.startsWith('/?')) return void res.writeHead(404).end('Not found');
+        const at = new URL(req.url ?? '/', 'http://localhost').pathname;
+        if (at.includes('.')) return void res.writeHead(404).end('Not found');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(placeholderPage(job.title, hue));
+        res.end(placeholderPage(job.title, hue, at, job.pr ? { number: job.pr, title: pull?.title ?? `PR #${job.pr}` } : null));
       });
       server.once('error', (err) => {
         if (stopped) return;

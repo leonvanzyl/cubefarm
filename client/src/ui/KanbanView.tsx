@@ -161,15 +161,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
     </button>
   );
   const previewButton = (c: KanbanCard) => (
-    <button
-      className="btn btn-small"
-      title={`Run PR #${c.number} and open it in the app viewer`}
-      onClick={() => {
-        openOverlay({ kind: 'app', repoId: repo.id });
-        const already = repo.preview.pr === c.number && repo.preview.status !== 'stopped' && repo.preview.status !== 'error' && repo.preview.status !== 'unconfigured';
-        if (!already) void api.startPreview(repo.id, c.number).catch(() => undefined);
-      }}
-    >
+    <button className="btn btn-small" title={`Run PR #${c.number} beside ${repo.defaultBranch} and open it in the app viewer`} onClick={() => openOverlay({ kind: 'app', repoId: repo.id, pr: c.number })}>
       Preview
     </button>
   );

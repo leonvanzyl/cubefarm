@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { DEFAULT_NOTIFY } from '../../shared/notify';
 import { showDesktopNote } from './notifications';
@@ -20,7 +20,7 @@ export type Overlay =
   | { kind: 'kanban'; repoId: string }
   /** One whiteboard card up close (CardView.tsx). `peel`: its sticky can come off the board (G). */
   | { kind: 'card'; repoId: string; key: string; number: number; pr: boolean; peel?: boolean }
-  | { kind: 'app'; repoId: string }
+  | { kind: 'app'; repoId: string; pr?: number | null } // pr: open the viewer on that channel (null: main)
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string; card?: string } // card: an OpsAlarm id, or 'usage', to open at
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
@@ -35,7 +35,7 @@ export interface Focus {
   id: string;
   label: string;
   // resume: the usage meter while pacing, resume full speed (asks first)
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'resume' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -69,6 +69,7 @@ interface State {
   logs: Record<string, LogLine[]>;
   screens: Record<string, number>; // agentId -> screenshot timestamp (cache buster)
   qa: Record<string, QaView>; // `${repoId}#${prNumber}`
+  prPreviews: Record<string, PrPreviewView>; // the PR theatre's previews, `${repoId}#${pr}`
   requests: HireRequestView[];
   ceo: CeoInfo;
   messages: PhoneMessage[];
@@ -177,6 +178,7 @@ export const useStore = create<State>((set, get) => ({
   logs: {},
   screens: {},
   qa: {},
+  prPreviews: {},
   requests: [],
   ceo: { queue: [], job: null, lastReviewAt: null, nextReviewAt: null },
   messages: [],
@@ -218,6 +220,8 @@ export const useStore = create<State>((set, get) => ({
         }
         const qa: Record<string, QaView> = {};
         for (const q of d.qa) qa[qaKey(q.repoId, q.prNumber)] = q;
+        const prPreviews: Record<string, PrPreviewView> = {};
+        for (const p of d.prPreviews ?? []) prPreviews[qaKey(p.repoId, p.pr)] = p;
         // Stay on the current (or remembered) floor if it still exists; otherwise go to the lobby.
         const floorExists = d.repos.some((r) => r.floor === get().floor);
         set({
@@ -233,6 +237,7 @@ export const useStore = create<State>((set, get) => ({
           logs,
           screens,
           qa,
+          prPreviews,
           requests: d.requests,
           ceo: d.ceo,
           messages: d.messages,
@@ -310,6 +315,14 @@ export const useStore = create<State>((set, get) => ({
         const { [qaKey(ev.repoId, ev.prNumber)]: gone, ...qa } = get().qa;
         if (gone) rememberQa(qaKey(ev.repoId, ev.prNumber), gone);
         set({ qa });
+        break;
+      }
+      case 'prPreview':
+        set({ prPreviews: { ...get().prPreviews, [qaKey(ev.preview.repoId, ev.preview.pr)]: ev.preview } });
+        break;
+      case 'prPreviewRemoved': {
+        const { [qaKey(ev.repoId, ev.pr)]: _gone, ...prPreviews } = get().prPreviews;
+        set({ prPreviews });
         break;
       }
       case 'settings':

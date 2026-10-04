@@ -25,6 +25,7 @@ import { sendBackPatch } from './sendBack.ts';
 import { checkTriageTarget, triageStep, type TriagePr } from './triage.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
+import { pruneQaShots, qaShotsDir, readQaShot, removeQaShots, saveQaShots } from './qaShots.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, failedLogLines, noPushNudge, ownPrLine, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
 import { QA_RESUME_PROMPT, qaRetry } from './qaRetry.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
@@ -62,6 +63,7 @@ import type {
   PhoneMessage,
   PreviewConfig,
   PreviewView,
+  PrPreviewView,
   ProjectFolderView,
   PullInfo,
   QaCheck,
@@ -319,6 +321,9 @@ async function loadScreen(agentId: string): Promise<{ data: Buffer; mime: string
   return null;
 }
 
+// QA's screenshots of each PR's latest round, for the app viewer's QA panel (qaShots.ts).
+const QA_SHOTS_DIR = path.join(HOME_DIR, 'qa-shots');
+
 async function removeScreens(agentId: string) {
   await Promise.all(Object.values(MIME_EXT).map((ext) => fs.rm(path.join(SCREENS_DIR, `${agentId}.${ext}`), { force: true })));
 }
@@ -525,6 +530,9 @@ export class Swarm {
         if (r && this.repoRt.has(id)) this.emitRepo(r);
       },
       pulls: (id) => this.repoRt.get(id)?.pulls ?? [],
+      emitPr: (preview) => this.broadcast({ type: 'prPreview', preview }),
+      prRemoved: (repoId, pr) => this.broadcast({ type: 'prPreviewRemoved', repoId, pr }),
+      note: (text) => this.toast('info', text),
     });
   }
 
@@ -681,6 +689,7 @@ export class Swarm {
       this.previews.clearOrphans(this.state.repos),
     ]);
     for (const r of this.state.repos) void this.previews.refreshDefault(r);
+    void pruneQaShots(QA_SHOTS_DIR, new Set(this.state.qa.map((q) => `${q.repoId}#${q.prNumber}`)));
     this.recover(interrupted, preparing);
     // A PR the restart left in "testing" with nobody on it: test it again (the result, if any, was lost).
     for (const rec of orphanedQa(this.state.qa, this.state.agents, BUSY)) this.setQa(rec, { status: 'queued', qaAgentId: null });
@@ -690,6 +699,7 @@ export class Swarm {
     if (updated) await this.reportUpdate(updated);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
+    setInterval(() => this.previews.sweepPrs(), 15_000);
     setInterval(() => void this.saveTerminals(), TERMINAL_SAVE_MS);
     // Every minute in the demo, so a short idle time shows its phone message soon.
     setInterval(() => {
@@ -842,6 +852,7 @@ export class Swarm {
       mergeNote: q.mergeNote,
       ceoLooking: q.status === 'needs-human' && !q.escalated && this.triageJob(q) != null,
       updatedAt: q.updatedAt,
+      shots: q.shots ?? [],
     };
   }
 
@@ -856,6 +867,7 @@ export class Swarm {
       repos: this.state.repos.map((r) => this.repoView(r)),
       agents: this.state.agents.map((a) => this.agentView(a, true)),
       qa: this.state.qa.map((q) => this.qaView(q)),
+      prPreviews: this.previews.prViews(),
       requests: this.state.requests,
       ceo: this.ceoInfo(),
       messages: this.state.messages.slice(-100),
@@ -1120,7 +1132,10 @@ export class Swarm {
     for (const a of this.state.agents.filter((x) => x.repoId === id)) this.fireAgent(a.id, true);
     void this.previews.remove({ ...repo });
     this.state.repos = this.state.repos.filter((r) => r.id !== id);
-    for (const q of this.state.qa.filter((x) => x.repoId === id)) this.broadcast({ type: 'qaRemoved', repoId: id, prNumber: q.prNumber });
+    for (const q of this.state.qa.filter((x) => x.repoId === id)) {
+      this.broadcast({ type: 'qaRemoved', repoId: id, prNumber: q.prNumber });
+      void removeQaShots(qaShotsDir(QA_SHOTS_DIR, id, q.prNumber)).catch(() => undefined);
+    }
     this.state.qa = this.state.qa.filter((q) => q.repoId !== id);
     this.state.held = this.state.held.filter((h) => h.repoId !== id);
     for (const r of this.state.repos) r.links = r.links.filter((l) => l !== id);
@@ -1343,7 +1358,7 @@ export class Swarm {
       const pulls = rt.lastSync ? rt.pulls : await this.backend.listPulls(repo.fullName);
       const agents = this.state.agents.filter((a) => a.repoId === repo.id);
       const keep = {
-        desks: [...agents.map((a) => this.agentSlug(a)), PREVIEW_SLUG],
+        desks: [...agents.map((a) => this.agentSlug(a)), PREVIEW_SLUG, ...this.previews.prSlugs(repo)],
         branches: [...agents.flatMap((a) => (a.branch ? [a.branch] : [])), ...pulls.filter((p) => p.state === 'OPEN').map((p) => p.headRefName)],
       };
       const r = await this.backend.sweepDesks(repo.fullName, keep);
@@ -1370,6 +1385,35 @@ export class Swarm {
 
   stopPreview(id: string): Promise<PreviewView> {
     return this.previews.stop(this.repo(id));
+  }
+
+  /** The PR theatre: run an open PR beside the floor's main preview (kept when it's already up, unless restart). */
+  startPrPreview(id: string, pr: number, restart = false): Promise<PrPreviewView> {
+    const repo = this.repo(id);
+    return this.previews.startPr(repo, pr, `${repo.fullName.split('/')[1]} app`, restart);
+  }
+
+  stopPrPreview(id: string, pr: number): Promise<void> {
+    return this.previews.stopPr(this.repo(id), pr);
+  }
+
+  /** An open app viewer's heartbeat: the PR preview it has on screen (null: none). */
+  watchPreview(viewer: string, repoId: string | null, pr: number | null) {
+    if (repoId) this.repo(repoId);
+    this.previews.watch(viewer, repoId, pr);
+  }
+
+  /** The address of a sync proxy in front of the floor's app (pr null) or a PR preview, for compare mode's synced scrolling. */
+  async previewSyncUrl(id: string, pr: number | null): Promise<{ url: string }> {
+    return { url: await this.previews.syncUrl(this.repo(id), pr) };
+  }
+
+  /** One of QA's screenshots from a PR's latest round. */
+  async qaShot(repoId: string, pr: number, index: number): Promise<{ data: Buffer; mime: string } | null> {
+    const shot = this.state.qa.find((q) => q.repoId === repoId && q.prNumber === pr)?.shots?.[index];
+    if (!shot) return null;
+    const data = await readQaShot(qaShotsDir(QA_SHOTS_DIR, repoId, pr), index, shot.mime);
+    return data && { data, mime: shot.mime };
   }
 
   /**
@@ -1564,6 +1608,9 @@ export class Swarm {
       this.emitRepo(repo);
     }
     const closures = closuresHeld(this.holders(repo), this.state.qa.filter((q) => q.repoId === repo.id), f);
+    // PR previews of PRs that merged or closed stop too, held by anyone or not; what the office learned first counts.
+    // Not before the first sync: an empty list would read as every PR gone.
+    if (rt.lastSync) this.previews.pullsChanged(repo, [...rt.pulls.filter((p) => !rt.closedPulls.has(p.number)), ...rt.closedPulls.values()]);
     return closures.flatMap((c) => this.applyClosure(repo, c));
   }
 
@@ -1617,6 +1664,7 @@ export class Swarm {
     if (!rec) return;
     this.state.qa = this.state.qa.filter((q) => q !== rec);
     this.broadcast({ type: 'qaRemoved', repoId: repo.id, prNumber });
+    void removeQaShots(qaShotsDir(QA_SHOTS_DIR, repo.id, prNumber)).catch(() => undefined);
     this.clearPrepStrikes(repo.id, prNumber);
     this.fixNudged.delete(`${repo.id}#${prNumber}`);
     this.save();
@@ -2520,6 +2568,13 @@ export class Swarm {
     // Evidence + comment on the PR
     let commentUrl: string | null = null;
     if (rec) {
+      const shots = await saveQaShots(
+        qaShotsDir(QA_SHOTS_DIR, repo.id, rec.prNumber),
+        rt.shots.map((s, i) => ({ data: s.data, mime: s.mime, page: s.url, caption: report.screenshots[i] ?? `Screenshot ${i + 1}` })),
+      ).catch((err) => {
+        console.warn(`could not keep QA's screenshots of PR #${rec.prNumber}: ${oneLine(err)}`);
+        return [];
+      });
       const key = `${repo.id}#${rec.prNumber}`;
       recordQa(this.state.ops, repo.id, pass, this.qaWaits.get(key) ?? null, Date.now());
       this.qaWaits.delete(key);
@@ -2553,6 +2608,7 @@ export class Swarm {
         mergeRetryAt: null,
         alerted: false,
         qaChecks: pull?.checks ?? null,
+        shots,
       });
       // QA's findings travel with the merge fix; the developer's push then gets one more QA round.
       if (next === 'conflict') this.sendBack(repo, rec, 'conflict', conflictFixInstructions(fixInstructions, repo.defaultBranch), false);

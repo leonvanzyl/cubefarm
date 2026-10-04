@@ -111,6 +111,24 @@ export interface PreviewView {
   logTail: string[]; // the last 40 lines of install / app output
 }
 
+/**
+ * An open PR's app in the PR theatre: run beside the floor's main preview, from a worktree of its own, until nobody
+ * has watched it for a while, its PR merges or closes, or the office stops.
+ */
+export interface PrPreviewView {
+  repoId: string;
+  pr: number;
+  status: PreviewStatus;
+  port: number;
+  url: string | null; // set while running
+  commit: string | null; // short sha of the PR's head
+  startedAt: number;
+  viewedAt: number; // the last time a viewer had it on screen
+  watched: boolean; // a viewer has it on screen now
+  error: string | null;
+  logTail: string[]; // the last 40 lines of install / app output
+}
+
 /** A folder in the manager's projects folder, as offered when adding a floor. */
 export interface ProjectFolderView {
   name: string;
@@ -264,6 +282,14 @@ export interface QaView {
   mergeNote: string | null; // where auto-merge stands once QA passed, e.g. "waiting for checks: Vercel"
   ceoLooking: boolean; // needs-human, and the CEO has a triage job for it (queued or running) before the manager hears
   updatedAt: number;
+  shots?: QaShotView[]; // QA's screenshots from the latest round (absent: none)
+}
+
+/** A screenshot from QA's latest round on a PR, served at /api/repos/:repo/pulls/:n/qa-shots/:index. */
+export interface QaShotView {
+  caption: string;
+  page: string | null; // the page it shows
+  mime: string;
 }
 
 export interface SwarmSettings {
@@ -486,6 +512,7 @@ export interface WorldSnapshot {
   repos: RepoView[];
   agents: AgentView[];
   qa: QaView[];
+  prPreviews: PrPreviewView[];
   requests: HireRequestView[];
   ceo: CeoInfo;
   messages: PhoneMessage[];
@@ -512,6 +539,8 @@ export type ServerEvent =
   | { type: 'screen'; agentId: string; url: string | null; at: number }
   | { type: 'qa'; qa: QaView }
   | { type: 'qaRemoved'; repoId: string; prNumber: number }
+  | { type: 'prPreview'; preview: PrPreviewView }
+  | { type: 'prPreviewRemoved'; repoId: string; pr: number }
   | { type: 'settings'; settings: SwarmSettings }
   | { type: 'request'; request: HireRequestView }
   | { type: 'ceo'; ceo: CeoInfo }
