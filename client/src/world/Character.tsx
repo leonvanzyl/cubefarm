@@ -6,6 +6,7 @@ import type { Agent } from '../store';
 import { ACCENTS, appearanceFor } from './appearance';
 import { gait, newBodyState, smooth, stepBody, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
+import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, trackBody } from './people';
 import { useHitReaction } from './useHitReaction';
@@ -132,11 +133,12 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
 
     // ---------- the seated pose ----------
     const busy = agent.status === 'working' || agent.status === 'preparing';
-    const cheering = agent.status === 'done' && agent.endedAt != null && Date.now() - agent.endedAt < 7000;
+    const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
+    const cheering = party || (agent.status === 'done' && agent.endedAt != null && Date.now() - agent.endedAt < 7000);
     // A little hysteresis so poses don't flicker between quick tool calls.
     const sinceTool = now - lastTool.current.at;
     const browsing = lastTool.current.name?.startsWith('mcp__playwright') && sinceTool < 4000;
-    const name: PoseName = busy
+    const name: PoseName = party ? 'cheer' : busy
       ? agent.status === 'preparing'
         ? 'typing'
         : browsing
