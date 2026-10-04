@@ -41,14 +41,15 @@ It ships on npm as `cubefarm` (`npx cubefarm`); it used to be called Office Swar
 | `npm run typecheck` | `tsc --noEmit` over client, server, shared, the `.ts` in scripts and the configs |
 | `npm test` | Vitest, once (`npm run test:watch` to re-run on edits) |
 | `npm run build` | typecheck, `vite build` to `dist/`, then the server bundled into `dist-server/` (`scripts/build-server.mjs`) |
-| `npm run test:e2e` | Playwright (`e2e/`, `playwright.config.ts`): builds, boots a demo office on `E2E_PORT` (default 4399; set it to your reserved port) with a temp `SWARM_HOME`, and smoke-tests it in headless Chromium |
+| `npm run test:e2e` | Playwright (`e2e/`, `playwright.config.ts`): builds (`E2E_SKIP_BUILD=1` reuses your `dist/`), boots a demo office on `E2E_PORT` (default 4399; set it to your reserved port) with a temp `SWARM_HOME`, and smoke-tests it headless in a local Google Chrome, else Playwright's Chromium (always in CI). Stops at once if the browser is missing: never install it mid-task |
 | `node scripts/smoke-package.mjs` | after a build: packs the npm package, installs it into a temp folder and boots its demo |
 | `node --import tsx server/index.ts --demo` | a demo office (see SAFETY for the env it needs) |
 
 CI (`.github/workflows/ci.yml`): Node 24 on `ubuntu-latest` and `windows-latest`, `npm ci` → `typecheck` → `test` →
 `build` → package smoke test, for every PR and push to `main`, with a throwaway `SWARM_HOME` and `SWARM_PORT=0`; a separate `e2e`
-job on `ubuntu-latest` runs `npm run test:e2e`. All three must pass locally
-before you open a PR. `.github/workflows/release.yml` publishes to npm when the manager runs it from GitHub's Actions tab or pushes a
+job on `ubuntu-latest` runs `npm run test:e2e` and is the e2e gate. Locally, `typecheck`, `test` and `build` must
+pass before you open a PR; run `test:e2e` only when you changed `e2e/`, `playwright.config.ts` or how the office boots
+(`server/index.ts`, StartScreen, SetupWizard), or to fix a failing e2e job. `.github/workflows/release.yml` publishes to npm when the manager runs it from GitHub's Actions tab or pushes a
 `v*` tag (npm trusted publishing, tied to that file name); never publish or tag releases yourself.
 
 ## Code map
@@ -146,5 +147,6 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - One issue per PR, `Closes #<n>` in the body. Keep the diff small and on-topic.
 - Many PRs merge in parallel and auto-merge sends conflicts back: don't reformat, reorder or rename code you aren't
   changing, and don't touch unrelated files.
+- Before opening it: `typecheck`, `test` and `build`. `test:e2e` only as the Scripts section says; CI runs it on every PR.
 - Say how you verified it and list your assumptions. UI changes get screenshots from the demo office.
 - Never push to `main`, never force-push, never merge your own PR.
