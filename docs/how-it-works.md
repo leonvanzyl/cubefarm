@@ -76,7 +76,7 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 - `~/.cubefarm/terminals/<agent>.ansi`: each agent's terminal screen and scrollback
 - `~/.cubefarm/sessions/<token>/`: a running CLI session's settings, MCP config and instructions (removed when it ends); `~/.cubefarm/bin/`: the small scripts the CLIs call back to the office with
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
-- `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent
+- `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent, reused from task to task. A desk left idle longer than **Free idle desks after** (manager's console → Settings, default 120 minutes, 0 = never) loses its `node_modules` (at any depth) and its build and test output (`dist/`, `dist-server/`, `test-results/`, `playwright-report/`, `.swarm-home/`, `.preview-tmp/`, `.playwright-mcp/`), once per idle stretch; tracked and untracked source files stay, and the next task installs again. The office checks every 15 minutes, never touches a busy desk or a running preview's, and your phone says how much it freed. A folder Windows still has locked is tried again next time.
 
 Workspaces live outside this project on purpose: agents working in them never pick up this project's `CLAUDE.md`.
 

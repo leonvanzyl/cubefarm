@@ -43,6 +43,8 @@ export interface Backend {
   deskDir(fullName: string, agentSlug: string): string;
   prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string): Promise<string>;
   removeDesk(fullName: string, agentSlug: string): Promise<void>;
+  /** Free disk space on an idle desk (node_modules, build output); null when it doesn't exist or `stillIdle` says no. */
+  trimDesk(fullName: string, agentSlug: string, stillIdle: () => boolean): Promise<workspace.DeskTrim | null>;
   /** Stop processes an agent left running (dev servers on its port, anything started in its desk). */
   releaseDesk(fullName: string, agentSlug: string, port: number): Promise<void>;
   /** An agent session: the real CLI in the agent's terminal when opts.terminal is set, else an Agent SDK session. */
@@ -93,6 +95,7 @@ export const realBackend: Backend = {
   deskDir: workspace.deskDir,
   prepareDesk: workspace.prepareDesk,
   removeDesk: workspace.removeDesk,
+  trimDesk: workspace.trimDesk,
   releaseDesk: (fullName, agentSlug, port) => workspace.releaseDesk(fullName, agentSlug, port, officeProcesses()),
   startSession: (opts, cb) => (opts.terminal ? startCliSession(opts, cb) : startSession(opts, cb)),
   terminals: terminalsAvailable,
