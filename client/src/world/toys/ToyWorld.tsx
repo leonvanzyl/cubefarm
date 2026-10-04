@@ -11,11 +11,12 @@ import { Blasters } from './Blasters';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
-import { hoopRim } from './hoopScore';
+import { hoopRim, hoopSquare } from './hoopScore';
 import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
+import { HOLD, THROW, holdPoint, hoopShot, throwVelocity, type HoopAim, type View } from './throwing';
 
 // Loaded lazily by ./index.tsx, so Rapier stays out of the main bundle.
 
@@ -142,10 +143,7 @@ function respawn(b: RapierRigidBody, def: BallDef) {
 }
 
 // Carrying: the held ball stays a dynamic body (so walls and desks still stop it) with gravity off, steered
-// towards a spot in front of and below the view, low enough to keep the crosshair clear. Looking up or
-// down only counts partly, so the ball doesn't swing up into your face or down onto the floor. Speeds in m/s, distances in metres.
-const HOLD = { ahead: 1.0, drop: 0.5, dropPerR: 0.9, pitch: 0.55, minPitch: -0.7, maxPitch: 0.4, follow: 14, maxSpeed: 18, lost: 2.2, lostFor: 0.35, windUp: 0.25 };
-const THROW = { lob: 3.2, hard: 14, lift: 1.6, hardLift: 0.9, aim: 12, flightDamping: 0.05, walk: 1 };
+// towards its hold point (throwing.ts).
 // A ball you've let go of passes through you until it's clear of you (or this long, in ms), so it can't be kicked on release.
 const GRACE_MS = 1500;
 const PICKUP_RANGE = 2.5;
@@ -214,6 +212,9 @@ function Balls({ floor }: { floor: ToyFloor }) {
   const grace = useRef<number[]>([]); // performance.now() until which a released ball ignores the player; 0 when it doesn't
   const flying = useRef<boolean[]>([]); // thrown and not yet touched anything: fly with almost no drag
   const v = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
+  const at = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
+  const view = useMemo<View>(() => ({ eye: camera.position, pitch: 0, yaw: 0 }), [camera]);
+  const hoop = useMemo<HoopAim>(() => ({ rim: hoopRim(floor), square: hoopSquare(floor) }), [floor]);
 
   const grab = useCallback((b: RapierRigidBody) => {
     b.setGravityScale(0, true);
@@ -239,22 +240,17 @@ function Balls({ floor }: { floor: ToyFloor }) {
         b.setLinvel(v, true);
         return;
       }
-      // Aim from the ball through a point far along the crosshair, so it leaves along it despite being held low.
-      camera.getWorldDirection(tmp);
-      const p = b.translation();
-      v.x = camera.position.x + tmp.x * THROW.aim - p.x;
-      v.y = camera.position.y + tmp.y * THROW.aim - p.y;
-      v.z = camera.position.z + tmp.z * THROW.aim - p.z;
-      const len = Math.hypot(v.x, v.y, v.z) || 1;
-      const speed = THROW.lob + ((d.throwSpeed ?? THROW.hard) - THROW.lob) * power;
-      v.x = (v.x / len) * speed + walk.x * THROW.walk;
-      v.y = (v.y / len) * speed + THROW.lift + (THROW.hardLift - THROW.lift) * power;
-      v.z = (v.z / len) * speed + walk.z * THROW.walk;
+      view.pitch = camera.rotation.x;
+      view.yaw = camera.rotation.y;
+      const top = d.throwSpeed ?? THROW.hard;
+      const from = b.translation();
+      // the basketball thrown at its hoop is an arcade shot; anything else flies along the crosshair
+      if (d.kind !== 'basketball' || !hoopShot(view, from, power, top, hoop, v)) throwVelocity(view, from, power, top, walk, v);
       b.setLinearDamping(THROW.flightDamping);
       b.setLinvel(v, true);
       flying.current[i] = true;
     },
-    [camera, defs, v],
+    [camera, defs, hoop, v, view],
   );
 
   const landed = useMemo(
@@ -269,18 +265,15 @@ function Balls({ floor }: { floor: ToyFloor }) {
 
   const steer = useCallback(
     (b: RapierRigidBody, r: number, chargeAt: number | null) => {
-      const pitch = Math.min(HOLD.maxPitch, Math.max(HOLD.minPitch, camera.rotation.x * HOLD.pitch));
-      const yaw = camera.rotation.y;
+      view.pitch = camera.rotation.x;
+      view.yaw = camera.rotation.y;
       // winding up a throw pulls the ball back towards you
       const pull = chargeAt === null ? 0 : chargePower(performance.now() - chargeAt) * HOLD.windUp;
-      const ahead = HOLD.ahead + r - pull;
-      // along the (tamed) view direction, then straight down
-      const y = ahead * Math.sin(pitch) - HOLD.drop - r * HOLD.dropPerR - pull * 0.4;
-      const z = -ahead * Math.cos(pitch);
+      holdPoint(view, r, pull, at);
       const p = b.translation();
-      const dx = camera.position.x + z * Math.sin(yaw) - p.x;
-      const dy = camera.position.y + y - p.y;
-      const dz = camera.position.z + z * Math.cos(yaw) - p.z;
+      const dx = at.x - p.x;
+      const dy = at.y - p.y;
+      const dz = at.z - p.z;
       const d = Math.hypot(dx, dy, dz);
       const k = d > 0 ? Math.min(HOLD.follow, HOLD.maxSpeed / d) : 0;
       v.x = dx * k;
@@ -289,7 +282,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       b.setLinvel(v, true);
       return d;
     },
-    [camera, v],
+    [at, camera, v, view],
   );
 
   const hands = useCallback(() => {
