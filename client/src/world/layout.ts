@@ -257,6 +257,39 @@ export const LOBBY_RUG = rect(3, 3, 14, 9);
 export const COFFEE_CORNER = { x: 9.8, w: 1.5, d: 0.9 };
 export const coffeeCorner = (): Rect => rect(COFFEE_CORNER.x, HALF_D - COFFEE_CORNER.d / 2, COFFEE_CORNER.w, COFFEE_CORNER.d, SOLID_H.coffeeCorner);
 
+/**
+ * Mission control: a curved bank of screens on the lobby's north wall between the two glass offices, behind reception
+ * and over the roomba's dock. Three columns, a top and a bottom screen each (y: their middles), stand on an arc of
+ * radius r whose middle touches the wall `off` out; colW wide with `gap` between. A header strip with the alarm
+ * beacon hangs above them, flat on the wall.
+ */
+export const MISSION = {
+  x: -3.5,
+  r: 6.5,
+  off: 0.14,
+  colW: 1.7,
+  gap: 0.09,
+  top: { y: 2.5, h: 1.0 },
+  bottom: { y: 1.53, h: 0.82 },
+  strip: { y: 3.2, w: 3.6, h: 0.3 },
+};
+
+/** Where mission control's column i (-1 west, 0 middle, 1 east) stands, and its turn (about y) to face the arc's centre. */
+export function missionColumn(i: number) {
+  const t = (i * (MISSION.colW + MISSION.gap)) / MISSION.r;
+  return { x: MISSION.x + MISSION.r * Math.sin(t), z: -HALF_D + MISSION.off + MISSION.r * (1 - Math.cos(t)), rotY: -t };
+}
+
+/** The outer columns curve out into the room, so they're solid; the middle one hangs flat on the wall, over the dock. */
+export function missionRects(): Rect[] {
+  return [-1, 1].map((i) => {
+    const c = missionColumn(i);
+    const dx = (MISSION.colW / 2) * Math.cos(c.rotY);
+    const dz = (MISSION.colW / 2) * Math.abs(Math.sin(c.rotY));
+    return { minX: c.x - dx, maxX: c.x + dx, minZ: -HALF_D, maxZ: c.z + dz + 0.08, h: MISSION.strip.y + MISSION.strip.h / 2 };
+  });
+}
+
 export function lobbyColliders(): Rect[] {
   const out = [...shellColliders('lobby'), ...outsideColliders('lobby')];
   const m = MANAGER_ROOM;
@@ -281,6 +314,7 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(11.5, 6.2, 1.6, 0.9, SOLID_H.coffeeTable)); // table
   out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1, SOLID_H.cabinet)); // trophy cabinet
   out.push(coffeeCorner()); // counter, coffee machine and mug dispenser
+  out.push(...missionRects());
   return out;
 }
 

@@ -9,6 +9,7 @@ import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../o
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { LiveTerminal } from './LiveTerminal';
+import { OpsTab } from './MissionConsole';
 import { NotifySettings } from './NotifySettings';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
@@ -515,23 +516,39 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
                   {i.title}
                   {i.labels.length > 0 && <div className="muted small">{i.labels.join(', ')}</div>}
                 </div>
-                {holder ? (
-                  <span className="agent-chip">
-                    <span className="dot" style={{ background: holder.color }} />
-                    {holder.name}
-                  </span>
-                ) : (
-                  <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
-                    <option value="">Assign…</option>
-                    {agents
-                      .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
-                      .map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                  </select>
-                )}
+                <span className="repo-row-actions">
+                  {holder ? (
+                    <span className="agent-chip">
+                      <span className="dot" style={{ background: holder.color }} />
+                      {holder.name}
+                    </span>
+                  ) : (
+                    <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
+                      <option value="">Assign…</option>
+                      {agents
+                        .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                  <button
+                    className="btn btn-small btn-ghost"
+                    title="Close it on GitHub as not planned"
+                    onClick={() =>
+                      void confirmDialog({
+                        tone: 'danger',
+                        title: `Close #${i.number}?`,
+                        body: `“${i.title}” will be closed on GitHub as not planned${holder ? `, and ${holder.name} stops working on it` : ''}.`,
+                        confirm: 'Close issue',
+                      }).then((ok) => ok && attempt(() => api.closeIssue(repo.id, i.number)))
+                    }
+                  >
+                    Close
+                  </button>
+                </span>
               </div>
             );
           })}
@@ -700,11 +717,14 @@ function SettingsTab() {
   );
 }
 
-export function ManagerConsole({ initialTab, initialRepo }: { initialTab?: ManagerTab; initialRepo?: string }) {
+/** card: open Mission control at this card (an alarm's id, or 'usage'). */
+export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?: ManagerTab; initialRepo?: string; card?: string }) {
   const [tab, setTab] = useState<ManagerTab>(initialTab ?? 'floors');
   const pending = useStore((s) => pendingRequests(s.requests).length);
+  const alarms = useStore((s) => s.ops.alarms.length);
   const tabs: [ManagerTab, string][] = [
     ['floors', '🏢 Floors & repos'],
+    ['ops', `🛰️ Mission control${alarms ? ` (${alarms})` : ''}`],
     ['ceo', `🧠 CEO & hiring${pending ? ` (${pending})` : ''}`],
     ['team', '👩‍💻 Team'],
     ['issues', '📝 Issues'],
@@ -721,6 +741,7 @@ export function ManagerConsole({ initialTab, initialRepo }: { initialTab?: Manag
       </div>
       <div className="tab-body">
         {tab === 'floors' && <FloorsTab />}
+        {tab === 'ops' && <OpsTab card={card} />}
         {tab === 'ceo' && <CeoTab />}
         {tab === 'team' && <TeamTab />}
         {tab === 'issues' && <IssuesTab initialRepo={initialRepo} />}

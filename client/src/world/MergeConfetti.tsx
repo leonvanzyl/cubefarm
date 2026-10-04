@@ -9,6 +9,7 @@ import { coversView, useStore, type Agent } from '../store';
 import { canBurst, onMerge } from './confetti';
 import { onGongParty } from './gongState';
 import { BOARD, GONG, deskPosition } from './layout';
+import { PIZZA_CONFETTI, ritualLook } from './ritualLook';
 import { useThemeConfetti } from './themes/active';
 import { heart } from './themes/kit/geo';
 
@@ -61,6 +62,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       phase: new Float32Array(n),
       dummy: new THREE.Object3D(),
       colors: (themed?.colors ?? [...PALETTE, repo.color]).map((c) => new THREE.Color(c)),
+      pizza: PIZZA_CONFETTI.map((c) => new THREE.Color(c)),
       geometry: themed?.shape === 'heart' ? heart(0.1) : new THREE.PlaneGeometry(0.1, 0.06),
       material: new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false }),
     };
@@ -103,6 +105,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       if (s < 0) return; // full: dropped, never queued
       const at = dev ? { ...deskPosition(dev.desk), y: 1.5 } : gong ? { x: GONG.x, z: GONG.z + 0.3, y: GONG.h + 0.1 } : { x: 0, z: BOARD.z + 1.2, y: BOARD.y + BOARD.h * 0.6 };
       sim.slots[s] = { key, age: 0 };
+      const colors = ritualLook.pizza ? sim.pizza : sim.colors; // Friday pizza: the party's in pizza colours
       for (let k = 0; k < PIECES; k++) {
         const i = s * PIECES + k;
         const a = Math.random() * Math.PI * 2;
@@ -113,7 +116,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
         sim.rot.set([Math.random() * 6, Math.random() * 6, Math.random() * 6], i * 3);
         sim.spin.set([(Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 14], i * 3);
         sim.phase[i] = Math.random() * Math.PI * 2;
-        m.setColorAt(i, sim.colors[Math.floor(Math.random() * sim.colors.length)]);
+        m.setColorAt(i, colors[Math.floor(Math.random() * colors.length)]);
       }
       m.instanceColor!.needsUpdate = true;
       m.visible = true;
