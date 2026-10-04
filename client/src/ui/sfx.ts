@@ -1,41 +1,22 @@
 // Every office sound, synthesized with WebAudio (no audio files). One shared AudioContext: sounds go
-// through their group's gain (or straight on), then the master gain, so volume and mute apply to
-// everything at once, then a gentle compressor. Sounds placed in the world pan and fade with distance
-// from the camera (SoundListener.tsx). Audio is optional: when it's blocked or unavailable (headless
-// browsers), sounds just don't play, but window.__swarmSfx still records them.
+// through their group's gain (footsteps, typing, toys, alerts; or straight on), then the master gain, so
+// volume and mute apply to everything at once, then a gentle compressor. Sounds placed in the world pan
+// and fade with distance from the camera (SoundListener.tsx). Audio is optional: when it's blocked or
+// unavailable (headless browsers), sounds just don't play, but window.__swarmSfx still records them.
 
-import {
-  audible,
-  distance,
-  distanceGain,
-  DROP_NEW,
-  MAX_DISTANCE,
-  panOf,
-  PLAY,
-  REF_DISTANCE,
-  ROLLOFF,
-  SOUND_GROUPS,
-  type SoundGroup,
-  type Vec3,
-  voiceToDrop,
-} from './sfxMix';
+import { normalizeAudioPrefs, parseAudioPrefs, SOUND_GROUPS, sliderGain, type AudioPrefs, type SoundGroup } from './audioPrefs';
+import { audible, distance, distanceGain, DROP_NEW, MAX_DISTANCE, panOf, PLAY, REF_DISTANCE, ROLLOFF, type Vec3, voiceToDrop } from './sfxMix';
 
-export type { SoundGroup, Vec3 } from './sfxMix';
-
-export interface AudioPrefs {
-  volume: number; // 0-100
-  muted: boolean;
-}
+export type { SoundGroup } from './audioPrefs';
+export type { Vec3 } from './sfxMix';
 
 const PREFS_KEY = 'cubefarm:audio';
 
 function loadPrefs(): AudioPrefs {
   try {
-    const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null') as Partial<AudioPrefs> | null;
-    const volume = Number(p?.volume);
-    return { volume: Number.isFinite(volume) ? Math.max(0, Math.min(100, Math.round(volume))) : 70, muted: p?.muted === true };
+    return parseAudioPrefs(localStorage.getItem(PREFS_KEY));
   } catch {
-    return { volume: 70, muted: false };
+    return parseAudioPrefs(null);
   }
 }
 
@@ -44,14 +25,14 @@ const listeners = new Set<() => void>();
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
-let groups: Record<SoundGroup, GainNode> | null = null;
-const groupLevels: Record<SoundGroup, number> = { steps: 1, typing: 1, toys: 1, alerts: 1 };
 let unlocked = false;
+const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
+const groupLevels = {} as Record<SoundGroup, number>;
+for (const g of SOUND_GROUPS) groupLevels[g] = sliderGain(prefs[g]);
 
 const COMPRESSOR_TRIM = 10 ** (-2.81 / 20);
 
-// Perceived loudness is roughly logarithmic, so the slider maps to a squared gain.
-const masterLevel = () => (prefs.muted ? 0 : (prefs.volume / 100) ** 2);
+const masterLevel = () => (prefs.muted ? 0 : sliderGain(prefs.volume));
 
 /** The shared context and master gain, or null until the first user gesture / when audio is unavailable. */
 export function audio(): { ctx: AudioContext; out: GainNode } | null {
@@ -74,13 +55,12 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       const trim = ctx.createGain();
       trim.gain.value = COMPRESSOR_TRIM;
       master.connect(comp).connect(trim).connect(ctx.destination);
-      const g = {} as Record<SoundGroup, GainNode>;
-      for (const name of SOUND_GROUPS) {
-        g[name] = ctx.createGain();
-        g[name].gain.value = groupLevels[name];
-        g[name].connect(master);
+      for (const g of SOUND_GROUPS) {
+        const gain = ctx.createGain();
+        gain.gain.value = groupLevels[g];
+        gain.connect(master);
+        groupGains[g] = gain;
       }
-      groups = g;
       writeListener();
     }
     if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
@@ -108,38 +88,39 @@ export function subscribeAudio(fn: () => void) {
   return () => void listeners.delete(fn);
 }
 
+/** Glide a gain to a new level (a short ramp, so slider drags don't click). */
+function glide(gain: GainNode, level: number) {
+  if (!ctx) return;
+  try {
+    gain.gain.cancelScheduledValues(ctx.currentTime);
+    gain.gain.setTargetAtTime(level, ctx.currentTime, 0.015);
+  } catch {
+    // audio is optional
+  }
+}
+
+/** One sound group's level, 0-1 (default 1), under the master volume. */
+export function setGroupLevel(group: SoundGroup, level: number) {
+  groupLevels[group] = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
+  const gain = groupGains[group];
+  if (gain) glide(gain, groupLevels[group]);
+}
+
 export function setAudioPrefs(patch: Partial<AudioPrefs>) {
-  prefs = { ...prefs, ...patch, volume: Math.max(0, Math.min(100, Math.round(patch.volume ?? prefs.volume))) };
+  const clamped: Record<string, unknown> = { ...prefs, ...patch };
+  for (const k of ['volume', ...SOUND_GROUPS] as const) clamped[k] = Math.max(0, Math.min(100, Number(clamped[k])));
+  prefs = normalizeAudioPrefs(clamped);
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     // storage may be unavailable (private mode); the setting just won't be remembered
   }
-  if (ctx && master) {
-    try {
-      master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.015);
-    } catch {
-      // audio is optional
-    }
-  }
+  if (master) glide(master, masterLevel());
+  for (const g of SOUND_GROUPS) setGroupLevel(g, sliderGain(prefs[g]));
   for (const fn of listeners) fn();
 }
 
 export const toggleMute = () => setAudioPrefs({ muted: !prefs.muted });
-
-/** One sound group's level, 0-1 (default 1), on top of the master volume. */
-export function setGroupLevel(group: SoundGroup, level: number) {
-  groupLevels[group] = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
-  if (ctx && groups) {
-    try {
-      groups[group].gain.cancelScheduledValues(ctx.currentTime);
-      groups[group].gain.setTargetAtTime(groupLevels[group], ctx.currentTime, 0.015);
-    } catch {
-      // audio is optional
-    }
-  }
-}
 
 // ---------- the listener (the camera's ears) ----------
 
@@ -195,7 +176,7 @@ export interface SfxRecord {
   at: Vec3 | null;
   /** Peak after distance and the group level, before the master volume (0 when culled for distance). */
   gain: number;
-  /** -1 (left) to 1 (right) from where the listener faces; 0 for non-positional sounds. */
+  /** -1 (left) to 1 (right) from where the listener faces; a non-positional sound's own `pan` (default 0). */
   pan: number;
   /** Whether it was actually scheduled (false while locked, unavailable, too far away or over the voice cap). */
   played: boolean;
@@ -211,14 +192,17 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
  * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
  * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
  */
-export function recordSfx(name: string, { group, pos, peak, played = false }: { group?: SoundGroup; pos?: Vec3; peak: number; played?: boolean }) {
+export function recordSfx(
+  name: string,
+  { group, pos, pan = 0, peak, played = false }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean },
+) {
   const d = pos ? distance(ear, pos) : 0;
   const rec: SfxRecord = {
     name,
     group: group ?? null,
     at: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
     gain: (!pos || audible(d) ? peak * (pos ? distanceGain(d) : 1) : 0) * (group ? groupLevels[group] : 1),
-    pan: pos ? panOf(ear, earFwd, earUp, pos) : 0,
+    pan: pos ? panOf(ear, earFwd, earUp, pos) : pan,
     played,
     t: performance.now(),
   };
@@ -233,7 +217,7 @@ export function recordSfx(name: string, { group, pos, peak, played = false }: { 
 export function groupOutput(group?: SoundGroup): AudioNode | null {
   const a = audio();
   if (!a) return null;
-  return group && groups ? groups[group] : a.out;
+  return (group && groupGains[group]) || a.out;
 }
 
 /** A PannerNode with the office's distance model, placed at `pos`. Connect it to groupOutput(). */
@@ -276,14 +260,16 @@ export interface PlaceOpts {
   group?: SoundGroup;
   /** Where in the world (metres): the sound pans and fades with distance, and isn't played beyond ~16 m. */
   pos?: Vec3;
+  /** A fixed stereo position, -1 (left) to 1 (right), for sounds without `pos` (the player's own feet). */
+  pan?: number;
 }
 
 /**
  * Records a sound for the probe and decides whether it plays. Returns where to connect it (a panner, its group or
  * the master) and its loudness for the voice cap, or null to skip it.
  */
-function place(kind: string, { name, group, pos }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
-  const rec = recordSfx(name ?? kind, { group, pos, peak });
+function place(kind: string, { name, group, pos, pan }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
+  const rec = recordSfx(name ?? kind, { group, pos, pan, peak });
   const d = pos ? distance(ear, pos) : 0;
   if (pos && !audible(d)) return null;
   const loud = peak * (pos ? distanceGain(d) : 1);
@@ -306,10 +292,15 @@ function place(kind: string, { name, group, pos }: PlaceOpts, peak: number): { a
     }
   }
 
-  let dest: AudioNode = group && groups ? groups[group] : a.out;
+  let dest: AudioNode = (group && groupGains[group]) || a.out;
   try {
     if (pos) {
       const p = createPanner(a.ctx, pos);
+      p.connect(dest);
+      dest = p;
+    } else if (pan && a.ctx.createStereoPanner) {
+      const p = a.ctx.createStereoPanner();
+      p.pan.value = pan;
       p.connect(dest);
       dest = p;
     }
@@ -330,21 +321,11 @@ export interface ToneOpts extends PlaceOpts {
   dur: number;
   peak: number; // 0-1, before the master volume
   attack?: number;
-  pan?: number; // -1 (left) to 1 (right)
-}
-
-/** Route a voice to its destination, through a stereo panner when it has a pan (and no world position). */
-function output(ctx: AudioContext, dest: AudioNode, pan?: number): AudioNode {
-  if (!pan || !ctx.createStereoPanner) return dest;
-  const p = ctx.createStereoPanner();
-  p.pan.value = pan;
-  p.connect(dest);
-  return p;
 }
 
 /** One enveloped oscillator note. */
 export function tone(opts: ToneOpts) {
-  const { freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, pan } = opts;
+  const { freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015 } = opts;
   const p = place('tone', opts, peak);
   if (!p) return;
   const a = p.a;
@@ -358,7 +339,7 @@ export function tone(opts: ToneOpts) {
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain).connect(opts.pos ? p.dest : output(a.ctx, p.dest, pan));
+    osc.connect(gain).connect(p.dest);
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src: osc });
@@ -376,14 +357,13 @@ export interface NoiseOpts extends PlaceOpts {
   to?: number; // sweep the filter to this frequency by the end
   q?: number;
   attack?: number;
-  pan?: number;
 }
 
 let noiseBuf: AudioBuffer | null = null;
 
 /** A burst of filtered white noise: footsteps, whooshes, pops. */
 export function noise(opts: NoiseOpts) {
-  const { at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005, pan } = opts;
+  const { at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005 } = opts;
   const p = place('noise', opts, peak);
   if (!p) return;
   const a = p.a;
@@ -405,7 +385,7 @@ export function noise(opts: NoiseOpts) {
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(bq).connect(gain).connect(opts.pos ? p.dest : output(a.ctx, p.dest, pan));
+    src.connect(bq).connect(gain).connect(p.dest);
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src });
@@ -433,9 +413,9 @@ export function chirp() {
 
 /** The roomba's happy chirp: a quick rising warble and a bright little "boop". */
 export function roombaChirp() {
-  tone({ freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035 });
-  tone({ freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08 });
-  tone({ freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07 });
+  tone({ freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035, group: 'toys' });
+  tone({ freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08, group: 'toys' });
+  tone({ freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07, group: 'toys' });
 }
 
 /** The elevator "ding": two soft sine tones. */
@@ -451,28 +431,28 @@ export function whoosh(dur = 0.75) {
 
 /** A foam blaster's "thwip": a puff of air through the barrel with a springy little pop. */
 export function thwip() {
-  noise({ dur: 0.09, peak: 0.1, filter: 'bandpass', freq: 2600, to: 900, q: 1.4, attack: 0.003 });
-  tone({ freq: 520, to: 190, type: 'triangle', dur: 0.08, peak: 0.07, attack: 0.004 });
+  noise({ dur: 0.09, peak: 0.1, filter: 'bandpass', freq: 2600, to: 900, q: 1.4, attack: 0.003, group: 'toys' });
+  tone({ freq: 520, to: 190, type: 'triangle', dur: 0.08, peak: 0.07, attack: 0.004, group: 'toys' });
 }
 
 /** Someone hit by a toy: a soft, round "boop". */
 export function boop() {
-  tone({ freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008 });
-  tone({ freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004 });
+  tone({ freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008, group: 'toys' });
+  tone({ freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004, group: 'toys' });
 }
 
 /** The roomba sucking up a dart: a rising slurp of air with a little pop at the end. */
 export function slurp() {
-  noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05 });
-  tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03 });
-  noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002 });
+  noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05, group: 'toys' });
+  tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03, group: 'toys' });
+  noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002, group: 'toys' });
 }
 
 /** A basket: the net's swish, then a small cheer. */
 export function swish() {
-  noise({ dur: 0.3, peak: 0.14, filter: 'bandpass', freq: 5200, to: 2600, q: 0.8, attack: 0.03 });
-  noise({ at: 0.18, dur: 0.9, peak: 0.05, filter: 'bandpass', freq: 900, to: 1500, q: 0.5, attack: 0.2 });
-  [784, 988, 1318.5].forEach((freq, i) => tone({ freq, type: 'triangle', at: 0.2 + i * 0.08, dur: 0.3, peak: 0.06 }));
+  noise({ dur: 0.3, peak: 0.14, filter: 'bandpass', freq: 5200, to: 2600, q: 0.8, attack: 0.03, group: 'toys' });
+  noise({ at: 0.18, dur: 0.9, peak: 0.05, filter: 'bandpass', freq: 900, to: 1500, q: 0.5, attack: 0.2, group: 'toys' });
+  [784, 988, 1318.5].forEach((freq, i) => tone({ freq, type: 'triangle', at: 0.2 + i * 0.08, dur: 0.3, peak: 0.06, group: 'toys' }));
 }
 
 // ---------- event cues ----------

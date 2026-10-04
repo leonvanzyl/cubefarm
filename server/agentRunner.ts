@@ -5,6 +5,7 @@ import type { AgentCli, AgentRole, EffortLevel, LogKind } from '../shared/types.
 import type { OfficeTools } from './ceo.ts';
 import type { UsageWarning } from './pacing.ts';
 import type { AgentTerminal } from './terminal.ts';
+import { browserProblem, playwrightMcp } from './browser.ts';
 import { VERSION } from './config.ts';
 
 // One Claude Code instance (via the Claude Agent SDK) working one issue in its own git worktree.
@@ -313,9 +314,10 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks):
 
   const mcpServers: Options['mcpServers'] = {};
   if (opts.browserTesting) {
-    // browser-init.js keeps pages from taking the real mouse with pointer lock (headless Chrome does on Windows).
-    const args = ['-y', '@playwright/mcp@latest', '--headless', '--isolated', '--init-script', path.join(import.meta.dirname, 'browser-init.js')];
-    mcpServers.playwright = process.platform === 'win32' ? { command: 'cmd', args: ['/c', 'npx', ...args] } : { command: 'npx', args };
+    const browser = playwrightMcp();
+    if (browser) mcpServers.playwright = browser;
+    const problem = browserProblem(browser);
+    if (problem) cb.log([{ kind: 'error', text: problem }]);
   }
   if (opts.office) mcpServers.office = opts.office.server;
   // The CEO reads repositories and acts through the office tools; it never runs commands.
