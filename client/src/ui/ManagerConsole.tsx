@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { TeamStats } from './CareerCard';
 import { api } from '../api';
 import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
@@ -372,6 +373,7 @@ function TeamTab() {
   if (repos.length === 0) return <p className="muted">Connect a repo first; agents need a floor to sit on.</p>;
   return (
     <div>
+      <TeamStats />
       {[...repos].sort((a, b) => a.floor - b.floor).map((repo) => {
         const team = agentsOnRepo(agents, repo.id);
         return (

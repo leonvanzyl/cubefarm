@@ -5,6 +5,7 @@ import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders, ROOF, roofColliders } from './layout';
+import { decorRects } from './decor/decor';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Outside } from './Outside';
@@ -48,7 +49,11 @@ export function Game() {
   const repo = floor === 0 || onRoof ? null : repoOnFloor(repos, floor);
   const isOffice = !!repo;
   const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
-  const colliders = useMemo(() => (onRoof ? roofColliders() : isOffice ? officeColliders() : lobbyColliders()), [onRoof, isOffice]);
+  const placed = useStore((s) => (repo ? s.progress.floors[repo.id]?.placed : undefined));
+  const colliders = useMemo(
+    () => (onRoof ? roofColliders() : isOffice ? [...officeColliders(), ...decorRects(placed ?? {})] : lobbyColliders()),
+    [onRoof, isOffice, placed],
+  );
   const toRoof = useStore((s) => s.travel?.to === ROOF);
   useEffect(() => {
     if (toRoof) void loadRoof();

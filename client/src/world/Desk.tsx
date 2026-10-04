@@ -301,12 +301,13 @@ export const Desk = memo(function Desk({
             <Cyl key={c} r={0.022} h={0.16} position={[-0.09 + i * 0.09, 0.1, 0]} color={c} outline />
           ))}
         </group>
-      ) : (
+      ) : !agent || agent.role === 'ceo' ? (
+        // a team member's plant grows with them (desk/DeskStory.tsx)
         <>
           <Cyl r={0.06} rTop={0.07} h={0.09} position={[-0.76, 0.815, -0.22]} color="#e07a5f" outline />
           <Ball r={0.09} position={[-0.76, 0.92, -0.22]} color="#52b788" outline />
         </>
-      )}
+      ) : null}
 
       {/* chair (it rolls back when its owner gets up) */}
       <group ref={chairRef} position={[0, 0, agent ? 0.8 : 0.6]}>
