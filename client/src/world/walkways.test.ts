@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KANBAN_KEYS } from './draw';
-import { BOARD, PLAYER_RADIUS, elevatorDoorway, lobbyColliders, officeColliders } from './layout';
+import { BOARD, PLAYER_RADIUS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders } from './layout';
 import { segmentClear, type Pt } from './toys/roombaBrain';
 import { WALK_R, WALK_SPEED, findPath, spot, standable, steer, walkways, type Body, type FloorKind, type Mover, type Walkways } from './walkways';
 
@@ -48,7 +48,32 @@ describe('named spots', () => {
   it('the lobby has the CEO, the couch, the toys and the elevator', () => {
     const w = walkways('lobby');
     expect(w.homes.map((s) => s.id)).toEqual(['ceo']);
-    for (const id of ['manager', 'reception', 'couch', 'hoop', 'balls', 'elevator']) expect(spot(w, id), id).toBeDefined();
+    for (const id of ['manager', 'reception', 'couch', 'coffee', 'mugs', 'hoop', 'balls', 'elevator']) expect(spot(w, id), id).toBeDefined();
+  });
+
+  it("the lobby's coffee spots stand in front of the coffee corner, facing it, and you can walk there", () => {
+    const w = walkways('lobby');
+    const counter = coffeeCorner();
+    for (const id of ['coffee', 'mugs']) {
+      const s = spot(w, id)!;
+      expect(standable(w, s.x, s.z), id).toBe(true);
+      // just north of the counter and within its width, so a person reaches it without being inside it
+      expect(s.x, id).toBeGreaterThan(counter.minX);
+      expect(s.x, id).toBeLessThan(counter.maxX);
+      expect(counter.minZ - s.z, id).toBeGreaterThan(WALK_R);
+      expect(counter.minZ - s.z, id).toBeLessThan(0.8);
+      expect(Math.cos(s.facing), id).toBeCloseTo(0); // facing south, at the counter
+      expect(Math.sin(s.facing), id).toBeCloseTo(1);
+      for (const from of [spot(w, 'ceo')!, spot(w, 'elevator')!, spot(w, 'reception')!]) {
+        const path = findPath(w, from, s);
+        expect(path, `${from.id} → ${id}`).not.toBeNull();
+        let at: Pt = from;
+        for (const p of path!) {
+          expect(segmentClear([counter], at, p, WALK_R), `${from.id} → ${id}`).toBe(true);
+          at = p;
+        }
+      }
+    }
   });
 });
 
