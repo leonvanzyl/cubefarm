@@ -1,46 +1,9 @@
-import { test as base, expect, type Page } from '@playwright/test';
 import { BALCONY, BALCONY_OUT, DOOR_SENSOR, HALF_W, PLAYER_RADIUS, SIDE_OPENINGS, WALL_T } from '../client/src/world/layout';
+import { enterOffice, expect, startAt, test } from './helpers';
 
 // Outside: walk out of floor 1's west door onto the balcony, to its railing, and back in. Keys only (no pointer lock
 // headless): the saved view points you at the door, W walks you out and S backs you in. window.__swarmOutside
 // (world/doors.ts) reports the doors and whether you're out.
-
-const VIEW_KEY = 'cubefarm:view'; // where the client remembers the player's spot (store.ts saveView)
-
-// Fails on a console error, an uncaught exception or a failed request to the office, like smoke.spec.ts.
-const test = base.extend<{ page: Page }>({
-  page: async ({ page, baseURL }, use) => {
-    const problems: string[] = [];
-    await page.route(
-      (url) => !url.href.startsWith(baseURL!) && !url.protocol.startsWith('data'),
-      (route) => route.fulfill({ status: 200, body: '' }),
-    );
-    page.on('console', (m) => {
-      if (m.type() === 'error') problems.push(`console error: ${m.text()}`);
-    });
-    page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
-    page.on('requestfailed', (r) => problems.push(`request failed: ${r.method()} ${r.url()} (${r.failure()?.errorText})`));
-    page.on('response', (r) => {
-      if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.request().method()} ${r.url()}`);
-    });
-    await use(page);
-    expect(problems, 'console errors or failed requests').toEqual([]);
-  },
-});
-
-async function enterOffice(page: Page) {
-  await page.goto('/');
-  const enter = page.getByRole('button', { name: 'Enter the office' });
-  const skipSetup = page.getByRole('button', { name: /skip setup/i });
-  await expect(enter.or(skipSetup)).toBeVisible();
-  if (await skipSetup.isVisible()) await skipSetup.click();
-  else {
-    await expect(enter).toBeEnabled();
-    await enter.click();
-  }
-  await expect(enter).toBeHidden();
-  await expect(page.getByTitle('Your phone (P)')).toBeVisible();
-}
 
 interface Outside {
   floor: number;
@@ -57,7 +20,7 @@ test('you can walk out of the west door onto the balcony, to the railing, and ba
   const wall = -(HALF_W + WALL_T / 2);
   // inside, facing the west door (yaw π/2 faces -x), just beyond its sensor
   const start = { floor: 1, x: wall + DOOR_SENSOR.across + 0.6, z: door, yaw: Math.PI / 2, pitch: 0 };
-  await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(start)] as const);
+  await startAt(page, start);
   await enterOffice(page);
 
   const outside = () => page.evaluate(() => (window as unknown as { __swarmOutside: Outside }).__swarmOutside);
