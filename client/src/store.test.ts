@@ -86,6 +86,13 @@ describe('floorPrCounts', () => {
     expect(floorPrCounts(r, records([1, 'needs-human'], [2, 'fixing']))).toEqual({ inQa: 3, ready: 0, needsYou: 1 });
   });
 
+  it('does not count a needs-human PR the CEO is still triaging as needing you', () => {
+    const r = floor(pr(1, 'OPEN'), pr(2, 'OPEN'));
+    const qa = records([1, 'needs-human'], [2, 'needs-human']);
+    qa[qaKey('acme/floor1', 1)] = { ...qa[qaKey('acme/floor1', 1)], ceoLooking: true };
+    expect(floorPrCounts(r, qa)).toEqual({ inQa: 2, ready: 0, needsYou: 1 });
+  });
+
   it('matches the Kanban In QA and Ready to merge columns, drafts included', () => {
     const r = floor(pr(1, 'OPEN'), draft(2), draft(3), pr(4, 'OPEN'), pr(5, 'OPEN'), pr(6, 'MERGED'), pr(7, 'CLOSED'));
     const qa = records([1, 'passed'], [2, 'passed'], [4, 'testing'], [5, 'needs-human'], [6, 'passed'], [7, 'needs-human']);

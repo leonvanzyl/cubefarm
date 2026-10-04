@@ -241,6 +241,16 @@ export function describeOfficeTool(action: string, input: Record<string, unknown
       return `📝 file_issue "${clip(String(input.title ?? ''), 70)}"${floor}${input.specialty ? ` · ${input.specialty}` : ''}`;
     case 'close_issue':
       return `🗂️ close_issue #${String(input.number ?? '?')}${floor}`;
+    case 'retry_qa':
+      return `🔁 retry_qa PR #${String(input.pr ?? '?')}${floor}`;
+    case 'send_back':
+      return `↩️ send_back PR #${String(input.pr ?? '?')}${floor}`;
+    case 'rerun_checks':
+      return `🔄 rerun_checks PR #${String(input.pr ?? '?')}${floor}`;
+    case 'close_pull':
+      return `🗂️ close_pull PR #${String(input.pr ?? '?')}${floor}`;
+    case 'escalate':
+      return `📣 escalate PR #${String(input.pr ?? '?')}${floor}${input.reason ? `: ${clip(String(input.reason), 90)}` : ''}`;
     case 'route_issue':
       return `🔀 route_issue #${String(input.number ?? '?')}${floor}${input.specialty !== undefined ? ` · ${input.specialty || 'no specialty'}` : ''}${Array.isArray(input.depends_on) ? ` · depends on ${input.depends_on.map((n) => `#${n}`).join(', ') || 'nothing'}` : ''}`;
   }

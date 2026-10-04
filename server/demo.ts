@@ -910,6 +910,25 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       const prs = s.floors.reduce((n, f) => n + f.pullRequests.length, 0);
       return `All ${s.floors.length} floors look healthy: ${issues} open issues and ${prs} pull requests in flight. No changes needed.`;
     },
+    // A stuck PR: read what QA and GitHub say, then act through the real triage tools, as the real CEO would.
+    async triage(floor: number, pr: number, facts: string) {
+      await step([{ kind: 'tool', tool: 'Read', text: `⏺ Read PR #${pr}'s QA report` }, { kind: 'result', text: '  ⎿ Read 38 lines' }]);
+      const conflict = /mergeable: CONFLICTING/.test(facts);
+      const red = /GitHub checks: failing/.test(facts);
+      const again = !/triage 1 of/.test(facts);
+      await think(conflict ? 'It only conflicts with main; the change itself is fine.' : red ? 'A red check that looks like a flake.' : again ? 'Stuck a second time. This needs a call from the manager.' : 'The fix sessions stalled, not the code. Another QA round should settle it.');
+      const [tool, args, done] = conflict
+        ? ['send_back', { note: 'Merge main and keep both changes working; QA already liked the rest.' }, 'went back to the developer to merge main']
+        : red
+          ? ['rerun_checks', {}, 'had its failed checks re-run']
+          : again
+            ? ['escalate', { reason: 'It got stuck twice for the same reason; worth a look at the issue itself.' }, 'is with you now']
+            : ['retry_qa', {}, 'is back in the QA queue'];
+      const out = await use(tool, { floor, pr, ...args });
+      if (!out.startsWith('Refused')) return `PR #${pr} on floor ${floor} was stuck. It ${done}.`;
+      await use('escalate', { floor, pr, reason: `I tried ${tool}, but the office refused: ${out.replace(/^Refused: /, '')}` });
+      return `PR #${pr} on floor ${floor} is stuck and I couldn't move it, so it's with you now.`;
+    },
     async chat(text: string) {
       const s = await status();
       await think('Reading your message.');
@@ -954,13 +973,18 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
 
   const prompt = opts.prompt;
   const where = prompt.match(/[Ff]loor (\d+) \(([^,)]+)/);
-  const run = /just joined the company/.test(prompt)
-    ? () => scripts.onboard(Number(where?.[1]), where?.[2] ?? '')
-    : /has a brief for floor/.test(prompt)
-      ? () => scripts.plan(Number(where?.[1]), prompt.match(/"""([\s\S]*?)"""/)?.[1]?.trim() ?? '')
-      : /Periodic review/.test(prompt)
-        ? () => scripts.review()
-        : () => scripts.chat(prompt.split('\n').slice(1).join(' ').trim() || prompt);
+  const triage = prompt.match(/^Triage: pull request #(\d+) on floor (\d+)/);
+  const run = triage
+    ? () => scripts.triage(Number(triage[2]), Number(triage[1]), prompt)
+    : /no longer needs triage/.test(prompt)
+      ? async () => 'Nothing to do.'
+      : /just joined the company/.test(prompt)
+        ? () => scripts.onboard(Number(where?.[1]), where?.[2] ?? '')
+        : /has a brief for floor/.test(prompt)
+          ? () => scripts.plan(Number(where?.[1]), prompt.match(/"""([\s\S]*?)"""/)?.[1]?.trim() ?? '')
+          : /Periodic review/.test(prompt)
+            ? () => scripts.review()
+            : () => scripts.chat(prompt.split('\n').slice(1).join(' ').trim() || prompt);
 
   const finish = (ok: boolean, text: string, error?: string) => {
     if (done) return;

@@ -12,12 +12,13 @@ import { setUpDesk } from './deskSetup.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
-import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
+import { CHECKS_ALERT_MS, failedRunIds, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
 import { conflictFixInstructions, qaOutcome, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { sendBackPatch } from './sendBack.ts';
+import { checkTriageTarget, triageStep, type TriagePr } from './triage.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
@@ -114,7 +115,7 @@ interface PersistedAgent {
 }
 
 /** A pull request's trip through QA. */
-interface QaRecord extends QaView {
+interface QaRecord extends Omit<QaView, 'ceoLooking'> {
   issueNumber: number | null;
   devSessionId: string | null; // the dev's Claude Code session, resumed to fix QA findings
   fixInstructions: string | null;
@@ -130,6 +131,9 @@ interface QaRecord extends QaView {
   rerunSha: string | null; // the head commit whose failed checks the office re-ran (once per commit)
   rerunAt: number | null;
   qaChecks: PullInfo['checks'] | null; // GitHub's checks when QA last failed it: a later re-run can be the fix
+  stuckWhy: string | null; // why it last became needs-human, for the CEO's triage and the manager's alert
+  triages: number; // CEO triage jobs it has had (triage.ts caps them)
+  escalated: boolean; // needs-human and the manager has been told; cleared when it leaves needs-human
 }
 
 /** Choices made when a project moves into the office. */
@@ -400,6 +404,11 @@ export class Swarm {
       fileIssue: (a) => this.fileIssue(a),
       routeIssue: (a) => this.routeIssue(a),
       closeIssue: (a) => this.closeIssue(a),
+      retryQa: (a) => this.triageRetryQa(a),
+      sendBack: (a) => this.triageSendBack(a),
+      rerunChecks: (a) => this.triageRerunChecks(a),
+      closePull: (a) => this.triageClosePull(a),
+      escalate: (a) => this.triageEscalate(a),
     });
   }
   private ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB); // issues filed during the current CEO job
@@ -494,6 +503,9 @@ export class Swarm {
           rerunSha: q.rerunSha ?? null,
           rerunAt: q.rerunAt ?? null,
           qaChecks: q.qaChecks ?? null,
+          stuckWhy: q.stuckWhy ?? null,
+          triages: q.triages ?? 0,
+          escalated: q.escalated ?? q.status === 'needs-human', // stuck before triage existed: the manager was told
           mergeNote: null,
         })),
         requests: loaded.requests ?? [],
@@ -716,6 +728,7 @@ export class Swarm {
       checks: q.checks,
       commentUrl: q.commentUrl,
       mergeNote: q.mergeNote,
+      ceoLooking: q.status === 'needs-human' && !q.escalated && this.triageJob(q) != null,
       updatedAt: q.updatedAt,
     };
   }
@@ -783,6 +796,7 @@ export class Swarm {
 
   private setQa(rec: QaRecord, patch: Partial<QaRecord>) {
     Object.assign(rec, patch, { updatedAt: Date.now() });
+    if (rec.status !== 'needs-human') rec.escalated = false;
     this.broadcast({ type: 'qa', qa: this.qaView(rec) });
     this.save();
   }
@@ -1147,8 +1161,7 @@ export class Swarm {
   /** QA passed, but the PR can't merge as it is: a developer fixes it, and QA re-tests if the code changed. */
   private sendBack(repo: PersistedRepo, rec: QaRecord, reason: 'checks' | 'conflict', fixInstructions: string, needsHuman: boolean) {
     if (needsHuman) {
-      this.setQa(rec, { status: 'needs-human', mergeNote: null });
-      this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} still ${reason === 'conflict' ? `conflicts with ${repo.defaultBranch}` : 'fails its checks'} after ${MAX_MERGE_FIXES} fixes, so it needs you.`);
+      this.stuck(rec, { mergeNote: null }, `it still ${reason === 'conflict' ? `conflicts with ${repo.defaultBranch}` : 'fails its checks'} after ${MAX_MERGE_FIXES} fixes`);
       return false;
     }
     this.setQa(rec, { status: 'failed', fixReason: reason, fixInstructions, mergeFixes: rec.mergeFixes + 1, mergeNote: null, pendingSince: null });
@@ -1928,6 +1941,9 @@ export class Swarm {
         rerunSha: null,
         rerunAt: null,
         qaChecks: null,
+        stuckWhy: null,
+        triages: 0,
+        escalated: false,
       };
       this.state.qa.push(rec);
       this.setQa(rec, {});
@@ -1954,16 +1970,16 @@ export class Swarm {
   }
 
   /** Manager's "send back to dev" for a PR that needs a human or failed QA: a developer fixes it, with the note. */
-  async sendBackToDev(repoId: string, prNumber: number, note?: string) {
+  async sendBackToDev(repoId: string, prNumber: number, note?: string, from?: string) {
     const repo = this.repo(repoId);
     const find = () => this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === prNumber);
     const listed = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === prNumber);
-    sendBackPatch(prNumber, listed, find(), repo.defaultBranch, note); // refuse before asking GitHub
+    sendBackPatch(prNumber, listed, find(), repo.defaultBranch, note, from); // refuse before asking GitHub
     // The last sync's mergeability may be stale or UNKNOWN: ask about the PR itself whether it conflicts now.
     const details = await this.backend.prDetails(repo.fullName, prNumber).catch(() => null);
     const pr = details && listed ? { ...listed, state: details.state, mergeable: details.mergeable, mergeState: details.mergeState } : listed;
     const rec = find();
-    const patch = sendBackPatch(prNumber, pr, rec, repo.defaultBranch, note);
+    const patch = sendBackPatch(prNumber, pr, rec, repo.defaultBranch, note, from);
     this.setQa(rec!, patch);
     setTimeout(() => this.schedule(), 200);
     this.toast('info', `PR #${prNumber} goes back to a developer${patch.fixReason === 'conflict' ? ' to resolve its conflicts' : ''}`);
@@ -2055,12 +2071,10 @@ export class Swarm {
       if (a.status !== 'stopped') this.fail(a, { ...result, errors: result.errors.length ? result.errors : ['QA finished without a usable report'] }, `QA of PR #${a.prNumber}`);
       if (rec) {
         const failures = rec.sessionFailures + (this.limited() ? 0 : 1); // the usage limit isn't the PR's fault
-        this.setQa(rec, {
-          status: a.status === 'stopped' || failures >= 2 ? 'needs-human' : 'queued',
-          qaAgentId: null,
-          sessionFailures: failures,
-          summary: a.status === 'stopped' ? 'QA was stopped by the manager.' : rec.summary,
-        });
+        const patch = { qaAgentId: null, sessionFailures: failures, summary: a.status === 'stopped' ? 'QA was stopped by the manager.' : rec.summary };
+        if (a.status === 'stopped') this.setQa(rec, { ...patch, status: 'needs-human', escalated: true }); // the manager stopped it: theirs to decide
+        else if (failures >= 2) this.stuck(rec, patch, `QA ended without a usable report ${failures} times in a row`);
+        else this.setQa(rec, { ...patch, status: 'queued' });
       }
       return;
     }
@@ -2104,12 +2118,13 @@ export class Swarm {
       });
       // QA's findings travel with the merge fix; the developer's push then gets one more QA round.
       if (next === 'conflict') this.sendBack(repo, rec, 'conflict', conflictFixInstructions(fixInstructions, repo.defaultBranch), false);
+      const triaged = nextStatus === 'needs-human' && this.stuck(rec, {}, `it failed QA ${qaRounds} times`);
       this.toast(
         pass ? 'success' : 'error',
         pass
           ? `✅ ${a.name} passed PR #${rec.prNumber}${repo.autoMerge ? "; it merges once GitHub's checks are green" : ': ready to merge'}`
           : nextStatus === 'needs-human'
-            ? `❌ PR #${rec.prNumber} failed QA ${qaRounds} times and needs a human`
+            ? `❌ PR #${rec.prNumber} failed QA ${qaRounds} times${triaged ? `; ${this.ceo().name} takes a look before it comes to you` : ' and needs a human'}`
             : next === 'conflict'
               ? `❌ ${a.name} failed PR #${rec.prNumber}, and it conflicts with ${repo.defaultBranch}; sending it back to merge and fix`
               : `❌ ${a.name} failed PR #${rec.prNumber}; sending it back to the developer`,
@@ -2230,7 +2245,8 @@ export class Swarm {
       this.fail(a, result, `the fix for PR #${a.prNumber}`);
       // Someone else gets a go before it lands on the manager.
       const failures = rec ? rec.sessionFailures + (this.limited() ? 0 : 1) : 0;
-      if (rec) this.setQa(rec, { status: failures >= 2 ? 'needs-human' : 'failed', sessionFailures: failures });
+      if (rec && failures >= 2) this.stuck(rec, { sessionFailures: failures }, `${failures} fix sessions in a row failed`);
+      else if (rec) this.setQa(rec, { status: 'failed', sessionFailures: failures });
       return;
     }
     if (!rec || !this.state.qa.includes(rec)) {
@@ -2245,11 +2261,9 @@ export class Swarm {
       a.status = 'error';
       a.lastError = `No new commits were pushed for PR #${rec.prNumber}`;
       this.appendLog(a, [step.log]);
-      this.setQa(rec, step.set);
-      this.toast('error', `${a.name} ended the fix for PR #${rec.prNumber} without pushing a commit${needsHuman ? '; it needs you' : '; it goes back for another try'}`);
-      if (needsHuman) {
-        this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} went back for fixes, but ${step.set.sessionFailures} fix sessions in a row ended without pushing a commit, so it needs you.`);
-      }
+      const triaged = needsHuman ? this.stuck(rec, step.set, `it went back for fixes, but ${step.set.sessionFailures} fix sessions in a row ended without pushing a commit`) : (this.setQa(rec, step.set), false);
+      const next = !needsHuman ? '; it goes back for another try' : triaged ? `; ${this.ceo().name} takes a look` : '; it needs you';
+      this.toast('error', `${a.name} ended the fix for PR #${rec.prNumber} without pushing a commit${next}`);
       return;
     }
     a.status = 'done';
@@ -2760,7 +2774,7 @@ export class Swarm {
   private enqueueCeo(job: CeoJob) {
     const q = this.state.ceo.queue;
     if (job.kind === 'plan' && q.some((j) => j.kind === 'onboard' && j.repoId === job.repoId)) return; // onboarding plans from the brief too
-    const same = q.findIndex((j) => j.kind === job.kind && (job.kind === 'review' || job.kind === 'chat' || j.repoId === job.repoId));
+    const same = q.findIndex((j) => j.kind === job.kind && (job.kind === 'review' || job.kind === 'chat' || (j.repoId === job.repoId && j.prNumber === job.prNumber)));
     if (same >= 0) q[same] = job.kind === 'chat' ? { ...q[same], text: `${q[same].text}\n${job.text}` } : job;
     else q.push(job);
     this.emitCeo();
@@ -2772,9 +2786,16 @@ export class Swarm {
   private startCeoWork(): void {
     const a = this.state.agents.find((x) => x.id === CEO_ID);
     const c = this.state.ceo;
+    // A triage whose PR is no longer stuck (the manager stepped in, or it closed) has nothing left to do.
+    const stale = c.queue.filter((j) => j.kind === 'triage' && !this.stuckRecord(j));
+    if (stale.length) {
+      c.queue = c.queue.filter((j) => !stale.includes(j));
+      this.emitCeo();
+      this.save();
+    }
     if (!a || BUSY.includes(a.status) || c.job || c.queue.length === 0) return;
     if (this.slotsFull()) return;
-    const rank: Record<CeoJob['kind'], number> = { chat: 0, onboard: 1, plan: 1, review: 2 };
+    const rank: Record<CeoJob['kind'], number> = { chat: 0, triage: 0, onboard: 1, plan: 1, review: 2 };
     // A floor's jobs wait for its clone and first sync, so the CEO has something to read.
     const ready = (j: CeoJob) => {
       const rt = j.repoId ? this.repoRt.get(j.repoId) : undefined;
@@ -2819,9 +2840,11 @@ export class Swarm {
     this.emitCeo();
     this.save();
     await fs.mkdir(CEO_DIR, { recursive: true }).catch(() => undefined);
+    const triage = job.kind === 'triage' ? await this.triagePr(job) : null;
     if (a.status !== 'working') {
       // stopped before the session started
       this.state.ceo.job = null;
+      if (job.kind === 'triage') this.endTriage(job);
       this.emitCeo();
       return;
     }
@@ -2830,7 +2853,7 @@ export class Swarm {
     rt.session = this.backend.startSession(
       {
         cwd: CEO_DIR,
-        prompt: ceoJobPrompt(job, floor),
+        prompt: ceoJobPrompt(job, floor, triage),
         systemAppend: ceoSystemPrompt(this.ceoPromptInput(a)),
         model: a.model || CEO_MODEL,
         effort: a.effort || CEO_EFFORT,
@@ -2871,6 +2894,7 @@ export class Swarm {
     a.turns += result.turns;
     const job = this.state.ceo.job;
     this.state.ceo.job = null;
+    if (job?.kind === 'triage') this.endTriage(job);
     if (result.interrupted) this.interrupted(a);
     if (a.status === 'stopped') {
       // the manager already logged the stop
@@ -2955,6 +2979,148 @@ export class Swarm {
       return;
     }
     this.enqueueCeo({ kind: 'review', at: Date.now() });
+  }
+
+  // ---------- triage ----------
+
+  /**
+   * A PR the office can't move on its own (needs-human): the CEO triages it first, at most MAX_TRIAGES times, and the
+   * manager hears when the CEO escalates or takes no action, or when it keeps getting stuck. True: it went to the CEO.
+   */
+  private stuck(rec: QaRecord, patch: Partial<QaRecord>, why: string): boolean {
+    this.setQa(rec, { ...patch, status: 'needs-human', stuckWhy: why });
+    const step = triageStep({ kind: 'stuck', triages: rec.triages });
+    if (step.do !== 'triage') {
+      this.escalate(rec, step.do === 'escalate' ? step.note : null);
+      return false;
+    }
+    rec.triages += 1;
+    this.enqueueCeo({ kind: 'triage', repoId: rec.repoId, prNumber: rec.prNumber, at: Date.now() });
+    this.setQa(rec, {}); // the card shows the CEO looking
+    return true;
+  }
+
+  /** Tell the manager a stuck PR needs them, once each time it gets stuck. note: what the CEO adds. */
+  private escalate(rec: QaRecord, note: string | null) {
+    if (rec.status !== 'needs-human' || rec.escalated) return;
+    this.setQa(rec, { escalated: true });
+    const repo = this.state.repos.find((r) => r.id === rec.repoId);
+    if (repo) this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} needs you: ${rec.stuckWhy ?? 'it is stuck'}.${note ? ` ${note}` : ''}`);
+  }
+
+  /** The CEO's triage job for this PR, queued or running. */
+  private triageJob(q: Pick<QaRecord, 'repoId' | 'prNumber'>) {
+    const c = this.state.ceo;
+    return [c.job, ...c.queue].find((j) => j?.kind === 'triage' && j.repoId === q.repoId && j.prNumber === q.prNumber) ?? null;
+  }
+
+  /** The record a triage job is for, while it is still waiting on a decision. */
+  private stuckRecord(job: CeoJob) {
+    return this.state.qa.find((q) => q.repoId === job.repoId && q.prNumber === job.prNumber && q.status === 'needs-human' && !q.escalated);
+  }
+
+  /** What a triage job's prompt says about its PR: the QA record and GitHub's view of it now. null: no longer stuck. */
+  private async triagePr(job: CeoJob): Promise<TriagePr | null> {
+    const rec = this.stuckRecord(job);
+    const repo = this.state.repos.find((r) => r.id === job.repoId);
+    if (!rec || !repo) return null;
+    const listed = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === rec.prNumber);
+    const pr = await this.backend.prDetails(repo.fullName, rec.prNumber).catch(() => null);
+    if ((pr ?? listed)?.state !== 'OPEN') return null;
+    return {
+      number: rec.prNumber,
+      title: pr?.title ?? listed?.title ?? '',
+      url: pr?.url ?? listed?.url ?? '',
+      round: rec.round,
+      why: rec.stuckWhy,
+      summary: rec.summary,
+      fixInstructions: rec.fixInstructions,
+      mergeNote: rec.mergeNote,
+      checks: pr?.checks ?? listed?.checks ?? 'none',
+      failedChecks: pr?.failedChecks ?? listed?.failedChecks.map((c) => c.name) ?? [],
+      pendingChecks: pr?.pendingChecks ?? listed?.pendingChecks ?? [],
+      mergeable: pr?.mergeable ?? listed?.mergeable ?? 'UNKNOWN',
+      mergeState: pr?.mergeState ?? listed?.mergeState ?? 'UNKNOWN',
+      triage: rec.triages,
+    };
+  }
+
+  /** A triage job ended (done, failed or stopped): a PR still waiting on a decision goes to the manager. */
+  private endTriage(job: CeoJob) {
+    const rec = this.stuckRecord(job);
+    const pull = rec && this.repoRt.get(rec.repoId)?.pulls.find((p) => p.number === rec.prNumber);
+    const step = triageStep({ kind: 'ended', acted: !rec || (pull != null && pull.state !== 'OPEN') }); // a closed PR leaves QA on the next sync
+    if (rec && step.do === 'escalate') this.escalate(rec, step.note);
+  }
+
+  /** The stuck PR a triage tool names; refused unless it is on the current triage job's floor (see checkTriageTarget). */
+  private async triageTarget(x: { floor: number; pr: number }) {
+    const job = this.state.ceo.job;
+    const jobFloor = job?.kind === 'triage' ? (this.state.repos.find((r) => r.id === job.repoId)?.floor ?? null) : null;
+    const repo = this.state.repos.find((r) => r.floor === x.floor);
+    const pr = Number(x.pr);
+    const listed = repo ? this.repoRt.get(repo.id)?.pulls.find((p) => p.number === pr) : undefined;
+    // The last sync may be a minute old and doesn't list closed PRs: ask GitHub about this one.
+    const pull = repo && x.floor === jobFloor ? await this.backend.prDetails(repo.fullName, pr).catch(() => listed) : listed;
+    const rec = repo ? this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === pr) : undefined;
+    checkTriageTarget({ jobFloor, floor: x.floor, pr, pull, status: rec?.status });
+    return { repo: repo!, rec: rec!, listed };
+  }
+
+  private async triageRetryQa(x: { floor: number; pr: number }) {
+    const { repo, rec } = await this.triageTarget(x);
+    await this.sendToQa(repo.id, rec.prNumber);
+    return `PR #${rec.prNumber} is queued for QA round ${rec.round}.`;
+  }
+
+  private async triageSendBack(x: { floor: number; pr: number; note: string }) {
+    const { repo, rec } = await this.triageTarget(x);
+    const note = String(x.note ?? '').trim();
+    if (!note) throw new HttpError(400, 'Say what the developer should do: the note goes with the fix.');
+    await this.sendBackToDev(repo.id, rec.prNumber, note, `${this.ceo().name}, the CEO`);
+    return `PR #${rec.prNumber} goes back to a developer with QA's findings and your note.`;
+  }
+
+  private async triageRerunChecks(x: { floor: number; pr: number }) {
+    const { repo, rec, listed } = await this.triageTarget(x);
+    const runIds = failedRunIds(listed?.failedChecks ?? []);
+    if (!listed || !runIds.length) {
+      const failed = listed?.failedChecks.map((c) => c.name) ?? [];
+      throw new HttpError(409, `PR #${rec.prNumber} has no failed GitHub Actions runs to re-run${failed.length ? ` (${failed.join(', ')} can't be re-run from here)` : ''}.`);
+    }
+    await this.backend.rerunFailedJobs(repo.fullName, runIds);
+    const runs = `${runIds.length} failed run${runIds.length === 1 ? '' : 's'}`;
+    if (rec.passedSha && rec.passedSha === listed.headSha) {
+      // QA signed off on this commit: the merge gate waits for the re-run and merges if it goes green.
+      this.setQa(rec, { status: 'passed', rerunSha: listed.headSha, rerunAt: Date.now(), pendingSince: null, mergeNote: 're-running a failed check' });
+      return `Re-running ${runs} on PR #${rec.prNumber}. QA passed this commit, so it merges if they go green.`;
+    }
+    await this.sendToQa(repo.id, rec.prNumber);
+    return `Re-running ${runs} on PR #${rec.prNumber}, and it is queued for QA round ${rec.round}.`;
+  }
+
+  private async triageClosePull(x: { floor: number; pr: number; comment: string }) {
+    const { repo, rec, listed } = await this.triageTarget(x);
+    const comment = String(x.comment ?? '').trim();
+    if (!comment) throw new HttpError(400, 'Say why the pull request is closing: the comment is posted on it.');
+    const issues = listed ? issuesResolvedBy(listed) : [];
+    const ceo = this.ceo().name;
+    await this.backend.commentPull(repo.fullName, rec.prNumber, `${comment}\n\n<sub>Closed by ${ceo}, the cubefarm CEO, after triage.${issues.length ? ' Its issue stays open, so it is built again.' : ''}</sub>`);
+    // Closing deletes no branch and leaves the issue open, so the scheduler hands it out again.
+    await this.backend.closePull(repo.fullName, rec.prNumber);
+    this.state.qa = this.state.qa.filter((q) => q !== rec);
+    this.broadcast({ type: 'qaRemoved', repoId: repo.id, prNumber: rec.prNumber });
+    this.save();
+    void this.syncRepo(repo.id);
+    this.postMessage('office', `🗂️ ${ceo} closed PR #${rec.prNumber} on floor ${repo.floor}: ${comment.split('\n')[0].slice(0, 200)}`);
+    return `Closed PR #${rec.prNumber}.${issues.length ? ` ${issues.map((n) => `#${n}`).join(', ')} stay${issues.length === 1 ? 's' : ''} open, so a developer builds it again.` : ''}`;
+  }
+
+  private async triageEscalate(x: { floor: number; pr: number; reason: string }) {
+    const { rec } = await this.triageTarget(x);
+    const step = triageStep({ kind: 'escalate', reason: String(x.reason ?? '').split('\n')[0].slice(0, 300) });
+    if (step.do === 'escalate') this.escalate(rec, step.note && `${this.ceo().name}: ${step.note}`);
+    return `The manager has PR #${rec.prNumber} now, with your diagnosis.`;
   }
 
   // ---------- the phone ----------

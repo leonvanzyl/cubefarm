@@ -3,7 +3,7 @@ import type { PullInfo, QaStatus } from '../../shared/types';
 import { needsManager, qaCardNote } from './qaCard';
 
 const pr: Pick<PullInfo, 'isDraft' | 'mergeable' | 'checks'> = { isDraft: false, mergeable: 'MERGEABLE', checks: 'passing' };
-const rec = (status: QaStatus, mergeNote: string | null = null, round = 2) => ({ status, round, mergeNote });
+const rec = (status: QaStatus, mergeNote: string | null = null, round = 2, ceoLooking = false) => ({ status, round, mergeNote, ceoLooking });
 const STALE = 'the fix was never pushed';
 
 describe('qaCardNote', () => {
@@ -34,6 +34,11 @@ describe('qaCardNote', () => {
     expect(statuses.filter((s) => qaCardNote(rec(s, 'x'), pr, true).tone === 'bad')).toEqual(['needs-human']);
   });
 
+  it('a needs-human PR the CEO is triaging is amber and says so, until it is escalated', () => {
+    expect(qaCardNote(rec('needs-human', STALE, 3, true), pr, true)).toEqual({ note: '🧭 CEO is looking', tone: 'warn' });
+    expect(qaCardNote(rec('needs-human', STALE, 3, false), pr, true)).toEqual({ note: `⚠️ needs you · ${STALE}`, tone: 'bad' });
+  });
+
   it('a first-round queued PR has no round', () => {
     expect(qaCardNote(rec('queued', null, 1), pr, true).note).toBe('waiting for QA');
   });
@@ -54,7 +59,11 @@ describe('qaCardNote', () => {
 describe('needsManager', () => {
   it('counts needs-human only', () => {
     const statuses: QaStatus[] = ['queued', 'testing', 'failed', 'fixing', 'needs-human', 'passed'];
-    expect(statuses.filter((status) => needsManager({ status }))).toEqual(['needs-human']);
+    expect(statuses.filter((status) => needsManager({ status, ceoLooking: false }))).toEqual(['needs-human']);
     expect(needsManager(undefined)).toBe(false);
+  });
+
+  it('leaves out a PR the CEO is still triaging', () => {
+    expect(needsManager({ status: 'needs-human', ceoLooking: true })).toBe(false);
   });
 });

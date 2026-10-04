@@ -85,6 +85,10 @@ describe('jobLabel', () => {
     expect(jobLabel(job('review'), null)).toBe('Reviewing the company');
     expect(jobLabel({ kind: 'chat', text: 'hi', at: 0 }, null)).toBe('Replying to you');
   });
+
+  it('names the PR for a triage', () => {
+    expect(jobLabel({ kind: 'triage', repoId: 'r1', prNumber: 108, at: 0 }, floor)).toBe('Triaging PR #108 · floor 3 · office-swarm');
+  });
 });
 
 // The CEO only sees the office tools if the whole list converts to JSON Schema: one schema the SDK can't handle
@@ -102,6 +106,11 @@ describe('office tools', () => {
       fileIssue: async () => '',
       routeIssue: async () => '',
       closeIssue: async () => '',
+      retryQa: async () => '',
+      sendBack: async () => '',
+      rerunChecks: async () => '',
+      closePull: async () => '',
+      escalate: async () => '',
     });
     const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
     await office.server.instance.connect(serverSide);
@@ -113,7 +122,22 @@ describe('office tools', () => {
   it('lists every tool the CEO relies on', async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['agent_detail', 'close_issue', 'company_status', 'file_issue', 'propose_hire', 'propose_let_go', 'route_issue', 'set_floor_profile', 'update_job']);
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'agent_detail',
+      'close_issue',
+      'close_pull',
+      'company_status',
+      'escalate',
+      'file_issue',
+      'propose_hire',
+      'propose_let_go',
+      'rerun_checks',
+      'retry_qa',
+      'route_issue',
+      'send_back',
+      'set_floor_profile',
+      'update_job',
+    ]);
   });
 
   it('still takes preview_env as a map of strings', async () => {
@@ -254,6 +278,46 @@ describe('planning guidance', () => {
     expect(review).not.toContain('free developers');
     expect(review).toContain('PRs piling up in QA (then plan fewer, bigger issues)');
     expect(review).toContain('Idle developers are not a reason to slice features');
+  });
+});
+
+describe('triage', () => {
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, teamCap: 6, hiring: 'approve' });
+  const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: '', backlog: 3 };
+  const job: CeoJob = { kind: 'triage', repoId: 'r1', prNumber: 108, at: 0 };
+  const pr = {
+    number: 108,
+    title: 'Jukebox volume',
+    url: 'https://github.com/acme/app/pull/108',
+    round: 3,
+    why: 'it still conflicts with main after 3 fixes',
+    summary: 'Works, but the slider overflows on phones.',
+    fixInstructions: 'Wrap the slider below 480px.',
+    mergeNote: 'the conflict was never resolved',
+    checks: 'failing',
+    failedChecks: ['CI / e2e'],
+    pendingChecks: [],
+    mergeable: 'CONFLICTING',
+    mergeState: 'DIRTY',
+    triage: 1,
+  };
+
+  it('gives the job everything QA and GitHub know about the PR', () => {
+    const prompt = ceoJobPrompt(job, floor, pr);
+    for (const fact of ['#108', 'Jukebox volume', 'QA round 3', pr.summary, pr.fixInstructions, pr.mergeNote, pr.why, 'GitHub checks: failing (failed: CI / e2e)', 'mergeable: CONFLICTING (DIRTY)', 'triage 1 of 2']) {
+      expect(prompt).toContain(fact);
+    }
+    expect(prompt).toContain('retry_qa, send_back, rerun_checks, close_pull or escalate');
+  });
+
+  it('has nothing to do once the PR is no longer stuck', () => {
+    expect(ceoJobPrompt(job, floor, null)).toBe('Pull request #108 no longer needs triage. Reply "Nothing to do."');
+  });
+
+  it('adds a triage section to the system prompt and keeps its safety rules', () => {
+    expect(system).toContain('Triage jobs:');
+    expect(system).toContain('They are read-only to you. You cannot run shell commands.');
+    expect(system).toContain('Change things only through the mcp__office__ tools.');
   });
 });
 

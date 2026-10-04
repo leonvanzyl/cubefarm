@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { blockers, holdUps, setDependsOn } from '../shared/issues.ts';
 import type { CeoJobKind, QaStatus } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
+import { MAX_TRIAGES, type TriagePr } from './triage.ts';
 
 // The CEO: a Claude Code session in the lobby that runs the company instead of writing code.
 // It studies each floor's repo, shapes the team (hire / let-go proposals the manager approves),
@@ -11,7 +12,8 @@ import { HttpError } from './httpError.ts';
 
 export interface CeoJob {
   kind: CeoJobKind;
-  repoId?: string; // onboard / plan
+  repoId?: string; // onboard / plan / triage
+  prNumber?: number; // triage: the stuck pull request
   text?: string; // chat: the manager's message(s)
   at: number;
 }
@@ -36,6 +38,11 @@ export interface OfficeHandlers {
   fileIssue(a: { floor: number; title: string; body: string; specialty?: string }): Promise<string>;
   routeIssue(a: { floor: number; number: number; specialty?: string; depends_on?: number[] }): Promise<string>;
   closeIssue(a: { floor: number; number: number; reason: string }): Promise<string>;
+  retryQa(a: { floor: number; pr: number }): Promise<string>;
+  sendBack(a: { floor: number; pr: number; note: string }): Promise<string>;
+  rerunChecks(a: { floor: number; pr: number }): Promise<string>;
+  closePull(a: { floor: number; pr: number; comment: string }): Promise<string>;
+  escalate(a: { floor: number; pr: number; reason: string }): Promise<string>;
 }
 
 export interface OfficeTools {
@@ -156,6 +163,36 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
       },
       (a) => run(() => h.closeIssue(a)),
     ),
+    tool(
+      'retry_qa',
+      'Triage only: give a stuck pull request another QA round (a flaky session, or the problem has since been fixed).',
+      { floor: z.number().int(), pr: z.number().int().positive().describe('The pull request number') },
+      (a) => run(() => h.retryQa(a)),
+    ),
+    tool(
+      'send_back',
+      "Triage only: send a stuck pull request back to a developer with QA's findings plus your note, without another QA round first.",
+      { floor: z.number().int(), pr: z.number().int().positive(), note: z.string().min(1).max(1000).describe('What the developer should do, e.g. "Merge main and keep both toolbar changes."') },
+      (a) => run(() => h.sendBack(a)),
+    ),
+    tool(
+      'rerun_checks',
+      "Triage only: re-run the failed GitHub Actions runs on a stuck pull request's head commit (a flaky check or an outage), then hand it back to the office.",
+      { floor: z.number().int(), pr: z.number().int().positive() },
+      (a) => run(() => h.rerunChecks(a)),
+    ),
+    tool(
+      'close_pull',
+      'Triage only: close a stuck pull request that is the wrong approach, with your comment on it. Its issue stays open so it is built again. No branch is deleted.',
+      { floor: z.number().int(), pr: z.number().int().positive(), comment: z.string().min(1).max(1000).describe('Posted on the PR: why it is closed') },
+      (a) => run(() => h.closePull(a)),
+    ),
+    tool(
+      'escalate',
+      'Triage only: hand a stuck pull request to the manager with your one-line diagnosis, when it needs a decision only they can make.',
+      { floor: z.number().int(), pr: z.number().int().positive(), reason: z.string().min(1).max(300).describe('One line: what is wrong and what the manager has to decide') },
+      (a) => run(() => h.escalate(a)),
+    ),
   ];
   const server = createSdkMcpServer({ name: 'office', version: '1.0.0', tools: defs });
   return {
@@ -230,13 +267,30 @@ export function ceoSystemPrompt(o: {
     `- ${o.hiring === 'auto' ? 'Hiring is on auto: proposals within the team cap are approved immediately, so be deliberate.' : 'The manager approves every hire, so explain each reason in a sentence or two they can decide on.'}`,
     '- Issues: QA is usually the scarcer resource. When PRs queue for QA (capacity.prsAwaitingQa in company_status), file fewer, bigger issues, not more. Most briefs need 1 to 4 issues. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most. The office starts the issues that hold up others first. Do not duplicate open issues: fix an existing issue\'s specialty or dependencies with route_issue. File at most 12 issues per job, or per message from the manager.',
     '- Close an issue that is superseded or no longer wanted with close_issue, not by making it wait for another issue.',
+    '- Triage jobs: a pull request got stuck (needs-human). Look before the manager does, and bring them only real decisions. Read the facts in the job and the code, then call exactly one of retry_qa (a flaky QA session, or it has been fixed since), send_back (a developer can fix it; your note says how), rerun_checks (a red check that looks flaky or like an outage), close_pull (the approach is wrong: its issue stays open to be built again) or escalate (only the manager can decide: a product call, credentials, a broken setup).',
     "- When company.usage in company_status says pacing or paused, Claude's usage is running low and the office is finishing open work first: file only what is needed next, not a whole milestone.",
     '- Your final message goes straight to the manager\'s phone. Keep it short and plain: what you found, what you proposed, what you filed, and any question you need answered. No headings, no tables.',
   ].join('\n');
 }
 
-export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: string; clone: string; mission: string; backlog: number } | null): string {
+export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: string; clone: string; mission: string; backlog: number } | null, pr?: TriagePr | null): string {
   switch (job.kind) {
+    case 'triage':
+      if (!floor || !pr) return `Pull request #${job.prNumber ?? '?'} no longer needs triage. Reply "Nothing to do."`;
+      return [
+        `Triage: pull request #${pr.number} on floor ${floor.floor} (${floor.fullName}) is stuck and needs a decision before it reaches the manager.`,
+        `"${pr.title}" · ${pr.url} · read-only clone of the default branch at ${floor.clone}`,
+        `Why it stopped: ${pr.why ?? 'unknown'}`,
+        `QA round ${pr.round}. QA summary: ${pr.summary ?? 'none yet'}`,
+        pr.fixInstructions ? `QA's fix instructions:\n${pr.fixInstructions}` : '',
+        pr.mergeNote ? `Merge note: ${pr.mergeNote}` : '',
+        `GitHub checks: ${pr.checks}${pr.failedChecks.length ? ` (failed: ${pr.failedChecks.join(', ')})` : ''}${pr.pendingChecks.length ? ` (running: ${pr.pendingChecks.join(', ')})` : ''} · mergeable: ${pr.mergeable} (${pr.mergeState})`,
+        `This is triage ${pr.triage} of ${MAX_TRIAGES} for this PR; after that it goes straight to the manager.`,
+        '',
+        `Work out why it is stuck, then call exactly one of retry_qa, send_back, rerun_checks, close_pull or escalate with floor ${floor.floor} and pr ${pr.number}. If you end without one, the manager is alerted. Your final message: one or two sentences on what you found and did.`,
+      ]
+        .filter((l) => l !== '')
+        .join('\n');
     case 'onboard':
       if (!floor) return 'A floor was added but has since been removed. Reply "Nothing to do."';
       return [
@@ -289,6 +343,8 @@ export function jobLabel(job: CeoJob, floor: { floor: number; fullName: string }
       return 'Reviewing the company';
     case 'chat':
       return 'Replying to you';
+    case 'triage':
+      return `Triaging PR #${job.prNumber ?? '?'} · ${where}`;
   }
 }
 

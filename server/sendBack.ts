@@ -47,6 +47,7 @@ export function sendBackPatch(
   rec: SendBackRecord | undefined,
   base: string,
   note?: string,
+  from = 'the manager', // who wrote the note
 ): SendBackPatch {
   if (!pr || pr.state !== 'OPEN') throw new HttpError(404, `PR #${prNumber} is not open`);
   if (rec?.status === 'testing' || rec?.status === 'fixing') throw new HttpError(409, `PR #${prNumber} is already ${rec.status}`);
@@ -54,7 +55,7 @@ export function sendBackPatch(
     throw new HttpError(409, `PR #${prNumber} isn't waiting on you: only a PR that failed QA or needs a human can go back to a developer`);
   }
   const conflict = pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY';
-  const findings = [rec.fixInstructions?.trim(), note?.trim() && `From the manager: ${note.trim()}`].filter(Boolean).join('\n\n');
+  const findings = [rec.fixInstructions?.trim(), note?.trim() && `From ${from}: ${note.trim()}`].filter(Boolean).join('\n\n');
   const addMerge = conflict && !rec.passedSha && !findings.includes(`conflicts with ${base}`);
   const fixInstructions = (addMerge ? conflictFixInstructions(findings, base) : findings) || null;
   return { status: 'failed', fixReason: conflict ? 'conflict' : 'qa', fixInstructions, sessionFailures: 0, retests: rec.retests + 1, mergeNote: null };

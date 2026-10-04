@@ -239,6 +239,7 @@ export interface QaView {
   checks: QaCheck[];
   commentUrl: string | null; // the PR comment with the latest QA report
   mergeNote: string | null; // where auto-merge stands once QA passed, e.g. "waiting for checks: Vercel"
+  ceoLooking: boolean; // needs-human, and the CEO has a triage job for it (queued or running) before the manager hears
   updatedAt: number;
 }
 
@@ -337,7 +338,7 @@ export interface PhoneMessage {
   requestId?: string; // a hire / let-go proposal this message is about
 }
 
-export type CeoJobKind = 'onboard' | 'plan' | 'review' | 'chat';
+export type CeoJobKind = 'onboard' | 'plan' | 'review' | 'chat' | 'triage';
 
 export interface CeoInfo {
   queue: { kind: CeoJobKind; label: string }[]; // jobs waiting for the CEO

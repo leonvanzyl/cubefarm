@@ -26,6 +26,8 @@ The details behind the office: how an issue becomes a merged pull request, who d
    - If GitHub refuses the merge (say, branch protection wants an approving review), your phone gets a message and the office retries every 10 minutes. Checks still running after 30 minutes also get a message.
    - Only `swarm/` branches merge themselves. PRs people opened are left for you.
 
+   A stuck PR (3 failed QA rounds, 3 merge fixes, or fix sessions that keep failing) goes to the CEO first: its card says **🧭 CEO is looking** while the CEO reads the QA report and the checks, then retries QA, sends it back to a developer with a note, re-runs a flaky check, or closes it (its issue stays open, to be built again). It only shows **needs you**, with a phone message, when the CEO escalates it with a one-line diagnosis, ends without acting, or the PR gets stuck a third time.
+
    With auto-merge off, review the PR on GitHub, including the QA comment, then press **Merge** (squash) on the board. Merging a PR that hasn't passed QA asks you to confirm first. Either way, the developer sees the merge, celebrates, and goes back to the backlog.
 7. **Your folder catches up.** After any merge, the floor's folder fast-forwards to the default branch, but only when it's on that branch with no local changes. Nothing is ever stashed, reset or discarded; otherwise the manager's console shows why it wasn't updated (`2 behind: local changes in package-lock.json`, `on branch feature-x`, `diverged`). If `package.json` or the lockfile changed, it runs `npm install`. **Sync now** in the manager's console retries.
 

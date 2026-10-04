@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
-import { qaCardNote, type CardTone } from './qaCard';
+import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { chirp, cue } from './ui/sfx';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { hitGong } from './world/gongState';
@@ -477,7 +477,7 @@ export interface FloorPrCounts {
   inQa: number;
   /** Open PRs that passed QA (the Ready to merge column). */
   ready: number;
-  /** Open PRs waiting on the manager (needs-human); also counted in inQa. */
+  /** Open PRs waiting on the manager (needs-human, and the CEO isn't triaging them); also counted in inQa. */
   needsYou: number;
 }
 
@@ -489,10 +489,10 @@ export function floorPrCounts(repo: RepoView, qaRecords: Record<string, QaView>)
   const counts: FloorPrCounts = { inQa: 0, ready: 0, needsYou: 0 };
   for (const p of repo.pulls) {
     if (p.state !== 'OPEN') continue;
-    const status = qaRecords[qaKey(repo.id, p.number)]?.status;
-    if (status === 'passed') counts.ready++;
+    const rec = qaRecords[qaKey(repo.id, p.number)];
+    if (rec?.status === 'passed') counts.ready++;
     else counts.inQa++;
-    if (status === 'needs-human') counts.needsYou++;
+    if (needsManager(rec)) counts.needsYou++;
   }
   return counts;
 }
