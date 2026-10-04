@@ -245,6 +245,7 @@ export function Desk({
   const top = qa ? LAB_BENCH : WOOD;
   const chair = qa ? QA_ORANGE : accent;
   const chairRef = useRef<THREE.Group>(null);
+  const mugRef = useRef<THREE.Group>(null);
   return (
     <group ref={ref} position={position} rotation={[0, rotationY, 0]}>
       {/* desk */}
@@ -263,7 +264,10 @@ export function Desk({
         <>
           <LiveMonitor agent={agent} accent={accent} />
           <Keyboard />
-          <Cyl r={0.045} h={0.1} position={[0.76, 0.82, 0.02]} color={mug} outline />
+          {/* the mug: its owner picks it up for a sip now and then */}
+          <group ref={mugRef} position={[0.76, 0.82, 0.02]}>
+            <Cyl r={0.045} h={0.1} color={mug} outline />
+          </group>
         </>
       ) : (
         <VacantMonitor accent={accent} qa={qa} />
@@ -292,7 +296,7 @@ export function Desk({
       </group>
       {agent && (
         <group position={[0, 0, 0.8]}>
-          <Character key={agent.id} agent={agent} chair={chairRef}>
+          <Character key={agent.id} agent={agent} chair={chairRef} mug={mugRef}>
             <NameTag agent={agent} />
           </Character>
         </group>

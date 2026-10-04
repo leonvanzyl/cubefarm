@@ -4,7 +4,7 @@
 
 export type BodyMode = 'seated' | 'standing' | 'walking';
 /** What the hands are busy with while up. Later issues add more. */
-export type Gesture = 'none' | 'reach' | 'hold' | 'sip';
+export type Gesture = 'none' | 'reach' | 'hold' | 'sip' | 'stretch';
 
 /** Where someone should be: the people controller (people.ts) holds one per agent who isn't simply seated. */
 export interface BodyTarget {
