@@ -61,11 +61,17 @@ export function dayPhase(nowMs: number, mode: DayMode): number {
 /** How far the sun's path leans south (+z), so its light comes in through the side windows. */
 const SOUTH_TILT = 0.45; // radians
 
-/** Unit vector towards the sun: rises in the east (+x), sets in the west (−x), below the horizon (y < 0) at night. */
-export function sunDirection(t: number): [number, number, number] {
+/**
+ * Unit vector towards the sun: rises in the east (+x), sets in the west (−x), below the horizon (y < 0) at night.
+ * Pass `out` to fill it instead of allocating (frame loops).
+ */
+export function sunDirection(t: number, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
   const a = 2 * Math.PI * (t - SUNRISE_T);
   // Already unit length: cos² + sin²(cos² + sin²) = 1.
-  return [Math.cos(a), Math.sin(a) * Math.cos(SOUTH_TILT), Math.sin(a) * Math.sin(SOUTH_TILT)];
+  out[0] = Math.cos(a);
+  out[1] = Math.sin(a) * Math.cos(SOUTH_TILT);
+  out[2] = Math.sin(a) * Math.sin(SOUTH_TILT);
+  return out;
 }
 
 /** 0 by day, 1 at night, easing through dusk (t 0.74–0.80) and dawn (0.20–0.26). */
@@ -149,15 +155,17 @@ function lerpColor(a: number, b: number, k: number): number {
 const COLORS = ['zenith', 'horizon', 'fog', 'sunColor', 'hemiSky', 'hemiGround'] as const;
 const NUMBERS = ['sunIntensity', 'ambient', 'exposure', 'starsOpacity', 'cityLights'] as const;
 
-/** The palette at phase t, eased between the key moments (noon, golden hour, blue hour, night, dawn). */
-export function skyAt(t: number): SkyPalette {
+/**
+ * The palette at phase t, eased between the key moments (noon, golden hour, blue hour, night, dawn).
+ * Pass `out` to fill it instead of allocating (frame loops).
+ */
+export function skyAt(t: number, out = {} as SkyPalette): SkyPalette {
   const x = frac(t);
   let i = 1;
   while (i < KEYS.length - 1 && KEYS[i][0] <= x) i++;
   const [t0, a] = KEYS[i - 1];
   const [t1, b] = KEYS[i];
   const k = smoothstep(t0, t1, x);
-  const out = {} as SkyPalette;
   for (const c of COLORS) out[c] = lerpColor(a[c], b[c], k);
   for (const n of NUMBERS) out[n] = lerp(a[n], b[n], k);
   return out;

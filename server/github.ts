@@ -144,9 +144,9 @@ export async function issueState(fullName: string, number: number): Promise<'OPE
   }
 }
 
-/** Close an issue as completed, with a comment saying why. */
-export async function closeIssue(fullName: string, number: number, comment: string): Promise<void> {
-  await gh(['issue', 'close', String(number), '-R', fullName, '--reason', 'completed', '--comment', comment]);
+/** Close an issue as completed (or not planned), with a comment saying why. */
+export async function closeIssue(fullName: string, number: number, comment: string, reason: 'completed' | 'not planned' = 'completed'): Promise<void> {
+  await gh(['issue', 'close', String(number), '-R', fullName, '--reason', reason, '--comment', comment]);
 }
 
 /** Replace an issue's body and/or add and remove labels. */
@@ -175,6 +175,11 @@ export async function mergePull(fullName: string, number: number, method: 'squas
 /** Merge the base branch into a PR's branch on GitHub, for repos that only merge up-to-date branches. */
 export async function updateBranch(fullName: string, number: number): Promise<void> {
   await gh(['pr', 'update-branch', String(number), '-R', fullName], { timeoutMs: 60_000 });
+}
+
+/** Re-run the failed jobs of these GitHub Actions runs (a flaky check or an outage). */
+export async function rerunFailedJobs(fullName: string, runIds: number[]): Promise<void> {
+  for (const id of runIds) await gh(['run', 'rerun', String(id), '--failed', '-R', fullName], { timeoutMs: 60_000 });
 }
 
 export async function closePull(fullName: string, number: number): Promise<void> {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import type { RepoView } from '../../../shared/types';
 import { useStore, type Agent } from '../store';
+import { loadScreenshot } from '../screenshot';
 import { drawAppScreen } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { APP_SCREEN, HALF_D } from './layout';
@@ -36,20 +37,13 @@ export function AppMonitor({ repo, agents }: { repo: RepoView; agents: Agent[] }
   const live = p.status === 'running';
   const name = repo.fullName.split('/')[1] ?? repo.fullName;
 
-  // Only fetch the thumbnail while the app is live, and only when a newer screenshot arrives.
+  // Only fetch the thumbnail while the app is live, and only when a newer screenshot arrives. A failed load keeps the last one.
   const latest = useLatestShot(agents);
   const [shot, setShot] = useState<{ img: HTMLImageElement; by: string } | null>(null);
   useEffect(() => {
     if (!live || !latest) return setShot(null);
     const [id, at, by] = latest.split('|');
-    let alive = true;
-    const img = new Image();
-    img.onload = () => alive && setShot({ img, by });
-    img.src = `/api/agents/${id}/screen?t=${at}`;
-    return () => {
-      alive = false;
-      img.onload = null;
-    };
+    return loadScreenshot(id, Number(at), (img) => setShot({ img, by }));
   }, [live, latest]);
 
   const tex = useCanvasTexture(

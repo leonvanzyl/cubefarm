@@ -10,6 +10,7 @@ import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
 import { underLauncher } from './officeUpdate.ts';
+import { screenStatus } from './screenReply.ts';
 import { parseSendBackNote } from './sendBack.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
@@ -142,9 +143,9 @@ app.post('/api/agents/:id/message', route((req) => swarm.message(String(req.para
 app.get('/api/agents/:id/prompt', route((req) => swarm.agentPrompt(String(req.params.id))));
 app.get('/api/agents/:id/screen', (req, res) => {
   const shot = swarm.screenshot(String(req.params.id));
-  if (!shot) return void res.status(404).end();
-  res.setHeader('Content-Type', shot.mime);
   res.setHeader('Cache-Control', 'no-store');
+  if (!shot) return void res.status(screenStatus(shot)).end();
+  res.setHeader('Content-Type', shot.mime);
   res.end(shot.data);
 });
 

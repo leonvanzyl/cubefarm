@@ -1,5 +1,5 @@
 import { kanbanColumnSpan, KANBAN_KEYS } from './draw';
-import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
+import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
 import { hoopRim } from './toys/hoopScore';
 import { clear, makeNav, planPath, roombaRects, type Nav, type Pt } from './toys/roombaBrain';
 
@@ -72,20 +72,40 @@ const ballsSpot = (floor: FloorKind): Spot => ({ id: 'balls', ...BALL_AREA[floor
 
 const elevatorSpot = (): Spot => ({ id: 'elevator', x: 0, z: HALF_D - 1, facing: SOUTH });
 
+/** A metre in from the west and east windows (Shell.tsx; the lobby passes its own), looking out. */
+function windowSpots(west: number[], east: number[]): Spot[] {
+  return [
+    ...west.map((z, i) => ({ id: `window-w${i}`, x: -HALF_W + 1, z, facing: WEST })),
+    ...east.map((z, i) => ({ id: `window-e${i}`, x: HALF_W - 1, z, facing: EAST })),
+  ];
+}
+
+// In front of the jukebox, picking a song.
+const jukeboxSpot = (x: number): Spot => ({ id: 'jukebox', x, z: HALF_D - JUKEBOX.d - 0.8, facing: SOUTH });
+
 function officeSpots(): Spot[] {
   return [
     ...boardSpots(),
     // the kitchenette counter (OfficeFloor.tsx, Props.tsx): the coffee machine sits 1.1 m north of its middle
     { id: 'coffee', x: HALF_W - 1.45, z: 5.9, facing: EAST },
-    // TODO(#68): line this up with the mug dispenser once it lands; for now, the counter beside the machine
-    { id: 'mugs', x: HALF_W - 1.45, z: 6.7, facing: EAST },
+    // the mug dispenser, 0.45 m south of the machine
+    { id: 'mugs', x: HALF_W - 1.45, z: 6.55, facing: EAST },
+    // a step back from the machine and one more behind that, waiting a turn; and two places by the counter for a sip
+    // and a chat, face to face
+    { id: 'coffee-line', x: HALF_W - 2.35, z: 5.9, facing: EAST },
+    { id: 'coffee-line-1', x: HALF_W - 3.25, z: 5.9, facing: EAST },
+    { id: 'coffee-sip-0', x: HALF_W - 1.45, z: 7.9, facing: WEST },
+    { id: 'coffee-sip-1', x: HALF_W - 2.5, z: 7.9, facing: EAST },
     { id: 'cooler', x: HALF_W - 1.5, z: -9.5, facing: EAST },
     { id: 'gong', ...GONG_SPOT, facing: NORTH },
     // the couch's seat faces east; you walk up past the south end of the coffee table
     { id: 'couch', x: -HALF_W + 1.9, z: 7.7, facing: WEST, sit: { x: -HALF_W + 1.0, z: 7.3, facing: EAST } },
     hoopSpot('office'),
     ballsSpot('office'),
+    jukeboxSpot(JUKEBOX.officeX),
     elevatorSpot(),
+    // not the west window at z 8 (the couch) or the east one at z 0 (the QA lab)
+    ...windowSpots([-8, 0], [-8]),
   ];
 }
 
@@ -102,7 +122,9 @@ function lobbySpots(): Spot[] {
     { id: 'mugs', x: COFFEE_CORNER.x - 0.4, z: HALF_D - COFFEE_CORNER.d - 0.4, facing: SOUTH },
     hoopSpot('lobby'),
     ballsSpot('lobby'),
+    jukeboxSpot(JUKEBOX.lobbyX),
     elevatorSpot(),
+    ...windowSpots([1.5, 8], [-2.5, 3.6]),
   ];
 }
 
