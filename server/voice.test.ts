@@ -2,13 +2,16 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { PhoneMessage, VoiceCacheView, VoiceSettings } from '../shared/types.ts';
+import { CLIP_MAX_BYTES, CLIP_MAX_MS } from '../shared/clipLimits.ts';
+import type { ListenSettings, PhoneMessage, VoiceCacheView, VoiceSettings } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
 import {
   cacheToPrune,
   clipsFor,
+  DEFAULT_LISTEN,
   DEFAULT_VOICE,
   KEY_REJECTED_NOTE,
+  listenSettings,
   newestClips,
   parseManifest,
   RECOMMENDED_VOICES,
@@ -118,6 +121,18 @@ describe('voiceSettings', () => {
   });
 });
 
+describe('listenSettings', () => {
+  it('takes valid fields and keeps the rest', () => {
+    expect(listenSettings(DEFAULT_LISTEN, { provider: 'elevenlabs', autoSend: true })).toEqual({ provider: 'elevenlabs', autoSend: true, handsFree: false });
+    expect(listenSettings(DEFAULT_LISTEN, { provider: 'whisper', autoSend: 'yes', handsFree: 1 })).toEqual(DEFAULT_LISTEN);
+    expect(listenSettings(DEFAULT_LISTEN, null)).toEqual(DEFAULT_LISTEN);
+  });
+
+  it('starts on the free browser recognition, sending only when asked and never hands-free', () => {
+    expect(DEFAULT_LISTEN).toEqual({ provider: 'browser', autoSend: false, handsFree: false });
+  });
+});
+
 describe('speaks', () => {
   const msg = (from: PhoneMessage['from']): PhoneMessage => ({ id: 1, from, text: 'hi', at: 0 });
   it("reads the CEO's messages, and the office's only when asked", () => {
@@ -131,7 +146,10 @@ describe('speaks', () => {
 describe('Voice', () => {
   let dir: string;
   let settings: VoiceSettings;
+  let listen: ListenSettings;
   let notes: string[];
+  let logs: string[];
+  let heard: { key: string; type: string; bytes: number }[];
   let calls: { synth: number; list: number };
   let failWith: number | null;
   let release: (() => void) | null;
@@ -158,6 +176,11 @@ describe('Voice', () => {
       if (failWith) throw new VoiceApiError(failWith, `${failWith}: nope`);
       return Buffer.from(`mp3:${text}`);
     },
+    transcribe: async (key, { audio, type }) => {
+      heard.push({ key, type, bytes: audio.length });
+      if (failWith) throw new VoiceApiError(failWith, `${failWith}: nope`);
+      return '  Ship the login page today.  ';
+    },
   };
 
   const make = () =>
@@ -166,17 +189,22 @@ describe('Voice', () => {
       secretsFile: path.join(dir, 'secrets.json'),
       cacheDir: path.join(dir, 'voice'),
       settings: () => settings,
+      listen: () => listen,
       messages: () => messages,
       officeNote: (t) => notes.push(t),
       keyChanged: () => undefined,
       cacheChanged: (v) => views.push(v),
+      log: (line) => logs.push(line),
       now: () => clock,
     });
 
   beforeEach(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cubefarm-voice-'));
     settings = { ...DEFAULT_VOICE, provider: 'elevenlabs' };
+    listen = { ...DEFAULT_LISTEN, provider: 'elevenlabs' };
     notes = [];
+    logs = [];
+    heard = [];
     calls = { synth: 0, list: 0 };
     failWith = null;
     release = null;
@@ -352,5 +380,58 @@ describe('Voice', () => {
     failWith = null;
     expect(await status(v.messageAudio(1))).toBe(200);
     expect(notes).toEqual([]);
+  });
+
+  describe('transcribe', () => {
+    const clip = Buffer.alloc(30_000, 1);
+    const webm = 'audio/webm;codecs=opus';
+
+    it('sends the clip with the key and gives back the words, logging neither', async () => {
+      const v = make();
+      await v.setKey('sk_secret_stt_1234');
+      expect(await v.transcribe(clip, webm, 2400)).toBe('Ship the login page today.');
+      expect(heard).toEqual([{ key: 'sk_secret_stt_1234', type: 'audio/webm', bytes: 30_000 }]);
+      expect(logs).toEqual(['voice: transcribed a 2.4 s clip (30 KB)']);
+      expect(logs.join(' ')).not.toContain('sk_secret');
+      expect(logs.join(' ')).not.toContain('login page');
+    });
+
+    it('needs a key, and says where to add it', async () => {
+      const err = await make().transcribe(clip, webm, 2400).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HttpError);
+      expect(err).toMatchObject({ status: 409, message: expect.stringContaining('Add your ElevenLabs API key in Settings → Voice') });
+      expect(heard).toEqual([]);
+    });
+
+    it('works only while ElevenLabs is the provider', async () => {
+      const v = make();
+      await v.setKey('sk_good');
+      listen = { ...listen, provider: 'browser' };
+      expect(await status(v.transcribe(clip, webm, 2400))).toBe(409);
+      expect(heard).toEqual([]);
+    });
+
+    it('refuses clips over 60 s or 5 MB, empty ones and other types before calling ElevenLabs', async () => {
+      const v = make();
+      await v.setKey('sk_good');
+      expect(await status(v.transcribe(Buffer.alloc(CLIP_MAX_BYTES + 1), webm, 2400))).toBe(413);
+      expect(await status(v.transcribe(clip, webm, CLIP_MAX_MS + 10_000))).toBe(413);
+      expect(await status(v.transcribe(Buffer.alloc(0), webm, 0))).toBe(400);
+      expect(await status(v.transcribe(clip, 'text/html', 2400))).toBe(415);
+      expect(heard).toEqual([]);
+    });
+
+    it("explains a key that may not use Speech to Text, and a 401 stops calls like the voice's", async () => {
+      const v = make();
+      await v.setKey('sk_good');
+      failWith = 403;
+      expect(await v.transcribe(clip, webm, 2400).catch((e: unknown) => e)).toMatchObject({ status: 502, message: expect.stringContaining('may not use Speech to Text') });
+      failWith = 401;
+      expect(await status(v.transcribe(clip, webm, 2400))).toBe(502);
+      expect(notes).toEqual([KEY_REJECTED_NOTE]);
+      failWith = null;
+      expect(await status(v.transcribe(clip, webm, 2400))).toBe(502);
+      expect(heard).toHaveLength(2);
+    });
   });
 });

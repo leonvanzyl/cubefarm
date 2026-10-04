@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { FACIAL_HAIR, GLASSES, HAIR_STYLES, HEADWEAR, OUTFITS } from '../../../shared/looks';
 import type { FacialHair, Glasses, HairStyle, Headwear, Outfit } from './appearance';
+import { MORPHS } from './face';
 
 // Geometry shared by every character on screen. Built once, never disposed (like the material cache): a floor of
 // 15 people reuses these instead of each mesh making its own. Pieces that share a material are merged into one
-// geometry, so a hairstyle, a beard or a pair of glasses costs one draw call.
+// geometry, so a hairstyle, a beard or a pair of glasses costs one draw call. The face (eyes, brows and mouth) carries
+// morph targets for the expressions (face.ts), so every face shares it too and only the weights are per person.
 // Head-space: origin at the centre of the head (radius 0.2), face toward -Z. Torso-space: origin on the seat.
 
 type Xf = { at?: [number, number, number]; rot?: [number, number, number]; scale?: [number, number, number] };
@@ -33,6 +36,23 @@ function merge(...parts: THREE.BufferGeometry[]) {
 const sphere = (r: number, w = 14, h = 10) => new THREE.SphereGeometry(r, w, h);
 const capsule = (r: number, len: number, cap = 6, radial = 12) => new THREE.CapsuleGeometry(r, len, cap, radial);
 const box = (x: number, y: number, z: number) => new THREE.BoxGeometry(x, y, z);
+
+/**
+ * Puts a part made facing -Z at the origin onto the torso's front, `a` radians round from the middle (> 0: toward
+ * their right hand), at height y, standing `lift` off a torso of radius r.
+ */
+function pin(g: THREE.BufferGeometry, a: number, y: number, lift = 0.006, r = 0.2) {
+  g.rotateY(-a);
+  return g.translate(Math.sin(a) * (r + lift), y, -Math.cos(a) * (r + lift));
+}
+
+/** A rod of radius r from a to b. */
+function rod(a: THREE.Vector3, b: THREE.Vector3, r: number) {
+  const d = b.clone().sub(a);
+  const g = new THREE.CylinderGeometry(r, r, d.length(), 6);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
+  return g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+}
 
 /** The classic short hair cap, tipped back to show the face. Most styles build on it. */
 const hairCap = () => xf(new THREE.SphereGeometry(0.215, 24, 16, 0, Math.PI * 2, 0, 1.75), { at: [0, 0.02, 0.01], rot: [0.55, 0, 0] });
@@ -99,6 +119,29 @@ function hairGeometry(style: HairStyle): THREE.BufferGeometry | null {
         xf(sphere(0.055, 8, 6), { at: [p.x * 1.02, p.y + 0.03, p.z * 1.02 + 0.01] }),
       );
       return merge(hairCap(), ...bumps);
+    }
+    case 'bob':
+      // chin length round the back and sides, with a straight fringe
+      return merge(
+        hairCap(),
+        xf(new THREE.SphereGeometry(0.226, 24, 12, -0.45, Math.PI + 0.9, 0.35, 1.78), { at: [0, 0, 0.015], scale: [1.08, 1, 1] }),
+        xf(sphere(0.12, 16, 10), { at: [0, 0.145, -0.13], scale: [1.45, 0.45, 0.8] }),
+      );
+    case 'mohawk': {
+      // the sides shaved close and a crest of spikes from the forehead to the back
+      const crest = [-0.62, -0.31, 0, 0.31, 0.62, 0.93].map((a, i) => {
+        const h = 0.12 + (i % 2) * 0.03;
+        return xf(new THREE.ConeGeometry(0.05, h, 8), { at: [0, (0.2 + h / 2) * Math.cos(a), (0.2 + h / 2) * Math.sin(a)], rot: [a, 0, 0], scale: [0.5, 1, 1] });
+      });
+      return merge(hairGeometry('buzz')!, ...crest);
+    }
+    case 'locs': {
+      // a curtain of locs hanging round the back and sides, splaying out a little
+      const locs = Array.from({ length: 11 }, (_, i) => {
+        const a = -1.75 + (i * 3.5) / 10;
+        return xf(capsule(0.03, 0.2, 3, 6), { at: [Math.sin(a) * 0.19, -0.06 - (i % 3) * 0.02, Math.cos(a) * 0.17 + 0.02], rot: [-0.25 * Math.cos(a), 0, 0.25 * Math.sin(a)] });
+      });
+      return merge(hairCap(), ...locs);
     }
   }
 }
@@ -229,6 +272,25 @@ function outfitGeometry(kind: Outfit): { main: THREE.BufferGeometry | null; trim
           ]),
         ),
       };
+    case 'cardigan':
+      return {
+        // the open front's edges and two pockets, a shade deeper than the knit
+        main: merge(
+          ...[-1, 1].map((s) => pin(box(0.03, 0.3, 0.016), s * 0.3, 0.29, 0.004)),
+          ...[-1, 1].map((s) => pin(box(0.075, 0.06, 0.012), s * 0.62, 0.13, 0.002, 0.19)),
+        ),
+        // the T-shirt underneath, and the buttons
+        trim: merge(pin(box(0.09, 0.3, 0.012), 0, 0.29, 0.0), ...[0.37, 0.29, 0.21].map((y) => pin(sphere(0.012, 8, 6), 0.3, y, 0.014))),
+      };
+    case 'turtleneck':
+      // two rolls of collar, peeking out under the chin
+      return {
+        main: merge(
+          xf(new THREE.TorusGeometry(0.16, 0.04, 8, 28), { at: [0, 0.49, 0], rot: [Math.PI / 2, 0, 0] }),
+          xf(new THREE.TorusGeometry(0.14, 0.035, 8, 28), { at: [0, 0.54, 0], rot: [Math.PI / 2, 0, 0] }),
+        ),
+        trim: null,
+      };
     case 'sweater': {
       // thick ribbed collar, hem band and a row of knitted diamonds
       const diamonds = [-0.12, -0.06, 0, 0.06, 0.12].map((x) => {
@@ -245,6 +307,228 @@ function outfitGeometry(kind: Outfit): { main: THREE.BufferGeometry | null; trim
       };
     }
   }
+}
+
+// ---------- the face ----------
+// Eyes, brows and mouth are one mesh in ink, so a face costs one draw call. Its morph targets (face.ts: EYES, BROWS
+// and MOUTH, in that order) each move one part; Character.tsx sets the weights per person.
+
+/** Where a point at x, y on the face sits in z: on the head (radius 0.2) or a little proud of it. */
+const faceZ = (x: number, y: number, r = 0.2) => -Math.sqrt(Math.max(0, r * r - x * x - y * y));
+
+/** A face part's targets: each moves the part's vertices (in place, from the rest shape), or is a whole new shape. */
+type Targets = (((p: THREE.Vector3) => void) | Float32Array)[];
+
+const EYE = { x: 0.07, y: 0.02, z: -0.18, r: 0.03 };
+/** Squashes an eye (or its lashes) toward the eye's middle line, and bends it: bend > 0 arches it up like ^. */
+function lid(p: THREE.Vector3, squash: number, lift: number, bend: number) {
+  const dx = Math.min(1, Math.abs(p.x - Math.sign(p.x) * EYE.x) / EYE.r);
+  p.y = EYE.y + (p.y - EYE.y) * squash + lift + bend * (1 - dx * dx);
+}
+
+/** Both eyes (with lashes for the feminine look). */
+function eyesGeometry(lashes: boolean) {
+  const parts = [-1, 1].map((s) => xf(sphere(EYE.r, 10, 8), { at: [s * EYE.x, EYE.y, EYE.z] }));
+  if (lashes) parts.push(...[-1, 1].map((s) => xf(box(0.035, 0.008, 0.008), { at: [s * 0.1, 0.045, -0.172], rot: [0, 0, s * -0.6] })));
+  return merge(...parts);
+}
+// closed, wide, happy
+const EYE_TARGETS: Targets = [
+  (p) => lid(p, 0.2, -0.006, -0.007), // a relaxed line, for blinks and sleep
+  (p) => {
+    const cx = Math.sign(p.x) * EYE.x;
+    p.x = cx + (p.x - cx) * 1.18;
+    p.y = EYE.y + (p.y - EYE.y) * 1.3 + 0.004;
+  },
+  (p) => lid(p, 0.22, 0.002, 0.013), // ^ ^
+];
+
+const BROW = { x: 0.072, y: 0.078 };
+/** Moves a brow up by dy and tilts it (tilt > 0 lifts the end nearer the nose), keeping it on the forehead. */
+function browMove(p: THREE.Vector3, dy: number, tilt: number) {
+  const s = Math.sign(p.x);
+  const y = p.y + dy + tilt * (s * BROW.x - p.x) * s;
+  p.z += faceZ(p.x, y) - faceZ(p.x, p.y);
+  p.y = y;
+}
+
+const browsGeometry = () =>
+  merge(
+    ...[-1, 1].map((s) =>
+      xf(capsule(0.011, 0.045, 3, 8), {
+        at: [s * BROW.x, BROW.y, faceZ(s * BROW.x, BROW.y) - 0.004],
+        rot: [0, -s * Math.asin(BROW.x / 0.2), Math.PI / 2 - s * 0.12],
+        scale: [1, 1, 0.7],
+      }),
+    ),
+  );
+// frown, worry, raise, quirk, droop
+const BROW_TARGETS: Targets = [
+  (p) => browMove(p, -0.007, -0.45),
+  (p) => browMove(p, 0.004, 0.55),
+  (p) => browMove(p, 0.024, 0.05),
+  (p) => (p.x < 0 ? browMove(p, 0.02, -0.1) : browMove(p, -0.005, -0.4)), // one up, one down
+  (p) => browMove(p, -0.01, 0.15),
+];
+
+/** A mouth shape: half-width w about x, middle at y; top and bottom edges as offsets along it (u: -1 to 1). */
+type Lips = { w: number; x?: number; y: number; top: (u: number) => number; bottom: (u: number) => number };
+/** A closed mouth along the curve c, tapering a little toward the corners. */
+const line = (w: number, y: number, c: (u: number) => number, x = 0): Lips => ({
+  w,
+  x,
+  y,
+  top: (u) => c(u) + 0.0065 * (1 - 0.4 * u * u),
+  bottom: (u) => c(u) - 0.0065 * (1 - 0.4 * u * u),
+});
+// The rest shape, then frown, flat, grin, open, wavy, skew.
+const MOUTHS: Lips[] = [
+  line(0.046, -0.09, (u) => 0.011 - 0.022 * (1 - u * u)), // a small smile
+  line(0.04, -0.1, (u) => 0.016 * (1 - u * u) - 0.008),
+  line(0.036, -0.094, () => 0),
+  { w: 0.056, y: -0.08, top: (u) => -0.005 * (1 - u * u), bottom: (u) => -0.052 * (1 - u * u) ** 0.7 }, // an open D
+  { w: 0.024, y: -0.1, top: (u) => 0.026 * Math.sqrt(1 - u * u), bottom: (u) => -0.026 * Math.sqrt(1 - u * u) }, // an O
+  line(0.046, -0.097, (u) => 0.006 * Math.sin(u * Math.PI * 2)),
+  line(0.036, -0.095, (u) => 0.011 * u, 0.012),
+];
+const MOUTH_SEGS = 14;
+
+/** A mouth shape as a strip of quads between its edges, lying on the face. */
+function lipPositions(l: Lips) {
+  const out = new Float32Array((MOUTH_SEGS + 1) * 6);
+  for (let i = 0; i <= MOUTH_SEGS; i++) {
+    const u = -1 + (2 * i) / MOUTH_SEGS;
+    const x = (l.x ?? 0) + u * l.w;
+    const yt = l.y + l.top(u);
+    const yb = l.y + l.bottom(u);
+    out.set([x, yt, faceZ(x, yt, 0.2045), x, yb, faceZ(x, yb, 0.2045)], i * 6);
+  }
+  return out;
+}
+
+function mouthGeometry() {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(lipPositions(MOUTHS[0]), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array((MOUTH_SEGS + 1) * 4), 2)); // for merging; unused
+  const index: number[] = [];
+  for (let i = 0; i < MOUTH_SEGS; i++) {
+    const t = i * 2;
+    index.push(t, t + 2, t + 1, t + 2, t + 3, t + 1); // wound to face -Z, out of the face
+  }
+  g.setIndex(index);
+  g.computeVertexNormals();
+  return g;
+}
+const MOUTH_TARGETS: Targets = MOUTHS.slice(1).map(lipPositions);
+
+/** The face as one geometry: eyes, brows and mouth merged, each part's targets laid over the others at rest. */
+function faceGeometry(lashes: boolean) {
+  const parts: [THREE.BufferGeometry, Targets][] = [
+    [eyesGeometry(lashes), EYE_TARGETS],
+    [browsGeometry(), BROW_TARGETS],
+    [mouthGeometry(), MOUTH_TARGETS],
+  ];
+  const counts = parts.map(([part]) => part.attributes.position.count);
+  const g = merge(...parts.map(([part]) => part));
+  const base = g.attributes.position;
+  if (base.count !== counts.reduce((a, b) => a + b, 0)) throw new Error('face parts merged out of order');
+  const p = new THREE.Vector3();
+  const targets: THREE.BufferAttribute[] = [];
+  let first = 0;
+  parts.forEach(([, list], k) => {
+    for (const t of list) {
+      const out = Float32Array.from(base.array);
+      for (let v = 0; v < counts[k]; v++) {
+        if (t instanceof Float32Array) p.fromArray(t, v * 3);
+        else t(p.fromBufferAttribute(base, first + v));
+        p.toArray(out, (first + v) * 3);
+      }
+      targets.push(new THREE.BufferAttribute(out, 3));
+    }
+    first += counts[k];
+  });
+  if (targets.length !== MORPHS) throw new Error(`the face has ${targets.length} morph targets, face.ts expects ${MORPHS}`);
+  g.morphAttributes.position = targets;
+  return g;
+}
+
+// ---------- uniforms and accessories (torso-space unless noted) ----------
+
+/** QA's lab coat: tails round the back and sides with a hem that rises toward the open front, and pockets. */
+function labCoatGeometry() {
+  const tails = new THREE.CylinderGeometry(0.207, 0.236, 0.3, 32, 1, true, -2.4, 4.8).translate(0, 0.03, 0);
+  const pos = tails.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    // seated, the back drapes over the chair while the front stays clear of the thighs
+    if (pos.getY(i) < 0) pos.setY(i, -0.12 + 0.24 * ((1 - Math.cos(Math.atan2(pos.getX(i), pos.getZ(i)))) / 2));
+  }
+  tails.computeVertexNormals();
+  return merge(
+    tails,
+    ...[-1, 1].map((s) => pin(box(0.08, 0.065, 0.014), s * 0.75, 0.12, 0.004, 0.19)),
+    pin(box(0.075, 0.06, 0.012), -0.5, 0.33, 0.004), // breast pocket
+  );
+}
+
+/** A round badge pinned on the chest at (a, y); its picture goes on with badgePicture. */
+const badgeDisc = (a: number, y: number) => pin(new THREE.CylinderGeometry(0.04, 0.04, 0.014, 20).rotateX(Math.PI / 2), a, y, 0.007);
+/** Pins a picture drawn facing -Z round the origin onto the badge at (a, y). */
+const badgePicture = (a: number, y: number, ...parts: THREE.BufferGeometry[]) => pin(merge(...parts).translate(0, 0, -0.009), a, y, 0.007);
+const RIGHT_BADGE = { a: 0.5, y: 0.36 };
+const LEFT_BADGE = { a: -0.5, y: 0.36 };
+
+const magnifier = () =>
+  badgePicture(
+    RIGHT_BADGE.a,
+    RIGHT_BADGE.y,
+    xf(new THREE.TorusGeometry(0.015, 0.005, 6, 16), { at: [-0.005, 0.006, 0] }),
+    xf(box(0.008, 0.022, 0.006), { at: [0.011, -0.011, 0], rot: [0, 0, Math.PI / 4] }),
+  );
+const wrench = () =>
+  badgePicture(
+    LEFT_BADGE.a,
+    LEFT_BADGE.y,
+    xf(box(0.008, 0.034, 0.006), { at: [-0.004, -0.004, 0], rot: [0, 0, Math.PI / 4] }),
+    xf(new THREE.TorusGeometry(0.01, 0.0045, 6, 12, 4.4), { at: [0.011, 0.011, 0], rot: [0, 0, 1.73] }),
+  );
+const padlock = () =>
+  badgePicture(
+    LEFT_BADGE.a,
+    LEFT_BADGE.y,
+    xf(box(0.03, 0.024, 0.006), { at: [0, -0.008, 0] }),
+    xf(new THREE.TorusGeometry(0.01, 0.004, 6, 12, Math.PI), { at: [0, 0.004, 0] }),
+  );
+
+/** The CEO's blazer over the suit: lapels, a button, and a pocket square in their colour. */
+function blazerGeometry() {
+  return {
+    lapels: merge(...[-1, 1].map((s) => pin(box(0.065, 0.22, 0.014).rotateZ(-s * 0.36), s * 0.36, 0.36, 0.005))),
+    button: pin(sphere(0.014, 10, 8), 0, 0.11, 0.004, 0.187),
+    square: pin(box(0.035, 0.035, 0.01).rotateZ(Math.PI / 4), -0.55, 0.39, 0.006),
+  };
+}
+
+/** The CEO's lanyard: a strap from under the chin to a card on the chest, following the torso's curve. */
+function lanyardGeometry() {
+  const onTorso = (x: number, y: number) => {
+    const r = y > 0.42 ? Math.sqrt(0.04 - (y - 0.42) ** 2) : 0.2;
+    return new THREE.Vector3(x, y, -Math.sqrt(r * r - x * x) - 0.007);
+  };
+  const strap = [-1, 1].flatMap((s) => {
+    const pts = [0.53, 0.49, 0.45, 0.41].map((y) => onTorso(s * 0.07, y));
+    pts.push(new THREE.Vector3(s * 0.012, 0.235, -0.214));
+    return pts.slice(1).map((b, i) => rod(pts[i], b, 0.006));
+  });
+  return { strap: merge(...strap), card: xf(box(0.055, 0.075, 0.01), { at: [0, 0.195, -0.214] }) };
+}
+
+/** A pencil resting on top of the right ear (head-space), its point forward. */
+function pencilGeometry() {
+  const at: Xf = { at: [0.222, 0.05, -0.01], rot: [Math.PI / 2 - 0.25, 0, 0] };
+  return {
+    body: xf(new THREE.CylinderGeometry(0.012, 0.012, 0.11, 6), at),
+    tip: xf(xf(new THREE.ConeGeometry(0.012, 0.03, 6), { at: [0, 0.07, 0] }), at),
+  };
 }
 
 function build<K extends string, V>(keys: readonly K[], make: (k: K) => V) {
@@ -269,10 +553,10 @@ export const PARTS = {
   hand: sphere(0.07, 14, 10),
   head: sphere(0.2, 24, 18),
   ears: merge(...[-0.2, 0.2].map((x) => xf(sphere(0.05, 10, 8), { at: [x, -0.01, 0] }))),
-  eyes: merge(...[-0.07, 0.07].map((x) => xf(sphere(0.03, 10, 8), { at: [x, 0.02, -0.18] }))),
+  // eyes, brows and mouth (morph targets, face.ts)
+  face: faceGeometry(false),
+  faceLashes: faceGeometry(true),
   nose: sphere(0.028, 10, 8),
-  mouth: new THREE.TorusGeometry(0.045, 0.011, 6, 16, Math.PI),
-  lashes: merge(...[-1, 1].map((s) => xf(box(0.035, 0.008, 0.008), { at: [s * 0.1, 0.045, -0.172], rot: [0, 0, s * -0.6] }))),
   cheeks: merge(...[-1, 1].map((s) => xf(sphere(0.03, 10, 8), { at: [s * 0.115, -0.045, -0.165], scale: [1, 0.6, 0.3] }))),
   hairClip: box(0.07, 0.035, 0.035),
   // role details
@@ -280,16 +564,27 @@ export const PARTS = {
   tie: box(0.045, 0.2, 0.012),
   tieKnot: box(0.06, 0.04, 0.02),
   coatOpening: box(0.06, 0.3, 0.02),
-  badge: box(0.07, 0.05, 0.015),
+  labCoat: labCoatGeometry(),
+  labCoatLapels: merge(...[-1, 1].map((s) => pin(box(0.05, 0.2, 0.014).rotateZ(-s * 0.32), s * 0.24, 0.37, 0.004))),
+  magnifierBadge: badgeDisc(RIGHT_BADGE.a, RIGHT_BADGE.y),
+  magnifier: magnifier(),
   inspectorGlasses: glassesGeometry('round', -0.2)!,
+  blazer: blazerGeometry(),
+  lanyard: lanyardGeometry(),
+  // developers' specialty accessories (appearance.ts accessoryFor); headphones round the neck reuse the headphones
+  leftBadge: badgeDisc(LEFT_BADGE.a, LEFT_BADGE.y),
+  wrench: wrench(),
+  padlock: padlock(),
+  pencil: pencilGeometry(),
+  ball: sphere(0.13, 18, 12),
   // the phone they check while idle (lying in the hand, screen up)
   phone: box(0.075, 0.014, 0.13),
   phoneScreen: xf(new THREE.PlaneGeometry(0.06, 0.105), { at: [0, 0.0075, 0], rot: [-Math.PI / 2, 0, 0] }),
   // looks
-  hair: build(['crop', 'long', 'ponytail', 'bun', 'quiff', 'afro', 'sidePart', 'buzz', 'bald', 'curls'] as const, hairGeometry),
-  facialHair: build(['none', 'stubble', 'beard', 'moustache'] as const, facialGeometry),
-  glasses: build(['none', 'round', 'square'] as const, (k) => glassesGeometry(k)),
+  hair: build(HAIR_STYLES, hairGeometry),
+  facialHair: build(FACIAL_HAIR, facialGeometry),
+  glasses: build(GLASSES, (k) => glassesGeometry(k)),
   headphones: headphoneGeometry(),
-  headwear: build(['none', 'beanie', 'cap'] as const, headwearGeometry),
-  outfit: build(['tee', 'hoodie', 'stripe', 'sweater'] as const, outfitGeometry),
+  headwear: build(HEADWEAR, headwearGeometry),
+  outfit: build(OUTFITS, outfitGeometry),
 };

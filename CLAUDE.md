@@ -109,9 +109,10 @@ are in `scripts/officeSteps.mjs` (tested in `officeSteps.test.ts`).
 Shared (`shared/`, imported by both sides):
 - `types.ts`: the REST/websocket contract (`WorldSnapshot`, `ServerEvent`, views, settings).
 - `issues.ts`: issue conventions (`swarm:<specialty>` labels, `Depends on #N`, hold-up ranking).
+- `looks.ts`: the look editor's options and `cleanStyle` (an agent's `style`, checked on the server).
 
 Client (`client/`, Vite root; React 19, R3F, drei, zustand):
-- `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`), elevator,
+- `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`, `Figure.tsx`, `face.ts`), elevator,
   whiteboard, player movement and collisions (`layout.ts`), canvas textures (`draw.ts`), `toys/` (Rapier physics),
   where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid),
   errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them), toy
