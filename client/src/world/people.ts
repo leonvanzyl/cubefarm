@@ -113,6 +113,11 @@ export function takeAsk(id: string) {
   return name;
 }
 
+const staying = new Set<string>();
+
+/** Kept at their desk through the probe (tests that need someone seated): the director sends them on no errands. */
+export const isStaying = (id: string) => staying.has(id);
+
 const round = (n: number) => Math.round(n * 100) / 100;
 const modeOf = (s: BodyState): BodyMode => (s.stage === 'seated' ? 'seated' : s.speed > 0.05 ? 'walking' : 'standing');
 
@@ -154,6 +159,11 @@ const probe = {
   /** Sends someone seated on an errand by name ('coffee', 'stretch') as soon as the rules and the cap allow. */
   send(id: string, errand: string) {
     asks.set(id, errand);
+  },
+  /** Keeps someone at their desk (no errands, idle or work) until stay(id, false). Anyone already out comes back as usual. */
+  stay(id: string, on = true) {
+    if (on) staying.add(id);
+    else staying.delete(id);
   },
   /** The errand director on this floor: how many are away, the cap, who is queued. Null on a floor without one. */
   errands() {

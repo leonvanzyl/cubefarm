@@ -1,14 +1,43 @@
+import type { Page } from '@playwright/test';
 import { MAX_DESKS, QA_LAB } from '../client/src/world/layout';
 import { keyboardSpot } from '../client/src/world/typing';
 import { enterOffice, expect, startAt, test, type SavedView } from './helpers';
 
 // Typing and mouse clicks from working agents' desks.
 
+type AgentRow = { id: string; role: string; desk: number; status: string; repoId: string };
+const officeState = async (page: Page) => (await (await page.request.get('/api/state')).json()) as { agents: AgentRow[]; repos: { id: string; floor: number }[] };
+
+/**
+ * Gives a developer a fresh demo session (about 50 s of work) on a new issue, stopping whatever they were on. The
+ * demo's six-issue backlog is long done by the time a late spec runs, so nobody may be working otherwise.
+ */
+async function giveWork(page: Page, agent: AgentRow) {
+  for (let attempt = 0; ; attempt++) {
+    expect((await page.request.post(`/api/agents/${agent.id}/stop`)).ok()).toBe(true);
+    // Auto-assign can grab the new issue first (409): file another.
+    const res = await page.request.post(`/api/repos/${encodeURIComponent(agent.repoId)}/issues`, { data: { title: 'Typing check', body: 'e2e', assignTo: agent.id } });
+    if (res.ok() || attempt === 2) return expect(res.ok(), await res.text()).toBe(true);
+  }
+}
+
 test("working agents type at their desks, and stop while a panel covers the view", async ({ page }) => {
   // The middle of floor 1, where the demo's developers are busy.
   const spot: SavedView = { floor: 1, x: 0, z: -7, yaw: 0, pitch: 0.15 };
   await startAt(page, spot);
   await enterOffice(page);
+  // The typist: the developer whose keyboard is nearest, so theirs is always among the few typists heard. Kept at
+  // their desk (no coffee runs or trips to the board) and given work, so their typing doesn't depend on the backlog.
+  const { agents, repos } = await officeState(page);
+  const floorRepo = repos.find((r) => r.floor === spot.floor)!.id;
+  const away = (a: AgentRow) => {
+    const k = keyboardSpot('dev', a.desk, false, { x: 0, y: 0, z: 0 });
+    return Math.hypot(k.x - spot.x, k.z - spot.z);
+  };
+  const chosen = agents.filter((a) => a.role === 'dev' && a.repoId === floorRepo).sort((a, b) => away(a) - away(b))[0];
+  await expect.poll(() => page.evaluate((who) => (window as unknown as { __swarmPeople: { list: () => { id: string }[] } }).__swarmPeople.list().some((p) => p.id === who), chosen.id)).toBe(true);
+  await page.evaluate((who) => (window as unknown as { __swarmPeople: { stay: (id: string) => void } }).__swarmPeople.stay(who), chosen.id);
+  await giveWork(page, chosen);
   const entered = await page.evaluate(() => performance.now());
   type Vec = { x: number; y: number; z: number };
   type Entry = { name: string; group: string; at: Vec | null; played: boolean; from: Vec | null; t: number };
@@ -37,14 +66,13 @@ test("working agents type at their desks, and stop while a panel covers the view
   const here = new Set(await page.evaluate(() => (window as unknown as { __swarmPeople: { list: () => { id: string }[] } }).__swarmPeople.list().map((p) => p.id)));
   const spotsOf = (desk: number) => [false, true].map((mouse) => keyboardSpot('dev', desk, mouse, { x: 0, y: 0, z: 0 }));
   const atDesk = (e: Entry, desk: number) => spotsOf(desk).some((d) => Math.hypot(d.x - e.at!.x, d.y - e.at!.y, d.z - e.at!.z) < 1e-6);
-  type AgentRow = { id: string; role: string; desk: number; status: string };
   let typist: AgentRow | undefined;
   await expect
     .poll(
       async () => {
-        const { agents } = (await (await page.request.get('/api/state')).json()) as { agents: AgentRow[] };
+        const { agents } = await officeState(page);
         const recent = (await typing()).filter((e) => e.t > resumed);
-        typist = agents.find((a) => a.role === 'dev' && a.status === 'working' && here.has(a.id) && recent.some((e) => atDesk(e, a.desk)));
+        typist = agents.find((a) => a.id === chosen.id && a.status === 'working' && here.has(a.id) && recent.some((e) => atDesk(e, a.desk)));
         return typist?.id ?? null;
       },
       { message: 'someone typing at their desk', timeout: 30_000, intervals: [250] },

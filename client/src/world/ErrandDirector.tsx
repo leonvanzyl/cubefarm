@@ -28,7 +28,7 @@ import {
   type ErrandActor,
   type Queued,
 } from './errands';
-import { bodyState, bodyTarget, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
+import { bodyState, bodyTarget, isStaying, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
 
@@ -415,12 +415,12 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
         const st = bodyState(p.id);
         const idle = !!was && !was.work && (p.phase === 'leaving' || p.phase === 'there');
         // a coffee carried home goes on the desk first
-        if ((!idle && (p.phase !== 'returning' || p.actor)) || !st) continue;
+        if ((!idle && (p.phase !== 'returning' || p.actor)) || !st || isStaying(p.id)) continue;
         const e = wanted(errands(), a, state).find((x) => x.work);
         if (e && start(p, e, st) && idle) was?.end?.(p.id, 'cut');
         continue;
       }
-      if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
+      if (bodyTarget(p.id) || isStaying(p.id)) continue; // someone's walking them by hand, or keeping them seated (__swarmPeople)
       const ask = takeAsk(p.id);
       if (ask && errandNamed(ask) && mayStart(a.status, errandNamed(ask)!)) p.queue = enqueue(p.queue, ask, run.clock);
       for (const e of wanted(errands(), a, state)) p.queue = enqueue(p.queue, e.name, run.clock, undefined, e.work);
