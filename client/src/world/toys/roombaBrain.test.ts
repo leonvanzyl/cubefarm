@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLAYER_RADIUS, type Rect } from '../layout';
+import { HALF_D, PLAYER_RADIUS, coffeeCorner, type Rect } from '../layout';
 import type { ToyFloor } from './balls';
 import { FULL, NAV_R, ROOMBA, ROOMBA_EVENT, clear, createRoomba, dockFor, makeNav, planPath, roombaRects, roombaStatus, segmentClear, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba, type RoombaEnv, type RoombaState } from './roombaBrain';
 
@@ -47,6 +47,21 @@ describe('planPath', () => {
     let at = { x: 0, z: 2 };
     for (const p of path) {
       expect(segmentClear(walls, at, p, NAV_R)).toBe(true);
+      at = p;
+    }
+  });
+
+  it("steers round the lobby's coffee corner", () => {
+    const e = env('lobby');
+    const c = coffeeCorner();
+    expect(clear(e.nav.rects, (c.minX + c.maxX) / 2, (c.minZ + c.maxZ) / 2)).toBe(false);
+    const from = { x: c.minX - 0.6, z: HALF_D - 0.4 };
+    const to = { x: c.maxX + 0.6, z: HALF_D - 0.4 };
+    const path = planPath(e.nav, from, to);
+    expect(path).not.toBeNull();
+    let at = from;
+    for (const p of path!) {
+      expect(segmentClear(e.nav.rects, at, p, NAV_R)).toBe(true);
       at = p;
     }
   });

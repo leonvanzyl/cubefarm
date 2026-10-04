@@ -258,6 +258,28 @@ export interface SwarmSettings {
   tutorialStep: number; // index of the current tutorial step; -1 when finished or skipped
   autoUpdate?: boolean; // update the office itself once it's quiet (absent on servers without self-update)
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
+  voice: VoiceSettings;
+}
+
+/** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */
+export type VoiceProvider = 'off' | 'browser' | 'elevenlabs';
+
+export interface VoiceSettings {
+  provider: VoiceProvider;
+  voiceId: string; // the ElevenLabs voice (or the browser voice's name)
+  voiceName: string;
+  model: string; // ElevenLabs model id
+  speakOffice: boolean; // read the office's own notes too, not just the CEO's messages
+}
+
+/** GET /api/voice/voices: a voice the manager can pick. recommended: on docs/voice.md's shortlist. */
+export interface VoiceOption {
+  id: string;
+  name: string;
+  category: string;
+  labels: { accent: string; gender: string; age: string; description: string; use_case: string };
+  previewUrl: string | null;
+  recommended: boolean;
 }
 
 /** Claude's subscription usage: normal, pacing new work after a usage warning, or paused at the limit until `until`. */
@@ -342,6 +364,8 @@ export interface WorldSnapshot {
   officeUpdate?: OfficeUpdateView;
   usage: UsageView;
   clis: CliView[];
+  voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
+  voiceKeyHint: string; // its last 4 characters, '' when none
 }
 
 export type ServerEvent =
@@ -362,6 +386,7 @@ export type ServerEvent =
   | { type: 'officeUpdate'; officeUpdate: OfficeUpdateView }
   | { type: 'usage'; usage: UsageView }
   | { type: 'clis'; clis: CliView[] }
+  | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {
