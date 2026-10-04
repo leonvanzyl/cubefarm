@@ -80,12 +80,23 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
 - `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent, reused from task to task. A desk left idle longer than **Free idle desks after** (manager's console → Settings, default 120 minutes, 0 = never) loses its `node_modules` (at any depth) and its build and test output (`dist/`, `dist-server/`, `test-results/`, `playwright-report/`, `.swarm-home/`, `.preview-tmp/`, `.playwright-mcp/`), once per idle stretch; tracked and untracked source files stay, and the next task installs again. The office checks every 15 minutes, never touches a busy desk or a running preview's, and your phone says how much it freed. A folder Windows still has locked is tried again next time.
 - `~/.cubefarm/leftovers/<owner>__<repo>/`: work saved from desks the office swept away
+- `~/.cubefarm/journal/<day>/`: the last week of the office's look, for the time-lapse (see below)
 
 Every 30 minutes (and when a floor starts, or someone is let go) the office sweeps each floor: it removes desks nobody uses any more and the finished `swarm/issue-*` and `qa/pr-*` branches nobody has checked out or has an open PR for. A desk with uncommitted changes to tracked files or unpushed commits is saved as a `.patch` in `leftovers/` first, and a folder that a program still has open is left for the next sweep. Your own branches and worktrees outside `desks/` are never touched.
 
 Workspaces live outside this project on purpose: agents working in them never pick up this project's `CLAUDE.md`.
 
 Disconnecting a floor never deletes anything on GitHub, and it leaves the clone on disk.
+
+## Time-lapse
+
+The office keeps a journal of how it looked, so you can come back and watch the day replay in the office itself, up to 600 times faster.
+
+- **Watching**: the manager's console → **📼 Time-lapse** (or the time-lapse screen on the lobby's south wall, by the hoop) lists the recorded days with their merges (🎉), PRs that needed you (🔴) and new issues (🆕). **Catch up** replays your latest time away: the browser remembers when you were last active, and a gap of 10 minutes or more counts. Pick 30×, 120× or 600× (an hour in 2 minutes, 30 seconds or 6 seconds).
+- **While it plays**, the office draws the recorded moment instead of the live one: people sit, stand and go on their errands, stickies move on the whiteboard, merges bang the gong (a little quieter) with confetti, and the sky and the wall clocks follow the replayed time. A red frame and a **▶ REPLAY · 14:32** badge say so; the bar at the bottom pauses, changes speed and jumps anywhere on the timeline. Live actions (assigning, messaging, merging, terminals) are off. `Esc` frees the mouse, and `Esc` again goes straight back to the live office.
+- **What's recorded** is what changes the office's look, taken from the events the browser gets: everyone's status, task, issue or PR and the name of the tool in hand; QA records; PRs opened, merged or closed; issues filed and closed; CEO and phone messages (text only); usage pacing. Never terminal output, screenshots, settings, errors, job descriptions or preview environment variables, and anything that looks like a key or token, or matches the ElevenLabs key or a secret-looking environment variable, is written as `[redacted]`.
+- **On disk**: `~/.cubefarm/journal/<day>/<start>.ndjson` (the demo uses `demo-journal/`): newline-delimited JSON, a new file every 10 minutes that starts with a keyframe of the whole office, so a jump reads from the nearest one. Changes wait in memory and are written every 30 seconds through a temp file and a rename; an agent's or a floor's update is stored as just what changed. Days older than a week are deleted, and the oldest files once the journal passes 200 MB: when the office starts and every 15 minutes.
+- **API** (read-only): `GET /api/journal/days` lists the days with their span, size and marks; `GET /api/journal/events?from=<ms>&to=<ms>[&seek=1]` returns the lines between two times (at most 24 hours apart), from the nearest keyframe with `seek=1`. A bad range is a 400, a range before anything was recorded a 404. A demo office that has no earlier day writes a made-up working day as yesterday when it starts, and `POST /api/journal/sample` (the console's 🧪 button) writes it again.
 
 ## Floor connections
 

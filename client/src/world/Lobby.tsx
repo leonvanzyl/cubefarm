@@ -15,6 +15,7 @@ import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
 import { Bookshelf, CoffeeCorner, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
 import { Shell } from './Shell';
+import { TimeLapseScreen } from './TimeLapseScreen';
 import { Ball, Box, Cyl } from './Toon';
 import { Toys } from './toys';
 
@@ -462,6 +463,7 @@ export function Lobby() {
       <Elevator floorLabel="▲ G · Lobby" accent={ACCENT} />
       <Toys floor="lobby" />
       <Directory />
+      <TimeLapseScreen />
       <TrophyCabinet />
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
       <Couch position={[11.5, 0, 4]} rotationY={Math.PI} color="#4cc9f0" />
