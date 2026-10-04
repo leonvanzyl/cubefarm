@@ -9,7 +9,8 @@ import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
-import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
+import { Jukebox } from './Jukebox';
+import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
 import { Bookshelf, CoffeeCorner, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
@@ -19,6 +20,7 @@ import { Toys } from './toys';
 
 const ACCENT = '#ff8a5b';
 const CEO_ACCENT = '#9b5de5';
+const CEO_DESK_AT: [number, number, number] = [CEO_DESK.x, 0, CEO_DESK.z]; // one array, so the memoised desk skips re-renders
 
 function useOfficeStats() {
   const repos = useStore((s) => s.repos);
@@ -268,7 +270,7 @@ function CeoOffice() {
         draw={(ctx) => drawSign(ctx, 816, 120, [{ text: `CEO${ceo ? ` · ${ceo.name}` : ''}`, size: 52 }], CEO_ACCENT)}
         deps={[ceo?.name]}
       />
-      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={[CEO_DESK.x, 0, CEO_DESK.z]} />}
+      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
@@ -465,6 +467,7 @@ export function Lobby() {
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
       <Couch position={[11.5, 0, 4]} rotationY={Math.PI} color="#4cc9f0" />
       <CoffeeTable position={[11.5, 0, 6.2]} />
+      <Jukebox x={JUKEBOX.lobbyX} floor={0} />
       {/* coffee for visitors, across from the sofa: the counter's front faces north, into the lobby */}
       <CoffeeCorner position={[COFFEE_CORNER.x, 0, HALF_D - COFFEE_CORNER.d / 2 + 0.02]} rotationY={-Math.PI / 2} />
       <Plant position={[HALF_W - 0.7, 0, HALF_D - 0.7]} scale={1.2} />

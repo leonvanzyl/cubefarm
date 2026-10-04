@@ -3,13 +3,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { speechText } from '../shared/speech.ts';
+import { SAMPLE_LINE, speechText } from '../shared/speech.ts';
 import type { PhoneMessage, VoiceOption, VoiceSettings } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
 
 /** ElevenLabs' fastest, cheapest model (~75 ms, half the price per character of Multilingual v2). */
 export const DEFAULT_VOICE_MODEL = 'eleven_flash_v2_5';
-export const SAMPLE_LINE = "Hi! This is how I'll sound when I message you from the office.";
 export const VOICES_TTL_MS = 10 * 60_000;
 export const SYNTH_TIMEOUT_MS = 20_000;
 export const CACHE_MAX_FILES = 200;

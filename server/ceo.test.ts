@@ -2,7 +2,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
 import { MAX_DESKS, QA_LAB } from '../client/src/world/layout.ts';
-import { checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
+import type { HttpError } from './httpError.ts';
+import { checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
 
 describe('seats', () => {
   it('match the desks and QA stations the client draws', () => {
@@ -99,6 +100,7 @@ describe('office tools', () => {
       proposeLetGo: () => '',
       fileIssue: async () => '',
       routeIssue: async () => '',
+      closeIssue: async () => '',
     });
     const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
     await office.server.instance.connect(serverSide);
@@ -110,13 +112,45 @@ describe('office tools', () => {
   it('lists every tool the CEO relies on', async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['agent_detail', 'company_status', 'file_issue', 'propose_hire', 'propose_let_go', 'route_issue', 'set_floor_profile', 'update_job']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['agent_detail', 'close_issue', 'company_status', 'file_issue', 'propose_hire', 'propose_let_go', 'route_issue', 'set_floor_profile', 'update_job']);
   });
 
   it('still takes preview_env as a map of strings', async () => {
     const { client, floors } = await connect();
     await client.callTool({ name: 'set_floor_profile', arguments: { floor: 1, preview_env: { VITE_API: 'http://localhost:{port}' } } });
     expect(floors).toEqual([{ floor: 1, preview_env: { VITE_API: 'http://localhost:{port}' } }]);
+  });
+});
+
+describe('checkCloseIssue (close_issue)', () => {
+  const pulls = [
+    { number: 20, state: 'OPEN', closesIssues: [4] },
+    { number: 21, state: 'MERGED', closesIssues: [5] },
+    { number: 22, state: 'CLOSED', closesIssues: [6] },
+  ];
+  const status = (state: 'OPEN' | 'CLOSED' | null, number = 6) => {
+    try {
+      checkCloseIssue({ floor: 1, number, state, pulls });
+      return 'ok';
+    } catch (err) {
+      return (err as HttpError).status;
+    }
+  };
+
+  it('closes an open issue, even one a merged or closed PR once named', () => {
+    expect(status('OPEN')).toBe('ok');
+    expect(status('OPEN', 5)).toBe('ok');
+  });
+
+  it('refuses a closed or unknown issue, which is how another floor\'s issue looks too', () => {
+    expect(status('CLOSED')).toBe(404);
+    expect(status(null)).toBe(404);
+    expect(() => checkCloseIssue({ floor: 2, number: 6, state: 'CLOSED', pulls })).toThrow('#6 on floor 2 is already closed.');
+  });
+
+  it('refuses an issue an open PR closes', () => {
+    expect(status('OPEN', 4)).toBe(409);
+    expect(() => checkCloseIssue({ floor: 1, number: 4, state: 'OPEN', pulls })).toThrow('PR #20 closes #4. Close or finish that pull request first.');
   });
 });
 

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from '../Outlines';
 import { BallCollider, CuboidCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
 import type { World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';

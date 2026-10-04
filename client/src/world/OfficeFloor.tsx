@@ -9,7 +9,8 @@ import { ErrandDirector } from './ErrandDirector';
 import { Gong } from './Gong';
 import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
-import { DESK_RUGS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
+import { Jukebox } from './Jukebox';
+import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
@@ -40,6 +41,10 @@ export function WallSign({
   );
 }
 
+// Made once, so the memoised desks see the same position every render.
+const DEV_DESKS = Array.from({ length: MAX_DESKS }, (_, slot): [number, number, number] => [deskPosition(slot).x, 0, deskPosition(slot).z]);
+const QA_DESKS = QA_LAB.stations.map((_, slot): [number, number, number] => [qaDeskPosition(slot).x, 0, qaDeskPosition(slot).z]);
+
 export function OfficeFloor({ repo }: { repo: RepoView }) {
   const allAgents = useStore((s) => s.agents);
   const agents = useMemo(() => agentsOnRepo(allAgents, repo.id), [allAgents, repo.id]);
@@ -59,17 +64,15 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
         <Rug key={r.minZ} position={[(r.minX + r.maxX) / 2, 0.004, (r.minZ + r.maxZ) / 2]} size={[r.maxX - r.minX, r.maxZ - r.minZ]} color={rugColor} />
       ))}
 
-      {Array.from({ length: MAX_DESKS }, (_, slot) => {
-        const { x, z } = deskPosition(slot);
-        return <Desk key={slot} agent={devBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={[x, 0, z]} />;
-      })}
+      {DEV_DESKS.map((position, slot) => (
+        <Desk key={slot} agent={devBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={position} />
+      ))}
 
       {/* QA lab */}
       <Rug position={[(QA_RUG.minX + QA_RUG.maxX) / 2, 0.005, (QA_RUG.minZ + QA_RUG.maxZ) / 2]} size={[QA_RUG.maxX - QA_RUG.minX, QA_RUG.maxZ - QA_RUG.minZ]} color="#ffd8bf" />
-      {QA_LAB.stations.map((_, slot) => {
-        const { x, z } = qaDeskPosition(slot);
-        return <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={[x, 0, z]} />;
-      })}
+      {QA_DESKS.map((position, slot) => (
+        <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={position} />
+      ))}
       <WallSign
         position={[HALF_W - 0.03, 3.2, -2]}
         rotationY={-Math.PI / 2}
@@ -135,6 +138,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <CoffeeTable position={[-HALF_W + 2.6, 0, 6.5]} rotationY={Math.PI / 2} />
       <Kitchenette position={[HALF_W - 0.45, 0, 7]} />
       <WaterCooler position={[HALF_W - 0.5, 0, -9.5]} />
+      <Jukebox x={JUKEBOX.officeX} floor={repo.floor} />
       <WallClock position={[-10, 2.75, -HALF_D + 0.05]} />
       <WallSign
         position={[10, 2.2, -HALF_D + 0.03]}
