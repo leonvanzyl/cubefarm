@@ -55,7 +55,7 @@ export interface Errand {
   grace?: number;
   /** Where to for this person, overriding `spot` (an errand to one particular board column). */
   where?(agentId: string): readonly string[];
-  /** Asked just before they set off: false leaves it queued for now (only so many at the board at once). */
+  /** Asked just before they set off, once a spot is free: false leaves it queued for now (only so many at the board at once). */
   claim?(agentId: string): boolean;
   /** A step with a `cue` is starting; false cuts the errand short and sends them back. */
   cue?(agentId: string, cue: string): boolean;

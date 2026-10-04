@@ -165,8 +165,11 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     report(p);
   };
 
-  /** Sets off from the desk, or from `from` when already up (turned round on the way somewhere else). */
-  const start = (p: Person, e: Errand, from?: Pt): boolean => {
+  /**
+   * Sets off from the desk, or from `from` when already up (turned round on the way somewhere else). False when there's
+   * nowhere free to go, null when the errand won't have them yet (its `claim`, asked only once there's a free spot).
+   */
+  const start = (p: Person, e: Errand, from?: Pt): boolean | null => {
     // a spot is someone's while they head there or stand at it, not once they've turned for home
     const taken = new Set<string>();
     for (const o of people.values()) if (o.dest && (o.phase === 'leaving' || o.phase === 'there')) taken.add(o.dest.id);
@@ -175,6 +178,7 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     const dest = pickSpot(ids.map((id) => spotById(w, id)!), origin, Math.random());
     const path = dest && findPath(w, origin, dest);
     if (!dest || !path) return false;
+    if (e.claim && !e.claim(p.id)) return null;
     // Up from the chair to the stand-up spot behind it first, then round the furniture.
     const route = from ? path : [{ x: p.home.x, z: p.home.z }, ...path];
     Object.assign(p, { phase: 'leaving', phaseAt: run.clock, errand: e, dest, path: route, wp: 0, hurry: false, waited: 0, ghost: 0 });
@@ -334,14 +338,13 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
       if (!a) continue;
       const state = { floor, statusFor: run.clock - p.statusAt, seatedFor: run.clock - p.seatedAt, restless: p.restless };
       if (p.phase !== 'seated') {
-        // Off on an idle errand when board work comes in: straight there instead.
-        const idle = p.errand;
+        // Off on an idle errand, or on the way back, when board work comes in: straight there instead.
+        const was = p.errand;
         const st = bodyState(p.id);
-        if (!idle || idle.work || (p.phase !== 'leaving' && p.phase !== 'there') || !st) continue;
+        const idle = !!was && !was.work && (p.phase === 'leaving' || p.phase === 'there');
+        if ((!idle && p.phase !== 'returning') || !st) continue;
         const e = wanted(errands(), a, state).find((x) => x.work);
-        if (!e || (e.claim && !e.claim(p.id))) continue;
-        if (start(p, e, st)) idle.end?.(p.id, 'cut');
-        else e.end?.(p.id, 'cut');
+        if (e && start(p, e, st) && idle) was?.end?.(p.id, 'cut');
         continue;
       }
       if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
@@ -362,10 +365,10 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     for (const p of admit(ready, away)) {
       const [head, ...rest] = p.queue;
       const e = errandNamed(head.name);
-      if (e?.claim && !e.claim(p.id)) continue; // not yet: it stays queued
+      const went = e ? start(p, e) : false;
+      if (went === null || (!went && e?.claim)) continue; // not yet, or its spot is in use: it stays queued
       p.queue = rest;
-      if (!e || !start(p, e)) {
-        e?.end?.(p.id, 'cut');
+      if (!went) {
         // nowhere free to go: sit a while longer
         p.seatedAt = run.clock;
         p.restless = restlessSeconds(Math.random());

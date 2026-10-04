@@ -23,6 +23,7 @@ import {
   HOLD_MAX,
   mayGo,
   monitorPose,
+  nextJob,
   overdue,
   release,
   START_BY,
@@ -236,10 +237,13 @@ const tmp = newPose();
 
 function makeBoard(c: Ctrl): Board {
   return {
-    wants: (id, name) => c.jobs.some((j) => j.move.agentId === id && j.stage === 'waiting' && j.after === undefined && errandFor(j.move.kind) === name && !overdue(j, now())),
+    wants(id, name) {
+      const j = nextJob(c.jobs, id);
+      return !!j && j.stage === 'waiting' && j.after === undefined && errandFor(j.move.kind) === name && !overdue(j, now());
+    },
     where(id) {
-      const j = jobOf(c, id, ['waiting', 'going']);
-      if (!j) return [];
+      const j = nextJob(c.jobs, id);
+      if (!j || j.stage === 'held') return [];
       return [`board-${firstColumn(j.move)}`];
     },
     target(id) {
@@ -248,7 +252,7 @@ function makeBoard(c: Ctrl): Board {
     },
     claim(id) {
       if (!mayGo(c.jobs, id, now())) return false;
-      const j = jobOf(c, id, ['waiting'])!;
+      const j = nextJob(c.jobs, id)!;
       j.stage = 'going';
       note(c, 'started', j);
       if (j.move.kind === 'pass' || j.move.kind === 'fail') {
