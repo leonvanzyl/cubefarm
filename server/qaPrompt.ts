@@ -52,9 +52,10 @@ function retest(i: QaPromptInput): string {
   const diff = since
     ? `(git diff ${since}..HEAD), plus a quick smoke test of the main flow. Don't repeat the full test plan for parts the change didn't touch.`
     : null;
-  // Merging the base can affect anything, so a conflict fix always gets the full re-check.
+  // A conflict fix only merged the base: the resolution, CI and the places where the two meet are what can break.
   if (i.fixReason === 'conflict') {
-    return `\nQA passed it before, but since then the branch was updated with ${i.defaultBranch} to resolve merge conflicts. Re-check everything, especially where this change meets the newly merged work.`;
+    const merges = since ? ` (git log --merges ${since}..HEAD)` : '';
+    return `\nQA passed it before, but since then the branch was updated with ${i.defaultBranch} to resolve merge conflicts. Review the resolution with git show --remerge-diff on the merge commit(s)${merges}, confirm GitHub's checks are green on the new head, and smoke-test this PR's feature plus whatever the conflicting files touch. Don't repeat the full test plan.`;
   }
   if (i.fixReason === 'checks') {
     return `\nQA passed it before, but since then the developer changed the code to fix failing GitHub checks. ${diff ? `Test what changed since QA passed it ${diff}` : 'Re-check everything.'}`;

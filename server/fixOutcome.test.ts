@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { fixOutcome, type FixRecord } from './fixOutcome.ts';
+import { fixOutcome, MAX_FIX_FAILURES, type FixRecord } from './fixOutcome.ts';
 
 const OLD = 'a'.repeat(40);
 const NEW = 'b'.repeat(40);
 
-const record = (r: Partial<FixRecord> = {}): FixRecord => ({ prNumber: 45, round: 2, sessionFailures: 0, testedSha: OLD, passedSha: null, fixReason: 'qa', retests: 0, qaChecks: null, ...r });
+const record = (r: Partial<FixRecord> = {}): FixRecord => ({ prNumber: 45, round: 2, retests: 0, sessionFailures: 0, testedSha: OLD, passedSha: null, fixReason: 'qa', preQa: null, qaChecks: null, ...r });
 
 describe('fixOutcome', () => {
   for (const fixReason of ['qa', null] as const) {
@@ -27,15 +27,20 @@ describe('fixOutcome', () => {
     });
   }
 
-  it('sends the second failed fix in a row to the manager, saying nothing was pushed', () => {
-    const step = fixOutcome(record({ sessionFailures: 1 }), OLD, 3);
-    expect(step.set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the fix was never pushed' });
+  it('has three failed fixes in a row before the manager hears about it', () => {
+    expect(MAX_FIX_FAILURES).toBe(3);
+    expect(fixOutcome(record({ sessionFailures: 1 }), OLD, 3).set).toEqual({ status: 'failed', sessionFailures: 2 });
+  });
+
+  it('sends the last failed fix in a row to the manager, saying nothing was pushed', () => {
+    const step = fixOutcome(record({ sessionFailures: MAX_FIX_FAILURES - 1 }), OLD, 3);
+    expect(step.set).toEqual({ status: 'needs-human', sessionFailures: MAX_FIX_FAILURES, mergeNote: 'the fix was never pushed' });
     expect(step.set.round).toBeUndefined();
     expect(step.log.text).toBe('✗ No new commits were pushed for PR #45');
   });
 
   it("doesn't count an unpushed fix while the usage limit is hit", () => {
-    expect(fixOutcome(record({ sessionFailures: 1 }), OLD, 3, false).set).toEqual({ status: 'failed', sessionFailures: 1 });
+    expect(fixOutcome(record({ sessionFailures: MAX_FIX_FAILURES - 1 }), OLD, 3, false).set).toEqual({ status: 'failed', sessionFailures: MAX_FIX_FAILURES - 1 });
   });
 
   describe('a conflict fix', () => {
@@ -56,7 +61,7 @@ describe('fixOutcome', () => {
 
     it('without a new commit is a failed session, then the manager\'s', () => {
       expect(fixOutcome(conflict, OLD, 3).set).toEqual({ status: 'failed', sessionFailures: 1 });
-      expect(fixOutcome({ ...conflict, sessionFailures: 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the conflict was never resolved' });
+      expect(fixOutcome({ ...conflict, sessionFailures: MAX_FIX_FAILURES - 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: MAX_FIX_FAILURES, mergeNote: 'the conflict was never resolved' });
     });
   });
 
@@ -74,7 +79,26 @@ describe('fixOutcome', () => {
 
     it('without a new commit is a failed session, then the manager\'s', () => {
       expect(fixOutcome(failedLast, OLD, 3).set).toEqual({ status: 'failed', sessionFailures: 1 });
-      expect(fixOutcome({ ...failedLast, sessionFailures: 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the conflict was never resolved' });
+      expect(fixOutcome({ ...failedLast, sessionFailures: MAX_FIX_FAILURES - 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: MAX_FIX_FAILURES, mergeNote: 'the conflict was never resolved' });
+    });
+  });
+
+  describe('a conflict found before QA tested the PR', () => {
+    const MERGE_HEAD = 'd'.repeat(40);
+    // QA failed OLD, the developer pushed MERGE_HEAD for round 3, and that conflicted before QA got to it.
+    const preQa = record({ fixReason: 'conflict', round: 3, retests: 1, testedSha: OLD, passedSha: 'e'.repeat(40), preQa: { sha: MERGE_HEAD, fixReason: 'qa' } });
+
+    it('with a new commit goes back to the QA test it was queued for, as a re-test', () => {
+      expect(fixOutcome(preQa, NEW, 3)).toEqual({
+        set: { status: 'queued', round: 4, retests: 2, sessionFailures: 0, fixReason: 'qa', preQa: null },
+        log: { kind: 'done', text: '✔ PR #45 brought up to date in 3m. Back to QA.' },
+        pushed: true,
+      });
+    });
+
+    it('compares with the head the conflict was found on, not an older tested or passed commit', () => {
+      expect(fixOutcome(preQa, MERGE_HEAD, 3)).toMatchObject({ pushed: false, set: { status: 'failed', sessionFailures: 1 } });
+      expect(fixOutcome(preQa, OLD, 3).pushed).toBe(true);
     });
   });
 
@@ -102,7 +126,7 @@ describe('fixOutcome', () => {
 
     it('counts as an unpushed fix as today while the checks still fail', () => {
       expect(fixOutcome(red, OLD, 3, true, 'failing').set).toEqual({ status: 'failed', sessionFailures: 1 });
-      expect(fixOutcome({ ...red, sessionFailures: 1 }, OLD, 3, true, 'failing').set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the fix was never pushed' });
+      expect(fixOutcome({ ...red, sessionFailures: MAX_FIX_FAILURES - 1 }, OLD, 3, true, 'failing').set).toEqual({ status: 'needs-human', sessionFailures: MAX_FIX_FAILURES, mergeNote: 'the fix was never pushed' });
       expect(fixOutcome(red, OLD, 3, true, null).pushed).toBe(false);
     });
 

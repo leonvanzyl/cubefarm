@@ -173,7 +173,7 @@ const probe = {
       deskMug: deskMug(id),
     }));
   },
-  /** Sends someone seated on an errand by name ('coffee', 'stretch') as soon as the rules and the cap allow. */
+  /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch') as soon as the rules and the cap allow. */
   send(id: string, errand: string) {
     asks.set(id, errand);
   },

@@ -27,6 +27,8 @@ export interface Backend {
   closeIssue(fullName: string, number: number, comment: string, reason?: 'completed' | 'not planned'): Promise<void>;
   mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void>;
   updateBranch(fullName: string, number: number): Promise<void>;
+  /** The failed steps' log of a GitHub Actions run, for a checks fix. */
+  failedRunLog(fullName: string, runId: string): Promise<string>;
   /** Re-run the failed jobs of these GitHub Actions runs. */
   rerunFailedJobs(fullName: string, runIds: number[]): Promise<void>;
   closePull(fullName: string, number: number): Promise<void>;
@@ -91,6 +93,7 @@ export const realBackend: Backend = {
   closeIssue: github.closeIssue,
   mergePull: github.mergePull,
   updateBranch: github.updateBranch,
+  failedRunLog: github.failedRunLog,
   rerunFailedJobs: github.rerunFailedJobs,
   closePull: github.closePull,
   prForBranch: github.prForBranch,

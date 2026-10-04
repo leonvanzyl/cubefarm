@@ -35,7 +35,7 @@ process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
 const { HOME_DIR, WORKSPACE_ROOT } = await import('./config.ts');
-const { deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync, trimDesk } =
+const { branchHolder, deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync, trimDesk } =
   await import('./workspace.ts');
 // Most tests only care about the status line.
 const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
@@ -399,6 +399,60 @@ describe('prepareDesk', { timeout: 60_000 }, () => {
     );
     expect(notes).toEqual([expect.stringMatching(/^Couldn't reuse the desk in place, so it's rebuilt: /)]);
     expect(await fs.readFile(path.join(desk, 'README.md'), 'utf8')).toMatch(/^# Test/);
+  });
+
+  it("lets other desks fix a PR whose branch the author's desk has checked out, and leaves the author's desk alone (#199)", async () => {
+    const r = await makeRepos();
+    const branch = 'swarm/issue-192-barbara';
+    // Barbara opened PR #198 and is still at her desk: the branch is checked out there, with work in progress.
+    const barbara = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'barbara-1575', branch);
+    await commitFile(barbara, 'feature.txt', 'barbara\n');
+    await git(['push', '-q', 'origin', branch], { cwd: barbara });
+    await git(['push', '-q', 'origin', 'HEAD:refs/pull/198/head'], { cwd: barbara });
+    await fs.writeFile(path.join(barbara, 'README.md'), '# Test\nunsaved edit\n');
+    const barbaraHead = await head(barbara);
+
+    // Dennis's desk is reused in place; Ken's is new: both check the PR out detached, and both can push to it.
+    const dennis = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'dennis-1234', 'swarm/issue-5-dennis');
+    for (const [slug, file] of [['dennis-1234', 'fix-1.txt'], ['ken-5678', 'fix-2.txt']]) {
+      const notes: string[] = [];
+      const desk = await prepareDesk(r.fullName, { defaultBranch: 'main', pr: 198 }, slug, branch, (t) => notes.push(t));
+      if (slug === 'dennis-1234') expect(desk).toBe(dennis);
+      expect(await branchOf(desk)).toBe('HEAD');
+      expect(await head(desk)).toBe(await git(['rev-parse', `origin/${branch}`], { cwd: r.dir }));
+      expect(notes).toEqual([expect.stringContaining(`push with git push origin HEAD:${branch}`)]);
+      await commitFile(desk, file, 'fixed\n');
+      await git(['push', '-q', 'origin', `HEAD:${branch}`], { cwd: desk });
+      await git(['push', '-q', '-f', 'origin', 'HEAD:refs/pull/198/head'], { cwd: desk }); // what GitHub does to the PR ref
+      expect(await git(['ls-remote', 'origin', `refs/heads/${branch}`], { cwd: desk })).toMatch(new RegExp(`^${await head(desk)}\\s`));
+    }
+
+    // Barbara's desk: same branch, same commit, her unsaved edit still there.
+    expect(await branchOf(barbara)).toBe(branch);
+    expect(await head(barbara)).toBe(barbaraHead);
+    expect(await fs.readFile(path.join(barbara, 'README.md'), 'utf8')).toBe('# Test\nunsaved edit\n');
+    expect(await git(['rev-parse', branch], { cwd: r.dir })).toBe(barbaraHead);
+
+    // Once she has moved on, her own desk takes the fix on the branch as usual, with everyone's commits.
+    await git(['checkout', '-q', '--', 'README.md'], { cwd: barbara });
+    await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'dennis-1234', 'swarm/issue-6-dennis');
+    await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ken-5678', 'swarm/issue-7-ken');
+    const notes: string[] = [];
+    await prepareDesk(r.fullName, { defaultBranch: 'main', pr: 198 }, 'barbara-1575', branch, (t) => notes.push(t));
+    expect(notes).toEqual([]);
+    expect(await branchOf(barbara)).toBe(branch);
+    expect(await fs.readFile(path.join(barbara, 'fix-2.txt'), 'utf8')).toMatch(/^fixed\r?\n$/); // checked out by git: CRLF where autocrlf is on
+  });
+});
+
+describe('branchHolder', () => {
+  const wt = (p: string, branch: string | null) => ({ path: path.resolve(p), branch, locked: false });
+  it('names the other worktree that has the branch, never the desk itself', () => {
+    const list = [wt('main', 'main'), wt('desks/barbara', 'swarm/issue-1-barbara'), wt('desks/dennis', null)];
+    expect(branchHolder(list, 'swarm/issue-1-barbara', 'desks/dennis')).toBe(path.resolve('desks/barbara'));
+    expect(branchHolder(list, 'swarm/issue-1-barbara', 'desks/barbara')).toBeNull();
+    expect(branchHolder(list, 'main', 'desks/dennis')).toBe(path.resolve('main'));
+    expect(branchHolder(list, 'swarm/issue-2-ken', 'desks/dennis')).toBeNull();
   });
 });
 

@@ -177,6 +177,11 @@ export async function updateBranch(fullName: string, number: number): Promise<vo
   await gh(['pr', 'update-branch', String(number), '-R', fullName], { timeoutMs: 60_000 });
 }
 
+/** The failed steps' log of a GitHub Actions run (gh run view --log-failed), for a checks fix. */
+export async function failedRunLog(fullName: string, runId: string): Promise<string> {
+  return gh(['run', 'view', runId, '-R', fullName, '--log-failed'], { timeoutMs: 60_000 });
+}
+
 /** Re-run the failed jobs of these GitHub Actions runs (a flaky check or an outage). */
 export async function rerunFailedJobs(fullName: string, runIds: number[]): Promise<void> {
   for (const id of runIds) await gh(['run', 'rerun', String(id), '--failed', '-R', fullName], { timeoutMs: 60_000 });

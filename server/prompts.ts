@@ -128,6 +128,18 @@ export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, depsLine
   ].join('\n');
 }
 
+// ---------- fixes ----------
+
+/** One line in every fix prompt: the developer owns the PR until it merges. */
+export const ownPrLine = (base: string) => `You own this PR until it merges: merge ${base}, fix what blocks it, and re-run checks that failed for reasons outside the change.`;
+
+/** Sent once into a fix session that ended without pushing (prOwnership.ts unpushedFix), before it counts as a strike. */
+export const noPushNudge = (pr: number, base: string) =>
+  `You pushed nothing to pull request #${pr}. If the PR needs a change, make it and push now. If nothing in the PR needs to change (for example you re-ran a flaky check, or ${base} already fixed it), end with one line starting NO CHANGE NEEDED: and say why.`;
+
+/** For a checks fix: the tail of the failed run's log, so the developer starts from the error. */
+export const failedLogLines = (runId: string, tail: string) => (tail ? [`Last lines of gh run view ${runId} --log-failed:`, '```', tail, '```'] : []);
+
 // ---------- previews ----------
 
 const OFFICE = 'Office instructions';
