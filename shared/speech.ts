@@ -56,3 +56,23 @@ function cut(s: string, max: number): string {
   const space = s.lastIndexOf(' ', max);
   return `${s.slice(0, space > 0 ? space : max).replace(/[,;:\s]+$/, '')}…`;
 }
+
+// ---------- the stand-up ----------
+
+/** The part of the day a stand-up greets (the office clock's hour, 0-24). */
+export const DAY_PARTS = ['morning', 'afternoon', 'evening'] as const;
+export type DayPart = (typeof DAY_PARTS)[number];
+export const dayPart = (hour: number): DayPart => (hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 17 ? 'afternoon' : 'evening');
+
+const COUNTS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const GREETING: Record<DayPart, string> = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
+
+/**
+ * What the CEO says at a stand-up at the whiteboard (the 3D office's rituals), for `count` new issues. The server only
+ * ever voices these lines, so each is made once and cached like any other clip.
+ */
+export function standupLine(count: number, part: DayPart): string {
+  const n = Math.max(1, Math.floor(count));
+  const how = n < COUNTS.length ? COUNTS[n] : 'a pile of';
+  return `${GREETING[part]} team, ${how} new feature${n === 1 ? '' : 's'} today!`;
+}

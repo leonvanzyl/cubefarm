@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "cubefarm",
+  "short_name": "cubefarm",
+  "description": "Your AI coding office: its pipeline, the CEO chat, the board, the team and the decisions waiting on you.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fffdf6",
+  "theme_color": "#ff8a5b",
+  "categories": ["productivity", "developer"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
