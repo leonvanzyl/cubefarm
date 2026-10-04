@@ -5,6 +5,7 @@ import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Foc
 import { api } from '../api';
 import { EYE_HEIGHT, SPAWN, collide, surfaceAt, type Rect } from './layout';
 import { interactables } from './interact';
+import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
@@ -261,7 +262,9 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       const cos = Math.cos(yaw);
       const dx = ((-sin * fwd + cos * strafe) / len) * speed * dt;
       const dz = ((-cos * fwd - sin * strafe) / len) * speed * dt;
-      const p = collide(camera.position.x + dx, camera.position.z + dz, colliders);
+      let p = collide(camera.position.x + dx, camera.position.z + dz, colliders);
+      const shut = shutDoorways(); // a side door still sliding open
+      if (shut.length) p = collide(p.x, p.z, shut);
       if (dt > 0) {
         walk.x = (p.x - camera.position.x) / dt;
         walk.z = (p.z - camera.position.z) / dt;

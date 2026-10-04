@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
@@ -207,7 +207,11 @@ function Keyboard() {
 const LAB_BENCH = '#dfe7ef';
 const QA_ORANGE = '#ff9f68';
 
-export function Desk({
+/**
+ * Memoised: the floor re-renders on every agent event (a tool call, a log line), and without this every desk,
+ * person and monitor on it would re-render with it. Give it stable props (a position that isn't a new array).
+ */
+export const Desk = memo(function Desk({
   agent,
   accent,
   repoId,
@@ -299,7 +303,7 @@ export function Desk({
       )}
     </group>
   );
-}
+});
 
 export function DeskFloorMarker({ color }: { color: string }) {
   return (

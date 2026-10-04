@@ -23,8 +23,8 @@ export interface Backend {
   /** OPEN or CLOSED; null when there is no such issue. */
   issueState(fullName: string, number: number): Promise<'OPEN' | 'CLOSED' | null>;
   editIssue(fullName: string, number: number, edit: { body?: string; addLabels?: string[]; removeLabels?: string[] }): Promise<void>;
-  /** Close an issue as completed, with a comment. */
-  closeIssue(fullName: string, number: number, comment: string): Promise<void>;
+  /** Close an issue with a comment, as completed unless `reason` says not planned. */
+  closeIssue(fullName: string, number: number, comment: string, reason?: 'completed' | 'not planned'): Promise<void>;
   mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void>;
   updateBranch(fullName: string, number: number): Promise<void>;
   /** Re-run the failed jobs of these GitHub Actions runs. */

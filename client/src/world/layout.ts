@@ -27,14 +27,132 @@ export const rect = (cx: number, cz: number, w: number, d: number, h?: number): 
 // How tall the furniture is, so toys can bounce off it (and land on it).
 const SOLID_H = { desk: 0.78, seated: 1.3, board: 3.45, couch: 0.95, coffeeTable: 0.5, kitchen: 2, cooler: 1.5, bookshelf: 2.2, cabinet: 2.1, reception: 1.13, glass: 2.8, coffeeCorner: 1.55 };
 
-/** The shell every floor shares: outer walls (with the elevator doorway) and the elevator cabin. */
-export function shellColliders(): Rect[] {
-  const t = 0.4;
+// ---------- outside: windows, side doors and balconies ----------
+
+type FloorKind = 'office' | 'lobby';
+export type Side = 'west' | 'east';
+export const SIDES: readonly Side[] = ['west', 'east'];
+/** -1 for the west wall, 1 for the east one. */
+export const sideSign = (side: Side) => (side === 'west' ? -1 : 1);
+
+/** Storey height, floor to floor: a room (WALL_H) and the slab between floors. The lobby's floor is the ground. */
+export const FLOOR_HEIGHT = 4.2;
+/** How far floor `floor`'s floor is above the ground. */
+export const floorElevation = (floor: number) => Math.max(0, floor) * FLOOR_HEIGHT;
+
+/** The outer walls as drawn (Shell.tsx). Their colliders are SHELL_T thick. */
+export const WALL_T = 0.3;
+const SHELL_T = 0.4;
+
+/** The side walls' windows: w wide along the wall, h tall, centred y up. */
+export const WINDOW = { w: 4.4, h: 1.8, y: 1.95 };
+/** A side wall's glass door: half its width and its height. */
+export const SIDE_DOOR = { half: 0.9, h: 2.5 };
+// Each side wall's door and windows, as z of their middles. Offices: west, between the desks' aisle and the couch;
+// east, between the QA lab and the kitchenette. Lobby: west, south of the manager's office; east, between the CEO's
+// office and the waiting room, past the sofa. Windows keep about where the old painted ones were, clear of the doors.
+export const SIDE_OPENINGS: Record<FloorKind, Record<Side, { door: number; windows: number[] }>> = {
+  office: { west: { door: -4.2, windows: [-8.5, 0, 8] }, east: { door: 3.55, windows: [-8, -2] } },
+  lobby: { west: { door: 4.5, windows: [0, 8.5] }, east: { door: 2.6, windows: [-1] } },
+};
+/** A side door opens while the player is within `across` of its wall's middle and `along` of the doorway's middle. */
+export const DOOR_SENSOR = { across: 2, along: 1.5 };
+
+/**
+ * A balcony runs along each side wall (the lobby's is a patio on the ground): `depth` out from the wall's outer face,
+ * from minZ to maxZ, with a railing `rail` high and `railT` thick on the slab.
+ */
+export const BALCONY = { depth: 2.5, minZ: -11.2, maxZ: 11.2, rail: 1.05, railT: 0.1, slab: 0.25 };
+const BALCONY_IN = HALF_W + WALL_T;
+/** |x| of the balconies' outer edge. */
+export const BALCONY_OUT = BALCONY_IN + BALCONY.depth;
+/** The underside of the balcony above: how high toys can fly over a balcony, and where its lamps hang. */
+export const BALCONY_TOP = FLOOR_HEIGHT - BALCONY.slab;
+/** Lamps under the balcony above, along the middle of each balcony (y from the floor you're on), for the night lights. */
+export const BALCONY_LIGHTS: { side: Side; x: number; y: number; z: number }[] = SIDES.flatMap((side) =>
+  [-8, -2.7, 2.7, 8].map((z) => ({ side, x: sideSign(side) * (BALCONY_IN + BALCONY.depth / 2), y: BALCONY_TOP - 0.08, z })),
+);
+
+/** Spans [a, b] on side `side`, measured out from x = 0 (a < b), as minX/maxX. */
+const across = (side: Side, a: number, b: number) => (side === 'west' ? { minX: -b, maxX: -a } : { minX: a, maxX: b });
+
+/** A side wall's doorway, through the wall's collider: what the shut door fills. */
+export function sideDoorway(kind: FloorKind, side: Side): Rect {
+  const z = SIDE_OPENINGS[kind][side].door;
+  return { ...across(side, HALF_W, HALF_W + SHELL_T), minZ: z - SIDE_DOOR.half, maxZ: z + SIDE_DOOR.half };
+}
+
+/** The balcony floor beyond side wall `side`, from under the doorway to the railing's outside. */
+export const balconyFloor = (side: Side): Rect => ({ ...across(side, HALF_W, BALCONY_OUT), minZ: BALCONY.minZ, maxZ: BALCONY.maxZ });
+
+/** A balcony's railing: along its outer edge and across both ends. Toys meet it right up to the balcony above. */
+export function balconyRailing(side: Side): Rect[] {
+  const { minZ, maxZ, railT } = BALCONY;
+  return [
+    { ...across(side, BALCONY_OUT - railT, BALCONY_OUT), minZ, maxZ, h: BALCONY_TOP },
+    { ...across(side, BALCONY_IN - 0.1, BALCONY_OUT), minZ, maxZ: minZ + railT, h: BALCONY_TOP },
+    { ...across(side, BALCONY_IN - 0.1, BALCONY_OUT), minZ: maxZ - railT, maxZ, h: BALCONY_TOP },
+  ];
+}
+
+export const PLANTER = { w: 0.55, l: 1.8, h: 0.55 };
+export const BENCH = { w: 0.6, l: 1.8, h: 0.85 };
+
+/** On each balcony: a planter against the railing near each end, and a bench against the wall looking out, 3.6 m from the door. */
+export function balconyFurniture(kind: FloorKind, side: Side): { planters: Rect[]; bench: Rect } {
+  const door = SIDE_OPENINGS[kind][side].door;
+  const x = across(side, BALCONY_OUT - BALCONY.railT - PLANTER.w, BALCONY_OUT - BALCONY.railT);
+  const pz = BALCONY.maxZ - 1.3;
+  const bz = door - 3.6 * Math.sign(door || 1);
+  return {
+    planters: [-pz, pz].map((z) => ({ ...x, minZ: z - PLANTER.l / 2, maxZ: z + PLANTER.l / 2, h: PLANTER.h })),
+    bench: { ...across(side, BALCONY_IN, BALCONY_IN + BENCH.w), minZ: bz - BENCH.l / 2, maxZ: bz + BENCH.l / 2, h: BENCH.h },
+  };
+}
+
+/** Both balconies' railings, planters and benches. */
+export function outsideColliders(kind: FloorKind): Rect[] {
+  return SIDES.flatMap((side) => {
+    const { planters, bench } = balconyFurniture(kind, side);
+    return [...balconyRailing(side), ...planters, bench];
+  });
+}
+
+/** Which side the player at (x, z) is out on, past the middle of a side wall; null when inside. */
+export const outsideAt = (x: number): Side | null => (Math.abs(x) <= HALF_W + WALL_T / 2 ? null : x < 0 ? 'west' : 'east');
+
+/** Inside the walls, in a side doorway or on a balcony: everywhere a toy may be. */
+export const inBuilding = (x: number, z: number) =>
+  (Math.abs(x) <= HALF_W && Math.abs(z) <= HALF_D) || (Math.abs(x) <= BALCONY_OUT && z >= BALCONY.minZ && z <= BALCONY.maxZ);
+
+/**
+ * Whether (x, y, z) is on a surface only toys meet, where a dart doesn't stick: the elevator doorway, a side doorway
+ * (its door slides away) or the screen above a balcony's railing.
+ */
+export function toyOnlyAt(kind: FloorKind, x: number, y: number, z: number) {
+  const e = elevatorDoorway();
+  if (x > e.minX && x < e.maxX && z > e.minZ - 0.05) return true;
+  const ax = Math.abs(x);
+  const door = SIDE_OPENINGS[kind][x < 0 ? 'west' : 'east'].door;
+  if (ax > HALF_W - 0.05 && ax < HALF_W + SHELL_T + 0.05 && Math.abs(z - door) < SIDE_DOOR.half + 0.05) return true;
+  return ax > HALF_W + SHELL_T + 0.05 && y > BALCONY.rail + 0.05;
+}
+
+/** The shell every floor shares: outer walls (with the elevator doorway and a side door each way) and the elevator cabin. */
+export function shellColliders(kind: FloorKind = 'office'): Rect[] {
+  const t = SHELL_T;
   const { doorHalf, cabinHalf, depth } = ELEVATOR;
+  const side = (s: Side) => {
+    const d = sideDoorway(kind, s);
+    return [
+      { minX: d.minX, maxX: d.maxX, minZ: -HALF_D, maxZ: d.minZ },
+      { minX: d.minX, maxX: d.maxX, minZ: d.maxZ, maxZ: HALF_D },
+    ];
+  };
   return [
     { minX: -HALF_W - t, maxX: HALF_W + t, minZ: -HALF_D - t, maxZ: -HALF_D }, // north
-    { minX: -HALF_W - t, maxX: -HALF_W, minZ: -HALF_D, maxZ: HALF_D }, // west
-    { minX: HALF_W, maxX: HALF_W + t, minZ: -HALF_D, maxZ: HALF_D }, // east
+    ...side('west'),
+    ...side('east'),
     { minX: -HALF_W, maxX: -doorHalf, minZ: HALF_D, maxZ: HALF_D + t }, // south, left of door
     { minX: doorHalf, maxX: HALF_W, minZ: HALF_D, maxZ: HALF_D + t }, // south, right of door
     { minX: -cabinHalf - t, maxX: -cabinHalf, minZ: HALF_D, maxZ: HALF_D + depth }, // cabin sides
@@ -98,7 +216,7 @@ export const qaDeskPosition = (slot: number) => ({ x: QA_LAB.x, z: QA_LAB.statio
 export const QA_RUG = rect(QA_LAB.x - 0.4, -2, 3.4, 10.4);
 
 export function officeColliders(): Rect[] {
-  const out = shellColliders();
+  const out = [...shellColliders('office'), ...outsideColliders('office')];
   for (let s = 0; s < MAX_DESKS; s++) {
     const { x, z } = deskPosition(s);
     out.push(rect(x, z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
@@ -140,7 +258,7 @@ export const COFFEE_CORNER = { x: 9.8, w: 1.5, d: 0.9 };
 export const coffeeCorner = (): Rect => rect(COFFEE_CORNER.x, HALF_D - COFFEE_CORNER.d / 2, COFFEE_CORNER.w, COFFEE_CORNER.d, SOLID_H.coffeeCorner);
 
 export function lobbyColliders(): Rect[] {
-  const out = shellColliders();
+  const out = [...shellColliders('lobby'), ...outsideColliders('lobby')];
   const m = MANAGER_ROOM;
   const t = 0.12;
   out.push({ minX: m.maxX - t, maxX: m.maxX + t, minZ: m.minZ, maxZ: m.maxZ, h: SOLID_H.glass }); // glass east wall
@@ -173,9 +291,11 @@ export type Surface = 'wood' | 'rug' | 'lobby' | 'cabin';
 const OFFICE_RUGS: Rect[] = [...DESK_RUGS, QA_RUG];
 const LOBBY_RUGS: Rect[] = [LOBBY_RUG, MANAGER_ROOM, CEO_ROOM];
 
-/** The floor under (x, z), for footsteps. A rug's edge counts as rug; past the doorway is the elevator cabin. */
+/** The floor under (x, z), for footsteps. A rug's edge counts as rug; past the doorway is the elevator cabin, and
+ * outside, a balcony's (or the patio's) paving sounds like the lobby's tiles. */
 export function surfaceAt(floor: 'office' | 'lobby', x: number, z: number): Surface {
   if (z > HALF_D && Math.abs(x) <= ELEVATOR.cabinHalf) return 'cabin';
+  if (Math.abs(x) > HALF_W) return 'lobby';
   for (const r of floor === 'lobby' ? LOBBY_RUGS : OFFICE_RUGS) {
     if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) return 'rug';
   }
