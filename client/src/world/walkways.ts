@@ -72,6 +72,14 @@ const ballsSpot = (floor: FloorKind): Spot => ({ id: 'balls', ...BALL_AREA[floor
 
 const elevatorSpot = (): Spot => ({ id: 'elevator', x: 0, z: HALF_D - 1, facing: SOUTH });
 
+/** A metre in from the west and east windows (Shell.tsx; the lobby passes its own), looking out. */
+function windowSpots(west: number[], east: number[]): Spot[] {
+  return [
+    ...west.map((z, i) => ({ id: `window-w${i}`, x: -HALF_W + 1, z, facing: WEST })),
+    ...east.map((z, i) => ({ id: `window-e${i}`, x: HALF_W - 1, z, facing: EAST })),
+  ];
+}
+
 function officeSpots(): Spot[] {
   return [
     ...boardSpots(),
@@ -85,6 +93,8 @@ function officeSpots(): Spot[] {
     hoopSpot('office'),
     ballsSpot('office'),
     elevatorSpot(),
+    // not the west window at z 8 (the couch) or the east one at z 0 (the QA lab)
+    ...windowSpots([-8, 0], [-8]),
   ];
 }
 
@@ -99,6 +109,7 @@ function lobbySpots(): Spot[] {
     hoopSpot('lobby'),
     ballsSpot('lobby'),
     elevatorSpot(),
+    ...windowSpots([1.5, 8], [-2.5, 3.6]),
   ];
 }
 
