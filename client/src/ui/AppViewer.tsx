@@ -4,7 +4,7 @@ import { qaKey, useStore } from '../store';
 import type { PreviewStatus, PreviewView, PullInfo, QaView, RepoView } from '../../../shared/types';
 import { atPath, channelLabel, channelLed, channelPulls, comparePath, prAsPreview, QA_BADGE, qaShotUrl, type Channel } from './channels';
 import { Markdown } from './Markdown';
-import { Panel } from './Overlays';
+import { Panel } from './Panel';
 import { tuneChannel, useChannel, useWatch } from './theatre';
 
 const STATUS_LABEL: Record<PreviewStatus, string> = {
