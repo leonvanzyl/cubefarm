@@ -5,6 +5,7 @@ import { HeldHint } from './HeldHint';
 import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
+import { PresenceHud } from './PresenceHud';
 import { officeUpdateChip } from '../officeUpdate';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
@@ -134,7 +135,7 @@ export function HUD() {
       {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>Tab</kbd> workers · <kbd>M</kbd> mute · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>T</kbd> emote · <kbd>Q</kbd> ping · <kbd>Tab</kbd> workers · <kbd>M</kbd> mute · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
         </div>
       )}
 
@@ -142,6 +143,7 @@ export function HUD() {
         {travel && <div className="fade-label">{travel.to === 0 ? 'Lobby' : `Floor ${travel.to}`}</div>}
       </div>
 
+      <PresenceHud />
       <PhoneButton />
       <VoiceIndicator />
       <div className="toasts">

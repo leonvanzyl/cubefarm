@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { DEFAULT_NOTIFY } from '../../shared/notify';
 import { showDesktopNote } from './notifications';
@@ -8,6 +8,7 @@ import { audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
+import { takeEmote, takePing, takePose, takeRoster } from './world/presence/presenceState';
 import { gongForMerge } from './world/gongRunner';
 
 export type Agent = Omit<AgentView, 'log'>;
@@ -77,6 +78,7 @@ interface State {
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
   notifyChannels: NotifyChannelsView; // which chat apps have a webhook saved (hints only) and how many devices get push
   restarting: boolean; // the connection dropped because the office is restarting to update
+  visitors: VisitorView[]; // everyone else appearing in the office, any floor (presence; their poses skip the store)
 
   floor: number; // 0 = lobby
   travel: { to: number; phase: 'closing' | 'opening' } | null;
@@ -180,6 +182,7 @@ export const useStore = create<State>((set, get) => ({
   voiceSpeaking: null,
   notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
   restarting: false,
+  visitors: [],
 
   floor: loadView()?.floor ?? 0,
   travel: null,
@@ -360,6 +363,20 @@ export const useStore = create<State>((set, get) => ({
       case 'notify':
         // This tab shows it only while it's hidden (notifications.ts); a visible office already chimes and toasts.
         showDesktopNote(ev.note, get().settings.notify?.channels.desktop !== false);
+        break;
+      // Presence: the list is state; poses, emotes and pings go straight to the 3D view (world/presence/presence.ts).
+      case 'visitors':
+        set({ visitors: ev.visitors });
+        takeRoster(ev, get().floor);
+        break;
+      case 'visitorPose':
+        takePose(ev, get().floor);
+        break;
+      case 'visitorEmote':
+        takeEmote(ev);
+        break;
+      case 'visitorPing':
+        takePing(ev);
         break;
     }
   },

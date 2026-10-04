@@ -1,8 +1,24 @@
 import { useStore } from './store';
 import { restartExpected, shouldReload } from './officeUpdate';
-import type { ServerEvent } from '../../shared/types';
+import type { ClientMessage, ServerEvent } from '../../shared/types';
 
 let retry = 0;
+let socket: WebSocket | null = null;
+let opens = 0;
+/** Characters in and out on /ws since the page loaded (presence's probe turns them into rates). */
+export const wsTraffic = { in: 0, out: 0 };
+
+/** Sends a message on /ws (presence); false while disconnected, when it's dropped. */
+export function sendWs(msg: ClientMessage) {
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  const text = JSON.stringify(msg);
+  socket.send(text);
+  wsTraffic.out += text.length;
+  return true;
+}
+
+/** How many times the socket has opened: a new one means the server has forgotten this tab (presence tells it again). */
+export const wsOpens = () => opens;
 
 // The commit this tab last reloaded for, so a new office commit reloads the page at most once.
 const RELOAD_KEY = 'office-swarm:reloaded-for';
@@ -30,11 +46,14 @@ function reloadForNewCommit(commit: string): boolean {
 export function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  socket = ws;
   ws.onopen = () => {
     retry = 0;
+    opens++;
     useStore.getState().setConnected(true);
   };
   ws.onmessage = (e) => {
+    wsTraffic.in += typeof e.data === 'string' ? e.data.length : 0;
     try {
       const ev = JSON.parse(e.data) as ServerEvent;
       if (ev.type === 'snapshot' && ev.data.officeCommit && reloadForNewCommit(ev.data.officeCommit)) return;

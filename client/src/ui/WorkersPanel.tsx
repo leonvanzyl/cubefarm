@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { agentsOnRepo, useStore, type Agent } from '../store';
 import { CEO_ID, INSTALL_STEP, type LogLine, type RepoView } from '../../../shared/types';
+import { VisitorsList } from './VisitorsList';
 
 // Who is busy with what, across the whole company: everyone working right now with their project and their latest
 // thought, reply or tool call. Idle workers are left out; the floor you're on comes first. Click someone to watch
@@ -155,6 +156,7 @@ export function WorkersPanel() {
       </button>
       {open && (
         <div className="wk-list">
+          <VisitorsList />
           {total === 0 && <div className="wk-empty">Nobody is working right now.</div>}
           {groups.map((g) => {
             const shut = collapsed.has(g.key);
