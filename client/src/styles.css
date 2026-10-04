@@ -958,6 +958,15 @@ input.inline:focus {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.sound-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px 18px;
+  margin-top: 8px;
+}
+.sound-group-name {
+  min-width: 5.2em;
+}
 
 /* ---------- elevator ---------- */
 

@@ -29,7 +29,7 @@ export function throwHeld() {
   if (!s.held || s.chargeAt === null) return;
   const power = chargePower(performance.now() - s.chargeAt);
   pending = { id: s.held.id, power, at: performance.now() };
-  noise({ dur: 0.14 + power * 0.08, peak: 0.03 + power * 0.05, filter: 'bandpass', freq: 500, to: 1500 + power * 900, q: 0.9 });
+  noise({ dur: 0.14 + power * 0.08, peak: 0.03 + power * 0.05, filter: 'bandpass', freq: 500, to: 1500 + power * 900, q: 0.9, group: 'toys' });
   s.setHeld(null);
 }
 

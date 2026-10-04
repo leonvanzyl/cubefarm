@@ -315,7 +315,7 @@ function Darts({ groups }: { groups: number }) {
       b.setTranslation(point.addScaledVector(n, DART.tip - DART.embed), false);
       b.setRotation(tmp.q.setFromUnitVectors(UP, n.negate()), false);
       d.state = 'stuck';
-      noise({ dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 700, q: 1.5 });
+      noise({ dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 700, q: 1.5, group: 'toys' });
     },
     [rapier, tmp, world],
   );
