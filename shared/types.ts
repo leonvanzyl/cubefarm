@@ -1,5 +1,7 @@
 // Types shared between the swarm server and the 3D client.
 
+import type { AgentStyle } from './looks.ts';
+
 export type AgentStatus =
   | 'idle' // at desk, nothing assigned
   | 'preparing' // setting up the git worktree
@@ -175,6 +177,7 @@ export interface AgentView {
   color: string; // shirt color
   hair: string; // hair color
   skin: string;
+  style: AgentStyle | null; // the manager's picks in the look editor (null: the look seeded from their id)
   model: string; // '' = use the swarm default model, or a model id / alias
   effort: EffortLevel | ''; // '' = use the swarm default effort
   cli: AgentCli | ''; // the CLI they run in the terminal runtime ('' = the office default)

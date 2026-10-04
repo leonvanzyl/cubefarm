@@ -32,6 +32,7 @@ import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
+import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
@@ -99,6 +100,7 @@ interface PersistedAgent {
   color: string;
   hair: string;
   skin: string;
+  style: AgentStyle | null; // the look editor's picks (null: seeded from the id)
   model: string;
   effort: EffortLevel | '';
   cli: AgentCli | ''; // '' = the office's default CLI
@@ -217,8 +219,8 @@ interface QaReport {
 
 const FLOOR_COLORS = ['#ff8a5b', '#4fb3e8', '#8fd14f', '#c77dff', '#ffc93c', '#ff6fb5', '#2ec4b6', '#f25f5c'];
 const SHIRTS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#f15bb5', '#00bbf9', '#06d6a0', '#ffbe0b', '#8338ec', '#fb5607', '#3a86ff'];
-const HAIR = ['#2b2118', '#6b4226', '#c68642', '#f2d16b', '#d94f30', '#1c1c1c', '#8e8e8e', '#5b3cc4', '#e76f51'];
-const SKIN = ['#ffdbac', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffe0bd'];
+const HAIR = HAIR_COLORS;
+const SKIN = SKIN_TONES;
 const DEV_NAMES = [
   'Ada', 'Linus', 'Grace', 'Alan', 'Margaret', 'Dennis', 'Barbara', 'Ken', 'Radia', 'Guido', 'Hedy', 'Tim', 'Katherine',
   'Bjarne', 'Frances', 'Edsger', 'Anita', 'Donald', 'Sophie', 'Yukihiro', 'Jean', 'Niklaus', 'Karen', 'Brendan',
@@ -505,6 +507,7 @@ export class Swarm {
           brief: a.brief ?? '',
           hiredBy: a.hiredBy ?? 'manager',
           look: a.look ?? lookFor(a.name),
+          style: cleanStyle(a.style),
           task: a.task ?? (a.issueNumber ? 'issue' : null),
           cli: isCli(a.cli) ? a.cli : '',
           sessionCli: a.sessionCli ?? (a.sessionId ? 'claude' : null),
@@ -736,6 +739,7 @@ export class Swarm {
       color: a.color,
       hair: a.hair,
       skin: a.skin,
+      style: a.style,
       model: a.model,
       effort: a.effort,
       cli: a.cli,
@@ -1439,6 +1443,7 @@ export class Swarm {
       color: opts.appearance?.color ?? pick(SHIRTS),
       hair: opts.appearance?.hair ?? pick(HAIR),
       skin: opts.appearance?.skin ?? pick(SKIN),
+      style: null,
       model: opts.model ?? '',
       effort: EFFORTS.includes(opts.effort as EffortLevel) ? (opts.effort as EffortLevel) : '',
       cli: isCli(opts.cli) ? opts.cli : '',
@@ -1484,7 +1489,7 @@ export class Swarm {
 
   updateAgent(
     id: string,
-    patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; title?: string; specialty?: string; brief?: string; color?: string; hair?: string },
+    patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; title?: string; specialty?: string; brief?: string; color?: string; hair?: string; style?: unknown },
   ) {
     const a = this.agent(id);
     if (patch.cli !== undefined && a.role !== 'ceo') a.cli = isCli(patch.cli) ? patch.cli : '';
@@ -1495,6 +1500,7 @@ export class Swarm {
     if (LOOKS.includes(patch.look as AgentLook)) a.look = patch.look as AgentLook;
     if (patch.color && /^#[0-9a-f]{6}$/i.test(patch.color)) a.color = patch.color;
     if (patch.hair && /^#[0-9a-f]{6}$/i.test(patch.hair)) a.hair = patch.hair;
+    if (patch.style !== undefined) a.style = cleanStyle(patch.style); // null: back to the seeded look
     if (patch.model !== undefined) a.model = String(patch.model).trim();
     if (patch.effort !== undefined) a.effort = EFFORTS.includes(patch.effort as EffortLevel) ? (patch.effort as EffortLevel) : '';
     if (a.role !== 'ceo') {
@@ -2906,6 +2912,7 @@ export class Swarm {
         color: '#e63946',
         hair: '#2b2118',
         skin: pick(SKIN),
+        style: null,
         model: CEO_MODEL,
         effort: CEO_EFFORT,
         cli: 'claude',

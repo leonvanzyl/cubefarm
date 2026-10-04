@@ -2013,6 +2013,46 @@ input.inline:focus {
 .agent-setup textarea {
   min-height: 140px;
 }
+.look-editor {
+  margin: 8px 0;
+  padding: 6px 12px 10px;
+  border: 2px solid rgba(31, 29, 43, 0.15);
+  border-radius: 12px;
+}
+.look-editor legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+.look-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+}
+.look-preview {
+  flex: none;
+  border-radius: 12px;
+  border: 2px solid var(--ink);
+  background: radial-gradient(circle at 50% 40%, #fff7e6, #f4d9b8);
+  overflow: hidden;
+}
+.look-fields {
+  flex: 1;
+  min-width: 260px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0 12px;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 3px;
+}
+.look-fields .swatch {
+  width: 20px;
+  height: 20px;
+}
 .prompt-preview {
   margin: 8px 0 4px;
 }
