@@ -14,10 +14,10 @@ export const sipPose = { lift: 0, tilt: 0, head: 0 };
 
 const TOYS = { group: 'toys' } as const;
 
-const sounds: Record<SipCue, () => void> = {
-  slurp: () => {
-    noise({ ...TOYS, name: 'mug-sip', dur: 0.2, peak: 0.05, filter: 'bandpass', freq: 900, to: 2600, q: 3, attack: 0.03 });
-    tone({ ...TOYS, name: 'mug-sip', freq: 320, to: 540, type: 'triangle', dur: 0.16, peak: 0.02, attack: 0.02 });
+const sounds: Record<SipCue, (pos?: Vec3) => void> = {
+  slurp: (pos) => {
+    noise({ ...TOYS, pos, name: 'mug-sip', dur: 0.2, peak: 0.05, filter: 'bandpass', freq: 900, to: 2600, q: 3, attack: 0.03 });
+    tone({ ...TOYS, pos, name: 'mug-sip', freq: 320, to: 540, type: 'triangle', dur: 0.16, peak: 0.02, attack: 0.02 });
   },
   mm: () => {
     tone({ ...TOYS, name: 'mug-mm', freq: 196, to: 175, dur: 0.34, peak: 0.07, attack: 0.04 });
@@ -41,6 +41,9 @@ export function clunk(pos: Vec3, peak: number) {
   tone({ ...TOYS, pos, name: 'mug-clunk', freq: 2350, dur: 0.12, peak: peak * 0.2, attack: 0.002 });
   noise({ ...TOYS, pos, name: 'mug-clunk', dur: 0.05, peak: peak * 0.8, filter: 'lowpass', freq: 650, attack: 0.002 });
 }
+
+/** Someone else's sip (an agent on a coffee break), heard from where they stand. */
+export const slurpAt = (pos: Vec3) => sounds.slurp(pos);
 
 /** E with coffee in hand: start a sip (or the big last gulp). Does nothing mid-sip or without coffee. */
 export function sipCoffee(now = performance.now()): boolean {

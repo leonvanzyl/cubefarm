@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Outlines } from '@react-three/drei';
@@ -7,7 +7,8 @@ import { ACCENTS, appearanceFor } from './appearance';
 import { gait, newBodyState, smooth, stepBody, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
 import { mix, shade, toon } from './materials';
-import { bodyTarget, trackBody } from './people';
+import { bodyTarget, handMug, subscribeMugs, trackBody } from './people';
+import { MugLook, mugColor } from './toys/mugLook';
 import { useHitReaction } from './useHitReaction';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
@@ -42,6 +43,8 @@ const STAND = { x: 0.62, z: -0.1 };
 const CHAIR_ROLL = 0.18;
 const TAG_SEATED: [number, number, number] = [0, 1.98, -1.12]; // over the desk, where it has always been
 const HANG: Arm = { pitch: -1.42, yaw: -0.1 };
+// A mug in the right hand (arm space: the hand is at z -0.5), kept upright whatever the arm does, tipped to the lips for a sip.
+const HAND_MUG = { at: [0, -0.02, -0.52] as [number, number, number], ahead: -0.07, scale: 1.3, sipTilt: 1.0 };
 // Arm targets for each gesture (null: that arm keeps walking or idling). Pitch and yaw as in POSES.
 const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> = {
   none: { l: null, r: null, head: 0 },
@@ -49,6 +52,9 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.5, yaw: 0 }, r: { pitch: 1.5, yaw: 0 }, head: 0.3 }, // both arms up, a look at the ceiling
+  mug: { l: null, r: { pitch: -0.75, yaw: 0.3 }, head: -0.05 }, // a mug held in front
+  tap: { l: null, r: { pitch: -0.3, yaw: 0.05 }, head: -0.3 }, // a hand on the counter: the dispenser, the machine
+  chat: { l: { pitch: -0.55, yaw: -0.45 }, r: { pitch: -0.75, yaw: 0.3 }, head: 0.08 }, // mug in one hand, the other talking
 };
 
 export function Character({ agent, chair, children }: { agent: Agent; chair?: RefObject<THREE.Object3D | null>; children?: ReactNode }) {
@@ -70,6 +76,8 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
+  const handCup = useRef<THREE.Group>(null);
+  const mug = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
     () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
@@ -188,6 +196,13 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
     if (armL.current && armR.current) {
       armL.current.rotation.set((c.l.pitch + reach + tapL) * k + lp * up + jolt, (-(c.l.yaw + driftL) + wave) * k - ly * up, 0);
       armR.current.rotation.set((c.r.pitch + reach + tapR - click) * k + rp * up + jolt, (c.r.yaw + driftR * (1 - c.mouse) + glide - wave) * k + ry * up, 0);
+      const cup = handCup.current;
+      if (cup) {
+        // undo the arm's turn (XYZ, so inverted as YXZ) so the mug stays upright, then tip it for a sip
+        const sip = bodyTarget(agent.id)?.gesture === 'sip' ? move.gr * HAND_MUG.sipTilt : 0;
+        cup.rotation.set(sip - armR.current.rotation.x, -armR.current.rotation.y, 0, 'YXZ');
+        cup.visible = !seated;
+      }
     }
     if (torso.current) {
       const breathe = Math.sin(t * 1.6) * 0.015;
@@ -332,6 +347,13 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
                 <Outlines thickness={0.012} color={INK} angle={0} />
               </mesh>
               <mesh position={[0, 0, -0.5]} geometry={PARTS.hand} material={skin} castShadow />
+              {x > 0 && mug && (
+                <group ref={handCup} position={HAND_MUG.at} visible={false}>
+                  <group position={[0, 0, HAND_MUG.ahead]} rotation={[0, -Math.PI / 2, 0]} scale={HAND_MUG.scale}>
+                    <MugLook color={mugColor(mug.id)} sips={mug.sips} shadow={false} />
+                  </group>
+                </group>
+              )}
             </group>
           ))}
 
