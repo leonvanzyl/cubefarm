@@ -128,6 +128,13 @@ function output(a: { ctx: AudioContext; out: GainNode }, pan?: number, group?: S
   return p;
 }
 
+/** A group's gain (or the master when it has none), for sounds that build their own chain; null without audio. */
+export function groupOutput(group?: SoundGroup): AudioNode | null {
+  const a = audio();
+  if (!a) return null;
+  return (group && groupGains[group]) || a.out;
+}
+
 /** One enveloped oscillator note. */
 export function tone({ freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, group, pan }: ToneOpts) {
   const a = audio();

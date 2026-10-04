@@ -1,9 +1,9 @@
 // Typing from working agents' desks. A few fixed channels (one per heard typist, each its own panner at
-// their keyboard) feed a 'typing' group gain under the master volume. Keystrokes are pre-rendered samples
+// their keyboard) feed the 'typing' group, under its slider and the master volume. Keystrokes are pre-rendered samples
 // started a little ahead on the AudioContext clock, so each one costs a buffer source and a gain.
 // Every sound asked for is logged to window.__swarmSfx, even while audio is locked or unavailable.
 
-import { audio } from './sfx';
+import { audio, groupOutput } from './sfx';
 import { KEYBOARDS, MOUSE_CLICK, WHEEL_NOTCH, renderKey, type KeySound } from './keyboards';
 
 export type TypingSound = 'key' | 'space' | 'enter' | 'click' | 'scroll';
@@ -20,8 +20,7 @@ export const TYPING_CHANNELS = 4;
 export const TYPING_RANGE = 16;
 
 // The whole group sits well below footsteps (peak ~0.045); a keystroke at arm's length is a soft tick.
-const GROUP_LEVEL = 0.8;
-const KEY_GAIN = 0.028;
+const KEY_GAIN = 0.022;
 const GAIN: Record<TypingSound, number> = { key: 1, space: 1.25, enter: 1.35, click: 0.7, scroll: 0.3 };
 const VARIANTS = 4;
 
@@ -32,14 +31,15 @@ interface SfxEntry {
   group: string;
   at: Vec3 | null;
   gain: number;
+  played: boolean;
   t: number;
 }
 
 const probe = window as unknown as { __swarmSfx?: SfxEntry[] };
 
-function record(name: string, at: Vec3, gain: number) {
+function record(name: string, at: Vec3, gain: number, played: boolean) {
   const log = (probe.__swarmSfx ??= []);
-  log.push({ name, group: 'typing', at: { x: at.x, y: at.y, z: at.z }, gain, t: performance.now() });
+  log.push({ name, group: 'typing', at: { x: at.x, y: at.y, z: at.z }, gain, played, t: performance.now() });
   if (log.length > 50) log.splice(0, log.length - 50);
 }
 
@@ -73,13 +73,11 @@ function setPos(p: PannerNode, at: Vec3) {
 
 function getChain(): Chain | null {
   const a = audio();
-  if (!a) return null;
+  const group = groupOutput('typing');
+  if (!a || !group) return null;
   if (chain?.ctx === a.ctx) return chain;
   try {
     const { ctx } = a;
-    const group = ctx.createGain();
-    group.gain.value = GROUP_LEVEL;
-    group.connect(a.out);
     const channels = Array.from({ length: TYPING_CHANNELS }, () => {
       const p = ctx.createPanner();
       p.panningModel = 'equalpower';
@@ -124,8 +122,8 @@ export function placeTypingChannel(channel: number, at: Vec3) {
 export function typingSound(channel: number, name: TypingSound, keyboard: number, variation: number, delay: number, at: Vec3) {
   const kb = KEYBOARDS[keyboard];
   const gain = KEY_GAIN * GAIN[name] * (name === 'click' || name === 'scroll' ? 1 : kb.level) * (0.8 + variation * 0.35);
-  record(name, at, gain);
   const c = getChain();
+  record(name, at, gain, !!c);
   if (!c) return;
   try {
     const src = c.ctx.createBufferSource();
