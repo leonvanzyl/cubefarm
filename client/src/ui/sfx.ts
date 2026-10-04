@@ -1,9 +1,25 @@
-// Every office sound, synthesized with WebAudio (no audio files). One shared AudioContext feeds a
-// master gain, so volume and mute apply to everything at once; sounds in a group (footsteps, typing,
-// toys, alerts) pass through that group's gain first. Audio is optional: when it's blocked or
-// unavailable (headless browsers), sounds just don't play.
+// Every office sound, synthesized with WebAudio (no audio files). One shared AudioContext: sounds go
+// through their group's gain (or straight on), then the master gain, so volume and mute apply to
+// everything at once, then a gentle compressor. Sounds placed in the world pan and fade with distance
+// from the camera (SoundListener.tsx). Audio is optional: when it's blocked or unavailable (headless
+// browsers), sounds just don't play, but window.__swarmSfx still records them.
 
+import {
+  audible,
+  distance,
+  distanceGain,
+  DROP_NEW,
+  MAX_DISTANCE,
+  panOf,
+  PLAY,
+  REF_DISTANCE,
+  ROLLOFF,
+  type Vec3,
+  voiceToDrop,
+} from './sfxMix';
 import { normalizeAudioPrefs, parseAudioPrefs, SOUND_GROUPS, sliderGain, type AudioPrefs, type SoundGroup } from './audioPrefs';
+
+export type { SoundGroup, Vec3 } from './sfxMix';
 
 const PREFS_KEY = 'cubefarm:audio';
 
@@ -20,10 +36,12 @@ const listeners = new Set<() => void>();
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
-let unlocked = false;
-const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
+let groups: Record<SoundGroup, GainNode> | null = null;
 const groupLevels = {} as Record<SoundGroup, number>;
 for (const g of SOUND_GROUPS) groupLevels[g] = sliderGain(prefs[g]);
+let unlocked = false;
+
+const COMPRESSOR_TRIM = 10 ** (-2.81 / 20);
 
 const masterLevel = () => (prefs.muted ? 0 : sliderGain(prefs.volume));
 
@@ -37,13 +55,25 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       ctx = new AC();
       master = ctx.createGain();
       master.gain.value = masterLevel();
-      master.connect(ctx.destination);
-      for (const g of SOUND_GROUPS) {
-        const gain = ctx.createGain();
-        gain.gain.value = groupLevels[g];
-        gain.connect(master);
-        groupGains[g] = gain;
+      // Gentle: it only touches the loudest moments (many sounds at once), so single sounds are unchanged.
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -12;
+      comp.knee.value = 12;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.005;
+      comp.release.value = 0.25;
+      // The compressor adds its own makeup gain (+2.8 dB for these settings, measured in Chromium): take it back off.
+      const trim = ctx.createGain();
+      trim.gain.value = COMPRESSOR_TRIM;
+      master.connect(comp).connect(trim).connect(ctx.destination);
+      const g = {} as Record<SoundGroup, GainNode>;
+      for (const name of SOUND_GROUPS) {
+        g[name] = ctx.createGain();
+        g[name].gain.value = groupLevels[name];
+        g[name].connect(master);
       }
+      groups = g;
+      writeListener();
     }
     if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     // Don't queue sounds on a stopped clock: they'd all fire at once when it starts.
@@ -84,8 +114,7 @@ function glide(gain: GainNode, level: number) {
 /** One sound group's level, 0-1 (default 1), under the master volume. */
 export function setGroupLevel(group: SoundGroup, level: number) {
   groupLevels[group] = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
-  const gain = groupGains[group];
-  if (gain) glide(gain, groupLevels[group]);
+  if (groups) glide(groups[group], groupLevels[group]);
 }
 
 export function setAudioPrefs(patch: Partial<AudioPrefs>) {
@@ -104,9 +133,188 @@ export function setAudioPrefs(patch: Partial<AudioPrefs>) {
 
 export const toggleMute = () => setAudioPrefs({ muted: !prefs.muted });
 
+// ---------- the listener (the camera's ears) ----------
+
+const ear = { x: 0, y: 1.65, z: 10 };
+const earFwd = { x: 0, y: 0, z: -1 };
+const earUp = { x: 0, y: 1, z: 0 };
+
+function writeListener() {
+  const l = ctx?.listener;
+  if (!l) return;
+  try {
+    if (l.positionX) {
+      l.positionX.value = ear.x;
+      l.positionY.value = ear.y;
+      l.positionZ.value = ear.z;
+      l.forwardX.value = earFwd.x;
+      l.forwardY.value = earFwd.y;
+      l.forwardZ.value = earFwd.z;
+      l.upX.value = earUp.x;
+      l.upY.value = earUp.y;
+      l.upZ.value = earUp.z;
+    } else {
+      // Older browsers (Firefox) only have the deprecated setters.
+      l.setPosition(ear.x, ear.y, ear.z);
+      l.setOrientation(earFwd.x, earFwd.y, earFwd.z, earUp.x, earUp.y, earUp.z);
+    }
+  } catch {
+    // audio is optional
+  }
+}
+
+/** Where the listener is and which way it faces (world metres, unit vectors). Called every frame: allocates nothing. */
+export function setListener(px: number, py: number, pz: number, fx: number, fy: number, fz: number, ux: number, uy: number, uz: number) {
+  ear.x = px;
+  ear.y = py;
+  ear.z = pz;
+  earFwd.x = fx;
+  earFwd.y = fy;
+  earFwd.z = fz;
+  earUp.x = ux;
+  earUp.y = uy;
+  earUp.z = uz;
+  if (ctx?.state === 'running') writeListener();
+}
+
+// ---------- the probe (window.__swarmSfx) ----------
+
+/** One sound that was asked for, as recorded for QA and e2e. */
+export interface SfxRecord {
+  name: string;
+  group: SoundGroup | null;
+  /** Where in the world, or null for a non-positional sound. */
+  at: Vec3 | null;
+  /** Peak after distance and the group level, before the master volume (0 when culled for distance). */
+  gain: number;
+  /** -1 (left) to 1 (right) from where the listener faces; 0 for non-positional sounds. */
+  pan: number;
+  /** Whether it was actually scheduled (false while locked, unavailable, too far away or over the voice cap). */
+  played: boolean;
+  /** performance.now() when it was asked for. */
+  t: number;
+}
+
+const PROBE_SIZE = 50;
+const probe: SfxRecord[] = [];
+if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__swarmSfx = probe;
+
+/**
+ * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
+ * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
+ */
+export function recordSfx(name: string, { group, pos, peak, played = false }: { group?: SoundGroup; pos?: Vec3; peak: number; played?: boolean }) {
+  const d = pos ? distance(ear, pos) : 0;
+  const rec: SfxRecord = {
+    name,
+    group: group ?? null,
+    at: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
+    gain: (!pos || audible(d) ? peak * (pos ? distanceGain(d) : 1) : 0) * (group ? groupLevels[group] : 1),
+    pan: pos ? panOf(ear, earFwd, earUp, pos) : 0,
+    played,
+    t: performance.now(),
+  };
+  probe.push(rec);
+  if (probe.length > PROBE_SIZE) probe.splice(0, probe.length - PROBE_SIZE);
+  return rec;
+}
+
+// ---------- routing (exported for long-lived loops that manage their own nodes) ----------
+
+/** Where a sound of this group connects (its group gain, or the master without one), or null while audio is off. */
+export function groupOutput(group?: SoundGroup): AudioNode | null {
+  const a = audio();
+  if (!a) return null;
+  return group && groups ? groups[group] : a.out;
+}
+
+/** A PannerNode with the office's distance model, placed at `pos`. Connect it to groupOutput(). */
+export function createPanner(c: BaseAudioContext, pos: Vec3) {
+  const p = c.createPanner();
+  p.panningModel = 'equalpower';
+  p.distanceModel = 'inverse';
+  p.refDistance = REF_DISTANCE;
+  p.rolloffFactor = ROLLOFF;
+  p.maxDistance = MAX_DISTANCE;
+  setPannerPosition(p, pos.x, pos.y, pos.z);
+  return p;
+}
+
+/** Moves a panner (safe to call every frame: allocates nothing). */
+export function setPannerPosition(p: PannerNode, x: number, y: number, z: number) {
+  if (p.positionX) {
+    p.positionX.value = x;
+    p.positionY.value = y;
+    p.positionZ.value = z;
+  } else p.setPosition(x, y, z);
+}
+
+// ---------- voices ----------
+
+interface Voice {
+  end: number; // context time it finishes
+  loud: number;
+  env: GainNode;
+  src: AudioScheduledSourceNode;
+}
+
+const voices: Voice[] = [];
+
+/** Options every building block takes. */
+export interface PlaceOpts {
+  /** For __swarmSfx. */
+  name?: string;
+  /** Mixer group; without one the sound goes straight to the master gain. */
+  group?: SoundGroup;
+  /** Where in the world (metres): the sound pans and fades with distance, and isn't played beyond ~16 m. */
+  pos?: Vec3;
+}
+
+/**
+ * Records a sound for the probe and decides whether it plays. Returns where to connect it (a panner, its group or
+ * the master) and its loudness for the voice cap, or null to skip it.
+ */
+function place(kind: string, { name, group, pos }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
+  const rec = recordSfx(name ?? kind, { group, pos, peak });
+  const d = pos ? distance(ear, pos) : 0;
+  if (pos && !audible(d)) return null;
+  const loud = peak * (pos ? distanceGain(d) : 1);
+  const a = audio();
+  if (!a) return null;
+
+  const now = a.ctx.currentTime;
+  for (let i = voices.length - 1; i >= 0; i--) if (voices[i].end <= now) voices.splice(i, 1);
+  const drop = voiceToDrop(voices, loud);
+  if (drop === DROP_NEW) return null;
+  if (drop !== PLAY) {
+    const v = voices[drop];
+    voices.splice(drop, 1);
+    try {
+      v.env.gain.cancelScheduledValues(now);
+      v.env.gain.setTargetAtTime(0, now, 0.01);
+      v.src.stop(now + 0.06);
+    } catch {
+      // already stopped
+    }
+  }
+
+  let dest: AudioNode = group && groups ? groups[group] : a.out;
+  try {
+    if (pos) {
+      const p = createPanner(a.ctx, pos);
+      p.connect(dest);
+      dest = p;
+    }
+  } catch {
+    return null;
+  }
+  rec.played = true;
+  return { a, dest, loud };
+}
+
 // ---------- building blocks (exported so toys can add their sounds through the same mixer) ----------
 
-export interface ToneOpts {
+export interface ToneOpts extends PlaceOpts {
   freq: number;
   to?: number; // glide to this frequency by the end
   type?: OscillatorType;
@@ -114,24 +322,24 @@ export interface ToneOpts {
   dur: number;
   peak: number; // 0-1, before the master volume
   attack?: number;
-  group?: SoundGroup; // mixed under that group's level as well as the master volume
   pan?: number; // -1 (left) to 1 (right)
 }
 
-/** Route a voice to its group's gain (or straight to the master), through a stereo panner when it has a pan. */
-function output(a: { ctx: AudioContext; out: GainNode }, pan?: number, group?: SoundGroup): AudioNode {
-  const out = (group && groupGains[group]) || a.out;
-  if (!pan || !a.ctx.createStereoPanner) return out;
-  const p = a.ctx.createStereoPanner();
+/** Route a voice to its destination, through a stereo panner when it has a pan (and no world position). */
+function output(ctx: AudioContext, dest: AudioNode, pan?: number): AudioNode {
+  if (!pan || !ctx.createStereoPanner) return dest;
+  const p = ctx.createStereoPanner();
   p.pan.value = pan;
-  p.connect(out);
+  p.connect(dest);
   return p;
 }
 
 /** One enveloped oscillator note. */
-export function tone({ freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, group, pan }: ToneOpts) {
-  const a = audio();
-  if (!a) return;
+export function tone(opts: ToneOpts) {
+  const { freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, pan } = opts;
+  const p = place('tone', opts, peak);
+  if (!p) return;
+  const a = p.a;
   try {
     const t0 = a.ctx.currentTime + at;
     const osc = a.ctx.createOscillator();
@@ -142,15 +350,16 @@ export function tone({ freq, to, type = 'sine', at = 0, dur, peak, attack = 0.01
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain).connect(output(a, pan, group));
+    osc.connect(gain).connect(opts.pos ? p.dest : output(a.ctx, p.dest, pan));
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
+    voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src: osc });
   } catch {
     // audio is optional
   }
 }
 
-export interface NoiseOpts {
+export interface NoiseOpts extends PlaceOpts {
   at?: number;
   dur: number;
   peak: number;
@@ -159,16 +368,17 @@ export interface NoiseOpts {
   to?: number; // sweep the filter to this frequency by the end
   q?: number;
   attack?: number;
-  group?: SoundGroup;
   pan?: number;
 }
 
 let noiseBuf: AudioBuffer | null = null;
 
 /** A burst of filtered white noise: footsteps, whooshes, pops. */
-export function noise({ at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005, group, pan }: NoiseOpts) {
-  const a = audio();
-  if (!a) return;
+export function noise(opts: NoiseOpts) {
+  const { at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005, pan } = opts;
+  const p = place('noise', opts, peak);
+  if (!p) return;
+  const a = p.a;
   try {
     if (!noiseBuf || noiseBuf.sampleRate !== a.ctx.sampleRate) {
       noiseBuf = a.ctx.createBuffer(1, a.ctx.sampleRate * 2, a.ctx.sampleRate);
@@ -187,12 +397,19 @@ export function noise({ at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, 
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(bq).connect(gain).connect(output(a, pan, group));
+    src.connect(bq).connect(gain).connect(opts.pos ? p.dest : output(a.ctx, p.dest, pan));
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.05);
+    voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src });
   } catch {
     // audio is optional
   }
+}
+
+// For QA: __swarmSfxPing(x, y, z) plays a soft test blip at that spot, to hear (and see in __swarmSfx) it pan and fade.
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__swarmSfxPing = (x: number, y: number, z: number) =>
+    tone({ name: 'ping', group: 'alerts', pos: { x, y, z }, freq: 880, type: 'triangle', dur: 0.3, peak: 0.12 });
 }
 
 // ---------- the office's sounds ----------
@@ -203,7 +420,7 @@ let lastChirp = -Infinity;
 export function chirp() {
   if (performance.now() - lastChirp < 800) return;
   lastChirp = performance.now();
-  [1046.5, 1568].forEach((freq, i) => tone({ freq, type: 'triangle', at: i * 0.11, dur: 0.18, peak: 0.12, group: 'alerts' }));
+  [1046.5, 1568].forEach((freq, i) => tone({ name: 'chirp', group: 'alerts', freq, type: 'triangle', at: i * 0.11, dur: 0.18, peak: 0.12 }));
 }
 
 /** The roomba's happy chirp: a quick rising warble and a bright little "boop". */
@@ -215,13 +432,13 @@ export function roombaChirp() {
 
 /** The elevator "ding": two soft sine tones. */
 export function ding() {
-  [880, 1318.5].forEach((freq, i) => tone({ freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02, group: 'alerts' }));
+  [880, 1318.5].forEach((freq, i) => tone({ name: 'ding', group: 'alerts', freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02 }));
 }
 
 /** Air rushing past the elevator car while it travels, rising then settling. */
 export function whoosh(dur = 0.75) {
-  noise({ dur, peak: 0.1, filter: 'bandpass', freq: 220, to: 900, q: 0.8, attack: dur * 0.45, group: 'alerts' });
-  tone({ freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4, group: 'alerts' });
+  noise({ name: 'whoosh', group: 'alerts', dur, peak: 0.1, filter: 'bandpass', freq: 220, to: 900, q: 0.8, attack: dur * 0.45 });
+  tone({ name: 'whoosh', group: 'alerts', freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4 });
 }
 
 /** A foam blaster's "thwip": a puff of air through the barrel with a springy little pop. */
@@ -258,35 +475,35 @@ const CUES: Record<Cue, { rank: number; play: () => void }> = {
   // An agent hit an error: a soft low buzz.
   error: {
     rank: 5,
-    play: () => [0, 0.2].forEach((at) => tone({ freq: 110, type: 'sawtooth', at, dur: 0.16, peak: 0.035, attack: 0.02, group: 'alerts' })),
+    play: () => [0, 0.2].forEach((at) => tone({ name: 'cue:error', group: 'alerts', freq: 110, type: 'sawtooth', at, dur: 0.16, peak: 0.035, attack: 0.02 })),
   },
   // QA failed a PR: a gentle descending "womp".
   qaFailed: {
     rank: 4,
     play: () => {
-      tone({ freq: 392, to: 370, type: 'triangle', dur: 0.26, peak: 0.12, group: 'alerts' });
-      tone({ freq: 311, to: 196, type: 'triangle', at: 0.26, dur: 0.55, peak: 0.12, group: 'alerts' });
+      tone({ name: 'cue:qaFailed', group: 'alerts', freq: 392, to: 370, type: 'triangle', dur: 0.26, peak: 0.12 });
+      tone({ name: 'cue:qaFailed', group: 'alerts', freq: 311, to: 196, type: 'triangle', at: 0.26, dur: 0.55, peak: 0.12 });
     },
   },
   // A PR passed QA and is ready to merge: a short bright arpeggio.
   ready: {
     rank: 3,
-    play: () => [784, 988, 1175, 1568].forEach((freq, i) => tone({ freq, type: 'triangle', at: i * 0.07, dur: 0.28, peak: 0.09, group: 'alerts' })),
+    play: () => [784, 988, 1175, 1568].forEach((freq, i) => tone({ name: 'cue:ready', group: 'alerts', freq, type: 'triangle', at: i * 0.07, dur: 0.28, peak: 0.09 })),
   },
   // A PR was merged: a pop and a little cheer.
   merged: {
     rank: 2,
     play: () => {
-      noise({ dur: 0.07, peak: 0.16, filter: 'bandpass', freq: 1400, q: 1.2, attack: 0.002, group: 'alerts' });
-      tone({ freq: 523, to: 1046, type: 'square', at: 0.04, dur: 0.12, peak: 0.04, group: 'alerts' });
-      [1046.5, 1318.5, 1568].forEach((freq) => tone({ freq, type: 'triangle', at: 0.14, dur: 0.5, peak: 0.05, group: 'alerts' }));
-      noise({ at: 0.12, dur: 0.6, peak: 0.03, filter: 'bandpass', freq: 2500, q: 0.6, attack: 0.08, group: 'alerts' });
+      noise({ name: 'cue:merged', group: 'alerts', dur: 0.07, peak: 0.16, filter: 'bandpass', freq: 1400, q: 1.2, attack: 0.002 });
+      tone({ name: 'cue:merged', group: 'alerts', freq: 523, to: 1046, type: 'square', at: 0.04, dur: 0.12, peak: 0.04 });
+      [1046.5, 1318.5, 1568].forEach((freq) => tone({ name: 'cue:merged', group: 'alerts', freq, type: 'triangle', at: 0.14, dur: 0.5, peak: 0.05 }));
+      noise({ name: 'cue:merged', group: 'alerts', at: 0.12, dur: 0.6, peak: 0.03, filter: 'bandpass', freq: 2500, q: 0.6, attack: 0.08 });
     },
   },
   // A hire was approved or a new teammate arrived: a small welcome jingle.
   welcome: {
     rank: 1,
-    play: () => [659, 784, 1046.5].forEach((freq, i) => tone({ freq, type: 'sine', at: i * 0.12, dur: i === 2 ? 0.5 : 0.2, peak: 0.12, group: 'alerts' })),
+    play: () => [659, 784, 1046.5].forEach((freq, i) => tone({ name: 'cue:welcome', group: 'alerts', freq, type: 'sine', at: i * 0.12, dur: i === 2 ? 0.5 : 0.2, peak: 0.12 })),
   },
 };
 

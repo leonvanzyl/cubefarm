@@ -21,14 +21,16 @@ export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
 export type Held =
   | { kind: 'ball'; id: string }
   /** A foam blaster: darts left in the magazine, and performance.now() when a reload started (null when not reloading). */
-  | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null };
+  | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null }
+  /** A coffee mug: sips of coffee left, 0 (empty) to 3 (full). */
+  | { kind: 'mug'; id: string; sips: number };
 
 export interface Toast {
   id: number;

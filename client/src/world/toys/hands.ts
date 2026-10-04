@@ -20,6 +20,7 @@ let pending: { id: string; power: number; at: number } | null = null;
 export function startCharge() {
   const s = useStore.getState();
   if (s.held?.kind === 'blaster') return pullTrigger(); // a blaster fires on the press; there's nothing to charge
+  if (s.held?.kind === 'mug') return; // a mug can't be thrown
   if (s.held && s.chargeAt === null) s.setCharge(performance.now());
 }
 

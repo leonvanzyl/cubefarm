@@ -9,6 +9,7 @@ import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Player } from './Player';
 import { Lights } from './Shell';
+import { SoundListener } from './SoundListener';
 
 function Travel() {
   const travel = useStore((s) => s.travel);
@@ -59,6 +60,7 @@ export function Game() {
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Player colliders={colliders} floor={floor} />
       <Travel />
+      <SoundListener />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
       {statsEnabled && <StatsProbe paused={paused} />}
