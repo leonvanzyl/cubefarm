@@ -42,7 +42,8 @@ export interface Backend {
   createProject(root: string, name: string, opts: { visibility: 'private' | 'public'; owner?: string; description?: string }): Promise<{ fullName: string; path: string }>;
   mainDir(fullName: string): string;
   deskDir(fullName: string, agentSlug: string): string;
-  prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string): Promise<string>;
+  /** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
+  prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string>;
   /** npm ci in a prepared desk unless nothing changed since the last one; never throws (see deps.ts installDesk). */
   installDeps(dir: string, cb: DepsCallbacks): Promise<DepsOutcome>;
   /** `main`: the floor's checkout as it was when the desk was let go (default: mainDir now). */
