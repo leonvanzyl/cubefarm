@@ -1,5 +1,6 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { CEO_ID } from '../shared/types';
+import { enterOffice, expect, test } from './helpers';
 
 // Messages read aloud (docs/voice.md), with the demo's fake ElevenLabs: a CEO reply is spoken without opening the
 // phone, the voice slider and M (mute) apply, two messages play one after the other, and a reload stays silent.
@@ -12,25 +13,6 @@ interface Spoken {
   volume: number;
 }
 
-const test = base.extend<{ page: Page }>({
-  page: async ({ page, baseURL }, use) => {
-    const problems: string[] = [];
-    await page.route(
-      (url) => !url.href.startsWith(baseURL!) && !url.protocol.startsWith('data'),
-      (route) => route.fulfill({ status: 200, body: '' }),
-    );
-    page.on('console', (m) => {
-      if (m.type() === 'error') problems.push(`console error: ${m.text()}`);
-    });
-    page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
-    page.on('response', (r) => {
-      if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.request().method()} ${r.url()}`);
-    });
-    await use(page);
-    expect(problems, 'console errors or failed requests').toEqual([]);
-  },
-});
-
 // One demo office serves every spec file: turn the voice on for these tests only.
 test.beforeAll(async ({ request }) => {
   expect((await request.put('/api/voice/key', { data: { key: 'demo-voice-key-1234' } })).ok()).toBe(true);
@@ -42,23 +24,9 @@ test.afterAll(async ({ request }) => {
   await request.put('/api/voice/key', { data: { key: '' } });
 });
 
-/** Loads the office and walks in: that click is also what lets the page play sound. */
-async function enterOffice(page: Page) {
-  await page.goto('/');
-  const enter = page.getByRole('button', { name: 'Enter the office' });
-  const skipSetup = page.getByRole('button', { name: /skip setup/i });
-  await expect(enter.or(skipSetup)).toBeVisible();
-  if (await skipSetup.isVisible()) await skipSetup.click();
-  else {
-    await expect(enter).toBeEnabled();
-    await enter.click();
-  }
-  await expect(page.getByTitle('Your phone (P)')).toBeVisible();
-}
-
 const spoken = (page: Page) => page.evaluate(() => ((window as unknown as { __swarmVoice?: Spoken[] }).__swarmVoice ?? []).map((s) => ({ ...s })));
 
-/** Texts the CEO and returns the ids of the CEO's messages so far, to tell new replies from old. */
+/** The ids of the CEO's messages so far, to tell new replies from old. */
 async function ceoIds(page: Page): Promise<number[]> {
   const state = await (await page.request.get('/api/state')).json();
   return (state.messages as { id: number; from: string }[]).filter((m) => m.from === 'ceo').map((m) => m.id);

@@ -68,23 +68,29 @@ describe('nextUp', () => {
 });
 
 describe('claimWinner', () => {
+  const W = 250;
+  const claim = (tab: string, visible = true, at = NOW) => ({ tab, visible, at });
+
   it('picks the smallest tab id among equals, whatever order the claims came in', () => {
-    const claims = [
-      { tab: 'k', visible: true },
-      { tab: 'b', visible: true },
-      { tab: 'x', visible: true },
-    ];
-    expect(claimWinner(claims)).toBe('b');
-    expect(claimWinner([...claims].reverse())).toBe('b');
+    const claims = [claim('k'), claim('b', true, NOW + 100), claim('x', true, NOW + 50)];
+    expect(claimWinner(claims, W)).toBe('b');
+    expect(claimWinner([...claims].reverse(), W)).toBe('b');
   });
 
   it('prefers a tab the manager is looking at', () => {
-    expect(claimWinner([{ tab: 'a', visible: false }, { tab: 'z', visible: true }])).toBe('z');
-    expect(claimWinner([{ tab: 'z', visible: true }, { tab: 'a', visible: false }])).toBe('z');
+    expect(claimWinner([claim('a', false), claim('z')], W)).toBe('z');
+    expect(claimWinner([claim('z'), claim('a', false)], W)).toBe('z');
+  });
+
+  it('leaves out a tab that claimed after the first one had already decided', () => {
+    // 'k' claimed alone and spoke; 'a' got the message late (a busy tab) and must not speak it too.
+    expect(claimWinner([claim('k'), claim('a', true, NOW + W)], W)).toBe('k');
+    expect(claimWinner([claim('a', true, NOW + W), claim('k')], W)).toBe('k');
+    expect(claimWinner([claim('k'), claim('a', true, NOW + W - 1)], W)).toBe('a');
   });
 
   it('a lone tab reads its own messages, background or not', () => {
-    expect(claimWinner([{ tab: 'a', visible: false }])).toBe('a');
-    expect(claimWinner([])).toBeNull();
+    expect(claimWinner([claim('a', false)], W)).toBe('a');
+    expect(claimWinner([], W)).toBeNull();
   });
 });

@@ -33,15 +33,23 @@ export function nextUp(queue: readonly Queued[], now: number): { next: Queued | 
   return { next: fresh[0] ?? null, rest: fresh.slice(1) };
 }
 
-/** An office tab offering to read a message. */
+/** An office tab offering to read a message, at `at` (Date.now(): the tabs share a clock). */
 export interface VoiceClaim {
   tab: string;
   visible: boolean;
+  at: number;
 }
 
-/** Which tab reads a message: one the manager is looking at before a background one, then the smallest id. */
-export function claimWinner(claims: readonly VoiceClaim[]): string | null {
+/**
+ * Which tab reads a message. Only claims made within `window` ms of the first count: a tab that got the message later
+ * finds the others have already decided. Of those, one the manager is looking at, then the smallest id.
+ */
+export function claimWinner(claims: readonly VoiceClaim[], window: number): string | null {
+  const first = Math.min(...claims.map((c) => c.at));
   let best: VoiceClaim | null = null;
-  for (const c of claims) if (!best || (c.visible && !best.visible) || (c.visible === best.visible && c.tab < best.tab)) best = c;
+  for (const c of claims) {
+    if (c.at >= first + window) continue;
+    if (!best || (c.visible && !best.visible) || (c.visible === best.visible && c.tab < best.tab)) best = c;
+  }
   return best?.tab ?? null;
 }
