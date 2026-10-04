@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { markBloom } from '../gfx/bloomMarks';
 import { useStore } from '../../store';
 import { outsideHearing } from '../../ui/outsideMix';
 import { listenerAt, noise, tone } from '../../ui/sfx';
@@ -59,7 +60,7 @@ const sizeOf = (s: Spot) => (s.id.startsWith('reception') ? 1.6 : s.id.startsWit
 function JackOLanterns({ at }: { at: Spot[] }) {
   const body = useMemo(() => pumpkinBody(0.1), []);
   const face = useMemo(() => pumpkinFace(0.1), []);
-  const faceMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), []);
+  const faceMat = useMemo(() => markBloom(new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false })), []);
   const ref = useRef<THREE.InstancedMesh>(null);
   const halos = useMemo(() => {
     const pts = at.flatMap((s) => {
@@ -220,7 +221,7 @@ function Gravestone({ at }: { at: Spot[] }) {
       ]),
     [],
   );
-  const candle = useMemo(() => new THREE.MeshBasicMaterial({ color: FACE, toneMapped: false }), []);
+  const candle = useMemo(() => markBloom(new THREE.MeshBasicMaterial({ color: FACE, toneMapped: false })), []);
   useEffect(() => () => candle.dispose(), [candle]);
   const tex = useCanvasTexture(
     512,

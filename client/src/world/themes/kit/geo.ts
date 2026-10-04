@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { markBloom } from '../../gfx/bloomMarks';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { toon } from '../../materials';
 
@@ -86,7 +87,7 @@ export function paintedToonDouble(): THREE.MeshToonMaterial {
 
 /** Unlit vertex colours for things that glow (bulbs, candle-lit faces): never shaded, never tone mapped. */
 export function paintedGlow(): THREE.MeshBasicMaterial {
-  vcGlow ??= new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  vcGlow ??= markBloom(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   return vcGlow;
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { markBloom } from '../../gfx/bloomMarks';
 import { decorRuns, type DecorRun } from '../../layout';
 import { cone, mergeParts, paintedToon, paintedToonDouble, part, sphere } from './geo';
 
@@ -42,7 +43,7 @@ export function StringLights({ kind, colors }: { kind: FloorKind; colors: string
     return new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   }, [kind]);
   const geo = useMemo(() => new THREE.SphereGeometry(0.04, 6, 4).scale(1, 1.3, 1), []);
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ toneMapped: false }), []);
+  const mat = useMemo(() => markBloom(new THREE.MeshBasicMaterial({ toneMapped: false }), 'night'), []);
   const wireMat = useMemo(() => new THREE.LineBasicMaterial({ color: '#2b2d42' }), []);
   useEffect(
     () => () => {

@@ -3,6 +3,7 @@
 // instanced mesh per set of lamps, hidden by day.
 import { useLayoutEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { BLOOM_AT_NIGHT, markBloom } from '../gfx/bloomMarks';
 
 /** The halos' brightest (additive) at full night. */
 const HALO = 0.5;
@@ -35,6 +36,7 @@ const lampHalo = new THREE.MeshBasicMaterial({
   toneMapped: false,
   fog: false,
   visible: false,
+  userData: BLOOM_AT_NIGHT,
 });
 
 // Facing down, just under the ceiling (and above the lamp's own panel, which hides the middle).
@@ -46,7 +48,7 @@ const haloGeometry = {
 const BULB_OFF = new THREE.Color('#d6d0c2');
 const BULB_ON = new THREE.Color('#fffbe8');
 /** The balcony lamps' bulbs: a dull diffuser by day, lit at night. */
-export const balconyBulb = new THREE.MeshBasicMaterial({ color: BULB_OFF, toneMapped: false });
+export const balconyBulb = markBloom(new THREE.MeshBasicMaterial({ color: BULB_OFF, toneMapped: false }), 'night');
 
 let lampLevel = 0;
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { markBloom } from '../gfx/bloomMarks';
 import { useStore } from '../../store';
 import { ELEVATOR, BALCONY, BALCONY_OUT, FLOOR_HEIGHT, HALF_D, HALF_W, PLANTER, SIDES, WALL_T, balconyFurniture, decorSlots, sideSign } from '../layout';
 import { toon } from '../materials';
@@ -73,7 +74,7 @@ const BULB_COLORS = ['#ff3b3b', '#ffd23f', '#2dc653', '#4cc9f0', '#ff8fab'];
 function TreeLights() {
   const ref = useRef<THREE.InstancedMesh>(null);
   const geo = useMemo(() => new THREE.SphereGeometry(0.035, 8, 6), []);
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ toneMapped: false }), []);
+  const mat = useMemo(() => markBloom(new THREE.MeshBasicMaterial({ toneMapped: false })), []);
   useEffect(() => () => [geo, mat].forEach((d) => d.dispose()), [geo, mat]);
   const st = useMemo(() => ({ c: new THREE.Color(), base: BULB_COLORS.map((c) => new THREE.Color(c)), next: 0 }), []);
   useLayoutEffect(() => {

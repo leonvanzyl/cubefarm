@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { markBloom } from '../../gfx/bloomMarks';
 import { noise, tone } from '../../../ui/sfx';
 import { HALF_W } from '../../layout';
 import { haloTexture } from './geo';
@@ -41,7 +42,7 @@ export function Fireworks() {
     const col = new Float32Array(POOL * 3).fill(0);
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
-    const mat = new THREE.PointsMaterial({ size: 0.9, map: haloTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false });
+    const mat = markBloom(new THREE.PointsMaterial({ size: 0.9, map: haloTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false }));
     const shells: Shell[] = Array.from({ length: BURSTS }, () => ({ age: -1, rise: 1, from: new THREE.Vector3(), at: new THREE.Vector3(), color: new THREE.Color() }));
     const dirs = Array.from({ length: SPARKS }, () => new THREE.Vector3().randomDirection().multiplyScalar(0.7 + Math.random() * 0.3));
     return { geo, mat, shells, dirs, pos, col, next: 0, side: 1, tmp: new THREE.Color() };
