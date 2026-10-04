@@ -23,12 +23,14 @@ export interface Backend {
   /** OPEN or CLOSED; null when there is no such issue. */
   issueState(fullName: string, number: number): Promise<'OPEN' | 'CLOSED' | null>;
   editIssue(fullName: string, number: number, edit: { body?: string; addLabels?: string[]; removeLabels?: string[] }): Promise<void>;
-  /** Close an issue as completed, with a comment. */
-  closeIssue(fullName: string, number: number, comment: string): Promise<void>;
+  /** Close an issue with a comment, as completed unless `reason` says not planned. */
+  closeIssue(fullName: string, number: number, comment: string, reason?: 'completed' | 'not planned'): Promise<void>;
   mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void>;
   updateBranch(fullName: string, number: number): Promise<void>;
   /** The failed steps' log of a GitHub Actions run, for a checks fix. */
   failedRunLog(fullName: string, runId: string): Promise<string>;
+  /** Re-run the failed jobs of these GitHub Actions runs. */
+  rerunFailedJobs(fullName: string, runIds: number[]): Promise<void>;
   closePull(fullName: string, number: number): Promise<void>;
   prForBranch(fullName: string, branch: string): Promise<{ number: number; url: string } | null>;
   prDetails(fullName: string, number: number): Promise<github.PrDetails>;
@@ -90,6 +92,7 @@ export const realBackend: Backend = {
   mergePull: github.mergePull,
   updateBranch: github.updateBranch,
   failedRunLog: github.failedRunLog,
+  rerunFailedJobs: github.rerunFailedJobs,
   closePull: github.closePull,
   prForBranch: github.prForBranch,
   prDetails: github.prDetails,

@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { isBusy, pendingRequests, qaKey, unreadMessages, useStore, type PhoneTab } from '../store';
-import { needsManager } from '../qaCard';
+import { floorPrCounts, isBusy, pendingRequests, unreadMessages, useStore, type PhoneTab } from '../store';
 import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
@@ -261,7 +260,7 @@ function useCompany() {
     const running = Object.values(agents).filter(isBusy).length;
     const floors = repos.map((r) => {
       const team = staff.filter((a) => a.repoId === r.id);
-      const recs = r.pulls.filter((p) => p.state === 'OPEN').map((p) => qa[qaKey(r.id, p.number)]);
+      const counts = floorPrCounts(r, qa);
       return {
         repo: r,
         team: team.length,
@@ -269,9 +268,9 @@ function useCompany() {
         idleDevs: team.filter((a) => a.role === 'dev' && !isBusy(a)).length,
         issues: r.issues.length,
         prs: r.pulls.filter((p) => p.state === 'OPEN').length,
-        inQa: recs.filter((q) => q && q.status !== 'passed' && !needsManager(q)).length,
-        ready: recs.filter((q) => q?.status === 'passed').length,
-        stuck: recs.filter(needsManager).length,
+        inQa: counts.inQa,
+        ready: counts.ready,
+        stuck: counts.needsYou,
         merged: r.pulls.filter((p) => p.state === 'MERGED').length,
       };
     });

@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
-import { agentsOnRepo, useStore } from '../store';
+import { agentsOnRepo, floorPrCounts, useStore } from '../store';
 import { AppMonitor } from './AppMonitor';
 import { Desk } from './Desk';
 import { drawSign } from './draw';
 import { Elevator } from './Elevator';
+import { ErrandDirector } from './ErrandDirector';
 import { Gong } from './Gong';
 import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
@@ -40,6 +41,10 @@ export function WallSign({
   );
 }
 
+// Made once, so the memoised desks see the same position every render.
+const DEV_DESKS = Array.from({ length: MAX_DESKS }, (_, slot): [number, number, number] => [deskPosition(slot).x, 0, deskPosition(slot).z]);
+const QA_DESKS = QA_LAB.stations.map((_, slot): [number, number, number] => [qaDeskPosition(slot).x, 0, qaDeskPosition(slot).z]);
+
 export function OfficeFloor({ repo }: { repo: RepoView }) {
   const allAgents = useStore((s) => s.agents);
   const agents = useMemo(() => agentsOnRepo(allAgents, repo.id), [allAgents, repo.id]);
@@ -47,8 +52,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
   const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
   const qaRecords = useStore((s) => s.qa);
-  const inQa = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status !== 'passed').length;
-  const ready = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status === 'passed').length;
+  const { inQa, ready } = useMemo(() => floorPrCounts(repo, qaRecords), [repo, qaRecords]);
   const name = repo.fullName.split('/')[1] ?? repo.fullName;
   const rugColor = shade(repo.color, 0.24);
 
@@ -59,17 +63,15 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
         <Rug key={r.minZ} position={[(r.minX + r.maxX) / 2, 0.004, (r.minZ + r.maxZ) / 2]} size={[r.maxX - r.minX, r.maxZ - r.minZ]} color={rugColor} />
       ))}
 
-      {Array.from({ length: MAX_DESKS }, (_, slot) => {
-        const { x, z } = deskPosition(slot);
-        return <Desk key={slot} agent={devBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={[x, 0, z]} />;
-      })}
+      {DEV_DESKS.map((position, slot) => (
+        <Desk key={slot} agent={devBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={position} />
+      ))}
 
       {/* QA lab */}
       <Rug position={[(QA_RUG.minX + QA_RUG.maxX) / 2, 0.005, (QA_RUG.minZ + QA_RUG.maxZ) / 2]} size={[QA_RUG.maxX - QA_RUG.minX, QA_RUG.maxZ - QA_RUG.minZ]} color="#ffd8bf" />
-      {QA_LAB.stations.map((_, slot) => {
-        const { x, z } = qaDeskPosition(slot);
-        return <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={[x, 0, z]} />;
-      })}
+      {QA_DESKS.map((position, slot) => (
+        <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={position} />
+      ))}
       <WallSign
         position={[HALF_W - 0.03, 3.2, -2]}
         rotationY={-Math.PI / 2}
@@ -85,6 +87,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
+      <ErrandDirector floor="office" agents={agents} />
 
       <WallSign
         position={[-4.6, 1.95, HALF_D - 0.03]}

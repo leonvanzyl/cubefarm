@@ -36,6 +36,7 @@ const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by 
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
+let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
 /** Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. */
 function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
   Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [] });
@@ -43,7 +44,7 @@ function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
     Object.assign(pr, {
       checks: fail ? 'failing' : 'passing',
       pendingChecks: [],
-      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${Date.now()}/job/1` }] : [],
+      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${++runSeq}/job/1` }] : [],
     });
   }, 12_000 + Math.random() * 10_000);
 }
@@ -509,6 +510,12 @@ export function createDemoBackend(): Backend {
         'build\tRun npm test\t2025-01-01T00:00:02Z Test Files  1 failed | 7 passed (8)',
         'build\tRun npm test\t2025-01-01T00:00:02Z ##[error]Process completed with exit code 1.',
       ].join('\n'),
+    rerunFailedJobs: async (fullName, runIds) => {
+      // The re-run passes: a flake, as the office hoped.
+      for (const pr of repos.get(fullName)?.pulls ?? []) {
+        if (pr.failedChecks.some((c) => runIds.some((id) => c.url?.includes(`/actions/runs/${id}/`)))) runChecks(pr, false);
+      }
+    },
     closePull: async (fullName, number) => {
       const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
       if (pr) pr.state = 'CLOSED';
@@ -933,6 +940,14 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
     async chat(text: string) {
       const s = await status();
       await think('Reading your message.');
+      // "close #3, superseded by #5": the one request the demo CEO acts on, through the real tool.
+      const close = text.match(/\bclose #(\d+)[\s,:;.-]*(.*)/i);
+      const closeFloor = close && (s.floors.find((f) => (f.backlog as { number: number }[]).some((i) => i.number === Number(close[1]))) ?? s.floors[0]);
+      if (close && closeFloor) {
+        const reason = close[2].trim() || 'No longer wanted.';
+        const out = await use('close_issue', { floor: closeFloor.floor, number: Number(close[1]), reason });
+        return out.startsWith('Refused') ? `I couldn't close #${close[1]}: ${out.replace(/^Refused: /, '')}` : `Done: ${out} I left "${short(reason, 80)}" on it as a comment.`;
+      }
       const people = s.floors.reduce((n, f) => n + f.team.length, 0);
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const pending = s.pendingProposals.length;

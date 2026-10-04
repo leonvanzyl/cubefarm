@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { CuboidCollider, CylinderCollider, RigidBody, useBeforePhysicsStep, type CollisionEnterPayload, type RapierRigidBody } from '@react-three/rapier';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from '../Outlines';
 import * as THREE from 'three';
 import { roombaChirp } from '../../ui/sfx';
 import { useInteractable } from '../interact';
