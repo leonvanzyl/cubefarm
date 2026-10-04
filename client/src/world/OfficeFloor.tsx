@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
 import { EMPTY_NUMBERS, signLine } from '../ops';
 import { agentsOnRepo, floorPrCounts, useStore } from '../store';
+import { ActivityIcon } from './ActivityIcon';
+import { ActivityTicker } from './ActivityTicker';
 import { AppMonitor } from './AppMonitor';
 import { Desk } from './Desk';
 import { drawSign } from './draw';
@@ -90,6 +92,8 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       />
 
       <KanbanBoard repo={repo} agents={agents} />
+      <ActivityTicker repoId={repo.id} />
+      {agents.map((a) => <ActivityIcon key={a.id} agent={a} />)}
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
       <Gong repoId={repo.id} />
