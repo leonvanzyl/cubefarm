@@ -6,7 +6,7 @@ import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { MicButton } from './MicButton';
 import { handsFreeProblem, setHandsFree } from './mic';
-import { closeOverlay } from './Overlays';
+import { closeOverlay } from './Panel';
 import { Games, type GameId } from './games/Games';
 import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
@@ -199,7 +199,8 @@ function Bubble({ m, ceoName }: { m: PhoneMessage; ceoName: string }) {
   );
 }
 
-function Chat() {
+/** The thread with the CEO; pocket mode shows it as its Chat tab, where the keyboard waits for a tap. */
+export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
   const messages = useStore((s) => s.messages);
   const readAt = useStore((s) => s.phoneReadAt);
   const ceo = useStore((s) => s.agents[CEO_ID]);
@@ -284,7 +285,7 @@ function Chat() {
           send(text);
         }}
       >
-        <MessageBox value={text} onChange={setText} placeholder={`Message ${ceo.name}…`} aria-label={`Message ${ceo.name}`} title="Enter sends · Shift+Enter adds a new line" autoFocus />
+        <MessageBox value={text} onChange={setText} placeholder={`Message ${ceo.name}…`} aria-label={`Message ${ceo.name}`} title="Enter sends · Shift+Enter adds a new line" autoFocus={autoFocus} />
         <MicButton kind="phone" value={text} onChange={setText} onSend={send} />
         <button className="btn btn-small btn-good" disabled={!text.trim()}>
           Send

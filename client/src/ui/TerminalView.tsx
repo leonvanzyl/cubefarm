@@ -8,7 +8,7 @@ import { effectiveModel } from '../../../shared/models';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { MicButton } from './MicButton';
-import { closeOverlay, Panel } from './Overlays';
+import { closeOverlay, Panel } from './Panel';
 import { loadScreenshot } from '../screenshot';
 import { toolVerb } from '../world/draw';
 
