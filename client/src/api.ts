@@ -1,5 +1,5 @@
 import { useStore } from './store';
-import type { AgentCli, AgentPromptView, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, VoiceCacheView, VoiceOption } from '../../shared/types';
+import type { AgentCli, AgentPromptView, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, UsageView, VoiceCacheView, VoiceOption } from '../../shared/types';
 
 async function call<T = unknown>(method: string, url: string, body?: unknown, toast = true): Promise<T> {
   const res = await fetch(url, {
@@ -93,6 +93,10 @@ export const api = {
     useStore.getState().setOfficeUpdate(u);
     return u;
   },
+  /** Clears pacing after a usage warning; refused (and toasted) while paused at the limit. */
+  resumeFullSpeed: () => call<UsageView>('POST', '/api/usage/resume'),
+  /** The demo only: a usage warning, or the limit, as if a session had reported it. */
+  simulateUsage: (kind: 'warning' | 'limit') => call<UsageView>('POST', '/api/usage/simulate', { kind }),
   messageCeo: (text: string) => call('POST', '/api/ceo/message', { text }),
   ceoReview: () => call('POST', '/api/ceo/review'),
   phoneRead: (at: number) => call('POST', '/api/phone/read', { at }),

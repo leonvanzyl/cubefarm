@@ -765,13 +765,13 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.lineTo(w / 2 + 44, cy);
     ctx.closePath();
     ctx.fill();
-    centred('Press E to open the app', midY + 80, 70, '#ffffff');
+    centred(`Press ${info.use} to open the app`, midY + 80, 70, '#ffffff');
     footer("The app isn't running. Start it from the viewer.");
   } else if (p.status === 'unconfigured') {
     centred('⚙️', midY - 90, 110, '#ffffff', 400);
     centred('No run command yet.', midY + 40, 66, '#ffffff');
     centred("Set one in the manager's console.", midY + 120, 44, '#b8b8cc', 600);
-    footer('Press E to open the app');
+    footer(`Press ${info.use} to open the app`);
   } else if (p.status === 'error') {
     const firstLine = (p.error ?? '').split(/\r?\n/).find((l) => l.trim())?.trim() || 'The app stopped unexpectedly.';
     ctx.fillStyle = '#e63946';
@@ -780,7 +780,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fitText(ctx, `⚠ ${firstLine}`, w - 100), 50, midY - 55);
     centred("The app couldn't start.", midY + 90, 52, '#ffffff');
-    footer('Press E to see the log and try again', '#ffb4ba');
+    footer(`Press ${info.use} to see the log and try again`, '#ffb4ba');
   } else if (p.status !== 'running') {
     const at = Math.max(0, APP_STEPS.findIndex((s) => s.status === p.status));
     centred(`Getting ${ref} ready…`, bodyTop + 80, 46, '#b8b8cc', 600);
@@ -845,6 +845,6 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillStyle = '#8d8da8';
       ctx.fillText(fitText(ctx, info.shotBy ? `latest from ${info.shotBy}'s browser` : 'latest agent screenshot', tw), tx, ty + th + 36);
     }
-    footer('Press E to open the app', TERM.done);
+    footer(`Press ${info.use} to open the app`, TERM.done);
   }
 }

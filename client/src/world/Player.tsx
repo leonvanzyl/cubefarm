@@ -8,6 +8,7 @@ import { interactables } from './interact';
 import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
+import { confirmResume } from '../ui/MissionConsole';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
 import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
@@ -87,6 +88,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'resume') {
+    void confirmResume();
     return;
   }
   if (focus.action.kind === 'hire') {
@@ -248,7 +253,10 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (e.code === 'Escape' && mode !== 'first') return exitView();
       for (const action of actionsForKey(b, e.code, SCOPES[mode])) {
         if (MOVES.has(action) && mode === 'follow' && !e.repeat) leaveView(); // any movement key takes over again
-        if (action === 'interact' && !e.repeat) interact();
+        if (action === 'interact' && !e.repeat) {
+          if (s.focus?.action.kind === 'phone') e.preventDefault(); // don't type the key into the phone's message box
+          interact();
+        }
         // − and + turn the jukebox down and up while you look at it.
         if (action === 'volumeDown' && s.focus?.action.kind === 'jukebox') jukeboxAction('vol-');
         if (action === 'volumeUp' && s.focus?.action.kind === 'jukebox') jukeboxAction('vol+');

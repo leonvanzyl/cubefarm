@@ -18,8 +18,8 @@ export const pickables = new Set<THREE.Object3D>();
 /** The building view's slice under the mouse (-1: none), which BuildingView.tsx lights up. */
 export const hovered = { floor: -1 };
 
-/** Things you can open from the overview by clicking them: panels, and hiring at an empty desk (which asks first). */
-const OPENS = new Set<Focus['action']['kind']>(['terminal', 'kanban', 'app', 'elevator', 'manager', 'phone', 'help', 'hire']);
+/** Things you can open from the overview by clicking them: panels, and hiring at an empty desk or resuming full speed (which ask first). */
+const OPENS = new Set<Focus['action']['kind']>(['terminal', 'kanban', 'app', 'elevator', 'manager', 'phone', 'help', 'hire', 'resume']);
 
 const roots: THREE.Object3D[] = [];
 const hits: THREE.Intersection[] = [];
