@@ -1,6 +1,8 @@
 import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { testingLabel } from '../qaCard';
+import { statsChips, type BoardStats } from './boardStats';
+import type { Pair } from './whiteboard';
 
 // 2D canvas painters for everything in the office that shows text: laptop terminals,
 // the Kanban whiteboard, signs and name tags.
@@ -248,6 +250,9 @@ export function kanbanNoteRect(ci: number, i: number, w: number) {
 /** A column's sticky-note colour. */
 export const kanbanNoteColor = (key: keyof KanbanColumns) => COLS.find((c) => c.key === key)?.note ?? '#fff3b0';
 
+/** A card's sticky colour where it is: its tone's, else its column's. */
+export const kanbanCardColor = (card: KanbanCard, key: keyof KanbanColumns) => (card.tone ? TONE[card.tone] : kanbanNoteColor(key));
+
 /** A loose sticky (StickyNotes.tsx's atlas): the note colour, its number big, a darker edge for the toon outline. */
 export function drawSticky(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, label: string, color: string) {
   ctx.clearRect(x, y, w, h);
@@ -271,7 +276,13 @@ function shadeHex(hex: string, k: number) {
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
-export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, repo: RepoView, cols: KanbanColumns) {
+/** What the board shows besides the cards: "Depends on" strings between stickies, and the stats corner. */
+export interface KanbanExtras {
+  strings?: readonly Pair[];
+  stats?: BoardStats | null;
+}
+
+export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, repo: RepoView, cols: KanbanColumns, extras: KanbanExtras = {}) {
   ctx.fillStyle = '#fbfbf8';
   ctx.fillRect(0, 0, w, h);
   // faint marker smudges
@@ -279,15 +290,21 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   for (let i = 0; i < 6; i++) ctx.fillRect((i * 431) % w, (i * 97) % h, 260, 40);
 
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#2d3142';
-  ctx.font = `700 46px ${SANS}`;
-  ctx.fillText(repo.fullName, 40, 48);
+  const statsLeft = extras.stats ? drawStatsCorner(ctx, w - 40, 48, extras.stats) : w - 40;
   ctx.font = `500 26px ${SANS}`;
-  ctx.fillStyle = '#6c7086';
   const synced = repo.lastSync ? `synced ${new Date(repo.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'syncing…';
-  ctx.textAlign = 'right';
-  ctx.fillText(`${repo.autoAssign ? '⚡ auto-assign on · ' : ''}${synced}`, w - 40, 50);
-  ctx.textAlign = 'left';
+  const status = `${repo.autoAssign ? '⚡ auto-assign on · ' : ''}${synced}`;
+  const statusW = ctx.measureText(status).width;
+  ctx.font = `700 46px ${SANS}`;
+  const nameW = Math.min(ctx.measureText(repo.fullName).width, statsLeft - 40 - 40);
+  ctx.fillStyle = '#2d3142';
+  ctx.fillText(fitText(ctx, repo.fullName, nameW), 40, 48);
+  // the sync line beside the name, when the stats corner leaves room for it
+  if (40 + nameW + 28 + statusW <= statsLeft - 28) {
+    ctx.font = `500 26px ${SANS}`;
+    ctx.fillStyle = '#6c7086';
+    ctx.fillText(status, 40 + nameW + 28, 52);
+  }
 
   const top = NOTE.top;
   const now = Date.now(); // a testing card's elapsed time: it only moves on when the board repaints anyway
@@ -327,6 +344,93 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
       ctx.fillText(c.key === 'backlog' ? 'no open issues' : 'nothing here yet', x0 + 30, top + 110);
     }
   });
+  for (const p of extras.strings ?? []) drawString(ctx, w, p);
+}
+
+/** The stats corner, right-aligned at `right`: one chip per figure, "needs you" in red. Returns its left edge. */
+function drawStatsCorner(ctx: CanvasRenderingContext2D, right: number, cy: number, stats: BoardStats) {
+  ctx.font = `600 28px ${SANS}`;
+  let x = right;
+  for (const chip of statsChips(stats).reverse()) {
+    const cw = ctx.measureText(chip.text).width + 36;
+    x -= cw;
+    roundRect(ctx, x, cy - 26, cw, 52, 26);
+    ctx.fillStyle = chip.alarm ? '#e63946' : '#eef1f7';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = chip.alarm ? '#b5172a' : '#d4d8e3';
+    ctx.stroke();
+    ctx.fillStyle = chip.alarm ? '#ffffff' : '#2d3142';
+    ctx.fillText(chip.text, x + 18, cy + 1);
+    x -= 12;
+  }
+  return x;
+}
+
+/** A red yarn string pinned to the tops of two stickies (a "Depends on" pair), sagging between them. */
+function drawString(ctx: CanvasRenderingContext2D, w: number, p: Pair) {
+  const pin = (s: Pair['from']) => {
+    const n = kanbanNoteRect(KANBAN_KEYS.indexOf(s.col), s.index, w);
+    return { x: n.x + n.w / 2, y: n.y + 12 };
+  };
+  const a = pin(p.from);
+  const b = pin(p.to);
+  const sag = 36 + Math.hypot(b.x - a.x, b.y - a.y) * 0.12;
+  const cx = (a.x + b.x) / 2;
+  const cy = Math.max(a.y, b.y) + sag;
+  const path = (dx: number, dy: number) => {
+    ctx.beginPath();
+    ctx.moveTo(a.x + dx, a.y + dy);
+    ctx.quadraticCurveTo(cx + dx, cy + dy, b.x + dx, b.y + dy);
+  };
+  ctx.lineCap = 'round';
+  path(3, 5);
+  ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  path(0, 0);
+  ctx.strokeStyle = '#c1121f';
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  // a lighter strand twisted along it, so it reads as yarn
+  ctx.setLineDash([7, 9]);
+  path(0, -1);
+  ctx.strokeStyle = '#ff6b6b';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  for (const q of [a, b]) {
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.arc(q.x + 2, q.y + 3, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#d62828';
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffadad';
+    ctx.beginPath();
+    ctx.arc(q.x - 3, q.y - 3, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.lineCap = 'butt';
+}
+
+/**
+ * One card on its own canvas (the sticky lifted off the board under the crosshair), drawn as the board draws it with
+ * a deeper shadow. The note is `nw` × `nh` board pixels, `pad` of them around it, at `scale` canvas pixels each.
+ */
+export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, col: keyof KanbanColumns, nw: number, nh: number, pad: number, scale: number) {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.save();
+  ctx.scale(scale, scale);
+  if (!card.ghost) {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    roundRect(ctx, pad + 3, pad + 7, nw + 2, nh + 2, 6);
+    ctx.fill();
+  }
+  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), Date.now());
+  ctx.restore();
 }
 
 function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string, now: number) {

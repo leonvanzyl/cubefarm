@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as THREE from 'three';
 import { useStore } from '../../store';
 import { addProbe, useTheme, useThemeRuntime } from './active';
 import { Burst, burstAt } from './kit/Burst';
@@ -20,6 +21,7 @@ import { THEMES } from './themes';
 // today is remembered in this browser, so a reload keeps it.
 
 const DEF = THEMES.easter;
+const HIT = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
 const FOUND_KEY = 'cubefarm:eggs';
 
 const eggGeometry = (color: string, band: string) =>
@@ -104,6 +106,10 @@ function EggMesh({ egg }: { egg: Egg }) {
   return (
     <Hotspot id={`egg:${egg.id}`} label="Pick up the egg 🥚" range={2.4} position={[egg.x, 0, egg.z]} rotationY={(egg.x * 7 + egg.z) % Math.PI}>
       <mesh geometry={geo} material={paintedToon()} rotation={[0, 0, 0.35]} castShadow />
+      {/* a bigger, unseen target than the egg itself, so it's easy to aim at */}
+      <mesh position={[0, 0.12, 0]} material={HIT}>
+        <sphereGeometry args={[0.24, 8, 6]} />
+      </mesh>
     </Hotspot>
   );
 }
