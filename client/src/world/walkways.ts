@@ -92,6 +92,9 @@ function officeSpots(): Spot[] {
     { id: 'couch', x: -HALF_W + 1.9, z: 7.7, facing: WEST, sit: { x: -HALF_W + 1.0, z: 7.3, facing: EAST } },
     hoopSpot('office'),
     ballsSpot('office'),
+    // where two people throw the beach ball to each other, either side of where it starts
+    { id: 'toss-a', x: 3.8, z: 8.2, facing: EAST },
+    { id: 'toss-b', x: 8.3, z: 8.2, facing: WEST },
     elevatorSpot(),
     // not the west window at z 8 (the couch) or the east one at z 0 (the QA lab)
     ...windowSpots([-8, 0], [-8]),

@@ -24,6 +24,8 @@ export interface ErrandState {
   seatedFor: number;
   /** How long they sit before getting restless: drawn afresh each time they sit down. */
   restless: number;
+  /** A number in [0, 1) drawn with `restless`, for errands to share out who does what once restless. */
+  roll?: number;
 }
 
 export interface ErrandStep {
@@ -43,6 +45,41 @@ export interface Errand {
   steps: readonly ErrandStep[];
   /** What their hands do on the walk back (carrying something). */
   carry?: Gesture;
+  /**
+   * Errands that do more than stand and gesture (the toys, toyErrands.ts): once they reach the spot, a script runs
+   * them frame by frame instead of `steps`. Null when it can't go after all (the toy is taken): they sit a while longer.
+   */
+  script?: (agent: ErrandAgent, floor: FloorKind) => ErrandScript | null;
+}
+
+/** What a script wants its person to do this frame: stand (where they are), walk somewhere, or go back to their desk. */
+export interface Act {
+  do: 'stand' | 'walk' | 'done';
+  /** Where to walk to (ignored when standing). */
+  x: number;
+  z: number;
+  /** Facing (a body.ts heading) once there, or while standing. */
+  heading: number;
+  gesture: Gesture;
+}
+
+/** What a script sees of its person each frame (the same object every frame: don't keep it). */
+export interface Me {
+  id: string;
+  x: number;
+  z: number;
+  heading: number;
+  /** Whether they've got to where the last walk was going. */
+  arrived: boolean;
+  /** Seconds since the last frame (the director's clock). */
+  dt: number;
+  player: Pt;
+}
+
+export interface ErrandScript {
+  tick(me: Me): Act;
+  /** The errand is over, however it ended (done, called back to work, the floor left): let go of anything held. */
+  end(): void;
 }
 
 // ---------- who may go, and how many at once ----------
@@ -160,11 +197,14 @@ const registry: Errand[] = [stretch];
 /** Every errand, in the order they're considered. */
 export const errands = (): readonly Errand[] => registry;
 
-/** Adds an errand (later issues: the board, coffee, toys, chats). Replaces one with the same name. */
+/**
+ * Adds an errand (later issues: the board, coffee, toys, chats). Replaces one with the same name. New ones go ahead
+ * of stretching, the fallback for anyone restless with nothing better to do.
+ */
 export function registerErrand(e: Errand) {
   const i = registry.findIndex((x) => x.name === e.name);
   if (i >= 0) registry[i] = e;
-  else registry.push(e);
+  else registry.splice(registry.indexOf(stretch), 0, e);
 }
 
 export const errandNamed = (name: string) => registry.find((e) => e.name === name);

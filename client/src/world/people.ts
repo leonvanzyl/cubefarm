@@ -8,6 +8,7 @@ import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gestur
 const targets = new Map<string, BodyTarget>();
 const live = new Map<string, BodyState>();
 const busy = new Map<string, ErrandInfo>();
+const asked = new Map<string, string>();
 let teleports = 0;
 let director: (() => unknown) | null = null;
 
@@ -45,6 +46,13 @@ export const bodyState = (id: string) => live.get(id);
 export function setErrand(id: string, info: ErrandInfo | null) {
   if (info) busy.set(id, info);
   else busy.delete(id);
+}
+
+/** An errand someone was sent on by hand (__swarmPeople.send), for the director to start; once. */
+export function takeAsked(id: string) {
+  const name = asked.get(id);
+  asked.delete(id);
+  return name;
 }
 
 /** The director on the current floor reports its summary through the probe while it runs. */
@@ -90,6 +98,10 @@ const probe = {
       errand: busy.get(id) ?? null,
       target: targets.get(id) ?? null,
     }));
+  },
+  /** Sends someone (at their desk, and free) on the errand called `name` next, e.g. 'hoops', 'toss' or 'catch'. */
+  send(id: string, name: string) {
+    asked.set(id, name);
   },
   /** The errand director on this floor: how many are away, the cap, who is queued. Null on a floor without one. */
   errands() {
