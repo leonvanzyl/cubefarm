@@ -6,10 +6,13 @@ import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
+import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
+import { hoopRim } from './hoopScore';
+import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
@@ -192,11 +195,15 @@ function Balls({ floor }: { floor: ToyFloor }) {
   // Safety net: a ball that somehow got out of the building comes back to where it started. Asleep means it
   // hasn't moved, so only awake balls are checked, a few times a second.
   const tick = useRef(0);
+  const respawned = useRef<boolean[]>([]); // its sudden stop isn't a bounce: listen() skips it once
   const check = useCallback(() => {
     if (++tick.current % 15) return;
     for (let i = 0; i < defs.length; i++) {
       const b = bodies.current[i];
-      if (b && !b.isSleeping() && escaped(b.translation())) respawn(b, defs[i]);
+      if (b && !b.isSleeping() && escaped(b.translation())) {
+        respawn(b, defs[i]);
+        respawned.current[i] = true;
+      }
     }
   }, [defs]);
   useAfterPhysicsStep(check);
@@ -295,6 +302,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       const b = want >= 0 ? bodies.current[want] : null;
       if (b) {
         grab(b);
+        grabSound(defs[want].kind, b.translation());
         flying.current[want] = false;
         grace.current[want] = 0;
       }
@@ -325,6 +333,55 @@ function Balls({ floor }: { floor: ToyFloor }) {
     }
   }, [camera, defs, grab, letGo, steer]);
   useBeforePhysicsStep(hands);
+
+  // ---------- bounce sounds ----------
+  // A hit shows as a sudden change in a ball's velocity over one step (less gravity's share): whatever it hit, a
+  // wall, a desk, another ball, the roomba or someone. Velocities are read after hands() has steered or thrown, so
+  // only the physics' own changes count, and the ball in your hands is left out.
+  const before = useMemo(() => defs.map(() => ({ x: 0, y: 0, z: 0 })), [defs]);
+  const lastSound = useRef<number[]>([]);
+  // Balls start just above the floor and drop onto it: a floor arriving shouldn't clatter.
+  const settling = useRef(30);
+  useEffect(() => void (settling.current = 30), [defs]);
+  const rim = useMemo(() => hoopRim(floor), [floor]);
+  const snapVelocities = useCallback(() => {
+    for (let i = 0; i < defs.length; i++) {
+      const b = bodies.current[i];
+      if (!b) continue;
+      const lv = b.linvel();
+      before[i].x = lv.x;
+      before[i].y = lv.y;
+      before[i].z = lv.z;
+    }
+  }, [before, defs]);
+  useBeforePhysicsStep(snapVelocities);
+  const listen = useCallback(
+    (w: typeof world) => {
+      if (settling.current > 0 && settling.current--) return;
+      const now = performance.now();
+      const g = w.gravity.y * STEP;
+      for (let i = 0; i < defs.length; i++) {
+        const b = bodies.current[i];
+        if (respawned.current[i]) {
+          respawned.current[i] = false;
+          continue;
+        }
+        if (!b || i === holding.current || b.isSleeping()) continue;
+        const lv = b.linvel();
+        const p0 = before[i];
+        const level = impactLevel(Math.hypot(lv.x - p0.x, lv.y - p0.y - g * b.gravityScale(), lv.z - p0.z));
+        if (!level || !offCooldown(lastSound.current[i] ?? -Infinity, now)) continue;
+        lastSound.current[i] = now;
+        const p = b.translation();
+        const part = hoopPart(p, defs[i].r, rim, Math.hypot(lv.x, lv.y, lv.z) * STEP);
+        if (part === 'rim') rimClank({ x: rim.x, y: rim.y, z: rim.z }, level);
+        else if (part === 'board') boardThud(p, level);
+        else bounce(defs[i].kind, p, level);
+      }
+    },
+    [before, defs, rim],
+  );
+  useAfterPhysicsStep(listen);
 
   return defs.map((d, i) => (
     <RigidBody

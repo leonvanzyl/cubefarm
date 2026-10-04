@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { WORKSPACE_ROOT } from './config.ts';
+import { HOME_DIR, WORKSPACE_ROOT } from './config.ts';
 import { type CommandError, gh, git, run } from './exec.ts';
 
 // Layout on disk:
@@ -350,14 +350,208 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
   });
 }
 
-export function removeDesk(fullName: string, agentSlug: string): Promise<void> {
+/** `main`: the floor's checkout when it was let go (a disconnect points mainDir elsewhere before this runs). */
+export function removeDesk(fullName: string, agentSlug: string, main = mainDir(fullName)): Promise<void> {
   return withRepoLock(fullName, async () => {
-    const main = mainDir(fullName);
     const wt = deskDir(fullName, agentSlug);
     if (!(await exists(wt))) return;
     await git(['worktree', 'remove', '--force', wt], { cwd: main }).catch(() => undefined);
     await removeDir(wt).catch(() => undefined);
     await git(['worktree', 'prune'], { cwd: main }).catch(() => undefined);
+  });
+}
+
+// ---------- desk sweep ----------
+
+// Homes the office lived in before (Office Swarm became cubefarm): desks there can still be registered in a checkout.
+const OLD_HOMES = ['.office-swarm'];
+const OFFICE_BRANCH = /^(swarm\/issue-|qa\/pr-)/;
+
+export interface WorktreeEntry {
+  path: string;
+  /** The branch it has checked out (null: a detached HEAD). */
+  branch: string | null;
+  locked: boolean;
+}
+
+/** The worktrees in `git worktree list --porcelain` output, the main worktree first. */
+export function parseWorktrees(porcelain: string): WorktreeEntry[] {
+  const out: WorktreeEntry[] = [];
+  for (const line of porcelain.split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) out.push({ path: path.resolve(line.slice(9)), branch: null, locked: false });
+    else if (!out.length) continue;
+    else if (line.startsWith('branch ')) out[out.length - 1].branch = line.slice(7).replace(/^refs\/heads\//, '');
+    else if (line === 'locked' || line.startsWith('locked ')) out[out.length - 1].locked = true;
+  }
+  return out;
+}
+
+/** What a sweep must leave alone. */
+export interface SweepKeep {
+  /** Desks in use: the floor's agents' slugs and its preview's. */
+  desks: string[];
+  /** Branches in use: agents' current branches and open PRs' heads. */
+  branches: string[];
+}
+
+export interface SweepInput {
+  fullName: string;
+  /** The office's workspaces folder (WORKSPACE_ROOT). */
+  root: string;
+  /** The main checkout's worktrees (parseWorktrees), the main worktree first. */
+  worktrees: WorktreeEntry[];
+  /** The main checkout's local branches. */
+  branches: string[];
+  /** The folder names in this floor's desks folder under `root`. */
+  folders: string[];
+}
+
+export interface SweepPlan {
+  /** Office desks still registered that nobody uses any more. */
+  worktrees: WorktreeEntry[];
+  /** Folders in the desks folder that are no worktree and nobody's desk. */
+  folders: string[];
+  /** Finished swarm/issue-* and qa/pr-* branches. */
+  branches: string[];
+}
+
+const samePath = (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+/** A worktree is an office desk when it sits at <root>/<owner>__<repo>/desks/<name>, under this home or an older one. */
+function isOfficeDesk(p: string, fullName: string, root: string) {
+  const desks = path.dirname(p);
+  const repo = path.dirname(desks);
+  const workspaces = path.dirname(repo);
+  if (!samePath(path.basename(desks), 'desks') || !samePath(path.basename(repo), fullName.replace('/', '__'))) return false;
+  if (samePath(workspaces, path.resolve(root))) return true;
+  return path.basename(workspaces) === 'workspaces' && OLD_HOMES.some((h) => samePath(path.basename(path.dirname(workspaces)), h));
+}
+
+/**
+ * What a sweep removes: office desks nobody uses (never the main worktree or one outside a desks folder), stray
+ * folders in the desks folder, and swarm/issue-* / qa/pr-* branches that no remaining worktree has checked out and
+ * nothing in `keep` names. Pure, so it can be tested apart from git.
+ */
+export function planSweep(input: SweepInput, keep: SweepKeep): SweepPlan {
+  const deskRoot = path.join(path.resolve(input.root), input.fullName.replace('/', '__'), 'desks');
+  const kept = (p: string) => keep.desks.some((slug) => samePath(p, path.join(deskRoot, slug)));
+  const worktrees = input.worktrees.slice(1).filter((w) => !w.locked && isOfficeDesk(w.path, input.fullName, input.root) && !kept(w.path));
+  const stays = input.worktrees.filter((w) => !worktrees.includes(w));
+  const folders = input.folders.filter((name) => {
+    const p = path.join(deskRoot, name);
+    return !kept(p) && !input.worktrees.some((w) => samePath(w.path, p));
+  });
+  const branches = input.branches.filter((b) => OFFICE_BRANCH.test(b) && !keep.branches.includes(b) && !stays.some((w) => w.branch === b));
+  return { worktrees, folders, branches };
+}
+
+export interface SweepResult {
+  desks: number;
+  folders: number;
+  branches: number;
+  /** Patches saved from removed desks (work that was on no remote branch). */
+  patches: string[];
+  /** Folders still in use by some process: tried again on the next sweep. */
+  skipped: string[];
+}
+
+/** Windows won't rename a folder a process still has open (its working directory, an open file): skip those. */
+async function inUse(dir: string) {
+  const probe = `${dir}.sweep`;
+  try {
+    await fs.rename(dir, probe);
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ENOENT';
+  }
+  await fs.rename(probe, dir);
+  return false;
+}
+
+const stamp = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * Save a desk's modified tracked files and the commits that are on no remote branch to
+ * <HOME_DIR>/leftovers/<owner>__<repo>/<desk>-<YYYYMMDD>.patch (format-patch, then `git diff HEAD`). Null: nothing to save.
+ */
+async function saveLeftovers(fullName: string, desk: string): Promise<string | null> {
+  const g = (args: string[]) => git(args, { cwd: desk, timeoutMs: 60_000 });
+  if (!(await g(['rev-parse', '--verify', '-q', 'HEAD']).catch(() => ''))) return null;
+  const dirty = await g(['status', '--porcelain', '--untracked-files=no']);
+  const commits = Number(await g(['rev-list', '--count', 'HEAD', '--not', '--remotes']));
+  if (!dirty && !commits) return null;
+  const dir = path.join(HOME_DIR, 'leftovers', fullName.replace('/', '__'));
+  await fs.mkdir(dir, { recursive: true });
+  const tmp = await fs.mkdtemp(path.join(dir, '.tmp-'));
+  try {
+    // Written to files, not read from stdout: exec trims it, and a patch's trailing whitespace matters.
+    if (commits) await g(['format-patch', '-q', '-o', tmp, 'HEAD', '--not', '--remotes']);
+    if (dirty) await g(['diff', 'HEAD', '--binary', `--output=${path.join(tmp, 'zz-uncommitted.patch')}`]);
+    const parts = (await fs.readdir(tmp)).sort();
+    const base = `${path.basename(desk)}-${stamp(new Date())}`;
+    let file = path.join(dir, `${base}.patch`);
+    for (let n = 2; await exists(file); n++) file = path.join(dir, `${base}-${n}.patch`);
+    await fs.writeFile(file, Buffer.concat(await Promise.all(parts.map((p) => fs.readFile(path.join(tmp, p))))));
+    return file;
+  } finally {
+    await removeDir(tmp).catch(() => undefined);
+  }
+}
+
+/**
+ * Clean up after agents who left: their desks (work on no remote branch is saved as a patch first), stray folders in
+ * the desks folder, and finished swarm/issue-* / qa/pr-* branches in the main checkout. Only touches what the office
+ * made, never kills a process, and skips a folder that is still in use (the next sweep tries again).
+ */
+export function sweepDesks(fullName: string, keep: SweepKeep): Promise<SweepResult> {
+  return withRepoLock(fullName, async () => {
+    const result: SweepResult = { desks: 0, folders: 0, branches: 0, patches: [], skipped: [] };
+    const main = mainDir(fullName);
+    if (!(await exists(path.join(main, '.git')))) return result;
+    const g = (args: string[]) => git(args, { cwd: main, timeoutMs: 60_000 });
+    await g(['worktree', 'prune']);
+    // Real paths on both sides: git may print a path another way than the office spells it (8.3 names, symlinks).
+    const real = (p: string) => fs.realpath(p).catch(() => p);
+    const worktrees = await Promise.all(parseWorktrees(await g(['worktree', 'list', '--porcelain'])).map(async (w) => ({ ...w, path: await real(w.path) })));
+    const refs = await g(['for-each-ref', '--format=%(refname)', 'refs/heads/swarm', 'refs/heads/qa']);
+    const branches = refs.split(/\r?\n/).filter(Boolean).map((r) => r.replace(/^refs\/heads\//, ''));
+    const root = await real(WORKSPACE_ROOT);
+    const deskRoot = path.join(root, fullName.replace('/', '__'), 'desks');
+    const folders = (await fs.readdir(deskRoot, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
+    const plan = planSweep({ fullName, root, worktrees, branches, folders }, keep);
+
+    const held = new Set<string>(); // branches of desks that stay this time
+    for (const wt of plan.worktrees) {
+      try {
+        if (await inUse(wt.path)) throw new Error('in use');
+        const patch = await saveLeftovers(fullName, wt.path);
+        if (patch) result.patches.push(patch);
+        await g(['worktree', 'remove', '--force', wt.path]).catch(() => undefined);
+        await removeDir(wt.path);
+        result.desks++;
+      } catch {
+        result.skipped.push(wt.path);
+        if (wt.branch) held.add(wt.branch);
+      }
+    }
+    await g(['worktree', 'prune']).catch(() => undefined);
+    for (const name of plan.folders) {
+      const dir = path.join(deskRoot, name);
+      try {
+        if (await inUse(dir)) throw new Error('in use');
+        await removeDir(dir);
+        result.folders++;
+      } catch {
+        result.skipped.push(dir);
+      }
+    }
+    const doomed = plan.branches.filter((b) => !held.has(b));
+    // A few dozen per command (a floor can have hundreds); git deletes what it can and complains about the rest.
+    for (let i = 0; i < doomed.length; i += 40) await g(['branch', '-D', ...doomed.slice(i, i + 40)]).catch(() => undefined);
+    if (doomed.length) {
+      const left = new Set((await g(['for-each-ref', '--format=%(refname)', 'refs/heads/swarm', 'refs/heads/qa'])).split(/\r?\n/));
+      result.branches = doomed.filter((b) => !left.has(`refs/heads/${b}`)).length;
+    }
+    return result;
   });
 }
 

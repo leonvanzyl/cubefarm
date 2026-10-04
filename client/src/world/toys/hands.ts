@@ -30,7 +30,9 @@ export function throwHeld() {
   if (!s.held || s.chargeAt === null) return;
   const power = chargePower(performance.now() - s.chargeAt);
   pending = { id: s.held.id, power, at: performance.now() };
-  noise({ dur: 0.14 + power * 0.08, peak: 0.03 + power * 0.05, filter: 'bandpass', freq: 500, to: 1500 + power * 900, q: 0.9, group: 'toys' });
+  // the whoosh rises higher and sharper the harder the throw, with a little spread so no two sound alike
+  const spread = 0.94 + Math.random() * 0.12;
+  noise({ name: 'throw', group: 'toys', dur: 0.14 + power * 0.08, peak: 0.03 + power * 0.05, filter: 'bandpass', freq: 500 * spread, to: (1500 + power * 900) * spread, q: 0.9 + power * 0.5 });
   s.setHeld(null);
 }
 

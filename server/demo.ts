@@ -513,6 +513,7 @@ export function createDemoBackend(): Backend {
       return dir;
     },
     removeDesk: async () => undefined,
+    sweepDesks: async () => ({ desks: 0, folders: 0, branches: 0, patches: [], skipped: [] }),
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => {
       if (++sessionsStarted === USAGE_WARNING_AT) fakeUsageWarning(cb);

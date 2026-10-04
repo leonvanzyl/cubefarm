@@ -411,11 +411,12 @@ export function chirp() {
   [1046.5, 1568].forEach((freq, i) => tone({ name: 'chirp', group: 'alerts', freq, type: 'triangle', at: i * 0.11, dur: 0.18, peak: 0.12 }));
 }
 
-/** The roomba's happy chirp: a quick rising warble and a bright little "boop". */
-export function roombaChirp() {
-  tone({ freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035, group: 'toys' });
-  tone({ freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08, group: 'toys' });
-  tone({ freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07, group: 'toys' });
+/** The roomba's happy chirp, from where it is: a quick rising warble and a bright little "boop". */
+export function roombaChirp(pos: Vec3) {
+  const o = { name: 'roomba:chirp', group: 'toys', pos } as const;
+  tone({ ...o, freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035 });
+  tone({ ...o, freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08 });
+  tone({ ...o, freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07 });
 }
 
 /** The elevator "ding": two soft sine tones. */
@@ -442,10 +443,11 @@ export function boop() {
 }
 
 /** The roomba sucking up a dart: a rising slurp of air with a little pop at the end. */
-export function slurp() {
-  noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05, group: 'toys' });
-  tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03, group: 'toys' });
-  noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002, group: 'toys' });
+export function slurp(pos: Vec3) {
+  const o = { name: 'roomba:slurp', group: 'toys', pos } as const;
+  noise({ ...o, dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05 });
+  tone({ ...o, freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03 });
+  noise({ ...o, at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002 });
 }
 
 /** A basket: the net's swish, then a small cheer. */

@@ -61,12 +61,27 @@ export function dropMug() {
   if (s.held?.kind === 'mug') s.setHeld(null);
 }
 
+/** Hand the held mug over (to the coffee machine): it leaves your hands without falling. Returns it, or null. */
+export function stowMug(): HeldMug | null {
+  const s = useStore.getState();
+  if (s.held?.kind !== 'mug') return null;
+  const mug = s.held;
+  stowing = true;
+  try {
+    s.setHeld(null);
+  } finally {
+    stowing = false;
+  }
+  return mug;
+}
+
 // Mugs that left your hands since the toy world's last physics step.
 let drops: { id: string; sips: number }[] = [];
+let stowing = false;
 
 useStore.subscribe((s, prev) => {
   const was = prev.held;
-  if (was?.kind !== 'mug' || (s.held?.kind === 'mug' && s.held.id === was.id)) return;
+  if (stowing || was?.kind !== 'mug' || (s.held?.kind === 'mug' && s.held.id === was.id)) return;
   drops.push({ id: was.id, sips: was.sips });
 });
 
