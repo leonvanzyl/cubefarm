@@ -14,6 +14,7 @@ import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, 
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
 import { Bookshelf, CoffeeCorner, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
+import { LobbyRituals } from './Rituals';
 import { Shell } from './Shell';
 import { Ball, Box, Cyl } from './Toon';
 import { Toys } from './toys';
@@ -257,6 +258,7 @@ function CeoOffice() {
   return (
     <group>
       <ErrandDirector floor="lobby" agents={people} />
+      <LobbyRituals />
       <Rug position={[(c.minX + c.maxX) / 2, 0.005, (c.minZ + c.maxZ) / 2]} size={[c.maxX - c.minX, c.maxZ - c.minZ]} color="#e6dcff" />
       <GlassWall from={[c.minX, c.minZ]} to={[c.minX, c.maxZ]} />
       <GlassWall from={[c.minX, c.maxZ]} to={[c.doorMinX, c.maxZ]} />
