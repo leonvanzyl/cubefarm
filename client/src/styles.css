@@ -1745,6 +1745,54 @@ input.inline:focus {
   margin: 6px 0;
 }
 
+/* ui/VoiceSettings.tsx: the ElevenLabs voice picker */
+.voice-list {
+  position: relative; /* rows' offsetTop, for scrolling the chosen one into view */
+  max-height: 300px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 2px solid rgba(31, 29, 43, 0.12);
+  border-radius: 12px;
+  padding: 6px;
+}
+.voice-group {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 4px 8px 0;
+}
+.voice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+}
+.voice-row:hover {
+  background: #fff4e6;
+}
+.voice-row-on {
+  background: #fff4e6;
+  border-color: var(--accent);
+}
+.voice-row:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: -1px;
+}
+.voice-row .toggle {
+  align-items: flex-start;
+  min-width: 0;
+}
+.voice-row .toggle input {
+  margin-top: 4px;
+}
+.voice-labels {
+  display: block;
+}
+
 /* ---------- setup wizard ---------- */
 
 .wizard {
