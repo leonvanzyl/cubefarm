@@ -9,17 +9,18 @@ import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHED
 import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { depsPromptLine, type DepsOutcome } from './deps.ts';
 import { setUpDesk } from './deskSetup.ts';
-import { fixOutcome } from './fixOutcome.ts';
+import { fixOutcome, MAX_FIX_FAILURES } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
-import { conflictFixInstructions, lastQaRound, qaOutcome, type QaNext } from './qaOutcome.ts';
+import { catchUp, failedRunId, logTail, noChangeReason, PR_LIMITS_VERSION, QA_STOPPED, unpushedFix } from './prOwnership.ts';
+import { conflictFixInstructions, lastQaRound, MAX_QA_ROUNDS, qaGate, qaOutcome, type PreQa, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
-import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
+import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, failedLogLines, noPushNudge, ownPrLine, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { isCli } from './clis.ts';
@@ -123,6 +124,8 @@ interface QaRecord extends QaView {
   fixReason: 'qa' | 'checks' | 'conflict' | null; // why it was last sent back to a developer
   mergeFixes: number; // times it went back for failing checks or conflicts
   retests: number; // QA rounds caused by merge fixes or new commits rather than by QA failing it
+  preQa: PreQa | null; // a conflict found before QA tested the head is being fixed
+  noChangeSha: string | null; // the head a developer last said needed no change (one free re-test per commit)
   pendingSince: number | null; // when auto-merge started waiting on its checks
   mergeRetryAt: number | null; // GitHub refused the merge: try again after this
   alerted: boolean; // the manager has been told it's stuck
@@ -150,6 +153,7 @@ interface Persisted {
   ceo: CeoState;
   messages: PhoneMessage[];
   phoneReadAt: number;
+  prLimits: number; // the PR budgets (PR_LIMITS_VERSION) needs-human records were judged by
 }
 
 interface Shot {
@@ -380,6 +384,7 @@ export class Swarm {
     ceo: { queue: [], job: null, lastReviewAt: null, lastFingerprint: null },
     messages: [],
     phoneReadAt: 0,
+    prLimits: PR_LIMITS_VERSION,
   };
   /**
    * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
@@ -486,12 +491,15 @@ export class Swarm {
           pendingSince: q.pendingSince ?? null,
           mergeRetryAt: q.mergeRetryAt ?? null,
           alerted: q.alerted ?? false,
+          preQa: q.preQa ?? null,
+          noChangeSha: q.noChangeSha ?? null,
           mergeNote: null,
         })),
         requests: loaded.requests ?? [],
         ceo: { ...this.state.ceo, ...loaded.ceo },
         messages: loaded.messages ?? [],
         phoneReadAt: loaded.phoneReadAt ?? 0,
+        prLimits: loaded.prLimits ?? 1,
       };
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
@@ -585,6 +593,7 @@ export class Swarm {
     this.recover(interrupted, preparing);
     // A PR the restart left in "testing" with nobody on it: test it again (the result, if any, was lost).
     for (const rec of orphanedQa(this.state.qa, this.state.agents, BUSY)) this.setQa(rec, { status: 'queued', qaAgentId: null });
+    if (this.state.prLimits < PR_LIMITS_VERSION) this.catchUpPrs();
     this.officeHead = await this.backend.office.head();
     const updated = await this.backend.office.takeLastUpdate().catch(() => null);
     if (updated) await this.reportUpdate(updated);
@@ -621,6 +630,20 @@ export class Swarm {
       if (this.slotsFull()) continue; // stays 'stopped'; the manager can resume it later
       void this.message(a.id, resumeNote(a, fix)).catch((err) => console.warn(`could not resume ${a.name}`, err));
     }
+  }
+
+  /** One-off, on the first start with bigger PR budgets: PRs the manager got under the old ones go back to work. */
+  private catchUpPrs() {
+    const back: string[] = [];
+    for (const rec of this.state.qa) {
+      const status = catchUp(rec);
+      if (!status) continue;
+      const repo = this.state.repos.find((r) => r.id === rec.repoId);
+      this.setQa(rec, { status, mergeNote: null, pendingSince: null, mergeRetryAt: null, alerted: false });
+      back.push(`#${rec.prNumber}${repo ? ` on ${repo.fullName}` : ''}`);
+    }
+    this.state.prLimits = PR_LIMITS_VERSION;
+    if (back.length) this.postMessage('office', `↩️ Developers now get more tries at their PRs, so ${back.join(', ')} went back to them instead of waiting for you.`);
   }
 
   // ---------- views ----------
@@ -1904,6 +1927,8 @@ export class Swarm {
         pendingSince: null,
         mergeRetryAt: null,
         alerted: false,
+        preQa: null,
+        noChangeSha: null,
       };
       this.state.qa.push(rec);
       this.setQa(rec, {});
@@ -1923,6 +1948,7 @@ export class Swarm {
       rec.round += 1;
       rec.sessionFailures = 0;
       rec.mergeNote = null;
+      if (rec.preQa) Object.assign(rec, { fixReason: rec.preQa.fixReason, preQa: null }); // QA gets the test it was queued for
     }
     const dev = this.state.agents.find((a) => a.repoId === repo.id && a.role === 'dev' && a.task !== 'qa' && (a.prNumber === prNumber || a.branch === pr.headRefName));
     this.queueQa(repo, prNumber, dev ?? null, pr.closesIssues[0] ?? null);
@@ -1951,7 +1977,6 @@ export class Swarm {
       const issueNumber = rec.issueNumber ?? pr.closesIssues[0] ?? null;
       if (issueNumber) issue = await this.backend.issueDetails(repo.fullName, issueNumber).catch(() => null);
       Object.assign(a, { issueTitle: pr.title, prUrl: pr.url });
-      rec.testedSha = pr.headSha;
       this.emitAgent(a);
     } catch (err) {
       a.status = 'error';
@@ -1969,6 +1994,30 @@ export class Swarm {
       this.clearTask(a);
       return;
     }
+    // QA never spends a session on a stale branch: a conflict goes to the developer first, a branch behind is updated.
+    const gate = qaGate(pr, rec, repo.autoMerge);
+    if (gate.do === 'send-back') {
+      this.appendLog(a, [{ kind: 'system', text: `PR #${pr.number} conflicts with ${repo.defaultBranch}; it goes back to its developer before QA.` }]);
+      this.clearTask(a);
+      if (gate.needsHuman) {
+        this.sendBack(repo, rec, 'conflict', rec.fixInstructions ?? '', true);
+        return;
+      }
+      // QA's last findings stay on the record for the test QA was queued for, which follows the merge.
+      this.setQa(rec, { status: 'failed', qaAgentId: null, fixReason: 'conflict', preQa: { sha: pr.headSha, fixReason: rec.fixReason }, mergeFixes: rec.mergeFixes + 1, mergeNote: null });
+      setTimeout(() => this.schedule(), 200);
+      return;
+    }
+    if (gate.do === 'update-branch') {
+      this.appendLog(a, [{ kind: 'system', text: `Updating PR #${pr.number}'s branch with ${repo.defaultBranch} first…` }]);
+      try {
+        await this.backend.updateBranch(repo.fullName, pr.number);
+        pr = await this.backend.prDetails(repo.fullName, pr.number);
+      } catch (err) {
+        this.appendLog(a, [{ kind: 'system', text: `  ⎿ GitHub couldn't update it (${oneLine(err)}); testing it as it is.` }]);
+      }
+    }
+    rec.testedSha = pr.headSha;
 
     const desk = await this.prepare(a, repo, { pr: rec.prNumber }, branch);
     if (!desk) {
@@ -2019,7 +2068,7 @@ export class Swarm {
           status: a.status === 'stopped' || failures >= 2 ? 'needs-human' : 'queued',
           qaAgentId: null,
           sessionFailures: failures,
-          summary: a.status === 'stopped' ? 'QA was stopped by the manager.' : rec.summary,
+          summary: a.status === 'stopped' ? QA_STOPPED : rec.summary,
         });
       }
       return;
@@ -2054,6 +2103,7 @@ export class Swarm {
         fixInstructions,
         sessionFailures: 0,
         fixReason: pass ? null : 'qa',
+        preQa: null,
         passedSha: pass ? rec.testedSha : null,
         mergeNote: null,
         pendingSince: null,
@@ -2062,6 +2112,10 @@ export class Swarm {
       });
       // QA's findings travel with the merge fix; the developer's push then gets one more QA round.
       if (next === 'conflict') this.sendBack(repo, rec, 'conflict', conflictFixInstructions(fixInstructions, repo.defaultBranch), false);
+      if (next === 'needs-human') {
+        const stillConflicts = pull && (pull.mergeable === 'CONFLICTING' || pull.mergeState === 'DIRTY') ? ` It also conflicts with ${repo.defaultBranch}, and its ${MAX_MERGE_FIXES} merge fixes are used up.` : '';
+        this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} failed QA ${qaRounds} times, the most QA rounds a PR gets (${MAX_QA_ROUNDS}), so it needs you.${stillConflicts}`);
+      }
       this.toast(
         pass ? 'success' : 'error',
         pass
@@ -2121,6 +2175,7 @@ export class Swarm {
     const pull = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === rec.prNumber);
     const headRef = pull?.headRefName ?? dev.branch ?? `pr-${rec.prNumber}`;
     const qaAgent = rec.qaAgentId ? this.state.agents.find((x) => x.id === rec.qaAgentId) : null;
+    this.fixNudged.delete(`${repo.id}#${rec.prNumber}`);
     this.setQa(rec, { status: 'fixing', devAgentId: dev.id });
     this.beginTask(
       dev,
@@ -2138,11 +2193,15 @@ export class Swarm {
     const failed = rec.checks.filter((c) => c.result === 'fail');
     const takeover = original ? '' : ' A teammate wrote it, so read the PR and the linked issue first.';
     const push = `push to the same branch: git push origin HEAD:${headRef}`;
+    const runId = rec.fixReason === 'checks' ? failedRunId(rec.fixInstructions) : null;
+    const runLog = runId ? logTail(await this.backend.failedRunLog(repo.fullName, runId).catch(() => '')) : '';
     // A conflict QA never passed (it failed the last round) goes out as a QA fix: its instructions add the merge.
     const mergeFix =
-      rec.fixReason === 'conflict' && rec.passedSha
+      rec.fixReason === 'conflict' && (rec.preQa || rec.passedSha)
         ? [
-            `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but it now conflicts with ${repo.defaultBranch} because other work was merged first.${takeover}`,
+            rec.preQa
+              ? `Pull request #${rec.prNumber} (${pull?.url ?? ''}) conflicts with ${repo.defaultBranch} because other work was merged first, so it comes back to you before QA tests it.${takeover}`
+              : `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but it now conflicts with ${repo.defaultBranch} because other work was merged first.${takeover}`,
             '',
             `Bring it up to date: git fetch origin && git merge origin/${repo.defaultBranch}. Resolve the conflicts so both this change and the newly merged work keep working, run the project's checks, and ${push}`,
           ]
@@ -2151,6 +2210,7 @@ export class Swarm {
               `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but GitHub checks failed on it.${takeover}`,
               '',
               `Failed checks:\n${rec.fixInstructions ?? ''}`,
+              ...(runId ? failedLogLines(runId, runLog) : []),
               '',
               `Read the logs with gh pr checks ${rec.prNumber} -R ${repo.fullName} (for GitHub Actions: gh run view <run id> -R ${repo.fullName} --log-failed). Fix the cause, run the same checks locally where you can, and ${push}`,
               `If a failure clearly has nothing to do with this change (a flaky test or a service outage), re-run it instead with gh run rerun <run id> -R ${repo.fullName} --failed, and say so.`,
@@ -2167,10 +2227,11 @@ export class Swarm {
       rec.commentUrl ? `\nFull report with screenshots: ${rec.commentUrl}` : '',
       '',
       `Fix these problems, re-run the relevant checks, and push to the same branch: git push origin HEAD:${headRef}`,
+      ownPrLine(repo.defaultBranch),
       'Then reply with a short summary of what you changed. Do not open a new pull request; QA will re-test automatically.',
     ];
     const mergeEnd = 'Then reply with a short summary of what you did. Do not open a new pull request; the office merges it once the checks pass, after another QA round if the code changed.';
-    const prompt = (mergeFix ? [...mergeFix, '', mergeEnd] : qaFix).filter((l) => l !== '').join('\n');
+    const prompt = (mergeFix ? [...mergeFix, ownPrLine(repo.defaultBranch), mergeEnd] : qaFix).filter((l) => l !== '').join('\n');
     const resume = original && rec.devSessionId ? rec.devSessionId : undefined;
     this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }, desk.deps), resume);
   }
@@ -2187,7 +2248,10 @@ export class Swarm {
       this.fail(a, result, `the fix for PR #${a.prNumber}`);
       // Someone else gets a go before it lands on the manager.
       const failures = rec ? rec.sessionFailures + (this.limited() ? 0 : 1) : 0;
-      if (rec) this.setQa(rec, { status: failures >= 2 ? 'needs-human' : 'failed', sessionFailures: failures });
+      if (rec) this.setQa(rec, { status: failures >= MAX_FIX_FAILURES ? 'needs-human' : 'failed', sessionFailures: failures });
+      if (rec && failures >= MAX_FIX_FAILURES) {
+        this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} went back for fixes, but ${failures} fix sessions in a row failed, the most a PR gets, so it needs you.`);
+      }
       return;
     }
     if (!rec || !this.state.qa.includes(rec)) {
@@ -2196,19 +2260,34 @@ export class Swarm {
       return;
     }
     const step = fixOutcome(rec, head, this.minutes(a), !this.limited());
-    if (!step.pushed) {
-      // Like a failed session: someone gets another go, with the same instructions, before it lands on the manager.
-      const needsHuman = step.set.status === 'needs-human';
-      a.status = 'error';
-      a.lastError = `No new commits were pushed for PR #${rec.prNumber}`;
-      this.appendLog(a, [step.log]);
-      this.setQa(rec, step.set);
-      this.toast('error', `${a.name} ended the fix for PR #${rec.prNumber} without pushing a commit${needsHuman ? '; it needs you' : '; it goes back for another try'}`);
-      if (needsHuman) {
-        this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} went back for fixes, but ${step.set.sessionFailures} fix sessions in a row ended without pushing a commit, so it needs you.`);
+    if (!step.pushed && head) {
+      // Asked once to push or say why nothing needs to change, before it counts as a strike.
+      const key = `${repo.id}#${rec.prNumber}`;
+      const noChange = noChangeReason(result.text);
+      const next = unpushedFix(rec, head, { nudged: this.fixNudged.has(key), noChange, counts: !this.limited() });
+      if (next.do === 'retest') {
+        this.fixNudged.delete(key);
+        a.status = 'done';
+        this.appendLog(a, [{ kind: 'done', text: `✔ No change needed for PR #${rec.prNumber}: ${noChange?.replace(/[.!\s]+$/, '')}. Back to QA for a re-test.` }]);
+        this.setQa(rec, { ...next.set, devSessionId: a.sessionId ?? rec.devSessionId });
+        this.toast('info', `${a.name} says PR #${rec.prNumber} needs no change; QA re-tests it`);
+        return;
       }
-      return;
+      if (next.do === 'nudge') {
+        this.fixNudged.add(key);
+        a.status = 'done';
+        this.appendLog(a, [{ kind: 'system', text: `No new commits were pushed for PR #${rec.prNumber}; asking ${a.name} once more.` }]);
+        // message() starts the session before its first await, so the scheduler can't hand this developer other work first.
+        void this.message(a.id, noPushNudge(rec.prNumber, repo.defaultBranch)).catch(() => {
+          if (rec.status !== 'fixing') return;
+          this.unpushed(a, repo, rec, step);
+          this.emitAgent(a);
+          setTimeout(() => this.schedule(), 500);
+        });
+        return;
+      }
     }
+    if (!step.pushed) return this.unpushed(a, repo, rec, step);
     a.status = 'done';
     this.appendLog(a, [step.log]);
     this.setQa(rec, { ...step.set, devSessionId: a.sessionId ?? rec.devSessionId });
@@ -2216,6 +2295,21 @@ export class Swarm {
       'info',
       step.set.status === 'passed' ? `${a.name} fixed PR #${rec.prNumber}; it merges once it passes again` : `${a.name} pushed fixes for PR #${rec.prNumber}; QA round ${rec.round} is queued`,
     );
+  }
+
+  /** A fix that pushed nothing counts as a failed session (fixOutcome's step). */
+  private unpushed(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord, step: ReturnType<typeof fixOutcome>) {
+    // Like a failed session: someone gets another go, with the same instructions, before it lands on the manager.
+    this.fixNudged.delete(`${repo.id}#${rec.prNumber}`);
+    const needsHuman = step.set.status === 'needs-human';
+    a.status = 'error';
+    a.lastError = `No new commits were pushed for PR #${rec.prNumber}`;
+    this.appendLog(a, [step.log]);
+    this.setQa(rec, step.set);
+    this.toast('error', `${a.name} ended the fix for PR #${rec.prNumber} without pushing a commit${needsHuman ? '; it needs you' : '; it goes back for another try'}`);
+    if (needsHuman) {
+      this.postMessage('office', `⚠️ PR #${rec.prNumber} on ${repo.fullName} went back for fixes, but ${step.set.sessionFailures} fix sessions in a row ended without pushing a commit, the most a PR gets, so it needs you.`);
+    }
   }
 
   /** The PR's head commit now; null (with a warning in the agent's log) when GitHub can't be asked. */
@@ -2312,6 +2406,7 @@ export class Swarm {
   private scheduleOffset = 0;
   private issueFailures = new Map<string, number>(); // `${repoId}#${issue}` → failed sessions on it
   private nudged = new Set<string>(); // `${repoId}#${issue}`: its developer was asked once to finish the missing PR
+  private fixNudged = new Set<string>(); // `${repoId}#${pr}`: its fix session was asked once to push or say why not
   private pausedUntil = 0; // Claude's usage limit was hit: nothing new starts before this
   private pacingUntil = 0; // Claude warned about usage: new issues are paced until this
   private lastUsage = '';

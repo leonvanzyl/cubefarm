@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, PLACEHOLDERS, promptParts, qaBranch, qaPromptPreview, qaSystemPrompt, type PromptAgent, type PromptFloor } from './prompts.ts';
+import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, failedLogLines, noPushNudge, ownPrLine, PLACEHOLDERS, promptParts, qaBranch, qaPromptPreview, qaSystemPrompt, type PromptAgent, type PromptFloor } from './prompts.ts';
 
 const repo = (o: Partial<PromptFloor> = {}): PromptFloor => ({
   fullName: 'acme/shop',
@@ -190,5 +190,22 @@ describe('prompt previews', () => {
 
   it("show the CEO's prompt as the office's own", () => {
     expect(ceoPromptPreview('Run the company.')).toEqual({ kind: 'ceo', text: 'Run the company.', parts: [{ label: 'Office instructions', text: 'Run the company.', editable: false }] });
+  });
+});
+
+describe('fix prompts', () => {
+  it('tell the developer they own the PR until it merges', () => {
+    expect(ownPrLine('develop')).toBe('You own this PR until it merges: merge develop, fix what blocks it, and re-run checks that failed for reasons outside the change.');
+  });
+
+  it('nudge a fix that pushed nothing to push or say why not', () => {
+    expect(noPushNudge(42, 'main')).toBe(
+      'You pushed nothing to pull request #42. If the PR needs a change, make it and push now. If nothing in the PR needs to change (for example you re-ran a flaky check, or main already fixed it), end with one line starting NO CHANGE NEEDED: and say why.',
+    );
+  });
+
+  it('show the tail of a failed run, or nothing without one', () => {
+    expect(failedLogLines('123', 'Error: boom')).toEqual(['Last lines of gh run view 123 --log-failed:', '```', 'Error: boom', '```']);
+    expect(failedLogLines('123', '')).toEqual([]);
   });
 });

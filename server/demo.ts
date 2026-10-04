@@ -43,7 +43,7 @@ function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
     Object.assign(pr, {
       checks: fail ? 'failing' : 'passing',
       pendingChecks: [],
-      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url}/checks` }] : [],
+      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${Date.now()}/job/1` }] : [],
     });
   }, 12_000 + Math.random() * 10_000);
 }
@@ -160,7 +160,15 @@ function qaScript(cb: SessionCallbacks, pr: number, title: string, round: number
   ];
 }
 
-function fixScript(pr: number, pushes: boolean): Step[] {
+function fixScript(pr: number, pushes: boolean, nudged: boolean): Step[] {
+  if (nudged) {
+    return [
+      [{ kind: 'text', text: `● Checking whether PR #${pr} still needs a change.` }],
+      pushes
+        ? [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git commit -am "fix: wrap toolbar on narrow screens" && git push origin HEAD' }, { kind: 'result', text: '  ⎿ pushed' }]
+        : [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git fetch origin && git diff origin/main --stat -- src/styles.css' }, { kind: 'result', text: '  ⎿ (no differences)' }],
+    ];
+  }
   return [
     [{ kind: 'text', text: `● Reading the QA report for PR #${pr}. The toolbar overflows on phones; I'll let it wrap.` }],
     [{ kind: 'tool', tool: 'Read', text: '⏺ Read src/styles.css' }, { kind: 'result', text: '  ⎿ Read 212 lines' }],
@@ -175,21 +183,25 @@ function fixScript(pr: number, pushes: boolean): Step[] {
 function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: string): SessionHandle {
   const timers: NodeJS.Timeout[] = [];
   let stopped = false;
-  const kind = opts.role === 'qa' ? 'qa' : /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
+  const nudged = /^You pushed nothing/.test(opts.prompt); // the office's nudge after a fix that pushed nothing
+  const resumedFix = opts.resumeSessionId?.startsWith('demo-fix-') ?? false;
+  const kind = opts.role === 'qa' ? 'qa' : nudged || resumedFix || /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
+  // Fix sessions can be resumed (the office's nudge), like real ones.
+  if (kind === 'fix') cb.sessionId(opts.resumeSessionId ?? `demo-fix-${crypto.randomUUID()}`);
   const prMatch = opts.prompt.match(/pull request #(\d+)(?::\s*(.+))?/);
   const issueMatch = opts.prompt.match(/#(\d+):\s*(.+)/);
   const number = Number((kind === 'issue' ? issueMatch?.[1] : prMatch?.[1]) ?? 0);
   const title = (kind === 'issue' ? issueMatch?.[2] : prMatch?.[2])?.trim() ?? 'follow-up';
   const round = Number(opts.prompt.match(/QA round (\d+)/)?.[1] ?? 1);
-  // Now and then a QA fix ends without pushing, so the office's "no new commits" check can be seen.
-  const pushes = kind !== 'fix' || !/FAILED|taking over pull request/.test(opts.prompt) || Math.random() > 0.25;
+  // Now and then a QA fix ends without pushing, so the office's nudge can be seen; half the nudged answer NO CHANGE NEEDED.
+  const pushes = kind !== 'fix' || !(nudged || /FAILED|taking over pull request/.test(opts.prompt)) || Math.random() > (nudged ? 0.5 : 0.25);
 
   const header: Step = [
     { kind: 'system', text: `✻ Claude Code (demo) · ${opts.model} · ${opts.effort} effort` },
     { kind: 'system', text: `  cwd ${opts.cwd}` },
   ];
   const checks = opts.prompt.match(/^GitHub checks right now: .*$/m)?.[0] ?? 'GitHub checks right now: none';
-  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes) : devScript(opts, cb, number, title);
+  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes, nudged) : devScript(opts, cb, number, title);
   const script = [header, ...body];
 
   const finish = () => {
@@ -236,8 +248,13 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
         pr.mergeable = 'MERGEABLE';
         runChecks(pr, false);
       }
-      cb.log([{ kind: 'text', text: pushes ? `● Fixed PR #${number} and pushed. Ready for another QA round.` : `● The toolbar wraps on narrow screens now. Ready for another QA round.` }]);
-      cb.finished({ ok: true, text: '', costUsd, turns, errors: [] });
+      const text = pushes
+        ? `● Fixed PR #${number} and pushed. Ready for another QA round.`
+        : nudged
+          ? 'NO CHANGE NEEDED: main already makes the toolbar wrap, so the PR is right as it is.'
+          : '● The toolbar wraps on narrow screens now. Ready for another QA round.';
+      cb.log([{ kind: 'text', text }]);
+      cb.finished({ ok: true, text, costUsd, turns, errors: [] });
       return;
     }
     const repo = repos.get(fullName);
@@ -463,6 +480,8 @@ export function createDemoBackend(): Backend {
       if (headSha && pr.headSha !== headSha) throw new Error('Head branch was modified. Review and try the merge again.');
       mergedSinceSync.set(fullName, (mergedSinceSync.get(fullName) ?? 0) + 1);
       pr.state = 'MERGED';
+      // Now and then a merge leaves another open PR conflicting, so conflict fixes (before QA and after it) can be seen.
+      for (const other of r.pulls) if (other.state === 'OPEN' && Math.random() < 0.25) Object.assign(other, { mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
       pr.mergedAt = now();
       // GitHub closes what "Closes #N" links a little after the merge, not straight away.
       setTimeout(() => {
@@ -482,6 +501,14 @@ export function createDemoBackend(): Backend {
       Object.assign(pr, { headSha: fakeSha(), mergeState: 'CLEAN' });
       runChecks(pr, false);
     },
+    failedRunLog: async (_fullName, runId) =>
+      [
+        `build\tRun npm test\t2025-01-01T00:00:00Z > vitest run (run ${runId})`,
+        'build\tRun npm test\t2025-01-01T00:00:01Z  FAIL  src/__tests__/toolbar.test.ts > wraps below 480px',
+        'build\tRun npm test\t2025-01-01T00:00:01Z AssertionError: expected "nowrap" to be "wrap"',
+        'build\tRun npm test\t2025-01-01T00:00:02Z Test Files  1 failed | 7 passed (8)',
+        'build\tRun npm test\t2025-01-01T00:00:02Z ##[error]Process completed with exit code 1.',
+      ].join('\n'),
     closePull: async (fullName, number) => {
       const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
       if (pr) pr.state = 'CLOSED';

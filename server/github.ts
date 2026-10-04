@@ -177,6 +177,11 @@ export async function updateBranch(fullName: string, number: number): Promise<vo
   await gh(['pr', 'update-branch', String(number), '-R', fullName], { timeoutMs: 60_000 });
 }
 
+/** The failed steps' log of a GitHub Actions run (gh run view --log-failed), for a checks fix. */
+export async function failedRunLog(fullName: string, runId: string): Promise<string> {
+  return gh(['run', 'view', runId, '-R', fullName, '--log-failed'], { timeoutMs: 60_000 });
+}
+
 export async function closePull(fullName: string, number: number): Promise<void> {
   await gh(['pr', 'close', String(number), '-R', fullName]);
 }

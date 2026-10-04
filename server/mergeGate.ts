@@ -2,7 +2,7 @@ import type { PullInfo } from '../shared/types.ts';
 
 // Auto-merge: fixes for failing checks or conflicts before a PR needs the manager, how long checks may run before
 // the manager hears about it, and how long to wait before retrying a merge GitHub refused.
-export const MAX_MERGE_FIXES = 3;
+export const MAX_MERGE_FIXES = 5;
 export const CHECKS_ALERT_MS = 30 * 60_000;
 export const MERGE_RETRY_MS = 10 * 60_000;
 
