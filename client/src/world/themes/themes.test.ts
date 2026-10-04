@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { THEME_IDS, type ThemeId } from '../../../../shared/themes';
-import { DESK, ELEVATOR, HALF_D, HALF_W, BALCONY, BALCONY_OUT, decorRuns, decorSlots, deskPosition, lobbyColliders, MAX_DESKS, officeColliders, QA_LAB, type Rect } from '../layout';
+import { DECOR_SLOT_AT, DESK, ELEVATOR, HALF_D, HALF_W, BALCONY, BALCONY_OUT, decorRuns, decorSlots, deskPosition, lobbyColliders, MAX_DESKS, officeColliders, QA_LAB, type Rect } from '../layout';
 import { segmentClear } from '../toys/roombaBrain';
 import { findPath, walkways, WALK_R, type FloorKind } from '../walkways';
 import { costumeFor, decorColliders, FOOTPRINT, placeDecor, THEMES } from './themes';
@@ -91,6 +91,18 @@ describe('decorations stay out of the way', () => {
     for (const r of solids) {
       expect(overlaps(r, doorway), JSON.stringify(r)).toBe(false);
       for (const b of base) expect(overlaps(r, b), `${JSON.stringify(r)} hits ${JSON.stringify(b)}`).toBe(false);
+    }
+  });
+
+  it.each(THEME_IDS)("%s keeps clear of the office's own decoration slots (the catalogue's plants, posters and arcade)", (id) => {
+    for (const r of decorColliders(id, 'office')) {
+      for (const [name, s] of Object.entries(DECOR_SLOT_AT)) {
+        if (s.y !== undefined) continue; // on a wall
+        const across = Math.abs(Math.sin(s.rotY)) > 0.7;
+        const half = { x: (across ? s.d : s.w) / 2, z: (across ? s.w : s.d) / 2 };
+        const spot: Rect = { minX: s.x - half.x, maxX: s.x + half.x, minZ: s.z - half.z, maxZ: s.z + half.z };
+        expect(overlaps(r, spot), `${JSON.stringify(r)} in ${name}`).toBe(false);
+      }
     }
   });
 

@@ -3833,3 +3833,243 @@ input.inline:focus {
   color: #1b873a;
   font-weight: 600;
 }
+
+/* ---------- progression: coins, the catalogue and the decor box (#210) ---------- */
+
+.coin-pill {
+  position: relative;
+  font-family: var(--font);
+  color: var(--ink);
+  background: #ffe8a3;
+  cursor: pointer;
+}
+.coin-gain {
+  position: absolute;
+  right: -4px;
+  top: 100%;
+  margin-top: 2px;
+  font-weight: 700;
+  color: #9a6b00;
+  text-shadow: 0 1px 0 #fff;
+  animation: coin-gain 1.8s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes coin-gain {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1);
+  }
+}
+.catalogue-floors .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.catalogue-floors .floor-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 0.8rem;
+}
+.catalogue-purse {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.catalogue-coins {
+  font-size: 1.6rem;
+  flex: none;
+}
+.catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.catalogue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  background: #fff;
+}
+.catalogue-item .btn {
+  margin-top: auto;
+  align-self: flex-start;
+}
+.catalogue-off {
+  background: #f5f3ee;
+}
+.catalogue-icon {
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+.small-icon {
+  font-size: 1.3rem;
+}
+.decor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.decor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 2px solid rgba(31, 29, 43, 0.12);
+  border-radius: 12px;
+}
+
+/* ---------- careers (#226) ---------- */
+
+.career-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 0 0 10px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-left: 10px solid var(--accent);
+  border-radius: 16px;
+}
+.career-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.career-portrait {
+  flex: none;
+  border: 2.5px solid var(--ink);
+  border-radius: 16px;
+}
+.career-who {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.career-name {
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+.career-title {
+  font-weight: 600;
+  color: var(--muted);
+}
+.career-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.career-badge {
+  padding: 1px 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.career-star {
+  background: #ffd43b;
+}
+.career-known {
+  font-style: italic;
+}
+.career-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+}
+.career-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #fff4e6;
+}
+.career-stat b {
+  font-size: 1.05rem;
+}
+.career-stat span {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.career-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.career-pr {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The card that pops up while you look at a desk: beside the crosshair, never under the mouse. */
+.career-peek {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 40px);
+  transform: translateY(-50%);
+  width: min(380px, calc(50vw - 56px));
+  pointer-events: none;
+}
+.career-peek .career-card {
+  box-shadow: 0 5px 0 var(--ink);
+  margin: 0;
+}
+.career-compact .career-name {
+  font-size: 1.05rem;
+}
+.career-compact .career-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 700px) {
+  .career-peek {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    top: auto;
+    bottom: 16px;
+    transform: none;
+  }
+}
+.team-stats-scroll {
+  overflow-x: auto;
+}
+.stats-table th {
+  text-align: left;
+  padding: 2px 4px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.stats-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sort-btn,
+.link-btn {
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--ink);
+}
+.link-btn {
+  color: #3a56d4;
+}

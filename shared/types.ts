@@ -1,4 +1,6 @@
 // Types shared between the swarm server and the 3D client.
+import type { CareerView } from './careers.ts';
+import type { ProgressView, RewardView } from './progress.ts';
 
 import type { ThemeSettings } from './themes.ts';
 import type { AgentStyle } from './looks.ts';
@@ -223,6 +225,7 @@ export interface AgentView {
   hasScreenshot: boolean;
   screenshotAt: number | null;
   lastError: string | null;
+  career: CareerView | null; // their record on the team (#226); null for the CEO
   log: LogLine[]; // tail of the terminal log (full buffer on snapshot)
   activity?: AgentActivity | null; // what they're doing right now, safe to show anyone (null: nothing, e.g. idle)
 }
@@ -547,6 +550,7 @@ export interface WorldSnapshot {
   voiceCache: VoiceCacheView;
   ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
   notifyChannels: NotifyChannelsView;
+  progress: ProgressView; // coins, decorations and achievements (#210)
 }
 
 export type ServerEvent =
@@ -575,6 +579,8 @@ export type ServerEvent =
   | { type: 'ticker'; item: TickerItem }
   | { type: 'notifyChannels'; notifyChannels: NotifyChannelsView }
   | { type: 'notify'; note: NoteView }
+  | { type: 'progress'; progress: ProgressView }
+  | { type: 'reward'; reward: RewardView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

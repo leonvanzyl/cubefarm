@@ -4,6 +4,7 @@ import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
 import { CardView } from './CardView';
+import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ElevatorPanel } from './ElevatorPanel';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
@@ -196,6 +197,17 @@ function Help() {
           <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model, effort, title, specialty and job description. Changes apply from their next task, so nothing is interrupted.
           Open <b>What they're told</b> there to read the full prompt the office gives them, with their job description highlighted. The CEO's model, effort and prompt are in the console's CEO tab.
         </p>
+        <h3>Coins, decorations and trophies</h3>
+        <p>
+          Every merged PR earns its floor coins (🪙 at the top right): 10 a merge, 5 more when QA passed it first time, 5 when its checks were green first time, and 10 for the third merge on a floor within an hour. Nothing
+          ever costs coins but the catalogue. Spend them at the catalogue kiosk in the lobby; what you buy waits in the floor's 📦 decor box by its elevator. Take something out, walk to a glowing spot and press <kbd>E</kbd>:
+          it snaps in. <kbd>E</kbd> on a placed decoration picks it up to move it, and the box puts things away. The arcade cabinet plays your phone's games. Achievements fill the trophy shelf in the lobby: <kbd>E</kbd> on a
+          trophy says what it was for and when.
+        </p>
+        <p>
+          Desks tell their owner's story: a plaque on the monitor for every merged PR, a gold star for ten first-time QA passes, specialty stickers, and a plant, a photo and a desk toy that arrive with time on the team. Look at a
+          desk for a moment to see its career card (or open <b>🏅 Career</b> in their panel); the console's Team tab compares everyone.
+        </p>
         <h3>The QA lab</h3>
         <p>
           The testers in lab coats along the east wall check every pull request before it can be merged. They run the tests, click through the change in a real browser, and post a report with screenshots on the PR. If a PR
@@ -241,5 +253,9 @@ export function Overlays() {
       return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
     case 'help':
       return <Help />;
+    case 'catalogue':
+      return <Catalogue repoId={overlay.repoId} />;
+    case 'decor-box':
+      return <DecorBoxPanel repoId={overlay.repoId} />;
   }
 }

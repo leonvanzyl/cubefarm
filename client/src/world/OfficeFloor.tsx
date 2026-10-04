@@ -18,6 +18,9 @@ import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
 import { Beacon, useFloorAlarm } from './MissionControl';
+import { CoinBurst } from './decor/CoinBurst';
+import { Decorations } from './decor/Decorations';
+import { DeskStory, MvpSign } from './desk/DeskStory';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { OfficeRituals } from './Rituals';
 import { Shell } from './Shell';
@@ -96,6 +99,10 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       {agents.map((a) => <ActivityIcon key={a.id} agent={a} />)}
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
+      <CoinBurst repo={repo} agents={agents} />
+      <DeskStory agents={agents} />
+      <MvpSign agents={agents} />
+      <Decorations repo={repo} />
       <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />

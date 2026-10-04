@@ -215,6 +215,51 @@ export const QA_ROTATION = -Math.PI / 2;
 export const qaDeskPosition = (slot: number) => ({ x: QA_LAB.x, z: QA_LAB.stations[slot % QA_LAB.stations.length] });
 export const QA_RUG = rect(QA_LAB.x - 0.4, -2, 3.4, 10.4);
 
+// ---------- decorations (#210) ----------
+
+/**
+ * Where each of a floor's decoration slots (shared/progress.ts) is, and the most room an item there may take. x, z:
+ * the slot's anchor: its middle, or with `back` the middle of its back edge against the wall. rotY turns an item's
+ * front (local +z) to face the room. w x d: the biggest footprint allowed (local x by local z), kept clear of desks,
+ * walkways, the whiteboard and the elevator (layout.test.ts checks); wall slots hang at y and are w wide.
+ */
+export interface DecorSpot {
+  x: number;
+  z: number;
+  rotY: number;
+  w: number;
+  d: number;
+  y?: number;
+  back?: boolean;
+}
+
+const FACE = { south: 0, east: Math.PI / 2, north: Math.PI, west: -Math.PI / 2 };
+export const DECOR_SLOT_AT: Record<string, DecorSpot> = {
+  // walls: above the big west slot, either side of the elevator above the blaster rack and the arcade's slot, past
+  // the "ship it" sign, and over the kitchenette counter
+  'w-west': { x: -HALF_W + 0.02, z: 3.6, rotY: FACE.east, y: 2.5, w: 2.6, d: 0.1 },
+  'w-south-w': { x: -8, z: HALF_D - 0.02, rotY: FACE.north, y: 2.45, w: 2.5, d: 0.1 },
+  'w-south-e': { x: 8.4, z: HALF_D - 0.02, rotY: FACE.north, y: 2.45, w: 2.6, d: 0.1 },
+  'w-north-e': { x: 13.6, z: -HALF_D + 0.02, rotY: FACE.south, y: 2.2, w: 2.8, d: 0.1 },
+  'w-kitchen': { x: HALF_W - 0.02, z: 6.9, rotY: FACE.west, y: 2.45, w: 2.6, d: 0.1 },
+  // corners and quiet stretches of wall
+  'f-ne': { x: 15.2, z: -11.2, rotY: FACE.south, w: 0.9, d: 0.9 },
+  'f-se': { x: 13.3, z: 11.25, rotY: FACE.north, w: 0.9, d: 0.9 },
+  'f-sw': { x: -14.8, z: 9.8, rotY: FACE.east, w: 0.9, d: 0.9 },
+  'f-west': { x: -15.25, z: -6, rotY: FACE.east, w: 0.9, d: 0.9 },
+  // the west wall south of its window, the lounge west of the elevator, and the south wall east of it
+  'b-west': { x: -HALF_W, z: 3.6, rotY: FACE.east, back: true, w: 2.4, d: 1.3 },
+  'b-lounge': { x: -7, z: 8.4, rotY: FACE.east, w: 2.4, d: 1.4 },
+  'b-south': { x: 7.4, z: HALF_D, rotY: FACE.north, back: true, w: 2.4, d: 1.3 },
+  // under the lounge, and in front of the elevator
+  'r-lounge': { x: -7, z: 8.4, rotY: FACE.east, w: 3.6, d: 2.6 },
+  'r-entry': { x: 0, z: 8.7, rotY: FACE.south, w: 3.2, d: 2 },
+};
+
+/** The floor's decor box, against the south wall east of the elevator: bought decorations wait in it. */
+export const DECOR_BOX = { x: 3.4, z: HALF_D - 0.3, w: 0.8, d: 0.55, h: 0.6 };
+export const decorBoxRect = (): Rect => rect(DECOR_BOX.x, DECOR_BOX.z, DECOR_BOX.w, DECOR_BOX.d, DECOR_BOX.h);
+
 export function officeColliders(): Rect[] {
   const out = [...shellColliders('office'), ...outsideColliders('office')];
   for (let s = 0; s < MAX_DESKS; s++) {
@@ -236,6 +281,7 @@ export function officeColliders(): Rect[] {
   out.push(gongRect());
   out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5, SOLID_H.kitchen)); // kitchenette counter + fridge
   out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7, SOLID_H.cooler)); // water cooler
+  out.push(decorBoxRect());
   return out;
 }
 
@@ -256,6 +302,10 @@ export const LOBBY_RUG = rect(3, 3, 14, 9);
 // view of the waiting sofa. w runs along the wall, d sticks out into the room; the machine and mugs face north.
 export const COFFEE_CORNER = { x: 9.8, w: 1.5, d: 0.9 };
 export const coffeeCorner = (): Rect => rect(COFFEE_CORNER.x, HALF_D - COFFEE_CORNER.d / 2, COFFEE_CORNER.w, COFFEE_CORNER.d, SOLID_H.coffeeCorner);
+// The rewards corner (#210): the catalogue kiosk out in the lobby west of reception, facing the elevator, and the
+// trophy shelf against the south wall west of the elevator (facing north, clear of the hoop), seen as you step out.
+export const KIOSK = { x: -4.8, z: -2.2, w: 0.9, d: 0.7, h: 1.75 };
+export const TROPHY_SHELF = { x: -6, z: HALF_D - 0.25, w: 2.2, d: 0.5, h: 2.1 };
 
 /**
  * Mission control: a curved bank of screens on the lobby's north wall between the two glass offices, behind reception
@@ -315,6 +365,8 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1, SOLID_H.cabinet)); // trophy cabinet
   out.push(coffeeCorner()); // counter, coffee machine and mug dispenser
   out.push(...missionRects());
+  out.push(rect(KIOSK.x, KIOSK.z, KIOSK.w, KIOSK.d, KIOSK.h));
+  out.push(rect(TROPHY_SHELF.x, TROPHY_SHELF.z, TROPHY_SHELF.w, TROPHY_SHELF.d, TROPHY_SHELF.h));
   return out;
 }
 
