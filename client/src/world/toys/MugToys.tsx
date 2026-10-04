@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { CylinderCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
+import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
@@ -15,6 +15,13 @@ import { mugsToEvict, resetMugs, setMugSource, takeDrop, type HeldMug } from './
 const TAKE_RANGE = 2.5;
 // A dropped mug leaves your hands tipped and turning, so it lands on its side rather than neatly upright.
 const TUMBLE: [number, number, number] = [4, 1, 3];
+// A bare cylinder on its side rolls forever (Rapier has no rolling friction). The handle's collider stops a full
+// roll, so the mug rocks onto rim and handle, and the damping stands in for rolling resistance so it settles quickly.
+const ROLL_DAMPING = 3;
+const HANDLE = {
+  half: [0.02, 0.038, 0.01] as [number, number, number],
+  at: [MUG_SIZE.r + 0.02, 0.004, 0] as [number, number, number],
+};
 
 // Where the held mug sits in view (camera space, metres), tipped a little towards you so the coffee shows.
 const VIEW = { x: 0.16, y: -0.13, z: -0.42, tilt: 0.55, turn: -0.6, scale: 0.75 };
@@ -79,11 +86,12 @@ function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number;
       linearVelocity={mug.vel}
       angularVelocity={TUMBLE}
       linearDamping={0.3}
-      angularDamping={0.5}
+      angularDamping={ROLL_DAMPING}
       ccd
       userData={{ toy: mug.id }}
     >
       <CylinderCollider args={[h / 2, (r + rBase) / 2]} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
+      <CuboidCollider args={HANDLE.half} position={HANDLE.at} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
       <group ref={ref}>
         <MugLook color={mugColor(mug.id)} sips={mug.sips} />
         {/* an invisible, roomier target, so a small mug on the floor is easy to aim at */}
