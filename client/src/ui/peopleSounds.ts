@@ -6,7 +6,7 @@
 
 import { useStore } from '../store';
 import type { BodyState } from '../world/body';
-import { surfaceAt } from '../world/layout';
+import { ROOF, surfaceAt } from '../world/layout';
 import { footstepAt, scuffAt } from './footsteps';
 import { HURRYING, hearPerson, newHearing, type Crowd, type Hearing } from './peopleSoundRules';
 import { listenerAt, noise, recordSfx, tone, type Vec3 } from './sfx';
@@ -126,7 +126,7 @@ export function hearBody(id: string, s: BodyState, gesture: string, dt: number, 
       case 'step':
       case 'scuff': {
         const feet = at(s.x, floorY + 0.05, s.z);
-        const surface = surfaceAt(st.floor === 0 ? 'lobby' : 'office', s.x, s.z);
+        const surface = surfaceAt(st.floor === ROOF ? 'roof' : st.floor === 0 ? 'lobby' : 'office', s.x, s.z);
         if (e === 'step') footstepAt(surface, feet, s.speed >= HURRYING, h.steps.foot);
         else scuffAt(surface, feet);
         break;
