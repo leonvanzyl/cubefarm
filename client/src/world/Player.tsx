@@ -18,6 +18,7 @@ import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
+import { decorationAction } from './decor/actions';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 
@@ -77,6 +78,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'jukebox') {
     jukeboxAction(focus.action.op);
+    return;
+  }
+  if (focus.action.kind === 'decoration' || focus.action.kind === 'trophy') {
+    decorationAction(focus.action);
     return;
   }
   if (focus.action.kind === 'poke') {
@@ -157,8 +162,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (document.pointerLockElement !== gl.domElement) return requestLook();
       const s = useStore.getState();
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
-      // The coffee machine takes a click with your hands full (that's how the mug goes in).
-      if (s.held && s.focus?.action.kind !== 'coffee') startCharge();
+      // The coffee machine takes a click with your hands full (that's how the mug goes in), and a decoration goes where you click.
+      if (s.held && s.focus?.action.kind !== 'coffee' && s.held.kind !== 'decor') startCharge();
       else if (s.focus) runFocusAction(s.focus, 'click');
     };
     const onMouseUp = (e: MouseEvent) => {

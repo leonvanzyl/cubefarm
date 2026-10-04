@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
+import type { DecorItem, ProgressView } from '../../shared/progress';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { gongForMerge } from './world/gongRunner';
+import { emitReward } from './world/decor/rewards';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -19,14 +21,16 @@ export type Overlay =
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string }
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
-  | { kind: 'help' };
+  | { kind: 'help' }
+  | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
+  | { kind: 'decor-box'; repoId: string }; // a floor's decor box
 
 export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' } | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string } | { kind: 'trophy'; id: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -35,7 +39,9 @@ export type Held =
   /** A foam blaster: darts left in the magazine, and performance.now() when a reload started (null when not reloading). */
   | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null }
   /** A coffee mug: sips of coffee left, 0 (empty) to 3 (full). */
-  | { kind: 'mug'; id: string; sips: number };
+  | { kind: 'mug'; id: string; sips: number }
+  /** A decoration on its way to a slot (#210): from the floor's decor box (from null) or from the slot it stood in. */
+  | { kind: 'decor'; id: string; item: DecorItem; from: string | null };
 
 export interface Toast {
   id: number;
@@ -68,6 +74,7 @@ interface State {
   voiceKeySet: boolean; // an ElevenLabs key is saved on the server
   voiceKeyHint: string; // its last 4 characters
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
+  progress: ProgressView; // coins, decorations and achievements (#210)
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
   restarting: boolean; // the connection dropped because the office is restarting to update
 
@@ -169,6 +176,7 @@ export const useStore = create<State>((set, get) => ({
   voiceKeySet: false,
   voiceKeyHint: '',
   voiceCache: { clips: 0, bytes: 0, saved: [] },
+  progress: { floors: {}, achievements: [], coffees: 0, merges: 0 },
   voiceSpeaking: null,
   restarting: false,
 
@@ -225,6 +233,7 @@ export const useStore = create<State>((set, get) => ({
           voiceKeySet: d.voiceKeySet ?? false,
           voiceKeyHint: d.voiceKeyHint ?? '',
           voiceCache: d.voiceCache ?? { clips: 0, bytes: 0, saved: [] },
+          progress: d.progress ?? { floors: {}, achievements: [], coffees: 0, merges: 0 },
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -343,6 +352,12 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'voiceCache':
         set({ voiceCache: ev.voiceCache });
+        break;
+      case 'progress':
+        set({ progress: ev.progress });
+        break;
+      case 'reward':
+        if (live) emitReward(ev.reward);
         break;
     }
   },

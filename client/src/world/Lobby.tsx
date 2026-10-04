@@ -5,6 +5,7 @@ import { floorPrCounts, pendingRequests, useStore, type Agent } from '../store';
 import { CEO_ID, type HireRequestView } from '../../../shared/types';
 import { Character } from './Character';
 import { Desk } from './Desk';
+import { Kiosk, TrophyShelf } from './decor/RewardsCorner';
 import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
@@ -314,6 +315,7 @@ function candidateAgent(r: HireRequestView): Agent {
     hasScreenshot: false,
     screenshotAt: null,
     lastError: null,
+    career: null,
   };
 }
 
@@ -463,6 +465,8 @@ export function Lobby() {
       <Toys floor="lobby" />
       <Directory />
       <TrophyCabinet />
+      <Kiosk />
+      <TrophyShelf />
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
       <Couch position={[11.5, 0, 4]} rotationY={Math.PI} color="#4cc9f0" />
       <CoffeeTable position={[11.5, 0, 6.2]} />

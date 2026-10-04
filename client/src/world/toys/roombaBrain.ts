@@ -1,5 +1,6 @@
 import { FLOOR_D, FLOOR_W, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, elevatorDoorway, lobbyColliders, officeColliders, rect, sideDoorway, WALL_T, type Rect } from '../layout';
 import type { ToyFloor } from './balls';
+import { reservedDecorRects } from '../decor/decor';
 
 // The roomba's brain: a pure state machine over the 2D layout rects, stepped once per physics step by Roomba.tsx.
 // It cleans with bump-and-turn, some wall-following and the odd spiral, plans a grid path home when the run is
@@ -88,7 +89,7 @@ export function dockFor(floor: ToyFloor): Dock {
 
 /**
  * Everything the roomba steers around: the floor's colliders, the elevator doorway, the side doorways (the balconies
- * are off-limits, and clear() keeps everything inside the walls anyway), plant pots and its dock.
+ * are off-limits, and clear() keeps everything inside the walls anyway), plant pots, its dock and the decoration slots.
  */
 export function roombaRects(floor: ToyFloor): Rect[] {
   // The balconies' railings and furniture are out of reach anyway: leave them out, as paths check every rect often.
@@ -97,6 +98,7 @@ export function roombaRects(floor: ToyFloor): Rect[] {
   for (const side of SIDES) out.push(sideDoorway(floor, side));
   for (const [x, z, s] of PLANTS[floor]) out.push(rect(x, z, 0.6 * s, 0.6 * s));
   out.push(dockFor(floor).rect);
+  if (floor === 'office') out.push(...reservedDecorRects()); // decorations can be placed there at any time
   return out;
 }
 

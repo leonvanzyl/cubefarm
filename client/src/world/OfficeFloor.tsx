@@ -14,6 +14,9 @@ import { Leaver, useLeavers } from './Leavers';
 import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
+import { CoinBurst } from './decor/CoinBurst';
+import { Decorations } from './decor/Decorations';
+import { DeskStory, MvpSign } from './desk/DeskStory';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { Shell } from './Shell';
 import { Toys } from './toys';
@@ -86,6 +89,10 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <KanbanBoard repo={repo} agents={agents} />
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
+      <CoinBurst repo={repo} agents={agents} />
+      <DeskStory agents={agents} />
+      <MvpSign agents={agents} />
+      <Decorations repo={repo} />
       <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />

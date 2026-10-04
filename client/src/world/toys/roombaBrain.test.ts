@@ -100,8 +100,8 @@ describe('planPath', () => {
 describe('cleaning', () => {
   it('bumps into a wall without clipping it, then turns or follows the wall', () => {
     const e = env('office');
-    // open floor south of the desks, driving straight at the west wall
-    const r = cleaning(e.dock, -12, 9.6, Math.PI);
+    // open floor south of the desks (between the couch and the decoration slot in the corner), driving straight at the west wall
+    const r = cleaning(e.dock, -12, 8.75, Math.PI);
     let turned = false;
     for (let i = 0; i < 60 * 30 && !turned; i++) {
       stepRoomba(r, DT, e);
