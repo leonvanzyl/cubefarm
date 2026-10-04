@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
+import { CardView } from './CardView';
 import { ElevatorPanel } from './ElevatorPanel';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
@@ -228,6 +229,11 @@ function Help() {
           assign, send to QA, merge and file new issues. When a PR merges, confetti bursts over the desk of the developer who wrote it.
         </p>
         <p>
+          Aim at a sticky and it lifts off the board: <kbd>E</kbd> (or a click) reads it up close. <kbd>G</kbd>, or holding the click, peels a Backlog sticky off: carry it to a free developer's desk and press <kbd>E</kbd> and
+          they start that issue (the sticky goes on their monitor). A PR waiting to go to QA can be carried to the QA lab the same way. Anywhere else, <kbd>G</kbd> puts it back. Red strings join an issue to the one it
+          depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue and anything that needs you.
+        </p>
+        <p>
           The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
         </p>
       </div>
@@ -245,6 +251,8 @@ export function Overlays() {
       return <Phone tab={overlay.tab} requestId={overlay.requestId} />;
     case 'kanban':
       return <KanbanView repoId={overlay.repoId} />;
+    case 'card':
+      return <CardView repoId={overlay.repoId} cardKey={overlay.key} number={overlay.number} pr={overlay.pr} />;
     case 'app':
       return <AppViewer repoId={overlay.repoId} />;
     case 'elevator':

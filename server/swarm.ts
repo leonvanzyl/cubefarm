@@ -12,6 +12,7 @@ import { setUpDesk } from './deskSetup.ts';
 import { fixOutcome, MAX_FIX_FAILURES } from './fixOutcome.ts';
 import { fixGoesTo, PREP_HOLD_MS, prepFailure, prepHeld, type PrepStrikes } from './handOut.ts';
 import { HttpError } from './httpError.ts';
+import { IssueAges } from './issueAges.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, failedRunIds, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
@@ -31,7 +32,7 @@ import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, free
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
-import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
+import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
@@ -431,6 +432,7 @@ export class Swarm {
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
   private repoRt = new Map<string, RepoRuntime>();
+  private issueAges = new IssueAges(); // when the issues behind recent merges were filed, for the whiteboard
   private deskAlerts = new Map<string, string>(); // agent id -> the desk setup error the manager was last told about
   private prepStrikes = new Map<string, PrepStrikes>(); // `${repoId}#${pr}:${task}` -> its desks that couldn't be set up
   private clients = new Set<WebSocket>();
@@ -1317,6 +1319,9 @@ export class Swarm {
       const [issues, pulls] = await Promise.all([this.backend.listIssues(repo.fullName), this.backend.listPulls(repo.fullName)]);
       rt.issues = issues;
       rt.pulls = pulls;
+      this.issueAges.learn(repo.id, issues);
+      this.issueAges.stamp(repo.id, pulls);
+      void this.lookUpIssueAges(repo);
       rt.lastSync = Date.now();
       rt.fetchedAt = started;
       rt.syncError = undefined;
@@ -1334,6 +1339,17 @@ export class Swarm {
       rt.syncing = false;
     }
     if (this.repoRt.has(id)) this.emitRepo(repo);
+  }
+
+  /** When the issues behind the day's merges were filed, if the office never saw them open (e.g. after a restart). */
+  private async lookUpIssueAges(repo: PersistedRepo) {
+    const wanted = this.issueAges.wanted(repo.id, this.repoRt.get(repo.id)?.pulls ?? [], Date.now());
+    if (!wanted.length) return;
+    for (const n of wanted) this.issueAges.know(repo.id, n, (await this.backend.issueDetails(repo.fullName, n).catch(() => null))?.createdAt);
+    const rt = this.repoRt.get(repo.id);
+    if (!rt) return;
+    this.issueAges.stamp(repo.id, rt.pulls);
+    this.emitRepo(repo);
   }
 
   /** Keep agents and QA records in step with what happened to PRs on GitHub. */
@@ -1597,15 +1613,19 @@ export class Swarm {
     }
   }
 
-  async assign(agentId: string, issueNumber: number, note?: string) {
+  /** `waitForDeps`: refuse an issue that still waits for open ones (a sticky carried to a desk; the console may override). */
+  async assign(agentId: string, issueNumber: number, note?: string, waitForDeps = false) {
     const a = this.agent(agentId);
     const repo = this.repo(a.repoId);
     if (a.role === 'qa') throw new HttpError(400, `${a.name} is a QA tester; they test pull requests rather than issues.`);
     if (a.role === 'ceo') throw new HttpError(400, `${a.name} runs the company; give issues to the developers.`);
     if (BUSY.includes(a.status)) throw new HttpError(409, `${a.name} is already working on #${a.issueNumber}`);
     this.ensureSlot();
-    const issue = this.repoRt.get(repo.id)?.issues.find((i) => i.number === issueNumber);
+    const issues = this.repoRt.get(repo.id)?.issues ?? [];
+    const issue = issues.find((i) => i.number === issueNumber);
     if (!issue) throw new HttpError(404, `Issue #${issueNumber} is not open on ${repo.fullName}`);
+    const waits = waitForDeps ? blockers(issue.body, new Set(issues.map((i) => i.number))) : [];
+    if (waits.length) throw new HttpError(409, waitsMessage(issueNumber, waits));
     const holder = this.state.agents.find((x) => x.id !== a.id && x.repoId === repo.id && x.issueNumber === issueNumber && BUSY.includes(x.status));
     if (holder) throw new HttpError(409, `${holder.name} is already working on #${issueNumber}`);
     void this.runTask(a, repo, issue, note);
