@@ -183,6 +183,8 @@ export interface SfxRecord {
   pan: number;
   /** Whether it was actually scheduled (false while locked, unavailable, too far away or over the voice cap). */
   played: boolean;
+  /** Where its panner really was when it played, for sounds on long-lived panners (typing); else absent. */
+  from?: Vec3 | null;
   /** performance.now() when it was asked for. */
   t: number;
 }
@@ -194,10 +196,12 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
 /**
  * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
  * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
+ * Sounds frequent enough to crowd everything else out (typing) pass a `log` of their own.
  */
 export function recordSfx(
   name: string,
   { group, pos, pan = 0, peak, played = false }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean },
+  log: SfxRecord[] = probe,
 ) {
   const d = pos ? distance(ear, pos) : 0;
   const rec: SfxRecord = {
@@ -209,8 +213,8 @@ export function recordSfx(
     played,
     t: performance.now(),
   };
-  probe.push(rec);
-  if (probe.length > PROBE_SIZE) probe.splice(0, probe.length - PROBE_SIZE);
+  log.push(rec);
+  if (log.length > PROBE_SIZE) log.splice(0, log.length - PROBE_SIZE);
   return rec;
 }
 

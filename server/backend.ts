@@ -6,6 +6,8 @@ import { detectClis } from './clis.ts';
 import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
 import { realPreviews, type PreviewBackend } from './previewRunner.ts';
 import { realOffice, type OfficeHost } from './officeUpdate.ts';
+import { elevenLabs } from './elevenlabs.ts';
+import type { VoiceApi } from './voice.ts';
 import type { AgentTerminal } from './terminal.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
@@ -68,6 +70,8 @@ export interface Backend {
   previews: PreviewBackend;
   /** The running office's own folder and its launcher, for the office's self-update. */
   office: OfficeHost;
+  /** Text to speech for the manager's phone (ElevenLabs). */
+  voice: VoiceApi;
 }
 
 export const realBackend: Backend = {
@@ -111,4 +115,5 @@ export const realBackend: Backend = {
   detectClis,
   previews: realPreviews,
   office: realOffice,
+  voice: elevenLabs,
 };

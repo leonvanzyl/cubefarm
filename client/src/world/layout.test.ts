@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_SCREEN, BOARD, CEO_DESK, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, officeColliders, PLAYER_RADIUS, QA_RUG, rect, shellColliders, SPAWN, surfaceAt, type Rect } from './layout.ts';
+import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
 
 const R = 0.3;
 const box: Rect = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 };
@@ -98,6 +98,31 @@ describe('collide', () => {
     // the player can stand right in front of it to read it and press E
     const front = { x: a.x, z: monitor.maxZ + 1 };
     expect(collide(front.x, front.z, office)).toEqual(front);
+  });
+
+  it("puts the lobby's coffee corner against the south wall, clear of everything else in the lobby", () => {
+    const corner = coffeeCorner();
+    const shell = shellColliders();
+    const lobby = lobbyColliders();
+    expect(lobby).toContainEqual(corner);
+    expect(corner.maxZ).toBe(HALF_D);
+    const same = (b: Rect, c: Rect) => b.minX === c.minX && b.maxX === c.maxX && b.minZ === c.minZ && b.maxZ === c.maxZ;
+    const touches = (b: Rect, c: Rect) => b.minX < c.maxX && b.maxX > c.minX && b.minZ < c.maxZ && b.maxZ > c.minZ;
+    const furniture = lobby.filter((b) => !same(b, corner) && !shell.some((w) => same(w, b)));
+    expect(furniture.filter((b) => touches(b, corner))).toEqual([]);
+    // east of the elevator doorway (and its call button) and the directory on the south wall, west of the waiting chairs
+    expect(corner.minX).toBeGreaterThan(ELEVATOR.doorHalf + 4.5);
+    expect(corner.maxX).toBeLessThan(WAITING.x - 1);
+    // well away from the CEO's and manager's doors and the reception desk
+    expect(corner.minZ - CEO_ROOM.maxZ).toBeGreaterThan(10);
+    expect(corner.minX).toBeGreaterThan(RECEPTION.x + RECEPTION.w / 2 + 2);
+    // the player can walk up to the counter to use the machine, and the e2e's console spot is untouched
+    const front = { x: COFFEE_CORNER.x, z: corner.minZ - PLAYER_RADIUS - 0.4 };
+    expect(collide(front.x, front.z, lobby)).toEqual(front);
+    const consoleSpot = { x: MANAGER_DESK.x, z: MANAGER_DESK.z + MANAGER_DESK.d / 2 + 0.8 };
+    expect(collide(consoleSpot.x, consoleSpot.z, lobby)).toEqual(consoleSpot);
+    // and the counter blocks walking
+    expect(collide(COFFEE_CORNER.x, corner.minZ + 0.1, lobby).z).toBeLessThanOrEqual(corner.minZ - PLAYER_RADIUS + 1e-9);
   });
 
   it('stands the gong against the north wall, clear of the whiteboard, the app monitor and the desks, with a free spot in front', () => {

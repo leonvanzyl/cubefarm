@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { isBusy, pendingRequests, qaKey, unreadMessages, useStore, type PhoneTab } from '../store';
+import { needsManager } from '../qaCard';
 import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
@@ -268,9 +269,9 @@ function useCompany() {
         idleDevs: team.filter((a) => a.role === 'dev' && !isBusy(a)).length,
         issues: r.issues.length,
         prs: r.pulls.filter((p) => p.state === 'OPEN').length,
-        inQa: recs.filter((q) => q && q.status !== 'passed' && q.status !== 'needs-human').length,
+        inQa: recs.filter((q) => q && q.status !== 'passed' && !needsManager(q)).length,
         ready: recs.filter((q) => q?.status === 'passed').length,
-        stuck: recs.filter((q) => q?.status === 'needs-human').length,
+        stuck: recs.filter(needsManager).length,
         merged: r.pulls.filter((p) => p.state === 'MERGED').length,
       };
     });
@@ -286,7 +287,7 @@ function useCompany() {
         text: `${sum('ready')} pull request${sum('ready') === 1 ? ' passed' : 's passed'} QA and ${sum('ready') === 1 ? 'is' : 'are'} ready for you to merge (${readyList.map((f) => `${f.repo.fullName.split('/')[1]}: ${f.ready}`).join(', ')}).`,
         tone: 'good',
       });
-    if (sum('stuck')) report.push({ icon: '⚠️', text: `${sum('stuck')} pull request${sum('stuck') === 1 ? '' : 's'} failed QA three times and need${sum('stuck') === 1 ? 's' : ''} your call.`, tone: 'warn' });
+    if (sum('stuck')) report.push({ icon: '⚠️', text: `${sum('stuck')} pull request${sum('stuck') === 1 ? '' : 's'} need${sum('stuck') === 1 ? 's' : ''} your call: the team can't move ${sum('stuck') === 1 ? 'it' : 'them'} on alone.`, tone: 'warn' });
     if (pending) report.push({ icon: '📄', text: `${pending} hiring decision${pending === 1 ? ' is' : 's are'} waiting in Hires.`, tone: 'warn' });
     report.push({
       icon: '⚙️',

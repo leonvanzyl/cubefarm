@@ -176,10 +176,10 @@ export function CoffeeMachine({ position }: { position: [number, number, number]
     if (!located.current) {
       located.current = true;
       g.updateWorldMatrix(true, false);
-      const e = g.matrixWorld.elements;
-      spot.x = e[12] + SLOT.x;
-      spot.y = e[13] + SPOUT_Y;
-      spot.z = e[14];
+      const at = g.localToWorld(new THREE.Vector3(SLOT.x, SPOUT_Y, 0)); // once: the lobby's machine is turned
+      spot.x = at.x;
+      spot.y = at.y;
+      spot.z = at.z;
     }
 
     if (state.kind === 'brewing') {

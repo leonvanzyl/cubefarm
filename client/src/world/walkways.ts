@@ -1,5 +1,5 @@
 import { kanbanColumnSpan, KANBAN_KEYS } from './draw';
-import { BOARD, CEO_DESK, GONG_SPOT, HALF_D, HALF_W, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
+import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
 import { hoopRim } from './toys/hoopScore';
 import { clear, makeNav, planPath, roombaRects, type Nav, type Pt } from './toys/roombaBrain';
 
@@ -80,6 +80,9 @@ function windowSpots(west: number[], east: number[]): Spot[] {
   ];
 }
 
+// In front of the jukebox, picking a song.
+const jukeboxSpot = (x: number): Spot => ({ id: 'jukebox', x, z: HALF_D - JUKEBOX.d - 0.8, facing: SOUTH });
+
 function officeSpots(): Spot[] {
   return [
     ...boardSpots(),
@@ -93,6 +96,7 @@ function officeSpots(): Spot[] {
     { id: 'couch', x: -HALF_W + 1.9, z: 7.7, facing: WEST, sit: { x: -HALF_W + 1.0, z: 7.3, facing: EAST } },
     hoopSpot('office'),
     ballsSpot('office'),
+    jukeboxSpot(JUKEBOX.officeX),
     elevatorSpot(),
     // not the west window at z 8 (the couch) or the east one at z 0 (the QA lab)
     ...windowSpots([-8, 0], [-8]),
@@ -106,9 +110,13 @@ function lobbySpots(): Spot[] {
     { id: 'reception', x: RECEPTION.x, z: RECEPTION.z + RECEPTION.d / 2 + 0.6, facing: NORTH },
     // the sofa's seat faces south, towards its coffee table
     { id: 'couch', x: 10.2, z: 5.1, facing: NORTH, sit: { x: 10.6, z: 4.1, facing: SOUTH } },
-    // TODO(#78): the lobby's coffee corner (coffee machine and mug dispenser) once it lands
+    // the coffee corner's counter (Lobby.tsx) faces north from the south wall: the machine 0.3 m east of its middle,
+    // the mug dispenser 0.4 m west
+    { id: 'coffee', x: COFFEE_CORNER.x + 0.3, z: HALF_D - COFFEE_CORNER.d - 0.4, facing: SOUTH },
+    { id: 'mugs', x: COFFEE_CORNER.x - 0.4, z: HALF_D - COFFEE_CORNER.d - 0.4, facing: SOUTH },
     hoopSpot('lobby'),
     ballsSpot('lobby'),
+    jukeboxSpot(JUKEBOX.lobbyX),
     elevatorSpot(),
     ...windowSpots([1.5, 8], [-2.5, 3.6]),
   ];
