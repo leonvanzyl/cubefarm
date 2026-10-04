@@ -8,15 +8,17 @@ import { dayTime } from '../sky/useDayTime';
 import { seeded, weatherSky } from './weatherRules';
 import { weather } from './weatherState';
 
-// Rain and snow outside: streaks or flakes in a box that travels with you, every one placed and moved in the vertex
-// shader from a fixed seed and the clock (so the frame loop only sets a few uniforms), wrapped round the box, faded at
-// its edges and never inside the building's column (its rooms and its covered balconies). Past the box a curtain of
-// rain or snow, scrolling on a cylinder round you, carries it to the haze. How many are drawn follows how hard it's
-// coming down, capped, and fewer when the adaptive resolution has stepped down. Two draw calls, none in a clear sky.
+// Rain and snow outside: streaks or flakes in a box that travels with you, a little ahead of where you look, every one
+// placed and moved in the vertex shader from a fixed seed and the clock (so the frame loop only sets a few uniforms),
+// wrapped round the box (so they stay put as it moves), faded at its edges and close to your eyes, and never inside the
+// building's column (its rooms and its covered balconies). Past the box a band of rain or snow, scrolling on a cylinder
+// round you, carries it to the haze. How many are drawn follows how hard it's coming down, capped (they cost the most
+// on software rendering), and fewer when the adaptive resolution has stepped down. Two draw calls, none in a clear sky.
 
-/** The box round the camera, metres: wide enough to see well out of the windows from the middle of a floor. */
-const BOX = new THREE.Vector3(60, 30, 60);
-const MAX = { rain: 6000, snow: 4500 };
+/** The box of rain round the camera, metres, and how far ahead of you its middle is: out through the windows from the middle of a floor. */
+const BOX = new THREE.Vector3(40, 26, 40);
+const AHEAD = 12;
+const MAX = { rain: 1200, snow: 1400 };
 /** The building and its balconies: no rain or snow in there. */
 const HOLE = new THREE.Vector2(BALCONY_OUT - 0.1, HALF_D + WALL_T + 0.05);
 /** The weather's clock wraps after this many seconds, so the shader's float maths stays precise all day. */
@@ -25,6 +27,7 @@ const WRAP = 600;
 const VERT = /* glsl */ `
 attribute vec4 aSeed;
 uniform vec3 uCam;
+uniform vec3 uEye;
 uniform vec3 uBox;
 uniform vec2 uHole;
 uniform float uGround;
@@ -44,7 +47,9 @@ void main() {
   p.x += uSnow * sin(uTime * (0.7 + aSeed.w) + aSeed.y * 40.0) * 0.45;
   p.z += uSnow * cos(uTime * (0.5 + aSeed.w * 0.6) + aSeed.x * 40.0) * 0.45;
   vec3 d = abs(p - uCam) / (uBox * 0.5);
-  vAlpha = 1.0 - smoothstep(0.65, 1.0, max(d.x, max(d.y, d.z)));
+  // faded out at the box's edges, and right in front of your eyes, where a streak would fill the screen
+  float near = length(p - uEye);
+  vAlpha = (1.0 - smoothstep(0.65, 1.0, max(d.x, max(d.y, d.z)))) * smoothstep(3.0, 6.0, near);
   if ((abs(p.x) < uHole.x && abs(p.z) < uHole.y) || p.y < uGround || vAlpha <= 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -114,7 +119,7 @@ void main() {
     a = step(0.45, h) * smoothstep(0.0, 0.25, y) * (1.0 - smoothstep(0.25, 0.5, y)) * (1.0 - abs(fract(p.x) - 0.5) * 2.0);
   }
   // thickest at eye level, thinning out up and down
-  a *= 1.0 - smoothstep(10.0, 28.0, abs(vH));
+  a *= 1.0 - smoothstep(8.0, 16.0, abs(vH));
   gl_FragColor = vec4(uColor, a * uOpacity);
 }`;
 
@@ -140,6 +145,7 @@ export function Precipitation({ elevation }: { elevation: number }) {
         depthWrite: false,
         uniforms: {
           uCam: { value: new THREE.Vector3() },
+          uEye: { value: new THREE.Vector3() },
           uBox: { value: BOX },
           uHole: { value: HOLE },
           uGround: { value: 0 },
@@ -162,7 +168,7 @@ export function Precipitation({ elevation }: { elevation: number }) {
     snow.mat.uniforms.uSnow.value = 1;
     snow.mat.uniforms.uFall.value = 1.1;
     snow.mat.uniforms.uSize.value.set(0.13, 0.13);
-    const curtainGeo = new THREE.CylinderGeometry(42, 42, 60, 48, 1, true);
+    const curtainGeo = new THREE.CylinderGeometry(42, 42, 32, 48, 1, true);
     const curtainMat = new THREE.ShaderMaterial({
       vertexShader: CURTAIN_VERT,
       fragmentShader: CURTAIN_FRAG,
@@ -174,7 +180,7 @@ export function Precipitation({ elevation }: { elevation: number }) {
     const curtain = new THREE.Mesh(curtainGeo, curtainMat);
     curtain.frustumCulled = false;
     curtain.renderOrder = 2;
-    return { rain, snow, curtain, curtainGeo, curtainMat, color: new THREE.Color() };
+    return { rain, snow, curtain, curtainGeo, curtainMat, color: new THREE.Color(), centre: new THREE.Vector3() };
   }, []);
 
   useEffect(
@@ -201,6 +207,10 @@ export function Precipitation({ elevation }: { elevation: number }) {
     const night = nightFactor(dayTime.t);
     stuff.color.setHex(p.hemiSky).multiplyScalar(0.55 + 0.4 * (1 - night) + weather.flash * 0.6);
 
+    // the box's middle: a little ahead of you, level
+    camera.getWorldDirection(stuff.centre);
+    stuff.centre.y = 0;
+    stuff.centre.normalize().multiplyScalar(AHEAD).add(camera.position);
     const windX = 2.5 * m.wind;
     const windZ = 1.2 * m.wind;
     for (let k = 0; k < 2; k++) {
@@ -212,7 +222,8 @@ export function Precipitation({ elevation }: { elevation: number }) {
       part.mesh.visible = n > 0;
       if (!n) continue;
       const u = part.mat.uniforms;
-      (u.uCam.value as THREE.Vector3).copy(camera.position);
+      (u.uCam.value as THREE.Vector3).copy(stuff.centre);
+      (u.uEye.value as THREE.Vector3).copy(camera.position);
       u.uGround.value = -elevation;
       u.uTime.value = t;
       (u.uWind.value as THREE.Vector2).set(windX * (snow ? 0.5 : 1), windZ * (snow ? 0.5 : 1));

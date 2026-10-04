@@ -259,7 +259,8 @@ export function weatherSky(p: SkyPalette, m: Readonly<WeatherMix>): SkyPalette {
   p.horizon = mixHex(p.horizon, p.fog, m.fog * 0.85);
   p.zenith = mixHex(p.zenith, p.fog, m.fog * 0.55);
   p.sunColor = greyed(p.sunColor, over * 0.6, 1);
-  p.sunIntensity *= 1 - 0.6 * over - 0.15 * m.fog;
+  // overcast hides the sun: no sunny patches on the floor in the rain
+  p.sunIntensity *= Math.max(0.05, 1 - 0.85 * over - 0.15 * m.fog);
   p.hemiSky = greyed(p.hemiSky, over * 0.6, 1 - 0.12 * over);
   p.hemiGround = greyed(p.hemiGround, over * 0.4, 1 - 0.1 * over);
   p.starsOpacity *= 1 - coverOf(m);
