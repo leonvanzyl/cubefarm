@@ -14,7 +14,7 @@ import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
-import { conflictFixInstructions, lastQaRound, qaOutcome, type QaNext } from './qaOutcome.ts';
+import { conflictFixInstructions, qaOutcome, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { sendBackPatch } from './sendBack.ts';
@@ -127,6 +127,9 @@ interface QaRecord extends QaView {
   pendingSince: number | null; // when auto-merge started waiting on its checks
   mergeRetryAt: number | null; // GitHub refused the merge: try again after this
   alerted: boolean; // the manager has been told it's stuck
+  rerunSha: string | null; // the head commit whose failed checks the office re-ran (once per commit)
+  rerunAt: number | null;
+  qaChecks: PullInfo['checks'] | null; // GitHub's checks when QA last failed it: a later re-run can be the fix
 }
 
 /** Choices made when a project moves into the office. */
@@ -487,6 +490,9 @@ export class Swarm {
           pendingSince: q.pendingSince ?? null,
           mergeRetryAt: q.mergeRetryAt ?? null,
           alerted: q.alerted ?? false,
+          rerunSha: q.rerunSha ?? null,
+          rerunAt: q.rerunAt ?? null,
+          qaChecks: q.qaChecks ?? null,
           mergeNote: null,
         })),
         requests: loaded.requests ?? [],
@@ -736,8 +742,10 @@ export class Swarm {
     };
   }
 
+  /** The agent's latest screenshot: null when it has none right now, undefined for an unknown agent. */
   screenshot(agentId: string) {
-    return this.agentRt.get(agentId)?.screenshot ?? null;
+    const rt = this.agentRt.get(agentId);
+    return rt ? rt.screenshot : undefined;
   }
 
   // ---------- clients ----------
@@ -1050,6 +1058,17 @@ export class Swarm {
       // Commits arrived after QA's sign-off: they get tested too.
       this.setQa(rec, { status: 'queued', round: rec.round + 1, retests: rec.retests + 1, mergeNote: null, pendingSince: null });
       setTimeout(() => this.schedule(), 200);
+      return false;
+    }
+    if (step.do === 'rerun') {
+      // A red check may be a flake or an outage: re-run it once for this commit before a developer is sent to fix it.
+      try {
+        await this.backend.rerunFailedJobs(repo.fullName, step.runIds);
+      } catch (err) {
+        console.warn(`could not re-run the failed checks of ${repo.fullName}#${pr.number}`, err);
+        return this.sendBack(repo, rec, step.reason, step.instructions, step.needsHuman);
+      }
+      this.setQa(rec, { rerunSha: pr.headSha, rerunAt: Date.now(), pendingSince: null, alerted: false, mergeNote: 're-running a failed check' });
       return false;
     }
     if (step.do === 'send-back') return this.sendBack(repo, rec, step.reason, step.instructions, step.needsHuman);
@@ -1905,6 +1924,9 @@ export class Swarm {
         pendingSince: null,
         mergeRetryAt: null,
         alerted: false,
+        rerunSha: null,
+        rerunAt: null,
+        qaChecks: null,
       };
       this.state.qa.push(rec);
       this.setQa(rec, {});
@@ -2049,8 +2071,9 @@ export class Swarm {
     // Evidence + comment on the PR
     let commentUrl: string | null = null;
     if (rec) {
-      // A fail that would use up QA's rounds: a conflict with the default branch is the merge gate's job, not the manager's.
-      const pull = !pass && lastQaRound(rec) ? await this.backend.prDetails(repo.fullName, rec.prNumber).catch(() => null) : null;
+      // On a fail: a conflict with the default branch is the merge gate's job, not the manager's (on QA's last round),
+      // and the checks are recorded so a re-run of a red one can count as the fix.
+      const pull = !pass ? await this.backend.prDetails(repo.fullName, rec.prNumber).catch(() => null) : null;
       const next = qaOutcome(pass, rec, pull);
       try {
         this.appendLog(a, [{ kind: 'system', text: '📎 Uploading evidence and posting the QA report on the PR…' }]);
@@ -2076,6 +2099,7 @@ export class Swarm {
         pendingSince: null,
         mergeRetryAt: null,
         alerted: false,
+        qaChecks: pull?.checks ?? null,
       });
       // QA's findings travel with the merge fix; the developer's push then gets one more QA round.
       if (next === 'conflict') this.sendBack(repo, rec, 'conflict', conflictFixInstructions(fixInstructions, repo.defaultBranch), false);
@@ -2196,7 +2220,7 @@ export class Swarm {
   private async onFixFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
     const rec = this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === a.prNumber);
     // Did it push anything? A checks fix may only re-run a flaky check, so only QA and conflict fixes are asked.
-    const head = rec && result.ok && a.status !== 'stopped' && rec.fixReason !== 'checks' ? await this.prHead(a, repo, rec.prNumber) : null;
+    const current = rec && result.ok && a.status !== 'stopped' && rec.fixReason !== 'checks' ? await this.prHead(a, repo, rec.prNumber) : null;
     if (a.status === 'stopped') {
       if (rec?.status === 'fixing') this.setQa(rec, { status: 'failed' });
       return;
@@ -2213,7 +2237,7 @@ export class Swarm {
       this.appendLog(a, [{ kind: 'done', text: `✔ Fix pushed for PR #${a.prNumber} in ${this.minutes(a)}m. Back to QA.` }]);
       return;
     }
-    const step = fixOutcome(rec, head, this.minutes(a), !this.limited());
+    const step = fixOutcome(rec, current?.headSha ?? null, this.minutes(a), !this.limited(), current?.checks ?? null);
     if (!step.pushed) {
       // Like a failed session: someone gets another go, with the same instructions, before it lands on the manager.
       const needsHuman = step.set.status === 'needs-human';
@@ -2232,14 +2256,18 @@ export class Swarm {
     this.setQa(rec, { ...step.set, devSessionId: a.sessionId ?? rec.devSessionId });
     this.toast(
       'info',
-      step.set.status === 'passed' ? `${a.name} fixed PR #${rec.prNumber}; it merges once it passes again` : `${a.name} pushed fixes for PR #${rec.prNumber}; QA round ${rec.round} is queued`,
+      step.set.status === 'passed'
+        ? `${a.name} fixed PR #${rec.prNumber}; it merges once it passes again`
+        : step.set.retests
+          ? `${a.name} re-ran the failed checks on PR #${rec.prNumber}; QA re-tests it`
+          : `${a.name} pushed fixes for PR #${rec.prNumber}; QA round ${rec.round} is queued`,
     );
   }
 
-  /** The PR's head commit now; null (with a warning in the agent's log) when GitHub can't be asked. */
-  private async prHead(a: PersistedAgent, repo: PersistedRepo, prNumber: number): Promise<string | null> {
+  /** The PR's head commit and checks now; null (with a warning in the agent's log) when GitHub can't be asked. */
+  private async prHead(a: PersistedAgent, repo: PersistedRepo, prNumber: number): Promise<Pick<PrDetails, 'headSha' | 'checks'> | null> {
     try {
-      return (await this.backend.prDetails(repo.fullName, prNumber)).headSha;
+      return await this.backend.prDetails(repo.fullName, prNumber);
     } catch (err) {
       console.warn(`could not read the head of ${repo.fullName}#${prNumber}`, err);
       this.appendLog(a, [{ kind: 'system', text: `⚠ Could not check PR #${prNumber} for new commits (${oneLine(err)}); taking the fix at its word.` }]);

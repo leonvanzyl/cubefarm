@@ -36,6 +36,7 @@ const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by 
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
+let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
 /** Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. */
 function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
   Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [] });
@@ -43,7 +44,7 @@ function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
     Object.assign(pr, {
       checks: fail ? 'failing' : 'passing',
       pendingChecks: [],
-      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url}/checks` }] : [],
+      failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${++runSeq}/job/1` }] : [],
     });
   }, 12_000 + Math.random() * 10_000);
 }
@@ -481,6 +482,12 @@ export function createDemoBackend(): Backend {
       if (!pr) throw new Error('Unknown PR');
       Object.assign(pr, { headSha: fakeSha(), mergeState: 'CLEAN' });
       runChecks(pr, false);
+    },
+    rerunFailedJobs: async (fullName, runIds) => {
+      // The re-run passes: a flake, as the office hoped.
+      for (const pr of repos.get(fullName)?.pulls ?? []) {
+        if (pr.failedChecks.some((c) => runIds.some((id) => c.url?.includes(`/actions/runs/${id}/`)))) runChecks(pr, false);
+      }
     },
     closePull: async (fullName, number) => {
       const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);

@@ -7,6 +7,7 @@ import { Character } from './Character';
 import { Desk } from './Desk';
 import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
+import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
 import { Jukebox } from './Jukebox';
 import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
@@ -19,6 +20,7 @@ import { Toys } from './toys';
 
 const ACCENT = '#ff8a5b';
 const CEO_ACCENT = '#9b5de5';
+const CEO_DESK_AT: [number, number, number] = [CEO_DESK.x, 0, CEO_DESK.z]; // one array, so the memoised desk skips re-renders
 
 function useOfficeStats() {
   const repos = useStore((s) => s.repos);
@@ -251,8 +253,10 @@ function CeoBoard() {
 function CeoOffice() {
   const c = CEO_ROOM;
   const ceo = useStore((s) => s.agents[CEO_ID]);
+  const people = useMemo(() => (ceo ? [ceo] : []), [ceo]);
   return (
     <group>
+      <ErrandDirector floor="lobby" agents={people} />
       <Rug position={[(c.minX + c.maxX) / 2, 0.005, (c.minZ + c.maxZ) / 2]} size={[c.maxX - c.minX, c.maxZ - c.minZ]} color="#e6dcff" />
       <GlassWall from={[c.minX, c.minZ]} to={[c.minX, c.maxZ]} />
       <GlassWall from={[c.minX, c.maxZ]} to={[c.doorMinX, c.maxZ]} />
@@ -266,7 +270,7 @@ function CeoOffice() {
         draw={(ctx) => drawSign(ctx, 816, 120, [{ text: `CEO${ceo ? ` · ${ceo.name}` : ''}`, size: 52 }], CEO_ACCENT)}
         deps={[ceo?.name]}
       />
-      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={[CEO_DESK.x, 0, CEO_DESK.z]} />}
+      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
