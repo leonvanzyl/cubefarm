@@ -53,7 +53,7 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   const s = useStore.getState();
   quietUntil = performance.now() + QUIET_MS;
   if (focus.action.kind === 'pickup' && isBlasterId(focus.action.toyId)) {
-    takeBlaster(focus.action.toyId);
+    takeBlaster(focus.action.toyId, focus.id.startsWith('toy:rack:'));
     return;
   }
   if (focus.action.kind === 'pickup') {
