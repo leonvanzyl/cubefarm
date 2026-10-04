@@ -360,7 +360,10 @@ export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string,
     // desk, or your own folder), this desk works on it detached and pushes with `git push origin HEAD:<branch>`:
     // the other checkout is never touched.
     await git(['worktree', 'prune'], { cwd: main });
-    const holder = branchHolder(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd: main })), branch, wt);
+    // Real paths on both sides, or a desk can take itself for the holder (8.3 names, /var vs /private/var on macOS).
+    const real = (p: string) => fs.realpath(p).catch(() => p);
+    const worktrees = await Promise.all(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd: main })).map(async (w) => ({ ...w, path: await real(w.path) })));
+    const holder = branchHolder(worktrees, branch, await real(wt));
     const local = holder ? null : branch;
     if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at ${ref}; push with git push origin HEAD:${branch}.`);
 
