@@ -11,6 +11,7 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, 'e2e/**'],
     environment: 'node',
     // Anything a test imports must never see the live office's state (~/.cubefarm) or its ports.
-    env: { SWARM_HOME: path.join(os.tmpdir(), `cubefarm-vitest-${process.pid}`), SWARM_PORT: '0' },
+    // Previews tests probe ports: keep them clear of the live office's preview ranges (6300-6499).
+    env: { SWARM_HOME: path.join(os.tmpdir(), `cubefarm-vitest-${process.pid}`), SWARM_PORT: '0', SWARM_PREVIEW_PORT: '9300' },
   },
 });

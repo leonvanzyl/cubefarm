@@ -20,6 +20,7 @@ import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
 import { themeAction } from './themes/active';
+import { tuneChannel } from '../ui/theatre';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 import { peelAimed, placeSticky, pressBoard, releaseBoard } from './boardHands';
@@ -89,6 +90,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'theme') {
     themeAction(focus.action.id);
+    return;
+  }
+  if (focus.action.kind === 'channel') {
+    tuneChannel(focus.action.repoId, focus.action.pr);
     return;
   }
   if (focus.action.kind === 'resume') {

@@ -300,6 +300,7 @@ function candidateAgent(r: HireRequestView): Agent {
     color: r.color,
     hair: r.hair,
     skin: r.skin,
+    style: null,
     model: r.model,
     effort: r.effort,
     cli: '',

@@ -1,7 +1,9 @@
-// ElevenLabs' REST API through Node's fetch: checking a key, listing the account's voices, speaking a message.
-// The key travels only in the xi-api-key header; error messages are ElevenLabs' own words, never the key.
+// ElevenLabs' REST API through Node's fetch: checking a key, listing the account's voices, speaking a message,
+// turning the manager's speech into text. The key travels only in the xi-api-key header; error messages are
+// ElevenLabs' own words, never the key.
 import type { VoiceOption } from '../shared/types.ts';
-import { VoiceApiError, type VoiceApi } from './voice.ts';
+import { clipExtension } from '../shared/clipLimits.ts';
+import { STT_MODEL, VoiceApiError, type VoiceApi } from './voice.ts';
 
 const API = 'https://api.elevenlabs.io';
 const CHECK_TIMEOUT_MS = 10_000;
@@ -82,5 +84,16 @@ export const elevenLabs: VoiceApi = {
       signal,
     );
     return Buffer.from(await res.arrayBuffer());
+  },
+
+  // Speech to Text (POST /v1/speech-to-text, multipart): no "(laughter)" tags and no timestamps, just the words.
+  async transcribe(key, { audio, type }, signal) {
+    const form = new FormData();
+    form.append('model_id', STT_MODEL);
+    form.append('tag_audio_events', 'false');
+    form.append('timestamps_granularity', 'none');
+    form.append('file', new Blob([new Uint8Array(audio)], { type }), `speech.${clipExtension(type)}`);
+    const res = await call(key, '/v1/speech-to-text', { method: 'POST', body: form }, signal);
+    return s(((await res.json()) as { text?: unknown }).text);
   },
 };

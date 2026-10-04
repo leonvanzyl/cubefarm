@@ -7,6 +7,7 @@ import { LiveTerminal } from './LiveTerminal';
 import { effectiveModel } from '../../../shared/models';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
+import { MicButton } from './MicButton';
 import { closeOverlay, Panel } from './Panel';
 import { loadScreenshot } from '../screenshot';
 import { toolVerb } from '../world/draw';
@@ -101,6 +102,12 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const issueUrl = agent.issueNumber ? `https://github.com/${repo.fullName}/issues/${agent.issueNumber}` : null;
   const canMessage = working || (!isQa && !!agent.branch && agent.status !== 'idle');
   const qaRec = agent.prNumber ? qaRecords[`${repo.id}#${agent.prNumber}`] : undefined;
+  const send = (t: string) => {
+    const body = t.trim();
+    if (!body) return;
+    setText('');
+    void run(() => api.message(agent.id, body));
+  };
 
   return (
     <Panel
@@ -220,10 +227,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
         className="term-input"
         onSubmit={(e) => {
           e.preventDefault();
-          const t = text.trim();
-          if (!t) return;
-          setText('');
-          void run(() => api.message(agent.id, t));
+          send(text);
         }}
       >
         <MessageBox
@@ -241,6 +245,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
           disabled={!canMessage}
           autoFocus={!agent.terminal}
         />
+        <MicButton kind="agent" value={text} onChange={setText} onSend={send} disabled={!canMessage} />
         <button className="btn" disabled={busy || !canMessage || !text.trim()}>
           Send
         </button>

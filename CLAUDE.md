@@ -84,7 +84,9 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `workspace.ts`: floor checkouts, per-agent worktrees (`<SWARM_HOME>/workspaces/<owner>__<repo>/desks/<agent>`),
   fast-forwarding main, per-repo git lock, stopping processes an agent left running.
 - `exec.ts`: `run` / `git` / `gh`: `execFile` without a shell, prompts disabled, `CommandError` with stderr.
-- `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation.
+- `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation; and the PR theatre's PR
+  previews (`prTheatre.ts`: their slots, ports, eviction and idle stop, pure; `syncProxy.ts`: compare mode's synced scrolling).
+- `qaShots.ts`: QA's screenshots of each PR's latest round, kept for the app viewer's QA panel.
 - `previewRunner.ts`: checks out, installs and runs a floor's app in its preview worktree; kills the process tree.
 - `httpError.ts`: `HttpError(status, message)`.
 - `officeUpdate.ts`: the office's self-update: the drain decision, the launcher contract (IPC, `last-update.json`).
@@ -107,9 +109,10 @@ are in `scripts/officeSteps.mjs` (tested in `officeSteps.test.ts`).
 Shared (`shared/`, imported by both sides):
 - `types.ts`: the REST/websocket contract (`WorldSnapshot`, `ServerEvent`, views, settings).
 - `issues.ts`: issue conventions (`swarm:<specialty>` labels, `Depends on #N`, hold-up ranking).
+- `looks.ts`: the look editor's options and `cleanStyle` (an agent's `style`, checked on the server).
 
 Client (`client/`, Vite root; React 19, R3F, drei, zustand):
-- `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`), elevator,
+- `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`, `Figure.tsx`, `face.ts`), elevator,
   whiteboard, player movement and collisions (`layout.ts`), canvas textures (`draw.ts`), `toys/` (Rapier physics),
   where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid),
   errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them), toy

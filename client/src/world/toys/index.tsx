@@ -1,5 +1,6 @@
 import { Component, lazy, memo, Suspense, type ComponentType, type ReactNode } from 'react';
 import type { ToyFloor } from './balls';
+import './dogState';
 import './probe';
 
 // The physics engine is a WASM module, so the toys live in their own chunk behind their own Suspense:

@@ -50,6 +50,8 @@ You can message an agent at any time. While they're working, the message is inje
 
 Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
 
+The rest of their look is seeded from their id (hair, glasses, outfit, build and so on); QA testers wear a lab coat with a magnifier badge, the CEO a blazer and lanyard, and a developer's specialty can add a small accessory (headphones round the neck for audio, a ball under the desk for physics, a wrench badge for devex). **Look** in their Setup has a live preview and changes any of it (hair, hair colour, skin tone, facial hair, glasses, headwear, outfit, accent colour, build); picks save at once, show on their character straight away, and **Back to their seeded look** undoes them. Their faces follow what they're doing: focused while working, puzzled when their PR's checks go red or QA fails it, stressed after a long fight over a PR, joyful while cheering a merge and proud after, sleepy after a long idle, surprised when a ball hits them.
+
 ## Mission control
 
 The curved bank of screens behind reception in the lobby shows how the company is doing, per floor and in total: the pipeline (issues ready to start, being built, in QA, being fixed, ready to merge, needing you), PRs merged today and in the last hour with a 24-hour chart, median lead time (issue to merge) and QA wait over the last 24 hours, GitHub's checks (pass rate and median duration over 7 days), who's busy, idle or in error, and today's cost per floor. The cost is an estimate from the cost finished sessions report. Each floor's team sign carries a compact line of its own numbers. The manager's console → **Mission control** has the same numbers as a table.
@@ -130,6 +132,19 @@ Example, this repo previewing itself (a demo office on the floor's port, with it
 ```
 
 In `--demo` mode no git or npm runs: starting a preview serves a small placeholder page ("<floor> app · <ref>", with a click counter) on the floor's port.
+
+### The PR theatre
+
+Any open PR can run beside the floor's main preview, so you can try it before it merges. The big screen's bottom row has a channel per open PR (aim at one, press E), and the app viewer has the same channels: "main" and "PR #12 · title · ✅ QA passed".
+
+- `POST /api/repos/:repo/pr-previews/:n` starts PR #n's preview (kept as it is when it's already up; `{ "restart": true }` runs it again from the PR's latest head). `DELETE` stops it. The previews are in the snapshot's `prPreviews` and the `prPreview` / `prPreviewRemoved` events.
+- It runs the floor's preview command and environment, from a slot worktree: `desks/preview-pr-1` or `desks/preview-pr-2` (branch `swarm-preview-pr-<slot>`). A slot taken over by another PR of the same floor keeps its `node_modules`, so the install is skipped when the dependencies match.
+- Ports: 100 above the floor previews, one lane per slot (6401, 6403 … and 6402, 6404 …), skipping the office's ports, other previews' and anything already listening. `SWARM_PREVIEW_PORT` moves both ranges (default 6300); only test offices need it.
+- At most **2** PR previews at once. A third one stops the one nobody has watched the longest (a failed one first); one on screen is never stopped for room.
+- An open viewer says which PR it has on screen (`POST /api/previews/watch`, every 30 seconds). A PR preview stops after **20 minutes** off screen (`SWARM_PR_PREVIEW_IDLE_MIN` changes it, fractions allowed, for tests), when its PR merges or closes, and when the office stops. Its worktree goes with it; the office's next start clears away anything a hard stop left.
+- **Compare with main** puts main on the left and the PR on the right, the same path in both. **Sync scrolling** shows each side through a small pass-through proxy (`POST /api/repos/:repo/preview/sync`, a port the OS picks, on loopback) that adds a script to HTML pages, so each side follows the other's scrolling and links. That works for plain web pages that scroll the page itself.
+- The side panel shows the PR's GitHub checks and QA's latest report: summary, checks and screenshots. QA's screenshots of a PR's latest round are kept in `<SWARM_HOME>/qa-shots/` (served at `/api/repos/:repo/pulls/:n/qa-shots/:i`) until the PR leaves QA.
+- In `--demo` mode a PR preview is a placeholder page of its own: the PR's number and title, a highlighted "new in this PR" row, and Home / About pages to try the path and scrolling sync on.
 
 ## Updating the office
 

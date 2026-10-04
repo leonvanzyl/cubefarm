@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { CLIP_MAX_BYTES, CLIP_TOO_BIG } from '../shared/clipLimits.ts';
 import { DAY_PARTS } from '../shared/speech.ts';
 import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
@@ -117,6 +118,34 @@ app.post(
   }),
 );
 app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(req))));
+// The PR theatre: open PRs running beside the floor's app, and what the app viewer has on screen
+app.post('/api/repos/:repo/pr-previews/:n', route((req) => swarm.startPrPreview(repoId(req), num(req.params.n), req.body?.restart === true)));
+app.delete('/api/repos/:repo/pr-previews/:n', route((req) => swarm.stopPrPreview(repoId(req), num(req.params.n))));
+app.post(
+  '/api/previews/watch',
+  route((req) => {
+    const viewer = str(req.body?.viewer);
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(viewer)) throw new HttpError(400, 'viewer must be an id of 8-64 letters, digits or dashes');
+    const repo = req.body?.repoId == null ? null : str(req.body.repoId);
+    const pr = req.body?.pr == null ? null : num(req.body.pr);
+    return swarm.watchPreview(viewer, repo || null, repo ? pr : null);
+  }),
+);
+app.post('/api/repos/:repo/preview/sync', route((req) => swarm.previewSyncUrl(repoId(req), req.body?.pr == null ? null : num(req.body.pr))));
+app.get('/api/repos/:repo/pulls/:n/qa-shots/:i', async (req, res, next) => {
+  try {
+    const index = Number(req.params.i);
+    const shot = Number.isInteger(index) && index >= 0 ? await swarm.qaShot(repoId(req), num(req.params.n), index) : null;
+    res.setHeader('Cache-Control', 'no-store');
+    if (!shot) return void res.status(404).end();
+    res.setHeader('Content-Type', shot.mime);
+    // Screenshots can be SVG: never let one run script as a page of the office.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+    res.end(shot.data);
+  } catch (err) {
+    next(err);
+  }
+});
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
@@ -181,6 +210,17 @@ app.get(
   }),
 );
 app.delete('/api/voice/cache', route(() => swarm.voice.clearCache()));
+// The 🎙 with ElevenLabs: the recorded clip as the raw body (its Content-Type, X-Clip-Ms its length). A body over the
+// cap is refused before it's read, in the same words as clipProblem's.
+const clipBody = express.raw({ type: () => true, limit: CLIP_MAX_BYTES });
+app.post(
+  '/api/voice/transcribe',
+  (req, res, next) => clipBody(req, res, (err?: unknown) => next((err as { type?: unknown } | undefined)?.type === 'entity.too.large' ? new HttpError(413, CLIP_TOO_BIG) : err)),
+  route(async (req) => {
+    const audio = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    return { text: await swarm.voice.transcribe(audio, req.get('content-type'), Number(req.get('x-clip-ms'))) };
+  }),
+);
 app.get(
   '/api/voice/sample',
   route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),

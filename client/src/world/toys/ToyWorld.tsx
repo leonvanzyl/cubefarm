@@ -10,13 +10,14 @@ import { bodyState } from '../people';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
+import { Dog } from './Dog';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
 import { hoopRim, hoopSquare } from './hoopScore';
 import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
-import { npcGrips, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
+import { npcGrips, npcStance, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
 import { npcHoldPoint, npcView, type NpcAim } from './npcAim';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
@@ -35,7 +36,8 @@ const TOY_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.pusher, G
 // A ball in (or just out of) your hands: everything but you.
 const HELD_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.toys]);
 const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
-// The roomba steers itself round the building (roombaBrain.ts) and never shoves the player's pusher: it only touches toys.
+// The roomba and the dog steer themselves round the building (roombaBrain.ts, dogBrain.ts) and never shove the player's
+// pusher: they only touch toys.
 const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
 // Sensors round seated people (HitTargets.tsx) only notice toys.
 const SEATED_GROUPS = interactionGroups(G.toys, [G.toys]);
@@ -395,7 +397,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       let i = -1;
       for (let j = 0; j < defs.length; j++) if (defs[j].id === g.ball) i = j;
       const b = i >= 0 ? bodies.current[i] : null;
-      const st = bodyState(who);
+      const st = bodyState(who) ?? npcStance(who);
       if (!b || !st || i === holding.current) {
         released(who, i === holding.current ? 'taken' : 'stuck');
         continue;
@@ -548,6 +550,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Blasters floor={floor} groups={HELD_GROUPS} />
       <Mugs groups={HELD_GROUPS} />
       <HitTargets floor={floor} groups={SEATED_GROUPS} />
+      <Dog floor={floor} groups={ROOMBA_GROUPS} />
     </Physics>
   );
 }
