@@ -7,11 +7,13 @@ import { ACCENTS, appearanceFor } from './appearance';
 import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
+import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, seatBody, setBody, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
 import { useHitReaction } from './useHitReaction';
 import { Zzz } from './Zzz';
+import { hearBody, hearing } from '../ui/peopleSounds';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
 // people controller (people.ts, body.ts) can get them up, walk them about and sit them back down. `children` (the
@@ -54,6 +56,8 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.55, yaw: 0.22 }, r: { pitch: 1.55, yaw: 0.22 }, head: 0.3 }, // arms overhead
 };
+// A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
+const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
 
 // ---------- little life at the desk (fidgets.ts) ----------
 // Each fidget is drawn as a seated pose laid over the status pose: arms it takes over (weight 1) and head, lean and
@@ -226,11 +230,13 @@ export function Character({
     },
     [agent.id, life],
   );
+  useEffect(() => hearing(agent.id), [agent.id]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const now = performance.now();
     const t = now / 1000 + seed.current;
+    const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
 
     // ---------- where the body is ----------
     const st = move.s;
@@ -259,13 +265,14 @@ export function Character({
         b.position.set(te[0] * dx + te[2] * dz, 0, te[8] * dx + te[10] * dz);
         b.rotation.y = st.heading - st.seatHeading;
       }
-      const g = GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
+      const g = party ? PARTY_ARMS : GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
       const kg = 1 - Math.exp(-dt * 6);
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
       move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
       move.gh += (g.head - move.gh) * kg;
+      hearBody(agent.id, st, st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none', dt, te[13]);
     }
     const seated = st.stage === 'seated';
     const k = smooth(st.sit); // 1 seated, 0 standing
@@ -281,11 +288,11 @@ export function Character({
 
     // ---------- the seated pose ----------
     const busy = agent.status === 'working' || agent.status === 'preparing';
-    const cheering = agent.status === 'done' && agent.endedAt != null && Date.now() - agent.endedAt < 7000;
+    const cheering = party || (agent.status === 'done' && agent.endedAt != null && Date.now() - agent.endedAt < 7000);
     // A little hysteresis so poses don't flicker between quick tool calls.
     const sinceTool = now - lastTool.current.at;
     const browsing = lastTool.current.name?.startsWith('mcp__playwright') && sinceTool < 4000;
-    const name: PoseName = busy
+    const name: PoseName = party ? 'cheer' : busy
       ? agent.status === 'preparing'
         ? 'typing'
         : browsing
@@ -319,6 +326,7 @@ export function Character({
     const glide = Math.sin(t * 1.9) * 0.06 * c.mouse;
     const click = (Math.sin(t * 5.3) > 0.93 ? 0.04 : 0) * c.mouse;
     const wave = cheering ? Math.sin(t * 9) * 0.35 : 0;
+    const waveUp = party ? wave * up : 0; // up and partying, they wave too
 
     // Longer arms on taller people: tip them down a touch so hands still land on the keyboard.
     const reach = -(look.height - 1) * 0.55;
@@ -383,10 +391,10 @@ export function Character({
     const rp = (HANG.pitch + swing * 1.1 + idle) * (1 - move.gr) + move.r.pitch * move.gr;
     const ry = HANG.yaw * (1 - move.gr) + move.r.yaw * move.gr;
     if (armL.current && armR.current) {
-      armL.current.rotation.set(lerp(c.l.pitch + reach + tapL, o.l.pitch, wl) * k + lp * up + jolt, lerp(-(c.l.yaw + driftL) + wave, -o.l.yaw, wl) * k - ly * up, 0);
+      armL.current.rotation.set(lerp(c.l.pitch + reach + tapL, o.l.pitch, wl) * k + lp * up + jolt, lerp(-(c.l.yaw + driftL) + wave, -o.l.yaw, wl) * k - ly * up + waveUp, 0);
       armR.current.rotation.set(
         lerp(c.r.pitch + reach + tapR - click, o.r.pitch, wr) * k + rp * up + jolt,
-        lerp(c.r.yaw + driftR * (1 - c.mouse) + glide - wave, o.r.yaw, wr) * k + ry * up,
+        lerp(c.r.yaw + driftR * (1 - c.mouse) + glide - wave, o.r.yaw, wr) * k + ry * up - waveUp,
         0,
       );
     }

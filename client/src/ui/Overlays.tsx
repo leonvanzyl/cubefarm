@@ -150,9 +150,12 @@ function Help() {
           Every office floor's kitchenette has a coffee machine and a stack of mugs. Take a mug (<kbd>E</kbd>), aim at the machine's drip tray and press <kbd>E</kbd> to put it under the spout, then press the
           machine's round button. After a few seconds of grinding and gurgling it beeps: aim at the mug and press <kbd>E</kbd> to take your coffee. You can take the mug out early (it keeps what it has), and a dropped mug can go back in for a refill.
         </p>
+        <p>
+          With coffee in hand, <kbd>E</kbd> takes a sip wherever you're looking (except at the machine). A full mug is three sips: the last is one big gulp, and then you drop the empty mug. Pick it up and refill it, or take a fresh one.
+        </p>
         <h3>Sound</h3>
         <p>
-          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys and alerts (the phone, the elevator and these cues) up or down on their own.
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys and alerts (the phone, the elevator, the gong and these cues) up or down on their own.
         </p>
         <SoundControls />
         <h3>The building</h3>

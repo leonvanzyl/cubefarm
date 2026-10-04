@@ -26,8 +26,8 @@ const SPECS: Record<BallKind, Omit<BallDef, 'id' | 'start'>> = {
   beach: { kind: 'beach', r: 0.4, restitution: 0.8, density: 1.2, damping: 0.9 },
   exercise: { kind: 'exercise', r: 0.45, restitution: 0.7, density: 1.6, damping: 0.9 },
   yarn: { kind: 'yarn', r: 0.33, restitution: 0.35, density: 2.5, damping: 1.3 },
-  // Thrown softer than the others, so a charged shot from about 4 m has a usable window (tuned in a throw simulation).
-  basketball: { kind: 'basketball', r: HOOP.ball.r, restitution: 0.75, density: 60, damping: 0.5, throwSpeed: 8.5 },
+  // Its numbers live with the hoop's (hoopScore.ts), where the throw simulation (throwSim.ts) uses them too.
+  basketball: { kind: 'basketball', ...HOOP.ball },
 };
 
 const ball = (id: string, kind: BallKind, x: number, z: number): BallDef => ({ id, ...SPECS[kind], start: { x, y: SPECS[kind].r + 0.02, z } });

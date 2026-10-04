@@ -189,6 +189,7 @@ export class Previews {
 
   /** The floor is leaving the building: stop its preview and remove the preview worktree. */
   async remove(f: PreviewFloor) {
+    const main = this.backend.mainDir(f.fullName); // now: the floor points away from its folder before the preview stops
     const r = this.runs.get(f.id);
     if (r) {
       r.gen++;
@@ -197,7 +198,7 @@ export class Previews {
     this.runs.delete(f.id);
     this.hasDefault.delete(f.id);
     clearTimeout(this.emitTimers.get(f.id));
-    await this.backend.removeDesk(f.fullName, PREVIEW_SLUG).catch(() => undefined);
+    await this.backend.removeDesk(f.fullName, PREVIEW_SLUG, main).catch(() => undefined);
   }
 
   /** Server shutdown: stop every running preview. */

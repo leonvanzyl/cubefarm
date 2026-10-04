@@ -1,5 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test';
-import { MANAGER_DESK } from '../client/src/world/layout';
+import { MANAGER_DESK, surfaceAt } from '../client/src/world/layout';
 import { colourStats, decodePng } from './png';
 
 // Smoke tests against the demo office: it loads without errors, you can walk in, the 3D view renders and moves,
@@ -234,6 +234,31 @@ test('the coffee machine fills a mug you put under it', async ({ page }) => {
   expect(sounds.every((s) => s.group === 'toys' && s.at)).toBe(true);
 });
 
+test('E sips a full mug twice, gulps the last, then the empty mug drops with a clunk', async ({ page }) => {
+  await enterOffice(page);
+  type Toys = { held: { kind: string; sips: number } | null; sipping: boolean; mugs: { sips: number }[] };
+  const toys = () => page.evaluate(() => (window as unknown as { __swarmToys: Toys }).__swarmToys);
+  await page.evaluate(() => (window as unknown as { __swarmGiveMug(sips: number): void }).__swarmGiveMug(3));
+  await expect(page.getByText('Sip coffee')).toBeVisible();
+
+  for (const left of [2, 1]) {
+    await page.keyboard.press('e');
+    await expect.poll(async () => (await toys()).held?.sips).toBe(left);
+    await expect.poll(async () => (await toys()).sipping).toBe(false);
+  }
+  await page.keyboard.press('e'); // the big last gulp
+  await expect.poll(async () => (await toys()).held, { timeout: 10_000 }).toBeNull();
+  await expect.poll(async () => (await toys()).mugs).toEqual([expect.objectContaining({ sips: 0 })]);
+
+  type Rec = { name: string; group: string | null; at: unknown };
+  const sounds = () => page.evaluate(() => (window as unknown as { __swarmSfx: Rec[] }).__swarmSfx.filter((s) => s.name.startsWith('mug-')));
+  await expect.poll(async () => (await sounds()).some((s) => s.name === 'mug-clunk'), { timeout: 10_000 }).toBe(true);
+  const recs = await sounds();
+  expect(new Set(recs.map((s) => s.name))).toEqual(new Set(['mug-sip', 'mug-mm', 'mug-gulp', 'mug-ahh', 'mug-clunk']));
+  expect(recs.every((s) => s.group === 'toys')).toBe(true);
+  expect(recs.filter((s) => s.name === 'mug-clunk').every((s) => s.at)).toBe(true);
+});
+
 test('__swarmSfx records sounds, fading and panning with where you stand', async ({ page }) => {
   type Rec = { name: string; at: { x: number } | null; gain: number; pan: number; played: boolean };
   const ping = (x: number, z: number) =>
@@ -262,4 +287,61 @@ test('__swarmSfx records sounds, fading and panning with where you stand', async
   expect(near.pan).toBeGreaterThan(0.5);
   const left = await ping(v.x - right.x * 3, v.z - right.z * 3);
   expect(left.pan).toBeLessThan(-0.5);
+});
+
+test('people get up with a chair creak, walk over with footsteps for the floor, chat and move a sticky', async ({ page }) => {
+  // Floor 1, on the open wood floor between the front desk row and the elevator.
+  const spot: SavedView = { floor: 1, x: -4, z: 6, yaw: 0, pitch: 0 };
+  await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(spot)] as const);
+  await enterOffice(page);
+  // window.__swarmPeople (world/people.ts) moves people by hand
+  const people = (fn: 'list' | 'walkTo' | 'gesture', ...args: (string | number)[]) =>
+    page.evaluate(([f, a]) => (window as unknown as { __swarmPeople: Record<string, (...x: unknown[]) => unknown> }).__swarmPeople[f](...a), [fn, args] as const);
+  const ids = async () => ((await people('list')) as { id: string }[]).map((p) => p.id);
+  await expect.poll(async () => (await ids()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
+  const [a, b] = await ids();
+
+  // The probe keeps only the last 50 sounds: gather what's been heard as it comes.
+  type Rec = { name: string; group: string | null; at: { x: number; y: number; z: number } | null; t: number };
+  const heard = new Map<string, Rec>();
+  const listen = async () => {
+    for (const r of await page.evaluate(() => (window as unknown as { __swarmSfx: Rec[] }).__swarmSfx)) heard.set(`${r.name}@${r.t}`, r);
+    return [...heard.values()];
+  };
+  const names = async () => new Set((await listen()).map((r) => r.name));
+
+  await people('walkTo', a, spot.x - 0.6, spot.z - 1.5);
+  await people('walkTo', b, spot.x + 0.6, spot.z - 1.5);
+  for (const name of ['chair:creak', 'chair:roll', 'chat:blah']) {
+    await expect.poll(async () => (await names()).has(name), { message: `${name} in __swarmSfx`, timeout: 90_000, intervals: [250] }).toBe(true);
+  }
+  const steps = (await listen()).filter((r) => r.name.startsWith('step:') && r.name !== 'step:scuff');
+  expect(steps.length).toBeGreaterThan(0);
+  for (const s of steps) {
+    expect(s.group).toBe('steps');
+    expect(s.name).toBe(`step:${surfaceAt('office', s.at!.x, s.at!.z)}`); // the voice for the floor under their feet
+  }
+  const chat = (await listen()).find((r) => r.name === 'chat:blah')!;
+  expect(chat.group).toBe('typing');
+  expect(Math.abs(chat.at!.z - (spot.z - 1.5))).toBeLessThan(0.5); // from where they stand together
+
+  await people('gesture', a, 'reach');
+  await expect.poll(async () => (await names()).has('sticky:peel'), { timeout: 30_000, intervals: [250] }).toBe(true);
+  await people('gesture', a, 'none');
+  await expect.poll(async () => (await names()).has('sticky:slap'), { timeout: 30_000, intervals: [250] }).toBe(true);
+});
+
+test('the roomba beeps from its dock as it heads out', async ({ page }) => {
+  await enterOffice(page);
+  // It starts on its dock nearly charged: a full-charge tune, then two beeps as it backs off. Both are recorded (and
+  // positional, in the toys group) even when it's too far away to hear.
+  const leave = () =>
+    page.evaluate(() => {
+      const w = window as unknown as { __swarmSfx: { name: string; group: string | null; at: unknown }[] };
+      return w.__swarmSfx.find((r) => r.name === 'roomba:leave') ?? null;
+    });
+  await expect.poll(leave, { timeout: 60_000, intervals: [250] }).not.toBeNull();
+  const rec = (await leave())!;
+  expect(rec.group).toBe('toys');
+  expect(rec.at).not.toBeNull();
 });
