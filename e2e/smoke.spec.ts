@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from '@playwright/test';
-import { MANAGER_DESK } from '../client/src/world/layout';
+import { MANAGER_DESK, MAX_DESKS, QA_LAB } from '../client/src/world/layout';
+import { keyboardSpot } from '../client/src/world/typing';
 import { colourStats, decodePng } from './png';
 
 // Smoke tests against the demo office: it loads without errors, you can walk in, the 3D view renders and moves,
@@ -175,4 +176,28 @@ test('holding W walks forward', async ({ page }) => {
   const to = (await savedView(page))!;
   expect(to.floor).toBe(from.floor);
   expect(to.yaw).toBeCloseTo(from.yaw); // W walks, it doesn't turn
+});
+
+test("working agents type at their desks, and stop while a panel covers the view", async ({ page }) => {
+  // The middle of floor 1, where the demo's developers are busy.
+  const spot: SavedView = { floor: 1, x: 0, z: -7, yaw: 0, pitch: 0.15 };
+  await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(spot)] as const);
+  await enterOffice(page);
+  type Entry = { name: string; group: string; at: { x: number; y: number; z: number } | null; t: number };
+  const typing = () => page.evaluate(() => ((window as unknown as { __swarmSfx?: Entry[] }).__swarmSfx ?? []).filter((e) => e.group === 'typing'));
+  await expect.poll(async () => (await typing()).length, { message: 'typing sounds', timeout: 60_000 }).toBeGreaterThan(0);
+  // Every keystroke comes from someone's keyboard or mouse on this floor.
+  const desks = [
+    ...Array.from({ length: MAX_DESKS }, (_, slot) => ({ role: 'dev' as const, slot })),
+    ...QA_LAB.stations.map((_, slot) => ({ role: 'qa' as const, slot })),
+  ].flatMap(({ role, slot }) => [false, true].map((mouse) => keyboardSpot(role, slot, mouse, { x: 0, y: 0, z: 0 })));
+  for (const e of await typing()) expect(desks.some((d) => Math.hypot(d.x - e.at!.x, d.y - e.at!.y, d.z - e.at!.z) < 1e-6)).toBe(true);
+  await expect(page.getByText('Open the Kanban board')).toBeVisible(); // the crosshair hint
+  await page.keyboard.press('e'); // the Kanban board covers the view
+  await expect(page.getByText(/In progress/).first()).toBeVisible();
+  await page.waitForTimeout(500);
+  const before = await page.evaluate(() => performance.now());
+  await page.waitForTimeout(1500);
+  expect((await typing()).filter((e) => e.t > before)).toEqual([]);
+  await page.keyboard.press('Escape');
 });
