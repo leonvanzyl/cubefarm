@@ -9,6 +9,7 @@ import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Player } from './Player';
 import { Lights } from './Shell';
+import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
 import { TypingSounds } from './TypingSounds';
@@ -56,9 +57,8 @@ export function Game() {
         gl.shadowMap.type = THREE.PCFSoftShadowMap;
       }}
     >
-      <color attach="background" args={['#bfe3ff']} />
-      <fog attach="fog" args={['#f3ece2', 30, 70]} />
       <DayClock />
+      <Sky />
       <Lights />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Player colliders={colliders} floor={floor} />
