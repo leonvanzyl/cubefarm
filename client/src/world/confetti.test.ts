@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PullInfo, QaView, RepoView } from '../../../shared/types';
-import { emitMerge, mergeAuthor, mergeBursts, newlyMerged, onMerge, recentQaRecord, rememberQa } from './confetti';
+import { canBurst, emitMerge, mergeAuthor, mergeBursts, newlyMerged, onMerge, recentQaRecord, rememberQa } from './confetti';
 
 const pr = (number: number, state: PullInfo['state'], headRefName = `swarm/issue-${number}-ada`) => ({ number, state, headRefName }) as PullInfo;
 const repo = (pulls: PullInfo[]) => ({ id: 'o/r', pulls }) as RepoView;
@@ -58,6 +58,17 @@ describe('mergeBursts', () => {
   it('remembers a QA record dropped just before the merge shows up', () => {
     rememberQa('o/r#7', qa('a2'));
     expect(mergeBursts(true, before, after, (n) => recentQaRecord(`o/r#${n}`), agents)[0].agentId).toBe('a2');
+  });
+});
+
+describe('canBurst', () => {
+  const open = { hidden: false, covered: false, reducedMotion: false };
+
+  it('bursts only while the office is on screen and moving', () => {
+    expect(canBurst(open)).toBe(true);
+    expect(canBurst({ ...open, hidden: true })).toBe(false);
+    expect(canBurst({ ...open, covered: true })).toBe(false); // terminal, Kanban or manager's console open
+    expect(canBurst({ ...open, reducedMotion: true })).toBe(false);
   });
 });
 

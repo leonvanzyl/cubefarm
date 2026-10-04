@@ -5,8 +5,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { RepoView } from '../../../shared/types';
-import type { Agent } from '../store';
-import { onMerge } from './confetti';
+import { coversView, useStore, type Agent } from '../store';
+import { canBurst, onMerge } from './confetti';
 import { BOARD, deskPosition } from './layout';
 
 const SLOTS = 3; // bursts at once
@@ -89,7 +89,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
 
     const burst = (agentId?: string | null) => {
       const m = mesh.current;
-      if (!m || document.hidden || reducedMotion()) return;
+      if (!m || !canBurst({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reducedMotion() })) return;
       const dev = agentId ? agentsRef.current.find((a) => a.id === agentId && a.role === 'dev') : undefined;
       const key = dev?.id ?? 'board';
       if (sim.slots.some((s) => s.key === key)) return; // one per desk
@@ -112,12 +112,25 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       m.visible = true;
     };
 
+    // A panel that covers the view stops the frame loop: drop bursts in the air rather than finish them later.
+    const unsub = useStore.subscribe((s) => {
+      const m = mesh.current;
+      if (!m?.visible || !coversView(s.overlay)) return;
+      sim.dummy.scale.setScalar(0);
+      sim.dummy.updateMatrix();
+      for (let i = 0; i < SLOTS * PIECES; i++) m.setMatrixAt(i, sim.dummy.matrix);
+      m.instanceMatrix.needsUpdate = true;
+      for (const slot of sim.slots) slot.key = null;
+      m.visible = false;
+    });
+
     const off = onMerge((b) => {
       if (b.repoId === repo.id) burst(b.agentId);
     });
     controller = { active, burst };
     return () => {
       off();
+      unsub();
       if (controller?.burst === burst) controller = null;
     };
   }, [sim, repo.id]);

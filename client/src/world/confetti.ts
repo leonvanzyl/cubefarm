@@ -41,6 +41,12 @@ export function mergeBursts(live: boolean, before: RepoView | undefined, after: 
   return newlyMerged(before?.pulls, after.pulls).map((p) => ({ repoId: after.id, prNumber: p.number, agentId: mergeAuthor(after.id, p, qaFor(p.number), agents) }));
 }
 
+/**
+ * Whether a burst may start now. A hidden tab or a panel covering the view stops the frame loop, so a
+ * burst started then would freeze and play when the view comes back: it's dropped instead.
+ */
+export const canBurst = (o: { hidden: boolean; covered: boolean; reducedMotion: boolean }) => !o.hidden && !o.covered && !o.reducedMotion;
+
 // ---------- QA records that just left ----------
 
 // The server drops a PR's QA record (qaRemoved) just before it sends the repo update that shows the
