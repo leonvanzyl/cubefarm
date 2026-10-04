@@ -26,7 +26,8 @@ import { PREVIEW_SLUG } from './previewRunner.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, failedLogLines, noPushNudge, ownPrLine, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
 import { QA_RESUME_PROMPT, qaRetry } from './qaRetry.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
-import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
+import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, resumeRefusal, usageLabel, usageView, waived, warningView, type UsageWarning, type Waiver, type WorkKind } from './pacing.ts';
+import { emptyHistory, loadHistory, opsView, recordChecks, recordCost, recordMerges, recordQa, type FloorState, type OpsHistory } from './metrics.ts';
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
@@ -49,6 +50,7 @@ import type {
   IssueInfo,
   LogLine,
   OfficeUpdateView,
+  OpsView,
   PhoneMessage,
   PreviewConfig,
   PreviewView,
@@ -59,6 +61,8 @@ import type {
   RepoView,
   ServerEvent,
   SwarmSettings,
+  UsageView,
+  UsageWarningView,
   WorldSnapshot,
 } from '../shared/types.ts';
 
@@ -169,6 +173,7 @@ interface Persisted {
   messages: PhoneMessage[];
   phoneReadAt: number;
   prLimits: number; // the PR budgets (PR_LIMITS_VERSION) needs-human records were judged by
+  ops: OpsHistory; // mission control's rolling week of merges, QA verdicts, check runs and costs
 }
 
 interface Shot {
@@ -272,6 +277,9 @@ const MAX_ISSUE_FAILURES = 2;
 const MAX_QA_FAILURES = 2;
 // How long the office waits after Claude's usage limit is hit when Claude doesn't say when it resets.
 const LIMIT_PAUSE_MS = 15 * 60_000;
+// Mission control's numbers are recomputed after these events (debounced), and every half minute for the clock's sake.
+const OPS_EVENTS = new Set<ServerEvent['type']>(['repo', 'repoRemoved', 'agent', 'agentRemoved', 'qa', 'qaRemoved', 'ceo']);
+const OPS_TICK_MS = 30_000;
 const oneLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split(/\r?\n/)[0].slice(0, 200);
 
 // The latest browser screenshot per agent is kept on disk so monitors survive a server restart.
@@ -404,6 +412,7 @@ export class Swarm {
     messages: [],
     phoneReadAt: 0,
     prLimits: PR_LIMITS_VERSION,
+    ops: emptyHistory(),
   };
   /**
    * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
@@ -534,6 +543,7 @@ export class Swarm {
         messages: loaded.messages ?? [],
         phoneReadAt: loaded.phoneReadAt ?? 0,
         prLimits: loaded.prLimits ?? 1,
+        ops: loadHistory(loaded.ops, Date.now()),
       };
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
@@ -608,6 +618,8 @@ export class Swarm {
         for (let i = 0; i < (repo.floor === 1 ? 5 : 3); i++) this.hireAgent(repo.id, {});
         this.updateRepo(repo.id, { autoAssign: true });
       }
+      // Mission control opens on a week that already happened.
+      this.state.ops = this.backend.seedOps?.(this.state.repos.map((r) => r.id), Date.now()) ?? this.state.ops;
     }
     for (const r of this.state.repos) this.ensureQaTester(r);
     this.ensureCeo(interrupted);
@@ -641,6 +653,7 @@ export class Swarm {
       void this.voice.prune();
     }, this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
+    setInterval(() => this.emitOps(), OPS_TICK_MS); // the clock moves the numbers too: the last hour, today, errors turning into alarms
     void this.backend
       .detectClis()
       .then((clis) => {
@@ -792,6 +805,7 @@ export class Swarm {
       messages: this.state.messages.slice(-100),
       phoneReadAt: this.state.phoneReadAt,
       usage: this.usageNow(),
+      ops: this.opsNow(),
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
@@ -821,6 +835,7 @@ export class Swarm {
   private broadcast(ev: ServerEvent) {
     const msg = JSON.stringify(ev);
     for (const ws of this.clients) if (ws.readyState === ws.OPEN) ws.send(msg);
+    if (OPS_EVENTS.has(ev.type)) this.opsSoon();
   }
 
   private toast(level: 'info' | 'success' | 'error', text: string) {
@@ -1320,6 +1335,7 @@ export class Swarm {
       rt.lastSync = Date.now();
       rt.fetchedAt = started;
       rt.syncError = undefined;
+      this.recordSync(repo, issues, pulls);
       this.reconcilePulls(repo, pulls);
       // Something was merged since the last look (by the office or anyone else): bring the folder up to date.
       const newest = pulls.reduce<string | null>((m, p) => (p.mergedAt && (!m || p.mergedAt > m) ? p.mergedAt : m), null);
@@ -1916,6 +1932,7 @@ export class Swarm {
     a.endedAt = Date.now();
     a.costUsd += result.costUsd;
     a.turns += result.turns;
+    recordCost(this.state.ops, repo.id, result.costUsd, a.endedAt);
     // Dev servers the agent forgot to stop would otherwise keep its port and lock its desk folder.
     void this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a)).catch(() => undefined);
     if (result.interrupted) this.interrupted(a);
@@ -2088,6 +2105,7 @@ export class Swarm {
 
   private async runQa(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord) {
     const branch = qaBranch(rec.prNumber, slugify(a.name));
+    this.qaWaits.set(`${repo.id}#${rec.prNumber}`, Date.now() - rec.updatedAt); // queued since its last change
     this.setQa(rec, { status: 'testing', qaAgentId: a.id });
     this.beginTask(
       a,
@@ -2218,6 +2236,9 @@ export class Swarm {
     // Evidence + comment on the PR
     let commentUrl: string | null = null;
     if (rec) {
+      const key = `${repo.id}#${rec.prNumber}`;
+      recordQa(this.state.ops, repo.id, pass, this.qaWaits.get(key) ?? null, Date.now());
+      this.qaWaits.delete(key);
       // On a fail: a conflict with the default branch is the merge gate's job, not the manager's (on QA's last round),
       // and the checks are recorded so a re-run of a red one can count as the fix.
       const pull = !pass ? await this.backend.prDetails(repo.fullName, rec.prNumber).catch(() => null) : null;
@@ -2560,6 +2581,9 @@ export class Swarm {
   private fixNudged = new Set<string>(); // `${repoId}#${pr}`: its fix session was asked once to push or say why not
   private pausedUntil = 0; // Claude's usage limit was hit: nothing new starts before this
   private pacingUntil = 0; // Claude warned about usage: new issues are paced until this
+  private pacingLimit: string | null = null; // which of Claude's limits the pacing is for
+  private lastWarning: UsageWarningView | null = null; // the latest usage warning, for the usage meter
+  private waiver: Waiver | null = null; // pacing the manager cleared with "Resume full speed"
   private lastUsage = '';
 
   /** Backlog issues that can start now, most urgent first: the ones holding up the longest chain of other issues, then the oldest. */
@@ -2674,12 +2698,42 @@ export class Swarm {
   /** Claude warned that usage is getting high: pace new issues until the window resets, rather than run into the limit. */
   private paceForWarning(info: UsageWarning) {
     const now = Date.now();
+    this.lastWarning = warningView(info, now);
     const until = info.resetsAt && info.resetsAt > now ? info.resetsAt : now + PACING_MS;
-    if (until <= this.pacingUntil) return;
+    // The manager already resumed full speed for this window: they topped up, or their usage was reset.
+    if (until <= this.pacingUntil || waived(info, this.waiver, now)) return this.emitUsage();
     const fresh = now >= this.pacingUntil;
     this.pacingUntil = until;
+    this.pacingLimit = info.rateLimitType;
     if (fresh) this.postMessage('office', pacingMessage(info, until, this.state.settings.pacingSessions, now));
     this.emitUsage();
+  }
+
+  /** The manager's "Resume full speed" (they topped up, or their usage was reset): pacing ends now. A hard pause never does. */
+  resumeFullSpeed(): UsageView {
+    const now = Date.now();
+    const refused = resumeRefusal({ now, pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil });
+    if (refused) throw new HttpError(409, refused);
+    this.waiver = { until: this.pacingUntil, limit: this.pacingLimit };
+    this.pacingUntil = 0;
+    this.postMessage('office', '⏩ You resumed full speed: new issues start as usual again. If Claude turns a session away at the limit, the office still pauses until it resets.');
+    this.emitUsage();
+    setTimeout(() => this.schedule(), 200);
+    return this.usageNow();
+  }
+
+  /** The demo's stand-in for Claude's usage warning or limit (POST /api/usage/simulate), so pacing and the pause can be tried. */
+  simulateUsage(kind: unknown): UsageView {
+    const fake = this.backend.simulateUsage;
+    if (!fake) throw new HttpError(404, 'Usage can only be simulated in the demo office.');
+    if (kind !== 'warning' && kind !== 'limit') throw new HttpError(400, 'kind must be "warning" or "limit"');
+    const usage = fake(kind, Date.now());
+    if ('limitResetsAt' in usage) this.pauseForLimit(usage.limitResetsAt);
+    else {
+      this.waiver = null; // a simulated warning always paces, even after Resume full speed
+      this.paceForWarning(usage);
+    }
+    return this.usageNow();
   }
 
   /** May work of this kind start now, as far as Claude's usage goes? */
@@ -2688,7 +2742,7 @@ export class Swarm {
   }
 
   private usageNow() {
-    return usageView({ now: Date.now(), pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil });
+    return usageView({ now: Date.now(), pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil }, this.lastWarning);
   }
 
   private emitUsage() {
@@ -2706,6 +2760,57 @@ export class Swarm {
       this.postMessage('office', "✅ Claude's usage is back to normal. The office starts new work at full speed again.");
     }
     this.emitUsage();
+  }
+
+  // ---------- mission control ----------
+
+  private opsTimer: NodeJS.Timeout | null = null;
+  private lastOps = '';
+  private issueBorn = new Map<string, number>(); // `${repoId}#${issue}` -> when it was opened: its lead time, once it's merged and closed
+  private qaWaits = new Map<string, number>(); // `${repoId}#${pr}` -> how long its QA run in progress waited for a tester
+
+  /** A sync's merges and finished check runs go into mission control's history. */
+  private recordSync(repo: PersistedRepo, issues: IssueInfo[], pulls: PullInfo[]) {
+    const now = Date.now();
+    for (const i of issues) this.issueBorn.set(`${repo.id}#${i.number}`, Date.parse(i.createdAt));
+    const born = (n: number) => this.issueBorn.get(`${repo.id}#${n}`) ?? null;
+    if (recordMerges(this.state.ops, repo.id, pulls, born, now) + recordChecks(this.state.ops, repo.id, pulls, now) > 0) this.save();
+  }
+
+  /** Every floor as mission control sees it now. */
+  private opsNow(): OpsView {
+    const floors: FloorState[] = this.state.repos.map((r) => {
+      const rt = this.repoRt.get(r.id);
+      return {
+        repoId: r.id,
+        floor: r.floor,
+        ready: rt?.lastSync ? this.readyIssues(r).length : 0,
+        agents: this.state.agents.filter((a) => a.repoId === r.id),
+        prs: (rt?.pulls ?? [])
+          .filter((p) => p.state === 'OPEN')
+          .map((p) => {
+            const q = this.state.qa.find((x) => x.repoId === r.id && x.prNumber === p.number);
+            return { number: p.number, qa: q ? this.qaView(q) : null, why: q?.stuckWhy ?? q?.mergeNote ?? null };
+          }),
+      };
+    });
+    return opsView(floors, this.state.ops, Date.now());
+  }
+
+  /** Recompute mission control shortly: changes usually come several at a time. */
+  private opsSoon() {
+    this.opsTimer ??= setTimeout(() => this.emitOps(), 400);
+  }
+
+  /** Broadcast mission control's numbers, but only when they changed: the wall repaints only then. */
+  private emitOps() {
+    if (this.opsTimer) clearTimeout(this.opsTimer);
+    this.opsTimer = null;
+    const ops = this.opsNow();
+    const key = JSON.stringify(ops);
+    if (key === this.lastOps) return;
+    this.lastOps = key;
+    this.broadcast({ type: 'ops', ops });
   }
 
   /** A failed session releases its issue for someone else; an issue that keeps failing waits for the manager. */
@@ -3086,6 +3191,7 @@ export class Swarm {
     a.endedAt = Date.now();
     a.costUsd += result.costUsd;
     a.turns += result.turns;
+    recordCost(this.state.ops, '', result.costUsd, a.endedAt);
     const job = this.state.ceo.job;
     this.state.ceo.job = null;
     if (job?.kind === 'triage') this.endTriage(job);
