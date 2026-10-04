@@ -429,6 +429,93 @@ input.inline:focus {
   white-space: nowrap;
   pointer-events: none;
 }
+/* the hover card beside the crosshair (ui/AgentCard.tsx) */
+.agent-card {
+  position: absolute;
+  top: 50%;
+  right: calc(50% + 34px);
+  width: min(290px, calc(50vw - 50px));
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-left: 8px solid var(--who, var(--ink));
+  border-radius: 14px;
+  box-shadow: 0 4px 0 var(--ink);
+  font-size: 0.85rem;
+  pointer-events: none;
+  animation: fadein 0.15s ease-out;
+}
+.ac-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ac-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--who, var(--accent));
+}
+.ac-who {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.15;
+}
+.ac-name {
+  font-weight: 700;
+  font-size: 1rem;
+}
+.ac-title,
+.ac-foot {
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-time {
+  flex: none;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.ac-on {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-now {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-detail {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+.ac-steps {
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+  border-top: 2px dashed rgba(31, 29, 43, 0.15);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+}
+.ac-steps li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Carrying something: sits under the interact hint. */
 .hud-held {
   bottom: calc(22% - 56px);

@@ -33,14 +33,17 @@ import { emptyHistory, loadHistory, opsView, recordChecks, recordCost, recordMer
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
+import { Ticker } from './ticker.ts';
 import { DEFAULT_LISTEN, DEFAULT_VOICE, listenSettings, speaks, Voice, voiceSettings } from './voice.ts';
 import { Notifier } from './notifier.ts';
 import { clip, plainText, stuckAgents } from './notify.ts';
 import { DEFAULT_NOTIFY, notifySettings, officeUrl } from '../shared/notify.ts';
+import { agentActivity, lineActivity, sameActivity, type SeenActivity } from '../shared/activity.ts';
 import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
+  AgentActivity,
   AgentCli,
   AgentLook,
   AgentPromptView,
@@ -458,6 +461,12 @@ export class Swarm {
   private ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB); // issues filed during the current CEO job
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
+  private seenActivity = new Map<string, SeenActivity>(); // agent id -> their latest action in the log
+  private shownActivity = new Map<string, AgentActivity | null>(); // agent id -> the activity clients last heard
+  private ticker = new Ticker({
+    name: (id) => this.state.agents.find((a) => a.id === id)?.name ?? null,
+    author: (repoId, pr) => this.state.agents.find((a) => a.repoId === repoId && a.role === 'dev' && a.prNumber === pr)?.name ?? null,
+  });
   private repoRt = new Map<string, RepoRuntime>();
   private issueAges = new IssueAges(); // when the issues behind recent merges were filed, for the whiteboard
   private deskAlerts = new Map<string, string>(); // agent id -> the desk setup error the manager was last told about
@@ -810,7 +819,16 @@ export class Swarm {
       screenshotAt: rt.screenshot?.at ?? null,
       lastError: a.lastError,
       log: withLog ? rt.log : [],
+      activity: this.activityOf(a),
     };
+  }
+
+  /** What the sign over their head says (shared/activity.ts): from their status and latest action, never raw input. */
+  private activityOf(a: PersistedAgent): AgentActivity | null {
+    const chat = a.role === 'ceo' && this.state.ceo.job?.kind === 'chat';
+    const { status, task, issueNumber, prNumber, startedAt } = a;
+    const currentTool = this.agentRt.get(a.id)?.currentTool ?? null;
+    return agentActivity({ status, task, currentTool, issueNumber, prNumber, startedAt }, this.seenActivity.get(a.id) ?? null, chat);
   }
 
   private qaView(q: QaRecord): QaView {
@@ -850,6 +868,7 @@ export class Swarm {
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
+      ticker: this.ticker.recent(),
       notifyChannels: this.notifier.channelsView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
@@ -882,6 +901,7 @@ export class Swarm {
   private broadcast(ev: ServerEvent) {
     const msg = JSON.stringify(ev);
     for (const ws of this.clients) if (ws.readyState === ws.OPEN) ws.send(msg);
+    for (const item of this.ticker.observe(ev)) this.broadcast({ type: 'ticker', item });
     if (OPS_EVENTS.has(ev.type)) this.opsSoon();
   }
 
@@ -897,6 +917,7 @@ export class Swarm {
     // A session can finish after its agent was let go (their floor disconnected mid-task); they're gone, so say nothing.
     if (!this.agentRt.has(a.id)) return;
     const { log: _log, ...rest } = this.agentView(a, false);
+    this.shownActivity.set(a.id, rest.activity ?? null);
     this.broadcast({ type: 'agent', agent: rest });
   }
 
@@ -919,6 +940,8 @@ export class Swarm {
       const line: LogLine = { id: this.logSeq++, t, kind: e.kind, text: e.text, tool: e.tool };
       rt.log.push(line);
       rt.pending.push(line);
+      const act = lineActivity(line);
+      if (act) this.seenActivity.set(a.id, { ...act, at: t });
     }
     if (rt.log.length > LOG_BUFFER) rt.log.splice(0, rt.log.length - LOG_BUFFER);
     if (!this.flushTimer) this.flushTimer = setTimeout(() => this.flushLogs(), 120);
@@ -930,6 +953,9 @@ export class Swarm {
       if (rt.pending.length === 0) continue;
       this.broadcast({ type: 'log', agentId, lines: rt.pending });
       rt.pending = [];
+      // A new action changes the sign over their head; tool changes already sent most of them.
+      const a = this.state.agents.find((x) => x.id === agentId);
+      if (a && !sameActivity(this.activityOf(a), this.shownActivity.get(agentId))) this.emitAgent(a);
     }
     this.save();
   }
@@ -1783,6 +1809,8 @@ export class Swarm {
     }
     this.state.agents = this.state.agents.filter((x) => x.id !== id);
     this.agentRt.delete(id);
+    this.seenActivity.delete(id);
+    this.shownActivity.delete(id);
     this.save();
     this.broadcast({ type: 'agentRemoved', agentId: id });
   }
