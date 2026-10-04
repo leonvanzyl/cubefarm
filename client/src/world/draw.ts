@@ -1,6 +1,7 @@
 import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { testingLabel } from '../qaCard';
+import { officeNow } from '../officeTime';
 import { chipRects } from '../ui/channels';
 import { statsChips, type BoardStats } from './boardStats';
 import type { Pair } from './whiteboard';
@@ -156,7 +157,7 @@ export function drawTerminal(
   if (agent.status === 'working' || agent.status === 'preparing') {
     const frame = Math.floor(now / 120) % SPINNER.length;
     const verb = agent.status === 'preparing' ? (agent.currentTool ?? 'Setting up worktree') : toolVerb(agent.currentTool) || VERBS[Math.floor(now / 6000) % VERBS.length];
-    const secs = agent.startedAt ? Math.floor((Date.now() - agent.startedAt) / 1000) : 0;
+    const secs = agent.startedAt ? Math.max(0, Math.floor((officeNow() - agent.startedAt) / 1000)) : 0;
     const mm = Math.floor(secs / 60);
     ctx.fillStyle = '#ff9e64';
     ctx.font = `600 ${fontSize}px ${MONO}`;
@@ -308,7 +309,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   }
 
   const top = NOTE.top;
-  const now = Date.now(); // a testing card's elapsed time: it only moves on when the board repaints anyway
+  const now = officeNow(); // a testing card's elapsed time: it only moves on when the board repaints anyway
   COLS.forEach((c, ci) => {
     const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
@@ -430,7 +431,7 @@ export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, 
     roundRect(ctx, pad + 3, pad + 7, nw + 2, nh + 2, 6);
     ctx.fill();
   }
-  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), Date.now());
+  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), officeNow());
   ctx.restore();
 }
 
@@ -587,10 +588,10 @@ export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: nu
   };
   ctx.fillStyle = '#23263a';
   ctx.font = `700 40px ${SANS}`;
-  ctx.fillText(fit(`${name} · candidate`, w - 100), 80, h * 0.36);
+  ctx.fillText(fit(`Candidate: ${name}`, w - 100), 80, h * 0.36);
   ctx.fillStyle = '#5c6078';
   ctx.font = `600 28px ${SANS}`;
-  ctx.fillText(fit(`${title}${floor ? ` · floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
+  ctx.fillText(fit(`${title}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
 }
 
 export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, lines: { text: string; size: number; color?: string; weight?: number }[], bg: string, fg = '#ffffff') {

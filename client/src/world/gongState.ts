@@ -6,6 +6,13 @@ import { celebrating, createGong, strike, type Strike } from './gongRules';
 
 export const gongState = createGong();
 
+/** How loud the boom is, 0-1: the time-lapse plays its merges quieter. */
+let volume = 1;
+
+export function setGongVolume(level: number) {
+  volume = level;
+}
+
 /** Gong.tsx says which floor's gong is on screen (null when it goes). */
 export function setGongHere(repoId: string | null) {
   gongState.here = repoId;
@@ -26,7 +33,7 @@ export function onGongParty(fn: (repoId: string) => void) {
  */
 export function hitGong(opts: { repoId?: string | null; celebrate?: boolean } = {}): Strike {
   const result = strike(gongState, performance.now(), opts);
-  if (result === 'boom') boom();
+  if (result === 'boom') boom(volume);
   if (result !== 'absent' && opts.celebrate && gongState.celebrateRepo) for (const fn of partyListeners) fn(gongState.celebrateRepo);
   return result;
 }

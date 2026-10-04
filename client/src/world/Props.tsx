@@ -5,6 +5,7 @@ import { glass, shade, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
 import { MugDispenser } from './toys/mugLook';
 import { CoffeeMachine } from './CoffeeMachine';
+import { officeNow } from '../officeTime';
 
 type P = [number, number, number];
 
@@ -105,7 +106,7 @@ export function WallClock({ position, rotationY = 0 }: { position: P; rotationY?
   const hour = useRef<THREE.Group>(null);
   const minute = useRef<THREE.Group>(null);
   useFrame(() => {
-    const d = new Date();
+    const d = new Date(officeNow()); // the replayed time during the time-lapse
     const m = d.getMinutes() + d.getSeconds() / 60;
     const h = (d.getHours() % 12) + m / 60;
     if (minute.current) minute.current.rotation.z = -(m / 60) * Math.PI * 2;

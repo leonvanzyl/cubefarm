@@ -581,6 +581,9 @@ export type ServerEvent =
   | { type: 'reward'; reward: RewardView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
+/** Browser to server on /ws. resync: send a fresh snapshot (a tab back from the time-lapse replay). */
+export type ClientEvent = { type: 'resync' };
+
 export interface GhRepoSummary {
   nameWithOwner: string;
   description: string;

@@ -87,6 +87,7 @@ export function HUD() {
   const settings = useStore((s) => s.settings);
   const connected = useStore((s) => s.connected);
   const restarting = useStore((s) => s.restarting);
+  const replaying = useStore((s) => s.replaying);
   const demo = useStore((s) => s.demo);
   const user = useStore((s) => s.user);
   const ghReady = useStore((s) => s.ghReady);
@@ -134,7 +135,7 @@ export function HUD() {
 
       <div className="hud-status">
         {demo && <span className="pill pill-demo">DEMO</span>}
-        <span className={`pill ${connected ? 'pill-ok' : restarting ? 'pill-demo' : 'pill-bad'}`}>{connected ? '● live' : restarting ? '○ restarting' : '○ reconnecting'}</span>
+        <span className={`pill ${replaying ? 'pill-replay' : connected ? 'pill-ok' : restarting ? 'pill-demo' : 'pill-bad'}`}>{replaying ? '▶ replay' : connected ? '● live' : restarting ? '○ restarting' : '○ reconnecting'}</span>
         <span className="pill">
           ⚙️ {settings.sessionLimit ? `${running}/${settings.sessionLimit}` : running} sessions
         </span>

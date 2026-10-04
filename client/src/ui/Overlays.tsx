@@ -7,6 +7,7 @@ import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ControlsSettings } from './ControlsSettings';
 import { ElevatorPanel } from './ElevatorPanel';
 import { Key, MoveKeys } from './Key';
+import { Interview } from './Interview';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
 import { Panel } from './Panel';
@@ -204,8 +205,9 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <GraphicsSettings />
           <h3>The building</h3>
           <p>
-            The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo
-            gets its own floor. To travel, walk into the elevator in the middle of the south wall and press <Key action="interact" /> on its panel. In the lobby, the directory beside it works too.
+            The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the glass door. Walk up to one and press <Key action="interact" /> to
+            interview them: hire them and they shake your hand and take the elevator up to their floor for a welcome tour; decline and they leave by the door. When the CEO suggests letting someone go, an envelope
+            waits on their desk. Every connected GitHub repo gets its own floor. To travel, walk into the elevator in the middle of the south wall and press <Key action="interact" /> on its panel. In the lobby, the directory beside it works too.
           </p>
           <p>
             The elevator's top stop is the roof terrace (<kbd>R</kbd> on its panel). Sit back in a deck chair (<Key action="interact" />; walk or press <Key action="interact" /> to get up), grill a sausage at the barbecue (<Key action="interact" /> puts one on and turns it, 
@@ -219,6 +221,11 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             the office paces itself after a usage warning, press <Key action="interact" /> on it to resume full speed (if you've topped up or your usage was reset). When a PR needs you, or someone has been stuck on
             an error for 10 minutes, the beacon on top spins (and the one on that floor's sign) with a calm chime: press <Key action="interact" /> on it to open the console at that card. The manager's console has it
             all too, under Mission control.
+          </p>
+          <h3>Time-lapse</h3>
+          <p>
+            Missed the day? The manager's console → 📼 Time-lapse (or the screen by the lobby's hoop) replays it right here in the office at up to 600× speed, or just what happened while you were away. Merges still
+            bang the gong. While it plays, <kbd>Esc</kbd> frees the mouse and <kbd>Esc</kbd> again goes back to the live office.
           </p>
           <h3>Your phone</h3>
           <p>
@@ -303,6 +310,8 @@ export function Overlays() {
       return <ElevatorPanel />;
     case 'manager':
       return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
+    case 'interview':
+      return <Interview requestId={overlay.requestId} />;
     case 'help':
       return <Help tab={overlay.tab} />;
     case 'catalogue':
