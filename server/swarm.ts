@@ -7,6 +7,7 @@ import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { depsPromptLine, type DepsOutcome } from './deps.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
@@ -20,7 +21,7 @@ import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
-import { CEO_ID } from '../shared/types.ts';
+import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentCli,
   AgentLook,
@@ -1549,7 +1550,7 @@ export class Swarm {
     t.attach(ws);
   }
 
-  private buildSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, fixing?: { pr: number; headRef: string }) {
+  private buildSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, fixing?: { pr: number; headRef: string }, deps?: DepsOutcome) {
     const linked = this.linkedRepos(repo).map((r) => `- ${r.fullName}: read-only reference clone at ${this.backend.mainDir(r.fullName)}`);
     const push = fixing ? `git push origin HEAD:${fixing.headRef}` : `git push -u origin ${branch}`;
     return [
@@ -1561,6 +1562,7 @@ export class Swarm {
       repo.summary ? `Project: ${repo.summary}` : '',
       repo.mission ? `What the team is building (the manager's brief): ${repo.mission}` : '',
       `Your worktree: ${cwd}`,
+      depsPromptLine(deps),
       fixing
         ? `You are fixing pull request #${fixing.pr}. Its code is checked out on local branch ${branch}; push fixes with: ${push}. Do not open a new pull request.`
         : `Your branch: ${branch} (already checked out, created from origin/${repo.defaultBranch})`,
@@ -1609,12 +1611,15 @@ export class Swarm {
     this.save();
   }
 
-  private async prepare(a: PersistedAgent, repo: PersistedRepo, base: { pr?: number }, branch: string): Promise<string | null> {
+  private async prepare(a: PersistedAgent, repo: PersistedRepo, base: { pr?: number }, branch: string): Promise<{ cwd: string; deps: DepsOutcome } | null> {
     try {
       if (this.repoRt.get(repo.id)?.cloneStatus !== 'ready') await this.cloneRepo(repo.id);
       await this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a));
       const cwd = await this.backend.prepareDesk(repo.fullName, { defaultBranch: repo.defaultBranch, pr: base.pr }, this.agentSlug(a), branch);
-      return a.status === 'preparing' ? cwd : null; // null: stopped or fired while preparing
+      if (a.status !== 'preparing') return null; // stopped or fired while preparing
+      // Outside the repo's git lock, so other desks keep checking out meanwhile. A failed install never fails the task.
+      const deps = await this.installDeps(a, cwd);
+      return a.status === 'preparing' ? { cwd, deps } : null;
     } catch (err) {
       if (a.status !== 'preparing') return null;
       a.status = 'error';
@@ -1627,6 +1632,26 @@ export class Swarm {
     }
   }
 
+  /** The desk's dependencies, shown on the agent's card ("Installing dependencies") while npm runs. */
+  private async installDeps(a: PersistedAgent, cwd: string): Promise<DepsOutcome> {
+    const rt = this.agentRt.get(a.id);
+    try {
+      return await this.backend.installDeps(cwd, {
+        log: (lines) => this.appendLog(a, lines.map((text) => ({ kind: text.startsWith('⚠') ? 'error' : 'system', text }))),
+        installing: () => {
+          if (!rt) return;
+          rt.currentTool = INSTALL_STEP;
+          this.emitAgent(a);
+        },
+      });
+    } finally {
+      if (rt?.currentTool === INSTALL_STEP) {
+        rt.currentTool = null;
+        this.emitAgent(a);
+      }
+    }
+  }
+
   private async runTask(a: PersistedAgent, repo: PersistedRepo, issue: IssueInfo, note?: string) {
     const branch = `swarm/issue-${issue.number}-${slugify(a.name)}`;
     this.beginTask(
@@ -1635,8 +1660,9 @@ export class Swarm {
       `Issue #${issue.number}: ${issue.title}`,
       `Preparing worktree on ${branch}…`,
     );
-    const cwd = await this.prepare(a, repo, {}, branch);
-    if (!cwd) return;
+    const desk = await this.prepare(a, repo, {}, branch);
+    if (!desk) return;
+    const { cwd } = desk;
 
     const prompt = [
       `Please resolve GitHub issue #${issue.number}: ${issue.title}`,
@@ -1649,7 +1675,7 @@ export class Swarm {
       .filter(Boolean)
       .join('\n');
 
-    this.startAgentSession(a, repo, cwd, prompt, this.buildSystemAppend(a, repo, cwd, branch));
+    this.startAgentSession(a, repo, cwd, prompt, this.buildSystemAppend(a, repo, cwd, branch, undefined, desk.deps));
   }
 
   private startAgentSession(
@@ -1861,7 +1887,8 @@ export class Swarm {
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
-  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails) {
+  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, deps?: DepsOutcome) {
+    const depsLine = depsPromptLine(deps);
     return [
       `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("cubefarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
       ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
@@ -1873,6 +1900,7 @@ export class Swarm {
       ...(repo.qaBrief ? [`What to check on this project (from the CEO):\n${repo.qaBrief}`] : []),
       `Pull request #${pr.number} "${pr.title}" from branch ${pr.headRefName}: ${pr.url}`,
       `Your worktree: ${cwd}. It has the pull request's code checked out on local branch ${branch}.`,
+      ...(depsLine ? [depsLine] : []),
       '',
       'How to test:',
       '1. Read the PR description and the linked issue, and work out the acceptance criteria.',
@@ -1923,11 +1951,12 @@ export class Swarm {
       return;
     }
 
-    const cwd = await this.prepare(a, repo, { pr: rec.prNumber }, branch);
-    if (!cwd) {
+    const desk = await this.prepare(a, repo, { pr: rec.prNumber }, branch);
+    if (!desk) {
       if (this.state.qa.includes(rec) && rec.status === 'testing') this.setQa(rec, { status: 'queued', qaAgentId: null });
       return;
     }
+    const { cwd } = desk;
 
     const dev = rec.devAgentId ? this.state.agents.find((x) => x.id === rec.devAgentId) : null;
     const prompt = [
@@ -1949,7 +1978,7 @@ export class Swarm {
       .filter((l) => l !== '')
       .join('\n');
 
-    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr), undefined, QA_SCHEMA);
+    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr, desk.deps), undefined, QA_SCHEMA);
   }
 
   private async onQaFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
@@ -2067,11 +2096,12 @@ export class Swarm {
       rec.fixReason === 'conflict' ? `Resolving conflicts on PR #${rec.prNumber}` : rec.fixReason === 'checks' ? `Fixing checks on PR #${rec.prNumber}` : `Fixing PR #${rec.prNumber} after QA round ${rec.round}`,
       `Checking out PR #${rec.prNumber}…`,
     );
-    const cwd = await this.prepare(dev, repo, { pr: rec.prNumber }, headRef);
-    if (!cwd) {
+    const desk = await this.prepare(dev, repo, { pr: rec.prNumber }, headRef);
+    if (!desk) {
       if (rec.status === 'fixing') this.setQa(rec, { status: 'failed' });
       return;
     }
+    const { cwd } = desk;
     const failed = rec.checks.filter((c) => c.result === 'fail');
     const takeover = original ? '' : ' A teammate wrote it, so read the PR and the linked issue first.';
     const push = `push to the same branch: git push origin HEAD:${headRef}`;
@@ -2108,7 +2138,7 @@ export class Swarm {
     const mergeEnd = 'Then reply with a short summary of what you did. Do not open a new pull request; the office merges it once the checks pass, after another QA round if the code changed.';
     const prompt = (mergeFix ? [...mergeFix, '', mergeEnd] : qaFix).filter((l) => l !== '').join('\n');
     const resume = original && rec.devSessionId ? rec.devSessionId : undefined;
-    this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }), resume);
+    this.startAgentSession(dev, repo, cwd, prompt, this.buildSystemAppend(dev, repo, cwd, headRef, { pr: rec.prNumber, headRef }, desk.deps), resume);
   }
 
   private async onFixFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {

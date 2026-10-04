@@ -122,6 +122,9 @@ export type AgentRole = 'dev' | 'qa' | 'ceo';
 /** Fixed id of the CEO agent. */
 export const CEO_ID = 'ceo';
 
+/** An agent's currentTool while the office installs their desk's dependencies (status 'preparing'). */
+export const INSTALL_STEP = 'Installing dependencies';
+
 /** How the cartoon character is drawn. Picked from the agent's name when hired; the manager can change it. */
 export type AgentLook = 'feminine' | 'masculine';
 
@@ -182,7 +185,7 @@ export interface AgentView {
   branch: string | null;
   prNumber: number | null; // devs: the PR they opened; QA: the PR under test
   prUrl: string | null;
-  currentTool: string | null;
+  currentTool: string | null; // while preparing: the setup step (INSTALL_STEP), null for the worktree
   startedAt: number | null;
   endedAt: number | null;
   costUsd: number;
