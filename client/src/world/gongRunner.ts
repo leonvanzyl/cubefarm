@@ -2,7 +2,7 @@ import type { MergeBurst } from './confetti';
 import { HURRY_SPEED, RUN_SPEED, busy, createRuns, elsewhere, headingTo, holdsMallet, nextBeat, nextJob, planGong, runOf, startRun, takenOver, timedOut, type GongJob, type GongPlan, type GongRun } from './gongRun';
 import { gongState, hitGong } from './gongState';
 import { GONG, GONG_SPOT } from './layout';
-import { bodyState, bodyTarget, seatBody, setBody } from './people';
+import { bodyState, bodyTarget, claimBody, onErrand, seatBody, setBody } from './people';
 import type { BodyState, BodyTarget } from './body';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, walkways } from './walkways';
@@ -58,8 +58,8 @@ function stopTimer() {
 
 // ---------- whose body it is ----------
 
-/** Whether someone other than the gong run is moving them right now. */
-const othersMove = (agentId: string) => elsewhere(bodyTarget(agentId), runOf(runs, agentId)?.mine);
+/** Whether someone other than the gong run or the errand director is moving them right now (by hand). */
+const othersMove = (agentId: string) => elsewhere(bodyTarget(agentId), runOf(runs, agentId)?.mine, onErrand(agentId));
 
 /** Moves the runner, remembering the target so a takeover by someone else shows (gongRun.ts takenOver). */
 function move(r: GongRun, patch: Partial<Omit<BodyTarget, 'teleport'>>) {
@@ -102,6 +102,8 @@ function route(from: Pt, to: Pt): Pt[] | null {
 // ---------- the trip ----------
 
 function start(job: GongJob & { agentId: string }, now: number) {
+  // the gong beats any errand: the director lets them go, and they set off from wherever they are
+  if (onErrand(job.agentId)) claimBody(job.agentId);
   const s = othersMove(job.agentId) ? undefined : bodyState(job.agentId);
   // Seated, they get up to the spot beside their chair first; plan from there.
   const from = s && (s.stage === 'seated' || s.stage === 'rising' ? { x: s.standX, z: s.standZ } : { x: s.x, z: s.z });
@@ -141,7 +143,7 @@ function step(r: GongRun, now: number) {
   const struck = r.beat === 'strike' || r.beat === 'pose';
   const taken = takenOver(r, bodyTarget(r.agentId));
   if (!s || taken || (!struck && timedOut(r, now))) {
-    // gone from the floor, taken over (an errand) or not there in time: the gong strikes by itself, and they head
+    // gone from the floor, taken over (by hand) or not there in time: the gong strikes by itself, and they head
     // back unless someone else has them now
     runs.run = null;
     if (!struck) runs.queue.unshift({ agentId: null, celebrate: r.celebrate });

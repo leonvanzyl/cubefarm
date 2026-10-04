@@ -50,6 +50,24 @@ export function setErrand(id: string, info: ErrandInfo | null) {
   else busy.delete(id);
 }
 
+/** Whether the errand director has them out on an errand (rather than someone walking them by hand). */
+export const onErrand = (id: string) => busy.has(id);
+
+const claimers = new Set<(id: string) => void>();
+
+/** The errand director lets go of anyone claimed by something that beats an errand (the gong run). */
+export function onClaim(fn: (id: string) => void) {
+  claimers.add(fn);
+  return () => void claimers.delete(fn);
+}
+
+/** Takes someone off their errand there and then; their body target goes too, for the caller to set the next. */
+export function claimBody(id: string) {
+  for (const fn of claimers) fn(id);
+  busy.delete(id);
+  targets.delete(id);
+}
+
 /** The director on the current floor reports its summary through the probe while it runs. */
 export function trackDirector(report: () => unknown) {
   director = report;

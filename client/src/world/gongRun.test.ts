@@ -5,6 +5,7 @@ import { SIT_SECONDS } from './body';
 import { BEATS, REACH_MS, RUN_SPEED, createRuns, elsewhere, nextBeat, nextJob, planGong, runOf, startRun, takenOver, timedOut, type GongJob, type GongRuns } from './gongRun';
 import { GONG_GAP_MS } from './gongRules';
 import { GONG_SPOT, MAX_DESKS, deskPosition } from './layout';
+import { bodyTarget, claimBody, onClaim, onErrand, seatBody, setBody, setErrand } from './people';
 import { findPath, walkways } from './walkways';
 
 const agents = [
@@ -34,13 +35,37 @@ describe('who runs to the gong', () => {
     expect(planGong({ ...here, agentId: null, here: null })).toBe('absent');
   });
 
-  it('strikes by itself when someone else is walking the author (an errand, __swarmPeople.walkTo)', () => {
+  it('strikes by itself when someone is walking the author by hand (__swarmPeople.walkTo)', () => {
     const q = createRuns();
     const theirs = { mode: 'walking' };
     const taken = elsewhere(theirs, runOf(q, 'a1')?.mine);
     expect(taken).toBe(true);
     expect(planGong({ ...here, agentId: 'a1', elsewhere: taken })).toBe('solo');
     expect(elsewhere(undefined, undefined)).toBe(false); // seated: free to run
+  });
+
+  it('an author out on an errand still runs: the gong beats it', () => {
+    const errand = { mode: 'walking' };
+    const taken = elsewhere(errand, runOf(createRuns(), 'a1')?.mine, true);
+    expect(taken).toBe(false);
+    expect(planGong({ ...here, agentId: 'a1', elsewhere: taken })).toBe('run');
+  });
+
+  it('claiming someone on an errand has the director drop it, and clears their body target for the run', () => {
+    const dropped: string[] = [];
+    const stop = onClaim((id) => dropped.push(id));
+    setBody('e1', { mode: 'walking', x: 3, z: 4 });
+    setErrand('e1', { name: 'stretch', phase: 'leaving', spot: 'window-1' });
+    expect(onErrand('e1')).toBe(true);
+    claimBody('e1');
+    stop();
+    expect(dropped).toEqual(['e1']);
+    expect(onErrand('e1')).toBe(false);
+    expect(bodyTarget('e1')).toBeUndefined();
+    // walked by hand: no errand, so it's still someone else's
+    setBody('h1', { mode: 'walking', x: 1, z: 1 });
+    expect(elsewhere(bodyTarget('h1'), undefined, onErrand('h1'))).toBe(true);
+    seatBody('h1');
   });
 
   it('a runner on the way back from the last strike may turn round for the next', () => {

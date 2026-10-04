@@ -28,7 +28,7 @@ import {
   type ErrandActor,
   type Queued,
 } from './errands';
-import { bodyState, bodyTarget, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
+import { bodyState, bodyTarget, isSeated, onClaim, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
 
@@ -179,6 +179,23 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     p.actor = null;
     report(p);
   };
+
+  // Something that beats an errand (the gong run) has them now: drop it on the spot, a mug in hand included, and leave
+  // their body alone until they're back in their chair.
+  useEffect(
+    () =>
+      onClaim((id) => {
+        const p = people.get(id);
+        if (!p || p.phase === 'seated') return;
+        p.actor?.abort();
+        p.actor?.end(false);
+        p.actor = null;
+        p.walking = null;
+        sitDown(p);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sitDown only touches people and run
+    [people, run],
+  );
 
   const start = (p: Person, e: Errand): boolean => {
     if (e.max !== undefined && [...people.values()].filter((o) => o.errand?.name === e.name).length >= e.max) return false;
@@ -379,7 +396,7 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     for (const p of people.values()) {
       const a = byId.get(p.id);
       if (!a || p.phase !== 'seated') continue;
-      if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
+      if (!isSeated(p.id)) continue; // walked by hand (__swarmPeople) or by the gong run, or not back in their chair yet
       const ask = takeAsk(p.id);
       if (ask && errandNamed(ask) && mayStart(a.status, errandNamed(ask)!)) p.queue = enqueue(p.queue, ask, run.clock);
       const state = { floor, statusFor: run.clock - p.statusAt, seatedFor: run.clock - p.seatedAt, restless: p.restless };

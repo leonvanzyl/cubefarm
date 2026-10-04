@@ -4,7 +4,6 @@ import type { Pt } from './toys/roombaBrain';
 // The gong run's rules, free of three.js and the frame loop so they can be tested: whether a merge sends its author
 // running to the gong or the gong strikes by itself, the queue (one person at the gong at a time, one boom per merge,
 // in order), the beats at the gong and when to give up. gongRunner.ts drives the bodies and the strikes from these.
-// Kept on its own so the errand director (#85) can adopt the run as an errand later.
 
 /** Running to the gong (m/s); body.ts's walk is 1.1. */
 export const RUN_SPEED = 2.8;
@@ -30,12 +29,12 @@ export function planGong(o: { repoId: string | null; here: string | null; agentI
 }
 
 /**
- * Whether someone else is moving this person (an errand, __swarmPeople.walkTo): they're up with a body target
- * (people.ts) that isn't the one a run of ours (`mine`) last set. Their merge then strikes the gong by itself, and a
- * run whose runner is taken over this way lets them go, so it never drags them off what they were doing or sits them
- * back down afterwards.
+ * Whether someone else is moving this person by hand (__swarmPeople.walkTo): they're up with a body target (people.ts)
+ * that isn't the one a run of ours (`mine`) last set. Their merge then strikes the gong by itself, and a run whose
+ * runner is taken over this way lets them go, so it never drags them off what they were doing or sits them back down
+ * afterwards. An errand from the errand director (`errand`) doesn't count: the gong beats it, and the run claims them.
  */
-export const elsewhere = (target: object | undefined, mine: object | undefined) => !!target && target !== mine;
+export const elsewhere = (target: object | undefined, mine: object | undefined, errand = false) => !!target && target !== mine && !errand;
 
 /** Whether a run has lost its runner to someone else: their body target is no longer the one it last set (or gone). */
 export const takenOver = (r: GongRun, target: object | undefined) => target !== r.mine;
