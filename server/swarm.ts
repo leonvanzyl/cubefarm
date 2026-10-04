@@ -6,7 +6,7 @@ import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
-import { ceoJobPrompt, ceoSystemPrompt, createOfficeTools, IssueCap, jobLabel, planRoute, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
@@ -210,7 +210,7 @@ const FEMININE_NAMES = new Set(
 );
 const lookFor = (name: string): AgentLook => (FEMININE_NAMES.has(name.trim().split(/\s+/)[0].toLowerCase()) ? 'feminine' : 'masculine');
 const LOOKS: AgentLook[] = ['feminine', 'masculine'];
-const MAX_DESKS: Record<AgentRole, number> = { dev: 12, qa: 3, ceo: 1 };
+const MAX_DESKS: Record<AgentRole, number> = { ...FLOOR_DESKS, ceo: 1 };
 const MAX_QA_ROUNDS = 3;
 // Every agent runs Claude Opus 5.5 at medium effort unless the manager overrides it.
 const DEFAULT_MODEL = 'claude-opus-5-5';
@@ -222,7 +222,6 @@ const CEO_NAME = 'Morgan';
 // The CEO's own folder: its notes about the company live here. Repos are read through their clones.
 const CEO_DIR = path.join(HOME_DIR, 'ceo');
 const DEFAULT_PROJECTS_DIR = defaultProjectsDir(path.resolve(import.meta.dirname, '..'));
-const MAX_PENDING_REQUESTS = 8;
 const MAX_ISSUES_PER_JOB = 12;
 const KEEP_MESSAGES = 200;
 const KEEP_DECIDED_REQUESTS = 40;
@@ -2940,6 +2939,13 @@ export class Swarm {
       const mark = `… (truncated, ${brief.length} chars; see agent_detail)`;
       return brief.slice(0, 400 - mark.length).trimEnd() + mark;
     };
+    const pending = this.state.requests.filter((r) => r.status === 'pending');
+    const seats = (r: PersistedRepo, role: 'dev' | 'qa') =>
+      seatCount(
+        MAX_DESKS[role],
+        this.state.agents.filter((a) => a.repoId === r.id && a.role === role).length,
+        pending.filter((p) => p.kind === 'hire' && p.repoId === r.id && p.role === role).length,
+      );
     const floors = [...this.state.repos]
       .sort((x, y) => x.floor - y.floor)
       .map((r) => {
@@ -2957,6 +2963,7 @@ export class Swarm {
           autoAssign: r.autoAssign,
           autoMerge: r.autoMerge,
           folderSync: rt.folderSync,
+          seats: { dev: seats(r, 'dev'), qa: seats(r, 'qa') },
           capacity: {
             developers: this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev').length,
             developersFree: this.available(r, 'dev').length,
@@ -3015,9 +3022,10 @@ export class Swarm {
           sessionsRunning: this.running(),
           usage: usageLabel(this.usageNow(), Date.now()),
           deskLimits: { dev: MAX_DESKS.dev, qa: MAX_DESKS.qa },
+          proposalLimit: { pending: pending.length, max: MAX_PENDING_PROPOSALS },
         },
         floors,
-        pendingProposals: this.state.requests.filter((r) => r.status === 'pending').map(req),
+        pendingProposals: pending.map(req),
         recentDecisions: this.state.requests.filter((r) => r.status !== 'pending').slice(-10).map(req),
       },
       null,
@@ -3080,8 +3088,8 @@ export class Swarm {
     if (!title) throw new Error('A hire needs a job title.');
     const specialty = specialtySlug(x.specialty);
     const pending = this.state.requests.filter((r) => r.status === 'pending');
-    if (pending.length >= MAX_PENDING_REQUESTS) throw new Error(`${pending.length} proposals are already waiting for the manager. Wait for their decisions first.`);
-    const dup = pending.find((r) => r.kind === 'hire' && r.repoId === repo.id && r.role === role && r.specialty === specialty);
+    checkPendingLimit(pending.length);
+    const dup =pending.find((r) => r.kind === 'hire' && r.repoId === repo.id && r.role === role && r.specialty === specialty);
     if (dup) throw new Error(`${dup.name} (${dup.title}) is already proposed for floor ${repo.floor} with that specialty.`);
     const seated = this.state.agents.filter((a) => a.repoId === repo.id && a.role === role).length;
     const waiting = pending.filter((r) => r.kind === 'hire' && r.repoId === repo.id && r.role === role).length;
@@ -3129,7 +3137,7 @@ export class Swarm {
     }
     const pending = this.state.requests.filter((r) => r.status === 'pending');
     if (pending.some((r) => r.kind === 'let-go' && r.agentId === a.id)) throw new Error(`Letting ${a.name} go is already proposed.`);
-    if (pending.length >= MAX_PENDING_REQUESTS) throw new Error(`${pending.length} proposals are already waiting for the manager. Wait for their decisions first.`);
+    checkPendingLimit(pending.length);
     const req: HireRequestView = {
       id: crypto.randomUUID(),
       kind: 'let-go',

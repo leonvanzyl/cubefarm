@@ -1,7 +1,27 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
-import { createOfficeTools, IssueCap, jobLabel, planRoute, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
+import { MAX_DESKS, QA_LAB } from '../client/src/world/layout.ts';
+import { checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
+
+describe('seats', () => {
+  it('match the desks and QA stations the client draws', () => {
+    expect(FLOOR_DESKS.dev).toBe(MAX_DESKS);
+    expect(FLOOR_DESKS.qa).toBe(QA_LAB.stations.length);
+  });
+
+  it('count pending proposals as taken, never below zero', () => {
+    expect(seatCount(12, 3, 2)).toEqual({ total: 12, taken: 3, proposed: 2, free: 7 });
+    expect(seatCount(3, 3, 1).free).toBe(0);
+  });
+
+  it('let one empty floor be fully staffed in one go', () => {
+    // A new floor starts with one QA tester: 12 developers and 2 more testers.
+    expect(MAX_PENDING_PROPOSALS).toBeGreaterThanOrEqual(FLOOR_DESKS.dev + FLOOR_DESKS.qa - 1);
+    for (let n = 0; n < FLOOR_DESKS.dev + FLOOR_DESKS.qa - 1; n++) expect(() => checkPendingLimit(n)).not.toThrow();
+    expect(() => checkPendingLimit(MAX_PENDING_PROPOSALS)).toThrow(`${MAX_PENDING_PROPOSALS} proposals are already waiting for the manager; propose the rest after they decide.`);
+  });
+});
 
 describe('specialtySlug', () => {
   it('turns a specialty into a lowercase slug', () => {

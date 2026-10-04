@@ -1,4 +1,4 @@
-import { FLOOR_D, FLOOR_W, HALF_D, HALF_W, PLAYER_RADIUS, collide, elevatorDoorway, lobbyColliders, officeColliders, rect, type Rect } from '../layout';
+import { FLOOR_D, FLOOR_W, HALF_D, HALF_W, PLAYER_RADIUS, elevatorDoorway, lobbyColliders, officeColliders, rect, type Rect } from '../layout';
 import type { ToyFloor } from './balls';
 
 // The roomba's brain: a pure state machine over the 2D layout rects, stepped once per physics step by Roomba.tsx.
@@ -91,21 +91,28 @@ export interface Nav {
   rows: number;
   /** 1 where a path may not go (too close to something). */
   blocked: Uint8Array;
+  /** How far grid cells keep off everything, and how far a smoothed straight leg must. */
+  planR: number;
+  lineR: number;
+  /** How much A* trusts its estimate: 1 finds the shortest grid path, more searches fewer cells. */
+  greed: number;
 }
 
 /** Whether a circle of radius r at (x, z) is clear of every rect. */
 export function clear(rects: Rect[], x: number, z: number, r = NAV_R) {
   if (Math.abs(x) > HALF_W - r || Math.abs(z) > HALF_D - r) return false;
-  const p = collide(x, z, rects, r);
-  return p.x === x && p.z === z;
+  // what collide() would push it out of; checked directly, since paths ask this thousands of times
+  for (const b of rects) if (x > b.minX - r && x < b.maxX + r && z > b.minZ - r && z < b.maxZ + r) return false;
+  return true;
 }
 
-export function makeNav(rects: Rect[]): Nav {
+/** The walk grid over `rects`. The radii default to the roomba's; people (walkways.ts) pass their own. */
+export function makeNav(rects: Rect[], { planR = PLAN_R, lineR = NAV_R + 0.04, greed = 1 }: { planR?: number; lineR?: number; greed?: number } = {}): Nav {
   const cols = Math.round(FLOOR_W / CELL);
   const rows = Math.round(FLOOR_D / CELL);
   const blocked = new Uint8Array(cols * rows);
-  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) blocked[j * cols + i] = clear(rects, cellX(i), cellZ(j), PLAN_R) ? 0 : 1;
-  return { rects, cols, rows, blocked };
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) blocked[j * cols + i] = clear(rects, cellX(i), cellZ(j), planR) ? 0 : 1;
+  return { rects, cols, rows, blocked, planR, lineR, greed };
 }
 
 const cellX = (i: number) => -HALF_W + (i + 0.5) * CELL;
@@ -116,7 +123,15 @@ const toRow = (z: number, rows: number) => Math.min(rows - 1, Math.max(0, Math.f
 /** Whether the roomba can drive the straight line a → b without touching anything. */
 export function segmentClear(rects: Rect[], a: Pt, b: Pt, r = NAV_R + 0.04) {
   const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.08));
-  for (let k = 1; k <= n; k++) if (!clear(rects, a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n, r)) return false;
+  // every sample k = 1..n once, coarse to fine, so a blocked line is usually found in a few checks
+  let top = 1;
+  while (top * 2 <= n) top *= 2;
+  for (let stride = top; stride >= 1; stride >>= 1) {
+    for (let k = stride; k <= n; k += stride) {
+      if (stride !== top && k % (stride * 2) === 0) continue;
+      if (!clear(rects, a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n, r)) return false;
+    }
+  }
   return true;
 }
 
@@ -152,7 +167,7 @@ function nearestOpen(nav: Nav, i: number, j: number, avoid: (c: number) => boole
  */
 export function planPath(nav: Nav, from: Pt, to: Pt, avoid: (Pt & { r: number }) | null = null): Pt[] | null {
   const { cols, rows, blocked } = nav;
-  const avoidR = avoid ? avoid.r + PLAN_R : 0;
+  const avoidR = avoid ? avoid.r + nav.planR : 0;
   const avoided = (c: number) => !!avoid && Math.hypot(cellX(c % cols) - avoid.x, cellZ(Math.floor(c / cols)) - avoid.z) < avoidR;
   const start = nearestOpen(nav, toCol(from.x, cols), toRow(from.z, rows), avoided);
   const goal = nearestOpen(nav, toCol(to.x, cols), toRow(to.z, rows), () => false);
@@ -167,7 +182,7 @@ export function planPath(nav: Nav, from: Pt, to: Pt, avoid: (Pt & { r: number })
   const h = (c: number) => {
     const dx = Math.abs((c % cols) - gi);
     const dz = Math.abs(Math.floor(c / cols) - gj);
-    return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
+    return nav.greed * (Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz));
   };
   // binary heap of [f, cell]
   const heap: [number, number][] = [];
@@ -244,7 +259,7 @@ export function planPath(nav: Nav, from: Pt, to: Pt, avoid: (Pt & { r: number })
   while (k < cells.length) {
     let far = k;
     for (let m = cells.length - 1; m > k; m--) {
-      if (segmentClear(nav.rects, at, cells[m])) {
+      if (segmentClear(nav.rects, at, cells[m], nav.lineR)) {
         far = m;
         break;
       }
