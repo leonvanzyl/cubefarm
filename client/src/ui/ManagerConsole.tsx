@@ -13,6 +13,7 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
+import { VoiceSettings } from './VoiceSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
   try {
@@ -678,6 +679,7 @@ function SettingsTab() {
           Agent desks: <code>{workspaceRoot}</code>
         </div>
       </div>
+      <VoiceSettings />
     </div>
   );
 }
