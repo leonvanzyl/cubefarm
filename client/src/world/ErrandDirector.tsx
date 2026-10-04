@@ -165,15 +165,19 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     report(p);
   };
 
-  const start = (p: Person, e: Errand): boolean => {
+  /** Sets off from the desk, or from `from` when already up (turned round on the way somewhere else). */
+  const start = (p: Person, e: Errand, from?: Pt): boolean => {
+    // a spot is someone's while they head there or stand at it, not once they've turned for home
     const taken = new Set<string>();
-    for (const o of people.values()) if (o.dest) taken.add(o.dest.id);
+    for (const o of people.values()) if (o.dest && (o.phase === 'leaving' || o.phase === 'there')) taken.add(o.dest.id);
     const ids = spotChoices(e.where?.(p.id) ?? e.spot, w.spots.map((s) => s.id), taken);
-    const dest = pickSpot(ids.map((id) => spotById(w, id)!), p.home, Math.random());
-    const path = dest && findPath(w, p.home, dest);
+    const origin = from ?? p.home;
+    const dest = pickSpot(ids.map((id) => spotById(w, id)!), origin, Math.random());
+    const path = dest && findPath(w, origin, dest);
     if (!dest || !path) return false;
     // Up from the chair to the stand-up spot behind it first, then round the furniture.
-    Object.assign(p, { phase: 'leaving', phaseAt: run.clock, errand: e, dest, path: [{ x: p.home.x, z: p.home.z }, ...path], wp: 0, hurry: false, waited: 0, ghost: 0 });
+    const route = from ? path : [{ x: p.home.x, z: p.home.z }, ...path];
+    Object.assign(p, { phase: 'leaving', phaseAt: run.clock, errand: e, dest, path: route, wp: 0, hurry: false, waited: 0, ghost: 0 });
     report(p);
     return true;
   };
@@ -327,10 +331,21 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     const ready: Person[] = [];
     for (const p of people.values()) {
       const a = byId.get(p.id);
-      if (!a || p.phase !== 'seated') continue;
-      if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
+      if (!a) continue;
       const state = { floor, statusFor: run.clock - p.statusAt, seatedFor: run.clock - p.seatedAt, restless: p.restless };
-      for (const e of wanted(errands(), a, state)) p.queue = enqueue(p.queue, e.name, run.clock);
+      if (p.phase !== 'seated') {
+        // Off on an idle errand when board work comes in: straight there instead.
+        const idle = p.errand;
+        const st = bodyState(p.id);
+        if (!idle || idle.work || (p.phase !== 'leaving' && p.phase !== 'there') || !st) continue;
+        const e = wanted(errands(), a, state).find((x) => x.work);
+        if (!e || (e.claim && !e.claim(p.id))) continue;
+        if (start(p, e, st)) idle.end?.(p.id, 'cut');
+        else e.end?.(p.id, 'cut');
+        continue;
+      }
+      if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
+      for (const e of wanted(errands(), a, state)) p.queue = enqueue(p.queue, e.name, run.clock, undefined, e.work);
       const kept = prune(p.queue, run.clock, (n) => {
         const e = errandNamed(n);
         // errands someone claims (the board's) also drop out once they're no longer wanted

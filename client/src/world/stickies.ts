@@ -122,6 +122,8 @@ export interface Job {
   /** Seconds (any clock) when the real move happened. */
   at: number;
   stage: Stage;
+  /** Waiting for this job (someone else bringing the sticky to where this move starts) to finish first. */
+  after?: number;
 }
 
 /** A move whose errand hasn't started this soon is skipped: the board just updates. */
@@ -135,19 +137,37 @@ export const BOARD_MAX = 2;
 
 /**
  * Adds a move to the queue. One job per person: a newer move replaces one still waiting (the stale one is skipped),
- * and a move for someone already on their way, or for a sticky someone already has, is skipped. Returns the queue to
- * keep and the jobs dropped (the board shows those as they are).
+ * and a move for someone already on their way, or for a sticky someone already has, is skipped. A move of a sticky
+ * someone else is still bringing over (a tester taking the PR its developer is putting up) waits for them (`after`).
+ * Returns the queue to keep and the jobs dropped (the board shows those as they are).
  */
 export function addMove(jobs: readonly Job[], move: Move, at: number, id: number): { jobs: Job[]; dropped: Job[] } {
-  const busy = jobs.some((j) => j.stage !== 'waiting' && (j.move.agentId === move.agentId || j.move.key === move.key || j.move.from.card.key === move.from.card.key));
-  if (busy) return { jobs: [...jobs], dropped: [] };
-  const stale = (j: Job) => j.stage === 'waiting' && (j.move.agentId === move.agentId || j.move.key === move.key);
-  return { jobs: [...jobs.filter((j) => !stale(j)), { id, move, at, stage: 'waiting' }], dropped: jobs.filter(stale) };
+  const none = { jobs: [...jobs], dropped: [] };
+  if (jobs.some((j) => j.stage !== 'waiting' && j.move.agentId === move.agentId)) return none;
+  const before = jobs.find((j) => j.move.key === move.from.card.key && j.move.agentId !== move.agentId);
+  if (!before && jobs.some((j) => j.stage !== 'waiting' && (j.move.key === move.key || j.move.from.card.key === move.from.card.key))) return none;
+  const stale = (j: Job) => j.stage === 'waiting' && j !== before && (j.move.agentId === move.agentId || j.move.key === move.key);
+  const dropped = jobs.filter(stale);
+  const job: Job = before ? { id, move, at, stage: 'waiting', after: before.id } : { id, move, at, stage: 'waiting' };
+  return { jobs: [...release(jobs.filter((j) => !stale(j)), dropped, at), job], dropped };
 }
 
-/** Jobs past their time: waiting longer than START_BY, or holding the board longer than HOLD_MAX. */
+/** The jobs that were waiting for `gone` may set off now: their START_BY counts from `now`. */
+export function release(jobs: readonly Job[], gone: readonly Job[], now: number): Job[] {
+  return jobs.map((j) => (j.after !== undefined && gone.some((g) => g.id === j.after) ? { ...j, after: undefined, at: now } : j));
+}
+
+/**
+ * Jobs past their time: waiting longer than START_BY (or, behind someone else's, CARRY_MAX at most), or holding the
+ * board longer than HOLD_MAX.
+ */
 export const overdue = (j: Job, now: number) =>
-  now - j.at > (j.stage === 'waiting' ? START_BY : j.stage === 'held' && j.move.kind === 'take' ? CARRY_MAX : HOLD_MAX);
+  now - j.at >
+  (j.stage === 'waiting' ? (j.after !== undefined ? CARRY_MAX : START_BY) : j.stage === 'held' && j.move.kind === 'take' ? CARRY_MAX : HOLD_MAX);
+
+/** What the board holds back for the queue. A move waiting behind someone else's just keeps its card out of sight. */
+export const boardHolds = (jobs: readonly Job[]): Hold[] =>
+  jobs.map((j) => (j.after !== undefined ? { keep: null, hide: [j.move.key] } : holdFor(j.move, j.stage === 'held')));
 
 /** The column someone walks up to first: where the sticky is, or where a tester brings it back to. */
 export const firstColumn = (m: Move): Col => (m.kind === 'pass' || m.kind === 'fail' ? (m.to as Col) : m.from.col);
@@ -156,7 +176,7 @@ export const firstColumn = (m: Move): Col => (m.kind === 'pass' || m.kind === 'f
 export function mayGo(jobs: readonly Job[], agentId: string, now: number): boolean {
   const mine = jobs.find((j) => j.move.agentId === agentId && j.stage === 'waiting');
   const atBoard = jobs.filter((j) => j.stage !== 'waiting' && !(j.stage === 'held' && j.move.kind === 'take')); // not those carrying one home
-  if (!mine || overdue(mine, now) || atBoard.length >= BOARD_MAX) return false;
+  if (!mine || mine.after !== undefined || overdue(mine, now) || atBoard.length >= BOARD_MAX) return false;
   const col = firstColumn(mine.move);
   return !atBoard.some((j) => firstColumn(j.move) === col || j.move.to === col);
 }

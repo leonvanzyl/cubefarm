@@ -72,6 +72,13 @@ describe('the walker cap', () => {
     expect(admit(all, MAX_WALKERS + 2)).toEqual([]);
   });
 
+  it('lets work errands go ahead of the rest, whatever the cap', () => {
+    const work = (at: number, id: string) => ({ id, queue: [{ name: 'board', at, work: true }] });
+    const all = [waiting(1, 'a'), waiting(2, 'b'), work(9, 'w')];
+    expect(admit(all, 0, 2).map((p) => p.id)).toEqual(['w', 'a']);
+    expect(admit(all, 2, 2).map((p) => p.id)).toEqual(['w']);
+  });
+
   it('skips people with nothing queued', () => {
     expect(admit([{ id: 'x', queue: [] as Queued[] }, waiting(9, 'y')], 0).map((p) => p.id)).toEqual(['y']);
   });
@@ -101,6 +108,15 @@ describe('the queue', () => {
     expect(q).toEqual([{ name: 'stretch', at: 0 }]);
     for (let i = 0; i < 5; i++) q = enqueue(q, `e${i}`, 2);
     expect(q).toHaveLength(QUEUE_MAX);
+  });
+
+  it('puts work errands ahead of idle ones, bumping one off a full queue', () => {
+    let q = enqueue(enqueue([], 'stretch', 0), 'coffee', 1);
+    q = enqueue(q, 'board', 2, QUEUE_MAX, true);
+    expect(q.map((x) => x.name)).toEqual(['board', 'stretch']);
+    q = enqueue(q, 'board-2', 3, QUEUE_MAX, true);
+    expect(q.map((x) => x.name)).toEqual(['board', 'board-2']);
+    expect(enqueue(q, 'board-3', 4, QUEUE_MAX, true)).toBe(q);
   });
 
   it('drops errands that waited too long or may no longer go, keeping the rest in order', () => {
@@ -193,5 +209,17 @@ describe('the registry', () => {
     expect(errandNamed('test-board')!.steps[0].seconds).toBe(3);
     expect(wanted(errands(), dev('preparing'), state()).map((e) => e.name)).toEqual(['test-board']);
     expect(wanted(errands(), dev('working'), state())).toEqual([]);
+  });
+
+  it('a free person seated for ages who also has board work gets the board first', () => {
+    registerErrand({ name: 'test-sticky', work: true, when: (a) => a.id === 'a', spot: ['board-*'], steps: [{ gesture: 'post', seconds: 1 }] });
+    const names = wanted(errands(), dev('done'), state({ seatedFor: 600 })).map((e) => e.name);
+    expect(names.indexOf('test-sticky')).toBe(0);
+    expect(names).toContain('stretch');
+    let q: Queued[] = [];
+    for (const e of wanted(errands(), dev('done'), state({ seatedFor: 600 }))) q = enqueue(q, e.name, 0, QUEUE_MAX, e.work);
+    expect(q[0].name).toBe('test-sticky');
+    // and it sets off even with the floor's walker cap reached
+    expect(admit([{ id: 'a', queue: q }], MAX_WALKERS)).toHaveLength(1);
   });
 });

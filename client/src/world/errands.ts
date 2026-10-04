@@ -83,21 +83,24 @@ export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work' | 'gra
 export const mayContinue = (status: AgentStatus, errand: Pick<Errand, 'work'>) =>
   isFree(status) || (!!errand.work && (status === 'preparing' || status === 'working'));
 
-/** Who of those with an errand waiting sets off now: longest waiting first, while there's room on the floor. */
+/**
+ * Who of those with an errand waiting sets off now: longest waiting first, while there's room on the floor. Work
+ * errands (the board's, with their own limits) always go, ahead of the rest and whatever the cap.
+ */
 export function admit<T extends { queue: readonly Queued[] }>(waiting: readonly T[], away: number, cap = MAX_WALKERS): T[] {
-  const room = Math.max(0, cap - away);
-  return waiting
-    .filter((p) => p.queue.length > 0)
-    .sort((a, b) => a.queue[0].at - b.queue[0].at)
-    .slice(0, room);
+  const queued = waiting.filter((p) => p.queue.length > 0).sort((a, b) => a.queue[0].at - b.queue[0].at);
+  const work = queued.filter((p) => p.queue[0].work);
+  const room = Math.max(0, cap - away - work.length);
+  return [...work, ...queued.filter((p) => !p.queue[0].work).slice(0, room)];
 }
 
 /** Seconds someone sits before their next idle errand: tens of seconds, sooner on arrival so the floor isn't still. */
 export const restlessSeconds = (rand: number, arriving = false) => (arriving ? 6 + rand * 40 : 25 + rand * 45);
 
-/** The errands this person wants to go on now and may, in registry order. */
+/** The errands this person wants to go on now and may: work errands first, then in registry order. */
 export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: ErrandState): Errand[] {
-  return registry.filter((e) => mayStart(agent.status, e, state.statusFor) && e.when(agent, state));
+  const out = registry.filter((e) => mayStart(agent.status, e, state.statusFor) && e.when(agent, state));
+  return [...out.filter((e) => e.work), ...out.filter((e) => !e.work)];
 }
 
 // ---------- the queue ----------
@@ -106,15 +109,23 @@ export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: E
 export interface Queued {
   name: string;
   at: number;
+  /** A work errand: it goes ahead of idle ones. */
+  work?: boolean;
 }
 
 export const QUEUE_MAX = 2;
 export const QUEUE_SECONDS = 20;
 
-/** Adds `name` unless it's already waiting or the queue is full (then it's skipped). Returns the queue to keep. */
-export function enqueue(q: readonly Queued[], name: string, now: number, max = QUEUE_MAX): Queued[] {
-  if (q.length >= max || q.some((x) => x.name === name)) return q as Queued[];
-  return [...q, { name, at: now }];
+/**
+ * Adds `name` unless it's already waiting or the queue is full (then it's skipped). A work errand goes ahead of the
+ * idle ones, bumping the last of them off a full queue. Returns the queue to keep.
+ */
+export function enqueue(q: readonly Queued[], name: string, now: number, max = QUEUE_MAX, work = false): Queued[] {
+  if (q.some((x) => x.name === name)) return q as Queued[];
+  if (!work) return q.length >= max ? (q as Queued[]) : [...q, { name, at: now }];
+  const ahead = q.filter((x) => x.work);
+  if (ahead.length >= max) return q as Queued[];
+  return [...ahead, { name, at: now, work: true }, ...q.filter((x) => !x.work)].slice(0, max);
 }
 
 /** Drops what has waited too long or may no longer go (`ok`), keeping the order. */

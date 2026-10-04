@@ -15,14 +15,17 @@ import { registerErrand, type Errand, type ErrandStep } from './errands';
 import { bodyState, bodyTarget } from './people';
 import {
   addMove,
+  boardHolds,
   boardPose,
   displayColumns,
   findCard,
   firstColumn,
-  holdFor,
+  HOLD_MAX,
   mayGo,
   monitorPose,
   overdue,
+  release,
+  START_BY,
   stickyMoves,
   type Job,
   type MoveKind,
@@ -83,8 +86,13 @@ const moveSteps: ErrandStep[] = [
 ];
 registerErrand(errand('sticky-move', [...moveSteps, { gesture: 'none', seconds: 0.4 }]));
 registerErrand(errand('sticky-merge', [...moveSteps, { gesture: 'none', seconds: 0.25 }, { gesture: 'cheer', seconds: 1.4 }]));
-// a tester takes it off In QA and carries it back to their station
-registerErrand(errand('sticky-take', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'post', seconds: 0.7, cue: 'peel' }, { gesture: 'hold', seconds: 0.3 }], { carry: 'hold' }));
+// a tester takes it off In QA and carries it back to their station (maybe once its developer has put it up)
+registerErrand(
+  errand('sticky-take', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'post', seconds: 0.7, cue: 'peel' }, { gesture: 'hold', seconds: 0.3 }], {
+    carry: 'hold',
+    grace: GRACE + HOLD_MAX + START_BY,
+  }),
+);
 // ...and brings it back once they're done: Ready to merge, or back to the QA column
 registerErrand(errand('sticky-bring', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'post', seconds: 0.7, cue: 'slap' }, { gesture: 'none', seconds: 0.4 }], { bring: 'hold' }));
 
@@ -145,8 +153,6 @@ function note(c: Ctrl, what: LogEntry['what'], j: Job) {
   c.log.push({ t: Math.round(performance.now()), what, kind: j.move.kind, agent: j.move.agentId, card: j.move.key, to: j.move.to });
   if (c.log.length > LOG_KEEP) c.log.splice(0, c.log.length - LOG_KEEP);
 }
-
-const holdsOf = (jobs: readonly Job[]) => jobs.map((j) => holdFor(j.move, j.stage === 'held'));
 
 /** Looks at the latest board while rendering, so the 3D board never paints a move before it's held back. */
 function observe(c: Ctrl, cols: KanbanColumns, agents: Agent[]) {
@@ -216,7 +222,7 @@ function free(c: Ctrl, owner: string) {
 /** The job's over: placed, given up, or late. The board shows the real state again. */
 function finish(c: Ctrl, j: Job, what: LogEntry['what']) {
   if (!c.jobs.includes(j)) return;
-  c.jobs = c.jobs.filter((x) => x !== j);
+  c.jobs = release(c.jobs.filter((x) => x !== j), [j], now()); // anyone waiting for it may go now
   note(c, what, j);
   c.dirty = true;
   c.changed();
@@ -230,7 +236,7 @@ const tmp = newPose();
 
 function makeBoard(c: Ctrl): Board {
   return {
-    wants: (id, name) => c.jobs.some((j) => j.move.agentId === id && j.stage === 'waiting' && errandFor(j.move.kind) === name && !overdue(j, now())),
+    wants: (id, name) => c.jobs.some((j) => j.move.agentId === id && j.stage === 'waiting' && j.after === undefined && errandFor(j.move.kind) === name && !overdue(j, now())),
     where(id) {
       const j = jobOf(c, id, ['waiting', 'going']);
       if (!j) return [];
@@ -262,7 +268,7 @@ function makeBoard(c: Ctrl): Board {
       if (cue === 'peel') {
         const j = jobOf(c, id, ['going']);
         if (!j || overdue(j, now()) || j.move.kind === 'pass' || j.move.kind === 'fail' || !c.cols) return false;
-        const shown = displayColumns(c.cols, holdsOf(c.jobs));
+        const shown = displayColumns(c.cols, boardHolds(c.jobs));
         const from = findCard(shown, j.move.from.card.key);
         const pose = boardPose(j.move.from.col, from?.col === j.move.from.col ? from.index : j.move.from.index, j.move.from.card.number, tmp);
         const p = spawn(c, `job:${j.id}`, label(j.move.from.card), kanbanNoteColor(j.move.from.col), pose);
@@ -278,7 +284,8 @@ function makeBoard(c: Ctrl): Board {
         if (!j || overdue(j, now()) || j.move.to === 'monitor' || !c.cols) return false;
         if (j.stage === 'going' && j.move.kind !== 'pass' && j.move.kind !== 'fail') return false;
         const col = j.move.to;
-        const shown = displayColumns(c.cols, holdsOf(c.jobs.filter((x) => x !== j)));
+        // where it goes once placed: what the board shows without it, or anyone waiting for it
+        const shown = displayColumns(c.cols, boardHolds(c.jobs.filter((x) => x !== j && x.after !== j.id)));
         const at = findCard(shown, j.move.key);
         const pose = copyPose(newPose(), boardPose(col, at?.col === col ? at.index : shown[col].length, at?.card.number ?? j.move.from.card.number, tmp));
         const owner = `job:${j.id}`;
@@ -347,7 +354,7 @@ export function useStickyBoard(cols: KanbanColumns, agents: Agent[]) {
   const [version, bump] = useReducer((n: number) => n + 1, 0);
   ctrl.changed = bump;
   observe(ctrl, cols, agents);
-  const shown = useMemo(() => displayColumns(cols, holdsOf(ctrl.jobs)), [cols, version, ctrl.jobs]);
+  const shown = useMemo(() => displayColumns(cols, boardHolds(ctrl.jobs)), [cols, version, ctrl.jobs]);
   useEffect(() => {
     const b = makeBoard(ctrl);
     board = b;

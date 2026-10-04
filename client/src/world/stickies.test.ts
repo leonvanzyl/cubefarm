@@ -7,6 +7,7 @@ import { BOARD, deskPosition, qaDeskPosition, QA_ROTATION } from './layout';
 import {
   addMove,
   BOARD_MAX,
+  boardHolds,
   CARRY_MAX,
   boardPose,
   displayColumns,
@@ -15,6 +16,7 @@ import {
   mayGo,
   monitorPose,
   overdue,
+  release,
   START_BY,
   stickyMoves,
   type Job,
@@ -130,6 +132,41 @@ describe('the queue', () => {
     expect(addMove(going, move('a', 'pr-3'), 2, 3).jobs).toEqual(going);
     expect(addMove(going, move('b', 'pr-2', 'merge'), 2, 4).jobs).toEqual(going); // someone already has that sticky
     expect(addMove(going, move('b', 'pr-5'), 2, 5).jobs.map((j) => j.id)).toEqual([2, 5]);
+  });
+
+  it("a tester's take waits for the developer still putting that sticky up on In QA", () => {
+    const toQa = move('dev', 'pr-12');
+    const take: Move = { kind: 'take', agentId: 'qa', from: { col: 'qa', index: 0, card: pr(12, 'queued') }, to: 'monitor', key: 'pr-12' };
+    let r = addMove([], toQa, 0, 1);
+    r = addMove(r.jobs, take, 0.2, 2);
+    expect(r.dropped).toEqual([]);
+    expect(r.jobs.map((j) => [j.id, j.after])).toEqual([
+      [1, undefined],
+      [2, 1],
+    ]);
+    // the developer goes first; the tester doesn't, and isn't skipped for waiting
+    expect(mayGo(r.jobs, 'dev', 1)).toBe(true);
+    expect(mayGo(r.jobs, 'qa', 1)).toBe(false);
+    expect(overdue(r.jobs[1], 0.2 + START_BY + 1)).toBe(false);
+    // the board shows the card in In progress only, not in In QA as well
+    const shown = displayColumns(board({ qa: [pr(12, 'testing')] }), boardHolds(r.jobs));
+    expect(shown.progress.map((c) => c.key)).toEqual(['a-dev']);
+    expect(shown.qa).toEqual([]);
+    // also while the developer is on their way, and once placed the take may go, its START_BY from then
+    const going = r.jobs.map((j) => (j.id === 1 ? { ...j, stage: 'going' as const } : j));
+    expect(addMove(going, take, 0.3, 3).jobs.find((j) => j.id === 3)?.after).toBe(1);
+    const after = release(going.slice(1), [going[0]], 15);
+    expect(after[0]).toMatchObject({ id: 2, at: 15, after: undefined });
+    expect(mayGo(after, 'qa', 16)).toBe(true);
+    expect(displayColumns(board({ qa: [pr(12, 'testing')] }), boardHolds(after)).qa.map((c) => c.qa?.status)).toEqual(['queued']);
+  });
+
+  it('a move waiting behind a skipped one may go at once', () => {
+    let r = addMove([], move('dev', 'pr-12'), 0, 1);
+    r = addMove(r.jobs, { kind: 'take', agentId: 'qa', from: { col: 'qa', index: 0, card: pr(12, 'queued') }, to: 'monitor', key: 'pr-12' }, 0, 2);
+    r = addMove(r.jobs, move('dev', 'pr-13'), 1, 3); // the developer's next PR replaces their waiting move
+    expect(r.dropped.map((j) => j.id)).toEqual([1]);
+    expect(r.jobs.find((j) => j.id === 2)).toMatchObject({ at: 1, after: undefined });
   });
 
   it('skips a move whose errand has not started soon, and never holds the board longer than HOLD_MAX', () => {
