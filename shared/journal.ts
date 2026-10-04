@@ -2,7 +2,7 @@
 // can replay it. Pure, so the server (recording, reading, pruning) and the client (replay) share one set of rules:
 // which events are kept and how they're slimmed and scrubbed of secrets, keyframes and seeking, retention, and the
 // marks on the replay's timeline. Terminal output, settings and anything secret are never kept.
-import { INSTALL_STEP, type AgentView, type CeoInfo, type HireRequestView, type IssueInfo, type OpsView, type PhoneMessage, type PreviewView, type PullInfo, type QaView, type RepoView, type ServerEvent, type UsageView, type WorldSnapshot } from './types.ts';
+import { INSTALL_STEP, type AgentView, type CeoInfo, type HireRequestView, type IssueInfo, type OpsView, type PhoneMessage, type PreviewView, type PullInfo, type QaView, type RepoView, type ServerEvent, type TickerItem, type UsageView, type WorldSnapshot } from './types.ts';
 
 /** A keyframe (a full picture of the office) starts every journal file; a new file starts this often. */
 export const KEYFRAME_MS = 10 * 60_000;
@@ -26,10 +26,12 @@ export interface JournalFrame {
   usage: UsageView;
   /** Mission control's screens (absent in the demo's sample day). */
   ops?: OpsView;
+  /** The floors' latest ticker lines (absent in journals from before the ticker). */
+  ticker?: TickerItem[];
 }
 
 /** The events the journal keeps: the ones that change how the office looks. */
-export type JournalEvent = Extract<ServerEvent, { type: 'repo' | 'repoRemoved' | 'agent' | 'agentRemoved' | 'qa' | 'qaRemoved' | 'request' | 'ceo' | 'message' | 'usage' | 'ops' }>;
+export type JournalEvent = Extract<ServerEvent, { type: 'repo' | 'repoRemoved' | 'agent' | 'agentRemoved' | 'qa' | 'qaRemoved' | 'request' | 'ceo' | 'message' | 'usage' | 'ops' | 'ticker' }>;
 
 /** An agent's update after their first: only the fields that changed (mostly just the tool in hand). */
 export interface AgentPatch {
@@ -245,6 +247,8 @@ export function compactAgent(a: JournalAgent, secrets: readonly string[] = []): 
     hasScreenshot: false,
     screenshotAt: null,
     lastError: null,
+    // The sign over them: the kind of work, without its detail (a file, a command).
+    ...(a.activity !== undefined && { activity: a.activity && { kind: a.activity.kind, detail: '' } }),
   };
 }
 
@@ -317,6 +321,12 @@ function compactOps(o: OpsView, secrets: readonly string[]): OpsView {
   return { ...o, alarms: o.alarms.slice(0, 50).map((a) => ({ ...a, text: a.kind === 'agent' ? clip(a.text.split(':')[0], 80) : text(a.text, 160, secrets) })) };
 }
 
+/** A floor ticker line, without QA's screenshots. */
+const compactTicker = (t: TickerItem, secrets: readonly string[]): TickerItem => ({ id: t.id, repoId: t.repoId, at: t.at, text: text(t.text, 140, secrets), tone: t.tone });
+
+/** The ticker lines a keyframe keeps. */
+const FRAME_TICKER = 30;
+
 /** The event as the journal keeps it, or null for one it never records (terminal output, screens, settings, keys, toasts…). */
 export function journalEvent(ev: ServerEvent, secrets: readonly string[] = []): JournalEvent | null {
   switch (ev.type) {
@@ -342,6 +352,8 @@ export function journalEvent(ev: ServerEvent, secrets: readonly string[] = []): 
       return { type: 'usage', usage: compactUsage(ev.usage) };
     case 'ops':
       return { type: 'ops', ops: compactOps(ev.ops, secrets) };
+    case 'ticker':
+      return { type: 'ticker', item: compactTicker(ev.item, secrets) };
     default:
       return null;
   }
@@ -353,7 +365,7 @@ const KEEP_REQUESTS = 20;
 export const FRAME_MESSAGES = 20;
 
 /** A keyframe from the office's snapshot, slimmed and scrubbed like the events. */
-export function journalFrame(s: Pick<WorldSnapshot, 'repos' | 'agents' | 'qa' | 'requests' | 'ceo' | 'messages' | 'usage'> & { ops?: OpsView }, secrets: readonly string[] = []): JournalFrame {
+export function journalFrame(s: Pick<WorldSnapshot, 'repos' | 'agents' | 'qa' | 'requests' | 'ceo' | 'messages' | 'usage'> & { ops?: OpsView; ticker?: TickerItem[] }, secrets: readonly string[] = []): JournalFrame {
   const decided = s.requests.filter((r) => r.status !== 'pending').slice(-KEEP_REQUESTS);
   return {
     repos: s.repos.map((r) => compactRepo(r, secrets)),
@@ -364,6 +376,7 @@ export function journalFrame(s: Pick<WorldSnapshot, 'repos' | 'agents' | 'qa' | 
     messages: s.messages.slice(-FRAME_MESSAGES).map((m) => compactMessage(m, secrets)),
     usage: compactUsage(s.usage),
     ...(s.ops && { ops: compactOps(s.ops, secrets) }),
+    ...(s.ticker && { ticker: s.ticker.slice(-FRAME_TICKER).map((t) => compactTicker(t, secrets)) }),
   };
 }
 
@@ -393,6 +406,7 @@ export function dedupeKey(e: JournalEvent): string | null {
     case 'ops':
       return 'ops';
     case 'message':
+    case 'ticker':
       return null;
   }
 }

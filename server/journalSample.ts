@@ -3,7 +3,7 @@
 // opened, QA rounds (some failed and fixed, one needing the manager), merges, the CEO filing issues and a spell of
 // pacing. Seeded, so the same office gives the same day.
 import { compress, FRAME_MESSAGES, KEYFRAME_MS, type JournalAgent, type JournalEvent, type JournalFrame, type JournalLine } from '../shared/journal.ts';
-import { CEO_ID, INSTALL_STEP, type CeoInfo, type IssueInfo, type PhoneMessage, type PullInfo, type QaView, type RepoView, type UsageView } from '../shared/types.ts';
+import { CEO_ID, INSTALL_STEP, type ActivityKind, type AgentActivity, type CeoInfo, type IssueInfo, type PhoneMessage, type PullInfo, type QaView, type RepoView, type TickerItem, type UsageView } from '../shared/types.ts';
 
 /** A small seeded random number generator (mulberry32), in [0, 1). */
 export function seeded(seed: number): () => number {
@@ -55,7 +55,17 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 const iso = (t: number) => new Date(t).toISOString();
 
 function idle(a: JournalAgent): JournalAgent {
-  return { ...a, status: 'idle', task: null, issueNumber: null, issueTitle: null, branch: null, prNumber: null, prUrl: null, currentTool: null, startedAt: null, endedAt: null };
+  return { ...a, status: 'idle', task: null, issueNumber: null, issueTitle: null, branch: null, prNumber: null, prUrl: null, currentTool: null, startedAt: null, endedAt: null, activity: null };
+}
+
+const KINDS: Record<string, ActivityKind> = { Read: 'read', Grep: 'read', Glob: 'read', TodoWrite: 'read', Edit: 'edit', Write: 'edit', Bash: 'test' };
+
+/** The sign over someone at work, as the journal keeps it: the kind of work their tool is. */
+function activityOf(a: JournalAgent): AgentActivity | null {
+  if (a.status === 'preparing') return { kind: 'build', detail: '' };
+  if (a.status !== 'working') return null;
+  const tool = a.currentTool ?? '';
+  return { kind: tool.startsWith('mcp__playwright') ? 'browse' : tool.startsWith('mcp__office') ? 'talk' : (KINDS[tool] ?? 'run'), detail: '' };
 }
 
 /**
@@ -92,7 +102,16 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
 
   const ev = (e: JournalEvent) => lines.push({ t, e: clone(e) });
   const repoById = (id: string) => repos.find((r) => r.id === id)!;
-  const emitAgent = (a: JournalAgent) => ev({ type: 'agent', agent: a });
+  const emitAgent = (a: JournalAgent) => {
+    a.activity = activityOf(a);
+    ev({ type: 'agent', agent: a });
+  };
+  const ticker: TickerItem[] = [];
+  const tick = (repoId: string, text: string, tone: TickerItem['tone'] = 'info') => {
+    const item: TickerItem = { id: ticker.length + 1, repoId, at: t, text, tone };
+    ticker.push(item);
+    ev({ type: 'ticker', item });
+  };
   const emitQa = (q: QaView) => {
     q.updatedAt = t;
     ev({ type: 'qa', qa: q });
@@ -102,7 +121,7 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
     messages.push(m);
     ev({ type: 'message', message: m });
   };
-  const frame = (): JournalFrame => clone({ repos, agents, qa: [...qa.values()], requests: [], ceo, messages: messages.slice(-FRAME_MESSAGES), usage });
+  const frame = (): JournalFrame => clone({ repos, agents, qa: [...qa.values()], requests: [], ceo, messages: messages.slice(-FRAME_MESSAGES), usage, ticker: ticker.slice(-30) });
   const qaKey = (repoId: string, n: number) => `${repoId}#${n}`;
 
   function newIssue(r: Pick<RepoView, 'url'>, n: number, title: string, at: number): IssueInfo {
@@ -156,6 +175,7 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
     repo.pulls.push(pr);
     checksAt.set(qaKey(repo.id, n), t + between(4, 9) * MIN);
     ev({ type: 'repo', repo });
+    tick(repo.id, `${a.name} opened PR #${n}`, 'good');
     rest(a, { status: 'done', prNumber: n, prUrl: pr.url });
     const q: QaView = { repoId: repo.id, prNumber: n, status: 'queued', round: 1, devAgentId: a.id, qaAgentId: null, summary: null, checks: [], commentUrl: null, mergeNote: null, ceoLooking: false, updatedAt: t };
     qa.set(qaKey(repo.id, n), q);
@@ -168,12 +188,17 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
     if (!q) return;
     if (job.verdict === 'pass') {
       Object.assign(q, { status: 'passed', mergeNote: null });
+      tick(job.repoId, `${a.name} passed PR #${job.n} ✅`, 'good');
       merges.push({ repoId: job.repoId, n: job.n, at: t + between(2, 6) * MIN });
     } else if (job.verdict === 'stuck') {
       stuck++;
       Object.assign(q, { status: 'needs-human', mergeNote: null });
       say('office', `⚠️ PR #${job.n} on ${repoById(job.repoId).fullName} failed QA ${q.round} times. It needs you.`);
-    } else Object.assign(q, { status: 'failed' });
+      tick(job.repoId, `PR #${job.n} needs you 🙋`, 'bad');
+    } else {
+      Object.assign(q, { status: 'failed' });
+      tick(job.repoId, `${a.name} failed PR #${job.n} · round ${q.round}`, 'bad');
+    }
     emitQa(q);
   }
 
@@ -190,6 +215,7 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
     const old = repo.pulls.filter((p) => p.state === 'MERGED').slice(0, -8);
     repo.pulls = repo.pulls.filter((p) => !old.includes(p));
     ev({ type: 'repo', repo });
+    tick(repoId, `#${n} merged 🎉`, 'good');
     merged++;
     const dev = agents.find((x) => x.id === q?.devAgentId);
     if (dev && !jobs.has(dev.id) && dev.prNumber === n) {
