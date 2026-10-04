@@ -37,7 +37,8 @@ export type ChatterEvent =
   | { kind: 'visit'; host: string; issue: number | null }
   | { kind: 'chat'; topic: ChatTopic; pr: number | null; venue: string }
   | { kind: 'greet'; manager: string; mood: GreetMood; pr: number | null; issue: number | null }
-  | { kind: 'ceo'; busy: boolean };
+  | { kind: 'ceo'; busy: boolean }
+  | { kind: 'ceoVisit' };
 
 export type ChatterKind = ChatterEvent['kind'];
 
@@ -65,6 +66,7 @@ const LINES: Record<Exclude<ChatterKind, 'work' | 'chat' | 'greet'>, readonly st
   coffee: ['Coffee time ☕', 'I need a coffee', 'Anyone want coffee?', 'Back in a sec, coffee!'],
   visit: ["How's #{issue} going, {host}?", "Ooh, what's that, {host}?", 'Need a hand, {host}?'],
   ceo: ['Big plans today!', "Let's ship it!", 'What a team we have', 'So many ideas…'],
+  ceoVisit: ["Hi team! How's it going?", 'Looking good, everyone!', 'Keep it up, team!', 'Just passing through!'],
 };
 
 /** The CEO at work at their desk or about the lobby. */
@@ -84,11 +86,11 @@ const WORK: Record<WorkKind, readonly string[]> = {
 
 /** A chat by the cooler or the couch, by topic. */
 const CHAT: Record<ChatTopic, readonly string[]> = {
-  '☕': ['Coffee? ☕', 'This coffee is great ☕', 'Third coffee today ☕'],
-  '😂': ['It works on my machine 😂', 'Who named that variable? 😂', 'Have you tried turning it off and on? 😂'],
-  '🚀': ["Everyone's so busy 🚀", 'Busy floor today 🚀', 'We ship a lot! 🚀'],
-  '🎉': ['Did you see #{pr} merged? 🎉', '#{pr} shipped! 🎉', 'Another merge! 🎉'],
-  '🐛': ['QA found a bug in #{pr} 🐛', 'Poor #{pr} 🐛', 'Bugs everywhere today 🐛'],
+  '☕': ['Coffee? ☕', 'This coffee is great ☕', 'Third coffee today ☕', 'Who left the pot empty? ☕', 'Decaf? Never ☕'],
+  '😂': ['It works on my machine 😂', 'Who named that variable? 😂', 'Have you tried turning it off and on? 😂', "It's not a bug, it's a feature 😂", 'Just one more refactor 😂'],
+  '🚀': ["Everyone's so busy 🚀", 'Busy floor today 🚀', 'We ship a lot! 🚀', 'So many PRs today 🚀'],
+  '🎉': ['Did you see #{pr} merged? 🎉', '#{pr} shipped! 🎉', 'Another merge! 🎉', 'The gong again! 🎉'],
+  '🐛': ['QA found a bug in #{pr} 🐛', 'Poor #{pr} 🐛', 'Bugs everywhere today 🐛', 'Squash that bug! 🐛'],
 };
 
 /** By the water cooler, the coffee topic is an offer. */

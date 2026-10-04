@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
+import { useSyncExternalStore } from 'react';
 import { useStore } from '../store';
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
@@ -7,6 +7,7 @@ import { CardView } from './CardView';
 import { ElevatorPanel } from './ElevatorPanel';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
+import { Panel } from './Panel';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
@@ -14,52 +15,7 @@ import { CHATTER_LEVELS, SOUND_GROUPS, type ChatterLevel, type SoundGroup } from
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 
-// Closing a panel grabs the mouse again right away (world/lookLock.ts; "Grab the mouse when panels
-// close" in help turns that off), and mouse presses are swallowed for a moment so a double click on
-// ✕ or the backdrop can't act on whatever the crosshair lands on.
-export function closeOverlay() {
-  useStore.getState().openOverlay(null);
-}
-
-export function Panel({
-  title,
-  children,
-  wide,
-  accent,
-  className,
-  onClose,
-}: {
-  title: ReactNode;
-  children: ReactNode;
-  wide?: boolean;
-  accent?: string;
-  className?: string;
-  onClose?: () => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose ? onClose() : closeOverlay();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
-      <div className={`panel ${wide ? 'panel-wide' : ''} ${className ?? ''}`} style={{ ['--accent' as string]: accent ?? '#ff8a5b' }}>
-        <div className="panel-head">
-          <div className="panel-title">{title}</div>
-          <button className="panel-x" onClick={() => (onClose ? onClose() : closeOverlay())} aria-label="Close">
-            ✕
-          </button>
-        </div>
-        <div className="panel-body">{children}</div>
-      </div>
-    </div>
-  );
-}
+export { closeOverlay, Panel } from './Panel';
 
 const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', babble: 'Chatter', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
 const SOUND_GROUP_TITLES: Partial<Record<SoundGroup, string>> = {
@@ -204,6 +160,12 @@ function Help() {
           Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
           arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <kbd>E</kbd> for a happy spin.
         </p>
+        <h3>The office dog</h3>
+        <p>
+          One dog roams the whole building, taking the elevator between floors now and then. Aim at it and press <kbd>E</kbd> to pet it: it wiggles and follows you for a while (into the elevator too).
+          Hold a ball and it watches it eagerly; throw it and it fetches it back to your feet. It naps on the couch or a rug when the floor is quiet, sits with anyone having a hard time
+          (red checks, a third round of fixes, or a PR stuck for a human) and celebrates a merge with its author. Rename it in Settings.
+        </p>
         <h3>Foam blasters</h3>
         <p>
           Every floor has a rack of foam blasters by the south wall: aim at it and press <kbd>E</kbd> to take one. <b>Fire</b>: click or <kbd>F</kbd> (12 darts, up to four a second). <b>Reload</b>: <kbd>R</kbd>. <b>Drop</b>: <kbd>G</kbd>, then <kbd>E</kbd> picks it up again.
@@ -241,10 +203,16 @@ function Help() {
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
           floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
         </p>
+        <h3>Mission control</h3>
+        <p>
+          The curved bank of screens behind reception shows the whole company at a glance: the pipeline (issues ready, being built, in QA, being fixed, ready to merge, needing you), merges today and over the last 24 hours, lead time, QA wait and CI, who's busy, and an estimate of today's cost. Each floor's team sign has a short line of its own numbers. The bottom middle screen is Claude's usage meter: while the office paces itself after a usage warning, press <kbd>E</kbd> on it to resume full speed (if you've topped up or your usage was reset). When a PR needs you, or someone has been stuck on an error for 10 minutes, the beacon on top spins (and the one on that floor's sign) with a calm chime: press <kbd>E</kbd> on it to open the console at that card. The manager's console has it all too, under Mission control.
+        </p>
         <h3>Your phone</h3>
         <p>
           Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, see every project at a glance, or play Cubetris, Cable Snake or look after your Desk Pet while the team works. The red badge counts decisions and messages waiting for you. In the chat, and in an agent's
-          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.
+          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line. To talk instead of type, hold the 🎙️ next to Send, or hold <kbd>V</kbd> in the message box, and speak: your
+          words fill the box to edit before you send (a tap of the 🎙️ listens until you stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after
+          the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's speech recognition or ElevenLabs.
         </p>
         <h3>Who's working</h3>
         <p>
@@ -280,7 +248,9 @@ function Help() {
           depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue and anything that needs you.
         </p>
         <p>
-          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
+          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app. With PRs open, its bottom row
+          has a channel for each: aim at one and press <kbd>E</kbd> to run that PR beside the main app (at most two PR previews run at once). In the viewer, <b>Compare with main</b> puts
+          them side by side, and the PR's checks and QA report sit beside it.
         </p>
       </div>
     </Panel>
@@ -300,11 +270,11 @@ export function Overlays() {
     case 'card':
       return <CardView repoId={overlay.repoId} cardKey={overlay.key} number={overlay.number} pr={overlay.pr} />;
     case 'app':
-      return <AppViewer repoId={overlay.repoId} />;
+      return <AppViewer repoId={overlay.repoId} pr={overlay.pr} />;
     case 'elevator':
       return <ElevatorPanel />;
     case 'manager':
-      return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} />;
+      return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
     case 'help':
       return <Help />;
   }

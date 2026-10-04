@@ -2,14 +2,15 @@ import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
+import { BUBBLE, SIGN_SIZE } from './activitySign';
 import { SANS, wrap } from './draw';
 import { saying } from './people';
 import { drawBubble } from './useHitReaction';
 
 // A speech bubble over someone's head (people.ts `say`): a big emoji in a chat, or a short line about their work
 // (Chatter.tsx) in one or two lines of text, the bubble as wide as the words. Farther away it grows a little so the
-// words stay readable, but its top never passes BUBBLE_TOP, so whatever floats over heads (activity signs) stacks
-// above it. Each text's texture is drawn once and shared, the least recently shown dropped past a few dozen; the
+// words stay readable, but its top never passes BUBBLE_TOP, so the activity sign over a busy head (ActivityIcon.tsx)
+// still stacks clear above it. Each text's texture is drawn once and shared, the least recently shown dropped past a few dozen; the
 // bubble is hidden, and costs nothing, while they say nothing.
 
 const PX_PER_M = 512; // canvas pixels per metre: the emoji bubble's 256 × 176 is 0.5 × 0.344 m
@@ -19,8 +20,8 @@ const TAIL = 34;
 const TIP = 28; // the tail's tip, from the canvas's left edge: the group's origin, beside the head
 const INK = '#1f1d2b';
 const KEEP = 40;
-/** The highest a bubble's top may reach (m): an activity sign moved up out of a bubble's way sits just above this. */
-export const BUBBLE_TOP = 2.5;
+/** The highest a bubble's top may reach (m): the bottom of an activity sign moved up out of a bubble's way. */
+export const BUBBLE_TOP = BUBBLE.clear - SIGN_SIZE.h / 2;
 /** The bubble's top above its tail's tip (m), at scale 1. */
 const RISE = 0.156 + H / PX_PER_M / 2;
 /** From this far away (m) a bubble grows with distance, as far as BUBBLE_TOP allows. */

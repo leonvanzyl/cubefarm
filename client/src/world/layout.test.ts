@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BALCONY_TOP, BENCH, FLOOR_HEIGHT, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFloor, balconyFurniture, balconyRailing, floorElevation, inBuilding, outsideAt, outsideColliders, sideDoorway, sideSign, toyOnlyAt } from './layout.ts';
-import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
+import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, MANAGER_ROOM, MISSION, missionColumn, missionRects, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, type Rect } from './layout.ts';
 
 const R = 0.3;
 const box: Rect = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 };
@@ -370,5 +370,30 @@ describe('outside: side doors, windows and balconies', () => {
   it('sounds like tiles underfoot outside', () => {
     expect(surfaceAt('office', HALF_W + 1, 0)).toBe('lobby');
     expect(surfaceAt('lobby', -HALF_W - 1, 5)).toBe('lobby');
+  });
+});
+
+describe('mission control in the lobby', () => {
+  it('curves its outer columns out into the room, symmetrically, and keeps clear of the glass offices and the sign', () => {
+    const [west, mid, east] = [-1, 0, 1].map(missionColumn);
+    expect(mid.z).toBeCloseTo(-HALF_D + MISSION.off);
+    expect(mid.rotY).toBeCloseTo(0);
+    expect(west.z).toBeGreaterThan(mid.z + 0.15);
+    expect(west.z).toBeCloseTo(east.z);
+    expect(west.x + east.x).toBeCloseTo(2 * MISSION.x);
+    const [w, e] = missionRects();
+    expect(w.minX).toBeGreaterThan(MANAGER_ROOM.maxX + 0.2); // the manager's glass wall
+    expect(e.maxX).toBeLessThan(-0.5); // the company sign starts at x -0.5
+    expect(e.maxZ).toBeLessThan(RECEPTION.z - RECEPTION.d / 2 - 2); // a corridor stays open behind reception
+  });
+
+  it('leaves the middle open over the roomba dock, and everyone can stand in front of the bank', () => {
+    const rects = lobbyColliders();
+    const [w, e] = missionRects();
+    expect(rects).toContainEqual(w);
+    expect(rects).toContainEqual(e);
+    expect(e.minX - w.maxX).toBeGreaterThan(1.4);
+    const p = collide(MISSION.x, -HALF_D + 1.2, rects);
+    expect(p).toEqual({ x: MISSION.x, z: -HALF_D + 1.2 });
   });
 });

@@ -26,8 +26,9 @@ export interface OfficeSlice {
   repos: readonly RepoView[];
 }
 
-/** Seconds of pending checks before the PR's author grumbles about CI. */
-export const CI_SLOW = 20;
+/** Seconds of pending checks before the PR's author grumbles about CI; the demo office runs on a much faster clock. */
+export const CI_SLOW = 180;
+export const DEMO_CI_SLOW = 20;
 /** Log lines older than this (ms) are history, not news (a reconnect replays the whole log). */
 export const LOG_FRESH_MS = 20_000;
 /** A merge stays someone's news for a greeting this long (ms). */
@@ -40,11 +41,14 @@ const REPLY_DELAY = 2.6;
 
 const isBusy = (a: Agent | undefined) => a?.status === 'working' || a?.status === 'preparing';
 
-/** The developer who wrote a PR on a floor: by QA's record, else the one whose PR number or branch it is. */
+/**
+ * The developer who wrote a PR on a floor: by QA's record, else the one whose PR number or branch it is (not a
+ * developer testing it, whose PR number is the one under test).
+ */
 export function authorOf(agents: Record<string, Agent>, repoId: string, pr: Pick<PullInfo, 'number' | 'headRefName'>, qa?: QaView): Agent | undefined {
   const byQa = qa?.devAgentId ? agents[qa.devAgentId] : undefined;
   if (byQa) return byQa;
-  const devs = Object.values(agents).filter((a) => a.role === 'dev' && a.repoId === repoId);
+  const devs = Object.values(agents).filter((a) => a.role === 'dev' && a.repoId === repoId && a.task !== 'qa');
   return devs.find((a) => a.prNumber === pr.number) ?? devs.find((a) => !!a.branch && a.branch === pr.headRefName);
 }
 
@@ -99,10 +103,10 @@ export function storeNews(prev: OfficeSlice, next: OfficeSlice, lastFile: (id: s
 }
 
 /**
- * Open PRs whose checks have been pending for CI_SLOW seconds: their author grumbles, once per wait. `since` (when
+ * Open PRs whose checks have been pending for `slow` seconds: their author grumbles, once per wait. `since` (when
  * each PR's checks started pending, epoch ms) and `done` (whose grumble is said) are kept between calls.
  */
-export function slowChecks(repos: readonly RepoView[], agents: Record<string, Agent>, since: Map<string, number>, done: Set<string>, now: number): Said[] {
+export function slowChecks(repos: readonly RepoView[], agents: Record<string, Agent>, since: Map<string, number>, done: Set<string>, now: number, slow = CI_SLOW): Said[] {
   const out: Said[] = [];
   const seen = new Set<string>();
   for (const r of repos) {
@@ -111,7 +115,7 @@ export function slowChecks(repos: readonly RepoView[], agents: Record<string, Ag
       if (q.state !== 'OPEN' || q.checks !== 'pending') continue;
       seen.add(key);
       if (!since.has(key)) since.set(key, now);
-      if (now - since.get(key)! < CI_SLOW * 1000 || done.has(key)) continue;
+      if (now - since.get(key)! < slow * 1000 || done.has(key)) continue;
       done.add(key);
       const author = authorOf(agents, r.id, q);
       if (author) out.push(said(author.id, { kind: 'ciSlow', pr: q.number }));
@@ -171,7 +175,8 @@ export function greeting(a: Agent, office: Pick<OfficeSlice, 'qa' | 'repos'>, ma
   const repo = office.repos.find((r) => r.id === a.repoId);
   const pull = a.prNumber != null ? repo?.pulls.find((p) => p.number === a.prNumber) : undefined;
   const qa = a.prNumber != null ? office.qa[`${a.repoId}#${a.prNumber}`] : undefined;
-  if (a.role === 'qa') return { ...base, mood: isBusy(a) && a.prNumber != null ? 'testing' : 'free' };
+  // testers, and developers lending QA a hand (their PR number is the one under test)
+  if (a.role === 'qa' || a.task === 'qa') return { ...base, mood: isBusy(a) && a.prNumber != null ? 'testing' : 'free' };
   if (pull?.state === 'MERGED' && pull.mergedAt && now - Date.parse(pull.mergedAt) < SHIPPED_MS) return { ...base, mood: 'shipped' };
   if (isBusy(a) && a.task === 'fix') return { ...base, mood: 'fixing' };
   if (pull?.state === 'OPEN' && (qa?.status === 'queued' || qa?.status === 'testing')) return { ...base, mood: 'inQa' };

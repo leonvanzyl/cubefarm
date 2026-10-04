@@ -44,6 +44,7 @@ const EVERY: ChatterEvent[] = [
   { kind: 'greet', manager: 'Leon', mood: 'ceo', pr: null, issue: null },
   { kind: 'ceo', busy: true },
   { kind: 'ceo', busy: false },
+  { kind: 'ceoVisit' },
 ];
 
 describe('chatterLine', () => {

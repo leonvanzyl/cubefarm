@@ -8,7 +8,7 @@ import { chatterLine, type ChatTopic, type ChatterEvent } from '../ui/chatterLin
 import { getAudioPrefs, listenerAt } from '../ui/sfx';
 import { DROP_NEW, PLAY } from '../ui/sfxMix';
 import type { BodyState } from './body';
-import { currentWork, greeting, lastFile, logNews, slowChecks, storeNews, type Said } from './chatterEvents';
+import { CI_SLOW, DEMO_CI_SLOW, currentWork, greeting, lastFile, logNews, slowChecks, storeNews, type Said } from './chatterEvents';
 import { isFree } from './errands';
 import type { Pick as AimPick } from './interact';
 import { bodyState, errandOf, liveBodies, say, saying } from './people';
@@ -61,6 +61,8 @@ const RECENT = 40;
 const HEARD = 4;
 /** How far (m) a hit on someone counts as aiming at them rather than their desk. */
 const AIM_RADIUS = 0.42;
+/** People this close (m) take turns: nobody starts a line while a neighbour's is still up (their bubbles would overlap). */
+const TURN_RADIUS = 2;
 
 const clock = () => performance.now() / 1000;
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -100,6 +102,15 @@ function distanceTo(b: BodyState) {
 }
 
 const speakingSlot = (id: string) => speakers.findIndex((s) => s?.id === id);
+
+/** Someone else within TURN_RADIUS of `b` is speaking. */
+function neighbourSpeaking(id: string, b: BodyState) {
+  for (const s of speakers) {
+    const o = s && s.id !== id ? bodyState(s.id) : undefined;
+    if (o && Math.hypot(o.x - b.x, o.z - b.z) < TURN_RADIUS) return true;
+  }
+  return false;
+}
 
 /** The nearest other person on the floor to someone, who isn't speaking already. */
 function nearestTo(id: string): string | null {
@@ -164,9 +175,10 @@ function speak(id: string, what: ChatterEvent | string, priority: Priority, slot
   if (recent.length > RECENT) recent.splice(0, recent.length - RECENT);
 }
 
-function queue(s: Said) {
+/** Lines wait at most `ttl` seconds (LINE_TTL) for their turn. */
+function queue(s: Said, ttl = LINE_TTL) {
   const at = clock() + s.delay;
-  pending.push({ who: s.who, near: s.near, event: s.event, priority: s.priority, at, ttl: at + LINE_TTL });
+  pending.push({ who: s.who, near: s.near, event: s.event, priority: s.priority, at, ttl: at + ttl });
   if (pending.length > MAX_PENDING) pending.splice(0, pending.length - MAX_PENDING);
 }
 
@@ -225,6 +237,8 @@ function smallTalk(st: StoreState, t: number) {
     ceoAt = null;
     return;
   }
+  // The CEO walking the floor (a ritual): a hello to the team soon after they step out of the elevator.
+  if (ceoAt === null && st.floor !== 0) queue({ who: CEO_ID, event: { kind: 'ceoVisit' }, delay: 4, priority: 'event' });
   if (ceoAt === null) ceoAt = t + between(pace.ceo);
   else if (t >= ceoAt) {
     ceoAt = t + between(pace.ceo);
@@ -255,8 +269,9 @@ function startLines(st: StoreState, t: number) {
       pending.splice(k, 1);
       continue;
     }
-    // The CEO doesn't talk over their own message being read aloud on your phone.
-    const busy = speakingSlot(id) >= 0 || (id === CEO_ID && st.voiceSpeaking !== null);
+    // Nobody talks over a bubble something else put up (a ritual's or a meal's), and the CEO not over their own
+    // message being read aloud on your phone.
+    const busy = speakingSlot(id) >= 0 || !!saying(id) || neighbourSpeaking(id, b) || (id === CEO_ID && st.voiceSpeaking !== null);
     if (busy || !mayTalk(line.priority, pace, t, lastAt.get(id) ?? -Infinity, floorLast)) {
       k++;
       continue;
@@ -282,7 +297,7 @@ function think(t: number) {
   const st = useStore.getState();
   if (t >= nextCi) {
     nextCi = t + 1;
-    for (const x of slowChecks(st.repos, st.agents, ciSince, ciDone, Date.now())) queue(x);
+    for (const x of slowChecks(st.repos, st.agents, ciSince, ciDone, Date.now(), st.demo ? DEMO_CI_SLOW : CI_SLOW)) queue(x);
   }
   errandNews(st);
   smallTalk(st, t);
@@ -295,7 +310,8 @@ function think(t: number) {
 
 /**
  * A chat at the cooler or the couch (ErrandDirector.tsx): a line on the topic for `seconds`, or with chatter off the
- * topic's emoji, as chats always had. When nearer voices fill the floor, the emoji shows silently.
+ * topic's emoji, as chats always had. They take turns: while someone in the huddle is still talking, this one waits to
+ * say it (or lets it go when the moment passes). When nearer voices fill the floor, the emoji shows silently.
  */
 export function chatSay(id: string, topic: ChatTopic, pr: number | null, venue: string, seconds: number) {
   const b = bodyState(id);
@@ -305,6 +321,10 @@ export function chatSay(id: string, topic: ChatTopic, pr: number | null, venue: 
   }
   const mine = speakingSlot(id);
   if (mine >= 0) cut(mine);
+  if (neighbourSpeaking(id, b)) {
+    queue({ who: id, event: { kind: 'chat', topic, pr, venue }, delay: 0, priority: 'chat' }, seconds);
+    return;
+  }
   const d = distanceTo(b);
   const slot = takeSlot(d);
   if (slot < 0) say(id, topic, seconds);
@@ -352,13 +372,14 @@ export function Chatter() {
   useEffect(() => useStore.subscribe(onStore), []);
   useFrame(() => {
     const t = clock();
-    // Follow the speakers' heads, and free the slots of lines that are over (or whose speaker left the floor).
+    // Follow the speakers' heads, and free the slots of lines that are over (or whose speaker left the floor, or whose
+    // bubble something else took down: a chat that ended).
     for (let i = 0; i < MAX_SPEAKERS; i++) {
       const sp = speakers[i];
       if (!sp) continue;
       const b = bodyState(sp.id);
-      if (!b || t >= sp.until) {
-        if (!b) hushBabble(i);
+      if (!b || t >= sp.until || saying(sp.id)?.text !== sp.text) {
+        if (t < sp.voiceEnd) hushBabble(i);
         speakers[i] = null;
         continue;
       }

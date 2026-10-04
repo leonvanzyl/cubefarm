@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentView, LogLine, PullInfo, QaView, RepoView } from '../../../shared/types';
-import { CI_SLOW, LOG_FRESH_MS, authorOf, currentWork, greeting, lastFile, logNews, slowChecks, storeNews, type OfficeSlice } from './chatterEvents';
+import { CI_SLOW, DEMO_CI_SLOW, LOG_FRESH_MS, authorOf, currentWork, greeting, lastFile, logNews, slowChecks, storeNews, type OfficeSlice } from './chatterEvents';
 
 type Agent = Omit<AgentView, 'log'>;
 const REPO = 'demo-co/pixel-todo';
@@ -118,6 +118,8 @@ describe('authorOf', () => {
     expect(authorOf(agents, REPO, pull(5, { headRefName: 'swarm/issue-5' }))?.id).toBe('ada');
     expect(authorOf(agents, REPO, pull(7), qa(7, 'testing', { devAgentId: 'ada' }))?.id).toBe('ada');
     expect(authorOf(agents, 'other/repo', pull(9))).toBeUndefined();
+    // a developer testing someone's PR has its number too, but didn't write it
+    expect(authorOf({ ada: agent('ada', { prNumber: 9, task: 'qa' }) }, REPO, pull(9))).toBeUndefined();
   });
 });
 
@@ -136,6 +138,15 @@ describe('slowChecks', () => {
     expect(since.size + done.size).toBe(0);
     slowChecks(pending, agents, since, done, NOW + CI_SLOW * 5000);
     expect(slowChecks(pending, agents, since, done, NOW + CI_SLOW * 6000)).toHaveLength(1);
+  });
+
+  it('grumbles sooner in the demo, whose clock runs fast', () => {
+    const agents = { ken: agent('ken', { prNumber: 212 }) };
+    const since = new Map<string, number>();
+    const pending = [repo([pull(212, { checks: 'pending' })])];
+    slowChecks(pending, agents, since, new Set(), NOW, DEMO_CI_SLOW);
+    expect(slowChecks(pending, agents, since, new Set(), NOW + DEMO_CI_SLOW * 1000, DEMO_CI_SLOW)).toHaveLength(1);
+    expect(DEMO_CI_SLOW).toBeLessThan(CI_SLOW);
   });
 });
 
@@ -189,6 +200,7 @@ describe('greeting', () => {
     expect(greeting(agent('ken', { prNumber: 213, status: 'working', task: 'fix' }), slice, 'Leon', NOW)).toMatchObject({ mood: 'fixing' });
     expect(greeting(agent('ken', { status: 'working', task: 'issue', issueNumber: 4 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'working', issue: 4 });
     expect(greeting(agent('marple', { role: 'qa', status: 'working', prNumber: 213 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'testing' });
+    expect(greeting(agent('ada', { status: 'working', task: 'qa', prNumber: 212 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'testing', pr: 212 });
     expect(greeting(agent('ceo', { role: 'ceo' }), slice, 'Leon', NOW)).toMatchObject({ mood: 'ceo' });
   });
 
