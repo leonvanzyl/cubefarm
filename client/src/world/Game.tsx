@@ -16,6 +16,7 @@ import { DayLights } from './sky/DayLights';
 import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
+import { Soundscape } from './Soundscape';
 import { TypingSounds } from './TypingSounds';
 
 function Travel() {
@@ -73,6 +74,7 @@ export function Game() {
       <CameraRig />
       <Travel />
       <SoundListener />
+      <Soundscape kind={isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />
       <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />

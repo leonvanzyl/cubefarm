@@ -34,7 +34,8 @@ export interface Backend {
   closePull(fullName: string, number: number): Promise<void>;
   prForBranch(fullName: string, branch: string): Promise<{ number: number; url: string } | null>;
   prDetails(fullName: string, number: number): Promise<github.PrDetails>;
-  issueDetails(fullName: string, number: number): Promise<{ title: string; body: string }>;
+  /** createdAt: when it was filed (absent when the demo no longer knows). */
+  issueDetails(fullName: string, number: number): Promise<{ title: string; body: string; createdAt?: string }>;
   commentPull(fullName: string, number: number, body: string): Promise<string>;
   uploadEvidence(fullName: string, filePath: string, data: Buffer): Promise<string>;
   ensureClone(fullName: string): Promise<void>;

@@ -33,6 +33,13 @@ export function HeldHint() {
   const chargeAt = useStore((s) => s.chargeAt);
   if (!held) return null;
   if (held.kind === 'blaster') return <BlasterHud held={held} />;
+  if (held.kind === 'sticky') {
+    return (
+      <div className="hud-hint hud-held">
+        📌 {held.pr ? `PR #${held.number}` : `#${held.number}`} · {held.pr ? 'take it to the QA lab' : "take it to a free developer's desk"} and press <Key action="interact" /> · <Key action="drop" /> elsewhere puts it back
+      </div>
+    );
+  }
   if (held.kind === 'mug') {
     return (
       <div className="hud-hint hud-held">

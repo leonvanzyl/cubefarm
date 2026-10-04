@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import { useStore, type HelpTab } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
+import { CardView } from './CardView';
 import { ControlsSettings } from './ControlsSettings';
 import { ElevatorPanel } from './ElevatorPanel';
 import { Key, MoveKeys } from './Key';
@@ -61,17 +62,27 @@ export function Panel({
   );
 }
 
-const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside' };
+const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
+const SOUND_GROUP_TITLES: Partial<Record<SoundGroup, string>> = {
+  alerts: 'The phone, the elevator and work cues',
+  music: "Each floor's jukebox",
+  voice: 'Messages read aloud',
+  outside: 'Wind, the city, birds and crickets, on the balconies',
+  score: "Quiet music that follows the office's mood, when no jukebox is playing nearby",
+};
 
 /** Office volume, mute and a level per kind of sound; saved in this browser. */
 export function SoundControls() {
   const prefs = useSyncExternalStore(subscribeAudio, getAudioPrefs);
-  const { volume, muted } = prefs;
+  const { volume, muted, soundtrack } = prefs;
   return (
     <div className="sound-controls">
       <div className="row wrap sound">
         <label className="toggle">
           <input type="checkbox" checked={!muted} onChange={(e) => setAudioPrefs({ muted: !e.target.checked })} /> {muted ? '🔇' : '🔊'} Sound
+        </label>
+        <label className="toggle" title={SOUND_GROUP_TITLES.score}>
+          <input type="checkbox" checked={soundtrack} onChange={(e) => setAudioPrefs({ soundtrack: e.target.checked })} /> 🎼 Soundtrack
         </label>
         <label className="sound-volume">
           <span className="muted small">Volume</span>
@@ -81,7 +92,7 @@ export function SoundControls() {
       </div>
       <div className="sound-groups" role="group" aria-label="Volume for each kind of sound">
         {SOUND_GROUPS.map((g) => (
-          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : g === 'music' ? "Each floor's jukebox" : g === 'voice' ? 'Messages read aloud' : g === 'outside' ? 'Wind, the city, birds and crickets, on the balconies' : undefined}>
+          <label key={g} className="sound-volume" title={SOUND_GROUP_TITLES[g]}>
             <span className="muted small sound-group-name">{SOUND_GROUP_LABELS[g]}</span>
             <input
               type="range"
@@ -89,7 +100,7 @@ export function SoundControls() {
               max={100}
               step={5}
               value={prefs[g]}
-              disabled={muted}
+              disabled={muted || (g === 'score' && !soundtrack)}
               aria-label={`${SOUND_GROUP_LABELS[g]} volume`}
               aria-valuetext={`${prefs[g]}%`}
               onChange={(e) => setAudioPrefs({ [g]: Number(e.target.value) })}
@@ -181,12 +192,15 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <h3>Sound</h3>
           <p>
             The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the
-            whole floor cheers; press <Key action="interact" /> at the gong to bang it yourself. Every floor's jukebox plays in its corner: <Key action="interact" /> on it skips to the next song, and its red button stops or
-            starts the music. While you look at it, <Key action="volumeDown" /> and <Key action="volumeUp" />, the mouse wheel or its own − and + buttons set its volume, from quiet background up to music that fills
-            the whole floor; the meter on its card shows the level, and each floor keeps its own. The music dips under the gong, alerts and voices, and goes quiet while a panel or the phone is open and in the
-            elevator. <Key action="mute" /> mutes or unmutes anywhere. Under the master volume, turn footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba),
-            alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud) and outside (wind, the city, birds by day and crickets at night, heard out on a balcony or through
-            an open side door) up or down on their own. Your settings are saved in this browser.
+            whole floor cheers; press <Key action="interact" /> at the gong to bang it yourself. Every floor's jukebox plays in its corner: <Key action="interact" /> on it skips to the next song, and its red button
+            stops or starts the music. Its Focus button switches the floor to the Focus station (lo-fi beats and ambient tracks for heads-down work) and back to all songs. While you look at it,{' '}
+            <Key action="volumeDown" /> and <Key action="volumeUp" />, the mouse wheel or its own − and + buttons set its volume, from quiet background up to music that fills the whole floor; the meter on its card
+            shows the level, and each floor keeps its own volume and station. The music dips under the gong, alerts and voices, and goes quiet while a panel or the phone is open and in the elevator. Wherever no
+            jukebox can be heard, a quiet soundtrack follows the office's mood: soft and calm, a gentle pulse when the team is busy, darker under a red CI or a PR that needs you, slower at night, and a little
+            fanfare after a merge (a bigger one on a streak). Every space sounds like itself, from the glassy lobby and the carpeted floors to the tiled kitchenette, the boxy elevator and the open balconies, and
+            sounds behind a wall come through muffled. <Key action="mute" /> mutes or unmutes anywhere. Under the master volume, turn footsteps (yours and everyone's), typing (and the team's chatter), toys (balls,
+            blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud), outside (wind, the city, birds by day and crickets at night,
+            heard out on a balcony or through an open side door) and the soundtrack up or down on their own, or switch the soundtrack off. Your settings are saved in this browser.
           </p>
           <SoundControls />
           <h3>Outside</h3>
@@ -233,6 +247,12 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             <Key action="interact" /> or click the board to assign, send to QA, merge and file new issues. When a PR merges, confetti bursts over the desk of the developer who wrote it.
           </p>
           <p>
+            Aim at a sticky and it lifts off the board: <Key action="interact" /> (or a click) reads it up close. <Key action="drop" />, or holding the click, peels a Backlog sticky off: carry it to a free
+            developer's desk and press <Key action="interact" /> and they start that issue (the sticky goes on their monitor). A PR waiting to go to QA can be carried to the QA lab the same way. Anywhere else,{' '}
+            <Key action="drop" /> puts it back. Red strings join an issue to the one it depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue
+            and anything that needs you.
+          </p>
+          <p>
             The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <Key action="interact" /> or click it to open the app.
           </p>
         </div>
@@ -251,6 +271,8 @@ export function Overlays() {
       return <Phone tab={overlay.tab} requestId={overlay.requestId} />;
     case 'kanban':
       return <KanbanView repoId={overlay.repoId} />;
+    case 'card':
+      return <CardView repoId={overlay.repoId} cardKey={overlay.key} number={overlay.number} pr={overlay.pr} />;
     case 'app':
       return <AppViewer repoId={overlay.repoId} />;
     case 'elevator':
