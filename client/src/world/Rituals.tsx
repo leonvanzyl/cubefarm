@@ -119,6 +119,7 @@ const COURIER: Agent = {
   hasScreenshot: false,
   screenshotAt: null,
   lastError: null,
+  career: null,
 };
 
 /** Someone visiting the floor, drawn from inside the elevator cabin (their "chair") while ritualRunner.ts walks them. */

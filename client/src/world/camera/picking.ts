@@ -19,7 +19,7 @@ export const pickables = new Set<THREE.Object3D>();
 export const hovered = { floor: -1 };
 
 /** Things you can open from the overview by clicking them: panels, and hiring at an empty desk or resuming full speed (which ask first). */
-const OPENS = new Set<Focus['action']['kind']>(['terminal', 'kanban', 'app', 'elevator', 'manager', 'phone', 'help', 'hire', 'resume']);
+const OPENS = new Set<Focus['action']['kind']>(['terminal', 'kanban', 'app', 'elevator', 'manager', 'phone', 'help', 'hire', 'resume', 'catalogue', 'decor-box']);
 
 const roots: THREE.Object3D[] = [];
 const hits: THREE.Intersection[] = [];

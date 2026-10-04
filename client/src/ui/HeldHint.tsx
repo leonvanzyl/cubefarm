@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { CHARGE, chargePower } from '../world/toys/hands';
 import { BlasterHud } from './BlasterHud';
+import { decorName } from '../world/decor/actions';
 import { Key } from './Key';
 
 /** The throw meter under the crosshair. Animates itself while charging; hidden during the first moments of a tap. */
@@ -33,6 +34,13 @@ export function HeldHint() {
   const chargeAt = useStore((s) => s.chargeAt);
   if (!held) return null;
   if (held.kind === 'blaster') return <BlasterHud held={held} />;
+  if (held.kind === 'decor') {
+    return (
+      <div className="hud-hint hud-held">
+        📦 Carrying the {decorName(held.item).toLowerCase()} · <Key action="interact" /> on a glowing spot places it · <Key action="drop" /> puts it back
+      </div>
+    );
+  }
   if (held.kind === 'sticky') {
     return (
       <div className="hud-hint hud-held">

@@ -3,6 +3,9 @@ import { AgentCard } from './AgentCard';
 import { floorPrCounts, repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { HeldHint } from './HeldHint';
+import { CareerPeek } from './CareerCard';
+import { CoinChip } from './CoinChip';
+import './progressProbe';
 import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
@@ -128,6 +131,7 @@ export function HUD() {
         <span className="pill">
           ⚙️ {settings.sessionLimit ? `${running}/${settings.sessionLimit}` : running} sessions
         </span>
+        <CoinChip />
         {user && <span className="pill">🐙 {user}</span>}
       </div>
 
@@ -160,6 +164,7 @@ export function HUD() {
         </div>
       )}
       {started && !overlay && !travel && onFoot && <HeldHint />}
+      {started && !overlay && !travel && onFoot && <CareerPeek />}
       {started && !overlay && !locked && !travel && onFoot && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
