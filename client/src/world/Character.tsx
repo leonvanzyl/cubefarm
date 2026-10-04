@@ -62,6 +62,11 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.55, yaw: 0.22 }, r: { pitch: 1.55, yaw: 0.22 }, head: 0.3 }, // arms overhead
+  stoop: { l: { pitch: -1.0, yaw: 0.3 }, r: { pitch: -1.0, yaw: 0.3 }, head: -0.5 }, // reach down for something on the floor
+  shoot: { l: { pitch: 1.2, yaw: 0.35 }, r: { pitch: 1.2, yaw: 0.35 }, head: 0.35 }, // ball overhead, eyes on the hoop
+  toss: { l: { pitch: 0.35, yaw: 0.3 }, r: { pitch: 0.35, yaw: 0.3 }, head: 0.05 }, // arms out where the ball went
+  catch: { l: { pitch: -0.1, yaw: 0.1 }, r: { pitch: -0.1, yaw: 0.1 }, head: 0.1 }, // hands out, ready
+  shrug: { l: { pitch: -0.7, yaw: -0.75 }, r: { pitch: -0.7, yaw: -0.75 }, head: -0.12 }, // palms out: oh well
   mug: { l: null, r: { pitch: -0.75, yaw: 0.3 }, head: -0.05 }, // a mug held in front
   tap: { l: null, r: { pitch: -0.3, yaw: 0.05 }, head: -0.3 }, // a hand on the counter: the dispenser, the machine
   chat: { l: { pitch: -0.55, yaw: -0.45 }, r: { pitch: -0.75, yaw: 0.3 }, head: 0.08 }, // mug in one hand, the other talking
@@ -214,6 +219,7 @@ export function Character({
   const kneeL = useRef<THREE.Group>(null);
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
+  const bubbleLift = useRef<THREE.Group>(null);
   const held = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
   const handCup = useRef<THREE.Group>(null);
@@ -456,6 +462,7 @@ export function Character({
       kneeL.current.rotation.x = (-Math.PI / 2) * k + bendL * up;
       kneeR.current.rotation.x = (-Math.PI / 2) * k + bendR * up;
     }
+    if (bubbleLift.current) bubbleLift.current.position.y = (HIP.standY - HIP.seatY) * up; // a "hey!" by the head, sat or standing
     if (tag.current) {
       const [tx, ty, tz] = TAG_SEATED;
       tag.current.position.set(tx * k, ty * k + (HIP.standY + look.height * 0.86 + 0.26) * up, tz * k);
@@ -517,7 +524,7 @@ export function Character({
   return (
     <group ref={root}>
       <group ref={body}>
-        {hit.bubble}
+        <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />
         {/* seated legs don't move, so both are one mesh; getting up swaps in jointed ones */}
         <group ref={seatedLegs}>

@@ -3,10 +3,10 @@ import { MAX_MERGE_FIXES } from './mergeGate.ts';
 
 // What a finished QA round does to its PR. A conflict with the default branch is the merge gate's job, not QA's: a
 // fail on the last QA round while the PR conflicts goes back for a merge fix (and one more QA round) rather than to
-// the manager, as long as the merge-fix budget lasts.
+// the manager, as long as the merge-fix budget lasts. A PR that already conflicts never reaches a tester (qaGate).
 
 /** QA rounds that fail before a PR goes to the manager. */
-export const MAX_QA_ROUNDS = 3;
+export const MAX_QA_ROUNDS = 6;
 
 /** The parts of a QA record a finished QA round reads. */
 export interface QaRoundRecord {
@@ -34,6 +34,27 @@ export function qaOutcome(pass: boolean, rec: QaRoundRecord, pr: QaPull | null):
   if (!lastQaRound(rec)) return 'failed';
   const conflicting = pr != null && (pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY');
   return conflicting && rec.mergeFixes < MAX_MERGE_FIXES ? 'conflict' : 'needs-human';
+}
+
+/** A conflict found before QA tested the head: the head it was found on, and the fixReason of the test QA was queued for. */
+export interface PreQa {
+  sha: string;
+  fixReason: 'qa' | 'checks' | 'conflict' | null;
+}
+
+/**
+ * What happens before a queued PR goes to a tester, so QA never spends a session on a stale branch. test: go ahead.
+ * update-branch: the repo only merges up-to-date branches, so GitHub merges the base in first, as the merge gate does.
+ * send-back: it conflicts, so its developer merges the base first (needsHuman: the merge-fix budget ran out).
+ * People's own PRs are theirs: QA tests them as they are.
+ */
+export type QaGate = { do: 'test' } | { do: 'update-branch' } | { do: 'send-back'; needsHuman: boolean };
+
+export function qaGate(pr: QaPull & { headRefName: string }, rec: Pick<QaRoundRecord, 'mergeFixes'>, autoMerge: boolean): QaGate {
+  if (!pr.headRefName.startsWith('swarm/')) return { do: 'test' };
+  if (pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY') return { do: 'send-back', needsHuman: rec.mergeFixes >= MAX_MERGE_FIXES };
+  if (autoMerge && pr.mergeState === 'BEHIND') return { do: 'update-branch' };
+  return { do: 'test' };
 }
 
 /** What the developer is told on a conflict send-back: QA's findings first, then the merge. */

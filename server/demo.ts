@@ -161,7 +161,15 @@ function qaScript(cb: SessionCallbacks, pr: number, title: string, round: number
   ];
 }
 
-function fixScript(pr: number, pushes: boolean): Step[] {
+function fixScript(pr: number, pushes: boolean, nudged: boolean): Step[] {
+  if (nudged) {
+    return [
+      [{ kind: 'text', text: `● Checking whether PR #${pr} still needs a change.` }],
+      pushes
+        ? [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git commit -am "fix: wrap toolbar on narrow screens" && git push origin HEAD' }, { kind: 'result', text: '  ⎿ pushed' }]
+        : [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git fetch origin && git diff origin/main --stat -- src/styles.css' }, { kind: 'result', text: '  ⎿ (no differences)' }],
+    ];
+  }
   return [
     [{ kind: 'text', text: `● Reading the QA report for PR #${pr}. The toolbar overflows on phones; I'll let it wrap.` }],
     [{ kind: 'tool', tool: 'Read', text: '⏺ Read src/styles.css' }, { kind: 'result', text: '  ⎿ Read 212 lines' }],
@@ -173,24 +181,34 @@ function fixScript(pr: number, pushes: boolean): Step[] {
   ];
 }
 
+/** The PR a fix prompt is about ("QA passed pull request #6…", "Pull request #6 (url) conflicts…"), and its title if given. */
+export function fixPromptPull(prompt: string): { number: number; title?: string } {
+  const m = prompt.match(/pull request #(\d+)(?::\s*(.+))?/i);
+  return { number: Number(m?.[1] ?? 0), title: m?.[2]?.trim() };
+}
+
 function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: string): SessionHandle {
   const timers: NodeJS.Timeout[] = [];
   let stopped = false;
-  const kind = opts.role === 'qa' ? 'qa' : /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
-  const prMatch = opts.prompt.match(/pull request #(\d+)(?::\s*(.+))?/);
+  const nudged = /^You pushed nothing/.test(opts.prompt); // the office's nudge after a fix that pushed nothing
+  const resumedFix = opts.resumeSessionId?.startsWith('demo-fix-') ?? false;
+  const kind = opts.role === 'qa' ? 'qa' : nudged || resumedFix || /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
+  // Fix sessions can be resumed (the office's nudge), like real ones.
+  if (kind === 'fix') cb.sessionId(opts.resumeSessionId ?? `demo-fix-${crypto.randomUUID()}`);
+  const pull = fixPromptPull(opts.prompt);
   const issueMatch = opts.prompt.match(/#(\d+):\s*(.+)/);
-  const number = Number((kind === 'issue' ? issueMatch?.[1] : prMatch?.[1]) ?? 0);
-  const title = (kind === 'issue' ? issueMatch?.[2] : prMatch?.[2])?.trim() ?? 'follow-up';
+  const number = kind === 'issue' ? Number(issueMatch?.[1] ?? 0) : pull.number;
+  const title = (kind === 'issue' ? issueMatch?.[2]?.trim() : pull.title) ?? 'follow-up';
   const round = Number(opts.prompt.match(/QA round (\d+)/)?.[1] ?? 1);
-  // Now and then a QA fix ends without pushing, so the office's "no new commits" check can be seen.
-  const pushes = kind !== 'fix' || !/FAILED|taking over pull request/.test(opts.prompt) || Math.random() > 0.25;
+  // Now and then a QA fix ends without pushing, so the office's nudge can be seen; half the nudged answer NO CHANGE NEEDED.
+  const pushes = kind !== 'fix' || !(nudged || /FAILED|taking over pull request/.test(opts.prompt)) || Math.random() > (nudged ? 0.5 : 0.25);
 
   const header: Step = [
     { kind: 'system', text: `✻ Claude Code (demo) · ${opts.model} · ${opts.effort} effort` },
     { kind: 'system', text: `  cwd ${opts.cwd}` },
   ];
   const checks = opts.prompt.match(/^GitHub checks right now: .*$/m)?.[0] ?? 'GitHub checks right now: none';
-  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes) : devScript(opts, cb, number, title);
+  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes, nudged) : devScript(opts, cb, number, title);
   const script = [header, ...body];
 
   const finish = () => {
@@ -237,8 +255,13 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
         pr.mergeable = 'MERGEABLE';
         runChecks(pr, false);
       }
-      cb.log([{ kind: 'text', text: pushes ? `● Fixed PR #${number} and pushed. Ready for another QA round.` : `● The toolbar wraps on narrow screens now. Ready for another QA round.` }]);
-      cb.finished({ ok: true, text: '', costUsd, turns, errors: [] });
+      const text = pushes
+        ? `● Fixed PR #${number} and pushed. Ready for another QA round.`
+        : nudged
+          ? 'NO CHANGE NEEDED: main already makes the toolbar wrap, so the PR is right as it is.'
+          : '● The toolbar wraps on narrow screens now. Ready for another QA round.';
+      cb.log([{ kind: 'text', text }]);
+      cb.finished({ ok: true, text, costUsd, turns, errors: [] });
       return;
     }
     const repo = repos.get(fullName);
@@ -396,6 +419,8 @@ export function createDemoBackend(): Backend {
   const deskRepo = new Map<string, string>();
   // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
   const installedDesks = new Set<string>();
+  // The branch each desk has checked out (null: detached), so a PR branch another desk holds plays out as for real (#199).
+  const deskBranches = new Map<string, string | null>();
   // A pretend projects folder: the demo repos, one git folder that isn't on GitHub yet, and one plain folder.
   const folders = new Map<string, LocalFolder>();
   const addFolder = (name: string, github: string | null, git = true) =>
@@ -464,6 +489,8 @@ export function createDemoBackend(): Backend {
       if (headSha && pr.headSha !== headSha) throw new Error('Head branch was modified. Review and try the merge again.');
       mergedSinceSync.set(fullName, (mergedSinceSync.get(fullName) ?? 0) + 1);
       pr.state = 'MERGED';
+      // Now and then a merge leaves another open PR conflicting, so conflict fixes (before QA and after it) can be seen.
+      for (const other of r.pulls) if (other.state === 'OPEN' && Math.random() < 0.25) Object.assign(other, { mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
       pr.mergedAt = now();
       // GitHub closes what "Closes #N" links a little after the merge, not straight away.
       setTimeout(() => {
@@ -483,6 +510,14 @@ export function createDemoBackend(): Backend {
       Object.assign(pr, { headSha: fakeSha(), mergeState: 'CLEAN' });
       runChecks(pr, false);
     },
+    failedRunLog: async (_fullName, runId) =>
+      [
+        `build\tRun npm test\t2025-01-01T00:00:00Z > vitest run (run ${runId})`,
+        'build\tRun npm test\t2025-01-01T00:00:01Z  FAIL  src/__tests__/toolbar.test.ts > wraps below 480px',
+        'build\tRun npm test\t2025-01-01T00:00:01Z AssertionError: expected "nowrap" to be "wrap"',
+        'build\tRun npm test\t2025-01-01T00:00:02Z Test Files  1 failed | 7 passed (8)',
+        'build\tRun npm test\t2025-01-01T00:00:02Z ##[error]Process completed with exit code 1.',
+      ].join('\n'),
     rerunFailedJobs: async (fullName, runIds) => {
       // The re-run passes: a flake, as the office hoped.
       for (const pr of repos.get(fullName)?.pulls ?? []) {
@@ -531,9 +566,16 @@ export function createDemoBackend(): Backend {
     },
     mainDir: (fullName) => `/demo/${fullName}/main`,
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
-    prepareDesk: async (fullName, _base, slug) => {
+    prepareDesk: async (fullName, base, slug, branch, note) => {
       await new Promise((r) => setTimeout(r, 900));
       const dir = `/demo/${fullName}/desks/${slug}`;
+      // SWARM_DEMO_HELD_BRANCH=1: your folder has every PR's branch checked out, and a fix's desk fails the way #198's did.
+      if (process.env.SWARM_DEMO_HELD_BRANCH === '1' && base.pr && !branch.startsWith('qa/')) {
+        throw new Error(`git worktree add -B failed: fatal: '${branch}' is already used by worktree at '/demo/${fullName}/main'`);
+      }
+      const holder = [...deskBranches].find(([d, b]) => b === branch && d !== dir && deskRepo.get(d) === fullName)?.[0];
+      if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at origin/pr/${base.pr}; push with git push origin HEAD:${branch}.`);
+      deskBranches.set(dir, holder ? null : branch);
       deskRepo.set(dir, fullName);
       return dir;
     },

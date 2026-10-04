@@ -4,7 +4,7 @@ import type { PullInfo } from '../shared/types.ts';
 // the manager hears about it, and how long to wait before retrying a merge GitHub refused. Failing checks are first
 // re-run once per head commit (a flake or an outage shouldn't cost a fix), and a re-run's old result is ignored for
 // a while, since GitHub's rollup can still show it just after the re-run starts.
-export const MAX_MERGE_FIXES = 3;
+export const MAX_MERGE_FIXES = 5;
 export const CHECKS_ALERT_MS = 30 * 60_000;
 export const MERGE_RETRY_MS = 10 * 60_000;
 export const RERUN_GRACE_MS = 2 * 60_000;

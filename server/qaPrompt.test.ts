@@ -96,10 +96,13 @@ describe('qaInstructions: re-tests', () => {
     );
   });
 
-  it('a conflict fix: still re-checks everything, even with the last tested commit', () => {
+  it('a conflict fix: a lighter re-check of the merge, CI and the feature', () => {
     const retest = qaInstructions(input({ round: 3, fixReason: 'conflict', lastTestedSha: OLD, defaultBranch: 'develop' })).retest;
     expect(retest).toContain('updated with develop to resolve merge conflicts');
-    expect(retest).toContain('Re-check everything');
-    expect(retest).not.toContain('git diff');
+    expect(retest).toContain(`git show --remerge-diff on the merge commit(s) (git log --merges ${OLD}..HEAD)`);
+    expect(retest).toContain("confirm GitHub's checks are green on the new head");
+    expect(retest).toContain("smoke-test this PR's feature plus whatever the conflicting files touch");
+    expect(retest).not.toContain('Re-check everything');
+    expect(qaInstructions(input({ round: 3, fixReason: 'conflict' })).retest).toContain('on the merge commit(s), confirm');
   });
 });
