@@ -223,6 +223,15 @@ const COLS: { key: keyof KanbanColumns; title: string; chip: string; note: strin
 
 const TONE = { warn: '#ffd8a8', bad: '#ffc9c9', good: '#d8f9df' };
 
+/** The whiteboard's columns, left to right. */
+export const KANBAN_KEYS: (keyof KanbanColumns)[] = COLS.map((c) => c.key);
+
+/** Where drawKanban puts column `ci` on a canvas `w` pixels wide: its left edge and width. */
+export function kanbanColumnSpan(ci: number, w: number) {
+  const colW = (w - 80) / COLS.length;
+  return { x0: 40 + ci * colW, colW };
+}
+
 export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, repo: RepoView, cols: KanbanColumns) {
   ctx.fillStyle = '#fbfbf8';
   ctx.fillRect(0, 0, w, h);
@@ -242,9 +251,8 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   ctx.textAlign = 'left';
 
   const top = 96;
-  const colW = (w - 80) / COLS.length;
   COLS.forEach((c, ci) => {
-    const x0 = 40 + ci * colW;
+    const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
     roundRect(ctx, x0 + 8, top, colW - 16, 52, 26);
     ctx.fillStyle = c.chip;

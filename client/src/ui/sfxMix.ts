@@ -2,10 +2,6 @@
 // where you stand, where it sits left/right, when it's too far away to bother with, and which sound gives way when
 // too many play at once.
 
-export type SoundGroup = 'steps' | 'typing' | 'toys' | 'alerts';
-
-export const SOUND_GROUPS: readonly SoundGroup[] = ['steps', 'typing', 'toys', 'alerts'];
-
 /** A point in the world, in metres. */
 export interface Vec3 {
   x: number;
