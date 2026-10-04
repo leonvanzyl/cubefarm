@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockers, holdUps, issueSpecialty, setDependsOn } from './issues.ts';
+import { blockers, holdUps, issueSpecialty, setDependsOn, waitsMessage } from './issues.ts';
 
 const open = (...n: number[]) => new Set(n);
 
@@ -118,5 +118,12 @@ describe('setDependsOn', () => {
     const body = 'Context\r\n\r\n- [ ] one\r\n- [ ] two\r\n\r\n---\r\n_Filed by Morgan_';
     expect(setDependsOn(body, [])).toBe(body.replace(/\r\n/g, '\n'));
     expect(blockers(setDependsOn(body, [7]), open(7))).toEqual([7]);
+  });
+});
+
+describe('waitsMessage', () => {
+  it('names what the issue waits for', () => {
+    expect(waitsMessage(12, [10])).toBe('#12 waits for #10: it can start once that is closed');
+    expect(waitsMessage(12, [10, 11])).toBe('#12 waits for #10, #11: it can start once those are closed');
   });
 });

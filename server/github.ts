@@ -253,9 +253,9 @@ export async function prDetails(fullName: string, number: number): Promise<PrDet
   };
 }
 
-export async function issueDetails(fullName: string, number: number): Promise<{ title: string; body: string }> {
-  const raw = await ghJson<{ title: string; body: string }>(['issue', 'view', String(number), '-R', fullName, '--json', 'title,body']);
-  return { title: raw.title, body: raw.body ?? '' };
+export async function issueDetails(fullName: string, number: number): Promise<{ title: string; body: string; createdAt: string }> {
+  const raw = await ghJson<{ title: string; body: string; createdAt: string }>(['issue', 'view', String(number), '-R', fullName, '--json', 'title,body,createdAt']);
+  return { title: raw.title, body: raw.body ?? '', createdAt: raw.createdAt };
 }
 
 export async function commentPull(fullName: string, number: number, body: string): Promise<string> {

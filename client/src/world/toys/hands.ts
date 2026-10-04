@@ -1,5 +1,6 @@
 import { useStore } from '../../store';
 import { noise } from '../../ui/sfx';
+import { placeSticky } from '../boardHands';
 import { pullTrigger } from './gun';
 import { pongClick } from './pongState';
 import { chargePower } from './throwing';
@@ -20,6 +21,7 @@ export function startCharge() {
   if (s.held?.kind === 'blaster') return pullTrigger(); // a blaster fires on the press; there's nothing to charge
   if (s.held?.kind === 'mug') return; // a mug can't be thrown
   if (s.held?.kind === 'paddle') return pongClick(); // the toss for a serve, or a rematch
+  if (s.held?.kind === 'sticky') return void placeSticky(s.focus, true); // a sticky goes where you aim
   if (s.held && s.chargeAt === null) s.setCharge(performance.now());
 }
 
