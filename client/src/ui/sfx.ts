@@ -166,6 +166,9 @@ export function setListener(px: number, py: number, pz: number, fx: number, fy: 
   if (ctx?.state === 'running') writeListener();
 }
 
+/** Where the listener is now (updated in place every frame). */
+export const listenerAt = (): Readonly<Vec3> => ear;
+
 // ---------- the probe (window.__swarmSfx) ----------
 
 /** One sound that was asked for, as recorded for QA and e2e. */
@@ -262,14 +265,16 @@ export interface PlaceOpts {
   pos?: Vec3;
   /** A fixed stereo position, -1 (left) to 1 (right), for sounds without `pos` (the player's own feet). */
   pan?: number;
+  /** Part of a sound already in __swarmSfx (recordSfx): one entry for a sound made of several parts. */
+  into?: SfxRecord;
 }
 
 /**
  * Records a sound for the probe and decides whether it plays. Returns where to connect it (a panner, its group or
  * the master) and its loudness for the voice cap, or null to skip it.
  */
-function place(kind: string, { name, group, pos, pan }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
-  const rec = recordSfx(name ?? kind, { group, pos, pan, peak });
+function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
+  const rec = into ?? recordSfx(name ?? kind, { group, pos, pan, peak });
   const d = pos ? distance(ear, pos) : 0;
   if (pos && !audible(d)) return null;
   const loud = peak * (pos ? distanceGain(d) : 1);
@@ -451,20 +456,41 @@ export function swish() {
   [784, 988, 1318.5].forEach((freq, i) => tone({ freq, type: 'triangle', at: 0.2 + i * 0.08, dur: 0.3, peak: 0.06, group: 'toys' }));
 }
 
-/** A sticky note peeled off the whiteboard (or a monitor), from where it was, `at` seconds from now: a short papery rip. */
-export function stickyPeel(pos: Vec3, at = 0) {
-  const v = 0.85 + Math.random() * 0.3;
-  const o = { name: 'sticky:peel', group: 'typing', pos } as const;
-  noise({ ...o, at, dur: 0.15 * v, peak: 0.045, filter: 'bandpass', freq: 2400 * v, to: 5200 * v, q: 1.6, attack: 0.04 });
-  noise({ ...o, at: at + 0.1 * v, dur: 0.04, peak: 0.025, filter: 'highpass', freq: 3800 * v, attack: 0.002 });
-}
+let lastGong = -Infinity;
 
-/** A sticky note slapped onto the whiteboard, from where it lands: a soft papery pat over a little thump. */
-export function stickySlap(pos: Vec3) {
-  const v = 0.88 + Math.random() * 0.24;
-  const o = { name: 'sticky:slap', group: 'typing', pos } as const;
-  noise({ ...o, dur: 0.07 * v, peak: 0.07, filter: 'lowpass', freq: 2000 * v, to: 700, attack: 0.002 });
-  tone({ ...o, freq: 160 * v, to: 95 * v, dur: 0.09, peak: 0.045, attack: 0.003 });
+// A gong's inharmonic partials over its ~92 Hz fundamental: [ratio, peak, seconds to fade out]. The low ones ring
+// longest; the ratios are off whole numbers, which is what makes it a gong rather than a bell or a chord.
+const GONG_F0 = 92;
+const GONG_PARTIALS: [number, number, number][] = [
+  [1.52, 0.09, 5],
+  [2.03, 0.08, 4.6],
+  [2.74, 0.065, 4],
+  [3.43, 0.05, 3.4],
+  [4.18, 0.04, 2.9],
+  [5.4, 0.028, 2.3],
+  [6.79, 0.02, 1.9],
+];
+
+/**
+ * The merge gong: a soft mallet thud, a long low boom with a slow beat, inharmonic partials and a shimmer that swells
+ * in after the hit and rings for ~6 s. The loudest sound in the office (its peaks add up to under 1, and the
+ * compressor catches the rest). Non-positional, so it carries across the floor. At most one a second.
+ */
+export function gong() {
+  if (performance.now() - lastGong < 1000) return;
+  lastGong = performance.now();
+  const o = { name: 'gong', group: 'alerts' } as const;
+  // the padded mallet: a low thud and a dull puff, no click
+  tone({ ...o, freq: 150, to: 62, dur: 0.35, peak: 0.12, attack: 0.004 });
+  noise({ ...o, dur: 0.14, peak: 0.07, filter: 'lowpass', freq: 900, to: 180, attack: 0.003 });
+  // the boom: the fundamental (a triangle, so small speakers still hear its overtones) and a near twin that beats with it
+  tone({ ...o, freq: GONG_F0, type: 'triangle', dur: 6.5, peak: 0.2, attack: 0.02 });
+  tone({ ...o, freq: GONG_F0 * 1.008, dur: 6, peak: 0.08, attack: 0.04 });
+  for (const [ratio, peak, dur] of GONG_PARTIALS) tone({ ...o, freq: GONG_F0 * ratio, dur, peak, attack: 0.015 });
+  // the shimmer: bright partials and a hiss that bloom in after the hit, the way a struck gong swells
+  tone({ ...o, freq: GONG_F0 * 8.9, type: 'triangle', at: 0.05, dur: 4, peak: 0.016, attack: 0.9 });
+  tone({ ...o, freq: GONG_F0 * 11.7, at: 0.05, dur: 3.5, peak: 0.012, attack: 1.1 });
+  noise({ ...o, at: 0.05, dur: 4.5, peak: 0.028, filter: 'bandpass', freq: 1800, to: 3200, q: 1.5, attack: 1.2 });
 }
 
 // ---------- event cues ----------

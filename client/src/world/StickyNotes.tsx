@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coversView, useStore, type Agent, type KanbanColumns } from '../store';
-import { stickyPeel, stickySlap } from '../ui/sfx';
+import { stickyPeel, stickySlap } from '../ui/peopleSounds';
 import { angleDelta, smooth } from './body';
 import { drawSticky, kanbanNoteColor } from './draw';
 import { registerErrand, type Errand, type ErrandStep } from './errands';
@@ -76,16 +76,16 @@ const toTarget = (id: string) => board?.target(id) ?? null;
 // peel it off its column, walk along to the next one with it, slap it on
 const moveSteps: ErrandStep[] = [
   { gesture: 'none', seconds: 0.3 },
-  { gesture: 'reach', seconds: 0.8, cue: 'peel' },
+  { gesture: 'post', seconds: 0.8, cue: 'peel' },
   { gesture: 'hold', seconds: 0.3, to: toTarget },
-  { gesture: 'reach', seconds: 0.7, cue: 'slap' },
+  { gesture: 'post', seconds: 0.7, cue: 'slap' },
 ];
 registerErrand(errand('sticky-move', [...moveSteps, { gesture: 'none', seconds: 0.4 }]));
 registerErrand(errand('sticky-merge', [...moveSteps, { gesture: 'none', seconds: 0.25 }, { gesture: 'cheer', seconds: 1.4 }]));
 // a tester takes it off In QA and carries it back to their station
-registerErrand(errand('sticky-take', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'reach', seconds: 0.7, cue: 'peel' }, { gesture: 'hold', seconds: 0.3 }], { carry: 'hold' }));
+registerErrand(errand('sticky-take', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'post', seconds: 0.7, cue: 'peel' }, { gesture: 'hold', seconds: 0.3 }], { carry: 'hold' }));
 // ...and brings it back once they're done: Ready to merge, or back to the QA column
-registerErrand(errand('sticky-bring', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'reach', seconds: 0.7, cue: 'slap' }, { gesture: 'none', seconds: 0.4 }], { bring: 'hold' }));
+registerErrand(errand('sticky-bring', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'post', seconds: 0.7, cue: 'slap' }, { gesture: 'none', seconds: 0.4 }], { bring: 'hold' }));
 
 // ---------- the controller ----------
 
@@ -318,7 +318,7 @@ function handPose(agentId: string, out: Pose): boolean {
   out.y = 0.8;
   out.yaw = h + Math.PI / 2;
   out.pitch = 0;
-  if (g === 'reach') {
+  if (g === 'reach' || g === 'post') {
     r = 0.22;
     f = 0.42;
     out.y = 1.72;
