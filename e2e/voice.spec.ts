@@ -106,7 +106,7 @@ test('two quick messages play one after the other, and a reload reads nothing ag
   expect([a.id, b.id]).toEqual([...ids].sort((x, y) => x - y));
   expect(b.start).toBeGreaterThanOrEqual(a.end!);
 
-  await page.reload();
+  // enterOffice loads the page afresh: a reload first would abort the toys' chunks the old page was still fetching.
   await enterOffice(page);
   await page.waitForTimeout(2000); // long enough for a replayed message to start
   expect(await spoken(page)).toEqual([]);

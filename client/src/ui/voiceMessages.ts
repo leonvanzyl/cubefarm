@@ -122,7 +122,12 @@ async function playClip(id: number, began: () => void) {
   src.buffer = buffer;
   src.connect(out);
   await new Promise<void>((resolve) => {
-    src.onended = () => resolve();
+    // A suspended context (a background tab, a headless browser) never ends the clip: don't let it stall the queue.
+    const deadline = setTimeout(() => resolve(), (buffer.duration + 2) * 1000);
+    src.onended = () => {
+      clearTimeout(deadline);
+      resolve();
+    };
     stopCurrent = () => {
       try {
         src.stop();
