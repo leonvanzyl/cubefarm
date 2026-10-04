@@ -29,6 +29,9 @@ export function trackBody(id: string, s: BodyState) {
   };
 }
 
+/** Everyone drawn on the current floor, by agent id. */
+export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
+
 const round = (n: number) => Math.round(n * 100) / 100;
 
 const probe = {
