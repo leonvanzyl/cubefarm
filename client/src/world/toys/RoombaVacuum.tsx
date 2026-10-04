@@ -53,7 +53,7 @@ export function Vacuum({ brain }: { brain: Roomba }) {
     if (!got) return;
     countVacuumed(got);
     if (ghosts.current.length > SLOTS) ghosts.current.splice(0, ghosts.current.length - SLOTS);
-    slurp();
+    slurp({ x: brain.x, y: MOUTH_Y, z: brain.z });
   });
 
   const mouth = useMemo(() => new THREE.Vector3(), []);

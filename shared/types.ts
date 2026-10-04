@@ -194,6 +194,21 @@ export interface AgentView {
   log: LogLine[]; // tail of the terminal log (full buffer on snapshot)
 }
 
+/** One piece of an agent's prompt; the parts' texts concatenated are the whole prompt. */
+export interface PromptPart {
+  label: string;
+  text: string;
+  /** The manager can change it (the job description); the rest is the office's workflow and safety rules. */
+  editable: boolean;
+}
+
+/** GET /api/agents/:id/prompt: what the agent is told on a task, with placeholders for the task's details. */
+export interface AgentPromptView {
+  kind: 'dev' | 'qa' | 'ceo';
+  text: string;
+  parts: PromptPart[];
+}
+
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type QaStatus =
