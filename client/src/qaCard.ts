@@ -46,3 +46,24 @@ export function qaCardNote(
       return { note: pr.isDraft ? 'draft' : 'not tested yet', tone: 'warn' };
   }
 }
+
+/** How long a test has been running, as the whiteboard says it: "<1 min", "12 min", "1 h 5 min". */
+export function elapsedLabel(ms: number): string {
+  const min = Math.floor(Math.max(0, ms) / 60_000);
+  if (min < 1) return '<1 min';
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+/**
+ * What a card out for testing says on the 3D whiteboard: who has it (`who`), and its round and how long the test has
+ * run (`meta`, longest wording first, so the board can use the first that fits). `since` is when the test started (the
+ * QA record's updatedAt: nothing changes it while a test runs); without a usable one no time is shown.
+ */
+export function testingLabel(tester: string | undefined, round: number, since: number | null | undefined, now: number): { who: string; meta: string[] } {
+  const who = tester ? `🔍 ${tester} · testing` : '🔍 testing';
+  const time = since != null && Number.isFinite(since) && since > 0 && since <= now + 60_000 ? elapsedLabel(now - since) : null;
+  const r = round >= 1 ? round : null;
+  if (r && time) return { who, meta: [`round ${r} · ${time}`, `R${r} · ${time}`, time] };
+  if (r) return { who, meta: [`round ${r}`, `R${r}`] };
+  return { who, meta: time ? [time] : [] };
+}

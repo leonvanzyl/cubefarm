@@ -1,5 +1,6 @@
 import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
+import { testingLabel } from '../qaCard';
 
 // 2D canvas painters for everything in the office that shows text: laptop terminals,
 // the Kanban whiteboard, signs and name tags.
@@ -289,6 +290,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   ctx.textAlign = 'left';
 
   const top = NOTE.top;
+  const now = Date.now(); // a testing card's elapsed time: it only moves on when the board repaints anyway
   COLS.forEach((c, ci) => {
     const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
@@ -311,7 +313,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
     const shown = cards.length > capacity ? cards.slice(0, capacity - 1) : cards;
     shown.forEach((card, i) => {
       const n = kanbanNoteRect(ci, i, w);
-      drawNote(ctx, n.x, n.y, n.w, n.h, card, card.tone ? TONE[card.tone] : c.note);
+      drawNote(ctx, n.x, n.y, n.w, n.h, card, card.tone ? TONE[card.tone] : c.note, now);
     });
     if (cards.length > shown.length) {
       ctx.fillStyle = '#6c7086';
@@ -327,18 +329,20 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   });
 }
 
-function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string) {
+function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string, now: number) {
   const tilt = (((card.number * 37) % 7) - 3) * 0.006;
+  const ink = card.agent && /^#[0-9a-f]{6}$/i.test(card.agent.color) ? card.agent.color : '#8a8fa3';
   ctx.save();
   ctx.translate(x + w / 2, y + h / 2);
   ctx.rotate(tilt);
   ctx.translate(-w / 2, -h / 2);
   if (card.ghost) {
-    // the sticky is off the board, with whoever took it: just its outline and a faded copy of what it says
-    ctx.globalAlpha = 0.45;
+    // the sticky is off the board, on its tester's monitor: a dashed slot in their colour, still saying what it is
+    ctx.fillStyle = shadeHex(ink, 0.86);
+    ctx.fillRect(0, 0, w, h);
     ctx.setLineDash([12, 9]);
-    ctx.strokeStyle = '#8a8fa3';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 4;
     ctx.strokeRect(2, 2, w - 4, h - 4);
     ctx.setLineDash([]);
   } else {
@@ -353,13 +357,33 @@ function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   ctx.fillStyle = '#2d3142';
   ctx.font = `700 22px ${SANS}`;
   ctx.textBaseline = 'top';
-  ctx.fillText(`${card.prNumber ? 'PR ' : ''}#${card.number}`, 14, 12);
+  const header = `${card.prNumber ? 'PR ' : ''}#${card.number}`;
+  ctx.fillText(header, 14, 12);
+  const headerW = ctx.measureText(header).width;
   ctx.font = `500 19px ${SANS}`;
   const lines = wrap(ctx, card.title, w - 28, 2);
   lines.forEach((l, i) => ctx.fillText(l, 14, 38 + i * 21));
 
   ctx.textBaseline = 'middle';
-  if (card.agent) {
+  if (card.ghost) {
+    const label = testingLabel(card.agent?.name, card.qa?.round ?? 0, card.qa?.updatedAt, now);
+    ctx.fillStyle = ink;
+    ctx.beginPath();
+    ctx.arc(22, h - 15, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2d3142';
+    ctx.font = `600 17px ${SANS}`;
+    ctx.fillText(label.who, 36, h - 14, w - 46);
+    ctx.font = `600 15px ${SANS}`;
+    const room = w - 12 - (14 + headerW + 12);
+    const meta = label.meta.find((m) => ctx.measureText(m).width <= room);
+    if (meta) {
+      ctx.fillStyle = '#5c6078';
+      ctx.textAlign = 'right';
+      ctx.fillText(meta, w - 12, 24);
+      ctx.textAlign = 'left';
+    }
+  } else if (card.agent) {
     ctx.fillStyle = card.agent.color;
     ctx.beginPath();
     ctx.arc(22, h - 15, 8, 0, Math.PI * 2);
@@ -368,14 +392,13 @@ function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
     ctx.font = `600 17px ${SANS}`;
     ctx.fillText(card.agent.name, 36, h - 14);
   }
-  if (card.note) {
+  if (card.note && !card.ghost) {
     ctx.font = `500 16px ${SANS}`;
     ctx.fillStyle = '#5c6078';
     ctx.textAlign = 'right';
     ctx.fillText(card.note, w - 12, h - 14);
     ctx.textAlign = 'left';
   }
-  ctx.globalAlpha = 1;
   ctx.restore();
   ctx.textBaseline = 'middle';
 }
