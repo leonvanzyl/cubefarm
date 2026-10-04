@@ -10,6 +10,7 @@ import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
 import { underLauncher } from './officeUpdate.ts';
+import { parseSendBackNote } from './sendBack.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
 const swarm = new Swarm(DEMO ? createDemoBackend() : realBackend);
@@ -115,6 +116,7 @@ app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(r
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
+app.post('/api/repos/:repo/pulls/:n/fix', route((req) => swarm.sendBackToDev(repoId(req), num(req.params.n), parseSendBackNote(req.body))));
 app.post(
   '/api/repos/:repo/agents',
   route((req) =>

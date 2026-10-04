@@ -33,7 +33,7 @@ describe('named spots', () => {
   it('office floors have every desk, QA station, board column and break-area spot', () => {
     const w = walkways('office');
     expect(w.homes.map((s) => s.id)).toEqual([...Array.from({ length: 12 }, (_, i) => `desk-${i}`), 'qa-0', 'qa-1', 'qa-2']);
-    for (const id of ['coffee', 'mugs', 'cooler', 'gong', 'couch', 'hoop', 'balls', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
+    for (const id of ['coffee', 'mugs', 'cooler', 'gong', 'couch', 'hoop', 'balls', 'jukebox', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
     expect(spot(w, 'couch')!.sit).toBeDefined();
   });
 
@@ -48,7 +48,7 @@ describe('named spots', () => {
   it('the lobby has the CEO, the couch, the toys and the elevator', () => {
     const w = walkways('lobby');
     expect(w.homes.map((s) => s.id)).toEqual(['ceo']);
-    for (const id of ['manager', 'reception', 'couch', 'coffee', 'mugs', 'hoop', 'balls', 'elevator']) expect(spot(w, id), id).toBeDefined();
+    for (const id of ['manager', 'reception', 'couch', 'coffee', 'mugs', 'hoop', 'balls', 'jukebox', 'elevator']) expect(spot(w, id), id).toBeDefined();
   });
 
   it("the lobby's coffee spots stand in front of the coffee corner, facing it, and you can walk there", () => {
