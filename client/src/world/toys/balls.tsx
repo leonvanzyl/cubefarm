@@ -1,4 +1,4 @@
-import { Outlines } from '@react-three/drei';
+import { Outlines } from '../Outlines';
 import * as THREE from 'three';
 import { inBuilding } from '../layout';
 import { shade, toon, toonMap } from '../materials';

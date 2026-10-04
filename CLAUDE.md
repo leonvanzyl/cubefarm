@@ -107,7 +107,8 @@ Shared (`shared/`, imported by both sides):
 Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`), elevator,
   whiteboard, player movement and collisions (`layout.ts`), canvas textures (`draw.ts`), `toys/` (Rapier physics),
-  where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid).
+  where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid),
+  errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them).
 - `src/ui/`: HTML overlays: HUD, terminal (`LiveTerminal.tsx`: xterm.js on `/ws/term`), Kanban, manager's console,
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
   viewer, sounds (`sfx.ts`).
@@ -145,6 +146,7 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - Test pure functions directly; extract logic into pure helpers rather than mocking. No network, no `gh`, no Claude
   sessions, no real `~/.cubefarm`: `npm test` already points `SWARM_HOME` at a temp folder and `SWARM_PORT` at 0.
 - Must pass on both CI runners (ubuntu + windows): don't hardcode `/` or `\` in expected paths.
+- E2E: one spec file per feature, setup from `e2e/helpers.ts`; new e2e tests go in their feature's spec file or a new one, never appended to `smoke.spec.ts`.
 
 ## Pull requests
 

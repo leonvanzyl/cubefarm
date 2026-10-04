@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, mergeStep, type MergePull, type MergeRecord } from './mergeGate.ts';
+import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, RERUN_GRACE_MS, failedRunIds, mergeStep, type MergePull, type MergeRecord } from './mergeGate.ts';
 
 const NOW = 1_800_000_000_000;
 const base = { base: 'main' };
@@ -21,6 +21,8 @@ const record = (r: Partial<MergeRecord> = {}): MergeRecord => ({
   pendingSince: null,
   mergeRetryAt: null,
   alerted: false,
+  rerunSha: null,
+  rerunAt: null,
   ...r,
 });
 
@@ -95,21 +97,64 @@ describe('mergeStep', () => {
   });
 
   describe('failing checks', () => {
-    it('lists each failed check with its log URL when there is one', () => {
-      const pr = pull({
-        checks: 'failing',
-        failedChecks: [
-          { name: 'check (ubuntu-latest)', url: 'https://github.com/o/r/actions/runs/1/job/2' },
-          { name: 'lint', url: null },
-        ],
+    const red = pull({
+      checks: 'failing',
+      failedChecks: [
+        { name: 'check (ubuntu-latest)', url: 'https://github.com/o/r/actions/runs/1/job/2' },
+        { name: 'lint', url: null },
+      ],
+    });
+    const instructions = '- check (ubuntu-latest): https://github.com/o/r/actions/runs/1/job/2\n- lint';
+
+    it('re-runs the failed Actions runs the first time they fail on a commit', () => {
+      expect(mergeStep(red, record(), NOW, base)).toEqual({ do: 'rerun', runIds: [1], reason: 'checks', instructions, needsHuman: false, set: {} });
+      expect(mergeStep(red, record({ mergeFixes: MAX_MERGE_FIXES }), NOW, base)).toMatchObject({ do: 'rerun', needsHuman: true });
+    });
+
+    it('re-runs again on a new commit: the budget is per commit', () => {
+      expect(mergeStep(red, record({ rerunSha: 'old999', rerunAt: NOW - 1 }), NOW, base).do).toBe('rerun');
+    });
+
+    it('waits out the old result just after the re-run', () => {
+      expect(mergeStep(red, record({ rerunSha: 'abc123', rerunAt: NOW - RERUN_GRACE_MS + 1 }), NOW, base)).toEqual({ do: 'wait', note: 're-running a failed check', set: {} });
+    });
+
+    it('says the checks are re-running while they run again', () => {
+      expect(mergeStep(pull({ checks: 'pending', pendingChecks: ['e2e'] }), record({ rerunSha: 'abc123', rerunAt: NOW - 1 }), NOW, base)).toMatchObject({
+        do: 'wait',
+        note: 're-running a failed check: e2e',
       });
-      expect(mergeStep(pr, record(), NOW, base)).toEqual({
+    });
+
+    it('sends the PR back when they fail again on the same commit, listing each failed check with its log URL when there is one', () => {
+      expect(mergeStep(red, record({ rerunSha: 'abc123', rerunAt: NOW - RERUN_GRACE_MS }), NOW, base)).toEqual({
         do: 'send-back',
         reason: 'checks',
-        instructions: '- check (ubuntu-latest): https://github.com/o/r/actions/runs/1/job/2\n- lint',
+        instructions,
         needsHuman: false,
         set: {},
       });
+    });
+
+    it('sends the PR back at once when no failed check can be re-run from here', () => {
+      expect(mergeStep(pull({ checks: 'failing', failedChecks: [{ name: 'Vercel', url: 'https://vercel.com/o/r/abc' }] }), record(), NOW, base)).toMatchObject({
+        do: 'send-back',
+        reason: 'checks',
+      });
+    });
+  });
+
+  describe('failedRunIds', () => {
+    it('reads each Actions run once from the log URLs', () => {
+      expect(
+        failedRunIds([
+          { name: 'a', url: 'https://github.com/o/r/actions/runs/123/job/1' },
+          { name: 'b', url: 'https://github.com/o/r/actions/runs/123/job/2' },
+          { name: 'c', url: 'https://github.com/o/r/actions/runs/456' },
+          { name: 'd', url: 'https://vercel.com/x' },
+          { name: 'e', url: null },
+        ]),
+      ).toEqual([123, 456]);
     });
   });
 
