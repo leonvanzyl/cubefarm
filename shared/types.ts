@@ -47,6 +47,8 @@ export interface PullInfo {
   failedChecks: { name: string; url: string | null }[];
   pendingChecks: string[];
   issueCreatedAt?: string | null; // when the issue it closes was filed, as far as the office knows (the whiteboard's issue → merge time)
+  /** GitHub's check runs on the head commit once all have finished: how long they took (first start to last finish) and when they finished. */
+  checkRun?: { ms: number; doneAt: number } | null;
 }
 
 export interface RepoView {
@@ -71,6 +73,7 @@ export interface RepoView {
   cloneError?: string;
   issues: IssueInfo[]; // open issues
   pulls: PullInfo[]; // open + recently merged PRs
+  held: { issue: number; pr: number }[]; // open issues whose PR was closed: they wait to be assigned by hand
   lastSync: number | null;
   syncError?: string;
   previewConfig: PreviewConfig;
@@ -104,6 +107,24 @@ export interface PreviewView {
   pr: number | null;
   commit: string | null; // short sha
   startedAt: number | null;
+  error: string | null;
+  logTail: string[]; // the last 40 lines of install / app output
+}
+
+/**
+ * An open PR's app in the PR theatre: run beside the floor's main preview, from a worktree of its own, until nobody
+ * has watched it for a while, its PR merges or closes, or the office stops.
+ */
+export interface PrPreviewView {
+  repoId: string;
+  pr: number;
+  status: PreviewStatus;
+  port: number;
+  url: string | null; // set while running
+  commit: string | null; // short sha of the PR's head
+  startedAt: number;
+  viewedAt: number; // the last time a viewer had it on screen
+  watched: boolean; // a viewer has it on screen now
   error: string | null;
   logTail: string[]; // the last 40 lines of install / app output
 }
@@ -196,6 +217,25 @@ export interface AgentView {
   screenshotAt: number | null;
   lastError: string | null;
   log: LogLine[]; // tail of the terminal log (full buffer on snapshot)
+  activity?: AgentActivity | null; // what they're doing right now, safe to show anyone (null: nothing, e.g. idle)
+}
+
+/** The kinds of work the icon over a busy agent shows (shared/activity.ts maps tools and status to them). */
+export type ActivityKind = 'read' | 'edit' | 'test' | 'build' | 'browse' | 'git' | 'ci' | 'qa' | 'fix' | 'talk' | 'run';
+
+/** An agent's current activity: a kind and a short, redacted detail ("store.ts", "npm test"; '' for none). */
+export interface AgentActivity {
+  kind: ActivityKind;
+  detail: string;
+}
+
+/** One line on a floor's activity ticker ("Ken opened PR #212"), worked out by the server from what changed. */
+export interface TickerItem {
+  id: number;
+  repoId: string;
+  at: number;
+  text: string;
+  tone: 'good' | 'bad' | 'info';
 }
 
 /** One piece of an agent's prompt; the parts' texts concatenated are the whole prompt. */
@@ -242,6 +282,14 @@ export interface QaView {
   mergeNote: string | null; // where auto-merge stands once QA passed, e.g. "waiting for checks: Vercel"
   ceoLooking: boolean; // needs-human, and the CEO has a triage job for it (queued or running) before the manager hears
   updatedAt: number;
+  shots?: QaShotView[]; // QA's screenshots from the latest round (absent: none)
+}
+
+/** A screenshot from QA's latest round on a PR, served at /api/repos/:repo/pulls/:n/qa-shots/:index. */
+export interface QaShotView {
+  caption: string;
+  page: string | null; // the page it shows
+  mime: string;
 }
 
 export interface SwarmSettings {
@@ -262,6 +310,38 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  notify: NotifySettings;
+}
+
+/** What the office tells the manager about when they're away (docs/pocket.md). */
+export type NotifyEvent = 'needsHuman' | 'ceoMessage' | 'hire' | 'agentError' | 'usage' | 'merge';
+
+/** Where it tells them: this browser, Web Push to their devices, or a chat app's webhook. */
+export type NotifyChannel = 'desktop' | 'push' | 'discord' | 'slack' | 'telegram' | 'ntfy';
+
+/** The chat apps, whose webhook URLs and tokens live in the server's secrets file. */
+export type NotifyWebhook = 'discord' | 'slack' | 'telegram' | 'ntfy';
+
+export interface NotifySettings {
+  events: Record<NotifyEvent, boolean>;
+  channels: Record<NotifyChannel, boolean>; // a chat app also needs its webhook saved
+  officeUrl: string; // where messages link back to ('' = no link), e.g. a Tailscale Serve URL
+}
+
+/** Which chat apps have a webhook saved (only a hint of it: the secret never leaves the server) and how many devices get push. */
+export interface NotifyChannelsView {
+  webhooks: Record<NotifyWebhook, { set: boolean; hint: string }>;
+  pushDevices: number;
+}
+
+/** A notification the office sent: a browser with the office open but hidden shows it as a desktop notification. */
+export interface NoteView {
+  id: string;
+  event: NotifyEvent | 'test';
+  title: string;
+  body: string;
+  at: number;
+  url: string; // in-app link, e.g. '/?tab=approvals'
 }
 
 /** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */
@@ -293,10 +373,74 @@ export interface VoiceOption {
   recommended: boolean;
 }
 
+/** The last usage warning Claude gave: which limit ("weekly limit"), how full it was (0-100), when it resets, and when it came. */
+export interface UsageWarningView {
+  limit: string | null;
+  pct: number | null;
+  resetsAt: number | null;
+  at: number;
+}
+
 /** Claude's subscription usage: normal, pacing new work after a usage warning, or paused at the limit until `until`. */
 export interface UsageView {
   state: 'normal' | 'pacing' | 'paused';
   until: number | null;
+  warning: UsageWarningView | null; // the latest since the office started, for the usage meter
+}
+
+/** One floor's numbers on mission control (or the whole office's), computed by the server from its state and history. */
+export interface OpsNumbers {
+  // the pipeline, right now
+  ready: number; // backlog issues that can start
+  building: number; // issues a developer is working on
+  inQa: number; // open PRs waiting for QA or being tested (or not tested yet)
+  fixing: number; // open PRs back with a developer: QA failed, checks or a conflict
+  toMerge: number; // open PRs that passed QA
+  needsYou: number; // open PRs waiting on the manager (needsManager)
+  triage: number; // stuck PRs the CEO is looking at before they reach the manager
+  // throughput
+  mergedToday: number; // since midnight
+  mergedHour: number; // in the last 60 minutes
+  spark: number[]; // merges per clock hour over the last 24 hours, oldest first (the current hour last)
+  // flow, over the last 24 hours
+  leadMs: number | null; // median issue → merge
+  qaWaitMs: number | null; // median wait for a QA tester
+  qaPass: number | null; // share of QA rounds that passed over 7 days, 0-1
+  // GitHub's checks, over 7 days
+  ciPass: number | null; // share of check runs that passed, 0-1
+  ciRuns: number;
+  ciMs: number | null; // median duration
+  // the team, right now
+  busy: number;
+  idle: number;
+  errors: number;
+  costToday: number; // dollars since midnight from finished sessions' reported cost: an estimate
+}
+
+export interface OpsFloor extends OpsNumbers {
+  repoId: string;
+  floor: number;
+  alarms: number;
+}
+
+/** Something that needs the manager: a PR the office can't move (needsManager), or an agent in error for over 10 minutes. */
+export interface OpsAlarm {
+  id: string; // "pr:<repo>#<n>" or "agent:<id>": the manager's console opens at this card
+  kind: 'pr' | 'agent';
+  repoId: string;
+  floor: number;
+  prNumber: number | null;
+  agentId: string | null;
+  text: string;
+  since: number;
+}
+
+/** Mission control: every floor's numbers, the office's total, and what needs the manager (oldest first). */
+export interface OpsView {
+  floors: OpsFloor[];
+  total: OpsNumbers;
+  ceoCostToday: number;
+  alarms: OpsAlarm[];
 }
 
 /**
@@ -368,6 +512,7 @@ export interface WorldSnapshot {
   repos: RepoView[];
   agents: AgentView[];
   qa: QaView[];
+  prPreviews: PrPreviewView[];
   requests: HireRequestView[];
   ceo: CeoInfo;
   messages: PhoneMessage[];
@@ -375,10 +520,13 @@ export interface WorldSnapshot {
   officeCommit?: string | null; // short sha the server started on (absent on servers without self-update)
   officeUpdate?: OfficeUpdateView;
   usage: UsageView;
+  ops: OpsView;
   clis: CliView[];
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
+  notifyChannels: NotifyChannelsView;
 }
 
 export type ServerEvent =
@@ -391,6 +539,8 @@ export type ServerEvent =
   | { type: 'screen'; agentId: string; url: string | null; at: number }
   | { type: 'qa'; qa: QaView }
   | { type: 'qaRemoved'; repoId: string; prNumber: number }
+  | { type: 'prPreview'; preview: PrPreviewView }
+  | { type: 'prPreviewRemoved'; repoId: string; pr: number }
   | { type: 'settings'; settings: SwarmSettings }
   | { type: 'request'; request: HireRequestView }
   | { type: 'ceo'; ceo: CeoInfo }
@@ -398,9 +548,13 @@ export type ServerEvent =
   | { type: 'phoneRead'; at: number }
   | { type: 'officeUpdate'; officeUpdate: OfficeUpdateView }
   | { type: 'usage'; usage: UsageView }
+  | { type: 'ops'; ops: OpsView }
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'ticker'; item: TickerItem }
+  | { type: 'notifyChannels'; notifyChannels: NotifyChannelsView }
+  | { type: 'notify'; note: NoteView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

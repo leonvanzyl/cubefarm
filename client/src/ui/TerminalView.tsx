@@ -7,7 +7,7 @@ import { LiveTerminal } from './LiveTerminal';
 import { effectiveModel } from '../../../shared/models';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
-import { closeOverlay, Panel } from './Overlays';
+import { closeOverlay, Panel } from './Panel';
 import { loadScreenshot } from '../screenshot';
 import { toolVerb } from '../world/draw';
 

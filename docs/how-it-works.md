@@ -10,6 +10,7 @@ The details behind the office: how an issue becomes a merged pull request, who d
    - If a session fails, its issue goes back on the board for someone else, and the agent gets new work after a two-minute cooldown. An issue that fails twice waits for you to assign it by hand.
    - If Claude turns a session away because your usage limit is reached, the office starts no new work until the limit resets.
    - Before that, when Claude warns that usage is getting high, the office paces itself until the window resets (an hour if Claude doesn't say): QA, fixes and CEO jobs start as usual, but new issues only start while fewer sessions than **Sessions while pacing** (manager's console → Settings, default 3) are running. Your phone gets a message when pacing starts and when it ends.
+   - While it paces (or pauses), a chip under the floor card says until when, and the Kanban's backlog cards show **⏸ paced**. Topped up, or was your usage reset? **Resume full speed** (manager's console → Mission control, or `E` on the usage meter in the lobby) ends pacing at once, and later warnings about the same window are ignored. A pause after Claude turned a session away can't be cleared early.
 2. **In progress.** The server fetches the repo and creates a git worktree for that developer on the branch `swarm/issue-<n>-<agent>`, branched from the default branch. The developer's coding agent starts there with the issue text. The developer implements the change, runs the project's checks, pushes the branch and opens a PR with `gh pr create` that says `Closes #<n>`.
 3. **In QA.** The PR is handed to the floor's QA lab. A free QA tester checks out the PR head in their own worktree; when every tester is busy, a free developer who didn't write the PR covers for them, `testing` specialists first. The tester then:
    - reads the PR and the linked issue to work out the acceptance criteria
@@ -33,6 +34,8 @@ The details behind the office: how an issue becomes a merged pull request, who d
 
    The office's own folder is the exception: pulling it would restart the office mid-work, so it shows `update ready` and the **Office** row at the top of the manager's console takes over. When the office was started by its launcher (`npm run dev` / `npm start`) and **Update automatically** is on, or you press **Update now**, the office drains: it starts no new issues, QA or CEO jobs, and lets the running sessions finish. Once nothing runs (or after 20 minutes, when the remaining sessions are stopped and their work goes back to the queue), it hands the update to the launcher, which pulls, installs, builds and restarts it; your phone then says which commit it moved to, or why the update was rolled back. **Later** postpones it for 2 hours, or until a newer commit lands. Started any other way, the office only reports the update.
 
+**Closing an issue or PR** (its **Close** in the manager's console → Issues or on its Kanban card, the CEO's tools, or on GitHub) cleans up after it: whoever works on it stops, as ■ Stop does, their desk is cleared, and your phone says who was stopped and why. QA and fixes queued for a closed PR are dropped, and nothing starts on an issue or PR that GitHub says is closed. Closes made in the office take effect at once, ones on GitHub at the next sync. A merge is not a close: nobody's session is cut short by it. Closing a PR never closes its issue, and never hands it out again by itself: the issue waits in the Backlog, marked ⏸, until you assign it (or close it). The CEO's triage close is the exception: it closes a PR so that its issue is built again.
+
 PRs opened by people, not agents, show up under **In QA** as "not tested yet", with a **Send to QA** button.
 
 You can message an agent at any time. While they're working, the message is injected into their live session. After a developer finishes, the message resumes their session, e.g. "the CI failed, please fix the lint errors".
@@ -46,6 +49,16 @@ You can message an agent at any time. While they're working, the message is inje
 ## The team
 
 Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
+
+## Mission control
+
+The curved bank of screens behind reception in the lobby shows how the company is doing, per floor and in total: the pipeline (issues ready to start, being built, in QA, being fixed, ready to merge, needing you), PRs merged today and in the last hour with a 24-hour chart, median lead time (issue to merge) and QA wait over the last 24 hours, GitHub's checks (pass rate and median duration over 7 days), who's busy, idle or in error, and today's cost per floor. The cost is an estimate from the cost finished sessions report. Each floor's team sign carries a compact line of its own numbers. The manager's console → **Mission control** has the same numbers as a table.
+
+The bottom middle screen is Claude's usage meter: normal, pacing or paused, the limit and how full it was at the last warning, and when it resets. While the office paces itself, `E` on the meter resumes full speed (after asking).
+
+When a PR needs you, or an agent has been stuck on an error for more than 10 minutes, the beacon on top of the wall and on that floor's sign spins red and a calm chime plays (at most every 30 seconds, under Alerts). `E` on either opens the console at that card, with what you can do about it. The beacon stops once it's handled.
+
+The server works the numbers out from what it already knows plus a rolling week of merges, QA verdicts, check runs and session costs kept in the state file, and pushes them to the browser when they change.
 
 ## Models and usage
 
@@ -74,12 +87,13 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 
 ## Where things live
 
-- `~/.cubefarm/state.json`: floors, agents, settings and terminal history (`SWARM_HOME` overrides the folder)
+- `~/.cubefarm/state.json`: floors, agents, settings, terminal history and mission control's last 7 days (`SWARM_HOME` overrides the folder)
 - `~/.cubefarm/terminals/<agent>.ansi`: each agent's terminal screen and scrollback
 - `~/.cubefarm/sessions/<token>/`: a running CLI session's settings, MCP config and instructions (removed when it ends); `~/.cubefarm/bin/`: the small scripts the CLIs call back to the office with
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
 - `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent, reused from task to task. A desk left idle longer than **Free idle desks after** (manager's console → Settings, default 120 minutes, 0 = never) loses its `node_modules` (at any depth) and its build and test output (`dist/`, `dist-server/`, `test-results/`, `playwright-report/`, `.swarm-home/`, `.preview-tmp/`, `.playwright-mcp/`), once per idle stretch; tracked and untracked source files stay, and the next task installs again. The office checks every 15 minutes, never touches a busy desk or a running preview's, and your phone says how much it freed. A folder Windows still has locked is tried again next time.
 - `~/.cubefarm/leftovers/<owner>__<repo>/`: work saved from desks the office swept away
+- `~/.cubefarm/secrets.json`: the ElevenLabs key and the chat apps' webhooks; `~/.cubefarm/push.json`: the Web Push keys and your devices' subscriptions ([docs/pocket.md](pocket.md))
 
 Every 30 minutes (and when a floor starts, or someone is let go) the office sweeps each floor: it removes desks nobody uses any more and the finished `swarm/issue-*` and `qa/pr-*` branches nobody has checked out or has an open PR for. A desk with uncommitted changes to tracked files or unpushed commits is saved as a `.patch` in `leftovers/` first, and a folder that a program still has open is left for the next sweep. Your own branches and worktrees outside `desks/` are never touched.
 
@@ -116,6 +130,19 @@ Example, this repo previewing itself (a demo office on the floor's port, with it
 ```
 
 In `--demo` mode no git or npm runs: starting a preview serves a small placeholder page ("<floor> app · <ref>", with a click counter) on the floor's port.
+
+### The PR theatre
+
+Any open PR can run beside the floor's main preview, so you can try it before it merges. The big screen's bottom row has a channel per open PR (aim at one, press E), and the app viewer has the same channels: "main" and "PR #12 · title · ✅ QA passed".
+
+- `POST /api/repos/:repo/pr-previews/:n` starts PR #n's preview (kept as it is when it's already up; `{ "restart": true }` runs it again from the PR's latest head). `DELETE` stops it. The previews are in the snapshot's `prPreviews` and the `prPreview` / `prPreviewRemoved` events.
+- It runs the floor's preview command and environment, from a slot worktree: `desks/preview-pr-1` or `desks/preview-pr-2` (branch `swarm-preview-pr-<slot>`). A slot taken over by another PR of the same floor keeps its `node_modules`, so the install is skipped when the dependencies match.
+- Ports: 100 above the floor previews, one lane per slot (6401, 6403 … and 6402, 6404 …), skipping the office's ports, other previews' and anything already listening. `SWARM_PREVIEW_PORT` moves both ranges (default 6300); only test offices need it.
+- At most **2** PR previews at once. A third one stops the one nobody has watched the longest (a failed one first); one on screen is never stopped for room.
+- An open viewer says which PR it has on screen (`POST /api/previews/watch`, every 30 seconds). A PR preview stops after **20 minutes** off screen (`SWARM_PR_PREVIEW_IDLE_MIN` changes it, fractions allowed, for tests), when its PR merges or closes, and when the office stops. Its worktree goes with it; the office's next start clears away anything a hard stop left.
+- **Compare with main** puts main on the left and the PR on the right, the same path in both. **Sync scrolling** shows each side through a small pass-through proxy (`POST /api/repos/:repo/preview/sync`, a port the OS picks, on loopback) that adds a script to HTML pages, so each side follows the other's scrolling and links. That works for plain web pages that scroll the page itself.
+- The side panel shows the PR's GitHub checks and QA's latest report: summary, checks and screenshots. QA's screenshots of a PR's latest round are kept in `<SWARM_HOME>/qa-shots/` (served at `/api/repos/:repo/pulls/:n/qa-shots/:i`) until the PR leaves QA.
+- In `--demo` mode a PR preview is a placeholder page of its own: the PR's number and title, a highlighted "new in this PR" row, and Home / About pages to try the path and scrolling sync on.
 
 ## Updating the office
 
