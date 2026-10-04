@@ -21,6 +21,7 @@ import { jukeboxAction } from './Jukebox';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 import { peelAimed, placeSticky, pressBoard, releaseBoard } from './boardHands';
+import { greet } from './Chatter';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -83,6 +84,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'greet') {
+    greet(focus.action.agentId);
     return;
   }
   if (focus.action.kind === 'hire') {

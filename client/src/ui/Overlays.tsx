@@ -10,7 +10,7 @@ import { ManagerConsole } from './ManagerConsole';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
-import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
+import { CHATTER_LEVELS, SOUND_GROUPS, type ChatterLevel, type SoundGroup } from './audioPrefs';
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 
@@ -61,8 +61,9 @@ export function Panel({
   );
 }
 
-const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
+const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', babble: 'Chatter', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
 const SOUND_GROUP_TITLES: Partial<Record<SoundGroup, string>> = {
+  babble: "The team's babble voices as they talk",
   alerts: 'The phone, the elevator and work cues',
   music: "Each floor's jukebox",
   voice: 'Messages read aloud',
@@ -136,6 +137,34 @@ function MouseSettings() {
   );
 }
 
+const CHATTER_LABELS: Record<ChatterLevel, string> = { off: 'Off', quiet: 'Quiet', lively: 'Lively' };
+
+/** How much the agents say in their speech bubbles, and whether they babble it out loud; saved in this browser. */
+function ChatterSettings() {
+  const { chatter, silentBubbles } = useSyncExternalStore(subscribeAudio, getAudioPrefs);
+  return (
+    <div className="chatter-settings">
+      <div className="day-settings" role="radiogroup" aria-label="Agent chatter">
+        <span>💬 Agent chatter</span>
+        {CHATTER_LEVELS.map((l) => (
+          <label key={l} className="toggle">
+            <input type="radio" name="chatter-level" checked={chatter === l} onChange={() => setAudioPrefs({ chatter: l })} /> {CHATTER_LABELS[l]}
+          </label>
+        ))}
+      </div>
+      <div className="day-settings" role="radiogroup" aria-label="Chatter voices">
+        <span>Their voices</span>
+        <label className="toggle">
+          <input type="radio" name="chatter-voice" checked={!silentBubbles} disabled={chatter === 'off'} onChange={() => setAudioPrefs({ silentBubbles: false })} /> Babble
+        </label>
+        <label className="toggle">
+          <input type="radio" name="chatter-voice" checked={silentBubbles} disabled={chatter === 'off'} onChange={() => setAudioPrefs({ silentBubbles: true })} /> Silent bubbles only
+        </label>
+      </div>
+    </div>
+  );
+}
+
 const DAY_MODE_LABELS: Record<DayMode, string> = { cycle: '30-minute day', clock: 'Follow my clock', day: 'Always day' };
 
 /** How the sky outside moves: a fast day, the viewer's own clock or always afternoon; saved in this browser. */
@@ -193,10 +222,17 @@ function Help() {
         <h3>Sound</h3>
         <p>
           The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. Every floor's jukebox plays in its corner: <kbd>E</kbd> on it skips to the next song, and its red button stops or starts the music. Its Focus button switches the floor to the Focus station (lo-fi beats and ambient tracks for heads-down work) and back to all songs. While you look at it, <kbd>−</kbd> and <kbd>+</kbd>, the mouse wheel or its own − and + buttons set its volume, from quiet background up to music that fills the whole floor; the meter on its card shows the level, and each floor keeps its own volume and station. The music dips under the gong, alerts and voices, and goes quiet while a panel or the phone is open and in the elevator. Wherever no jukebox can be heard, a quiet soundtrack follows the office's mood: soft and calm, a gentle pulse when the team is busy, darker under a red CI or a PR that needs you, slower at night, and a little fanfare after a merge (a bigger one on a streak). Every space sounds like itself, from the glassy lobby and the carpeted floors to the tiled kitchenette, the boxy elevator and the open balconies, and sounds behind a wall come through muffled. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
-          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud), outside (wind, the city, birds by day and crickets at night, heard out on a balcony or through an open side door) and the soundtrack up or down on their own, or switch the soundtrack off. Your
+          footsteps (yours and everyone's), typing (and the team's sighs and cheers), chatter (their babble voices), toys (balls, blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud), outside (wind, the city, birds by day and crickets at night, heard out on a balcony or through an open side door) and the soundtrack up or down on their own, or switch the soundtrack off. Your
           settings are saved in this browser.
         </p>
         <SoundControls />
+        <h3>Chatter</h3>
+        <p>
+          The team talks as they work: speech bubbles about what's really going on (a PR up for QA, a tester asked to look at it, tests going green, a merge conflict, a merge and a teammate's
+          "Nice one!", coffee at the cooler) in a cute babble voice of their own, the same on every visit; the CEO's is lower and grander. At most three speak at once and the nearest win. Quiet says the news;
+          lively also chats about what they're doing. Aim at someone with nothing to do and press <kbd>E</kbd> to say hi (aim at their desk to open it). The Chatter slider above sets how loud they babble.
+        </p>
+        <ChatterSettings />
         <h3>Outside</h3>
         <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
         <DaySettings />

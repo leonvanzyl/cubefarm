@@ -21,6 +21,7 @@ import {
   pickTopic,
   planChat,
   shoulderSpot,
+  topicPr,
   type ChatCandidate,
 } from './socials';
 import { findPath, spot, standable, walkways } from './walkways';
@@ -217,5 +218,19 @@ describe('what they talk about', () => {
     for (let i = 0; i < 100; i++) seen.add(pickTopic(news, i / 100));
     expect([...seen].sort()).toEqual(['☕', '🎉', '🐛', '😂', '🚀'].sort());
     expect(pickTopic(news, 0)).toBe('☕');
+  });
+
+  it('a 🎉 chat is about the latest merge, a 🐛 one about the latest failed QA', () => {
+    const repo = { pulls: [{ number: 3, mergedAt: '2026-10-04T11:00:00Z' }, { number: 5, mergedAt: '2026-10-04T11:50:00Z' }, { number: 6, mergedAt: null }] } as never;
+    const qa = [
+      { prNumber: 7, status: 'failed' as const, updatedAt: now - 90_000 },
+      { prNumber: 8, status: 'needs-human' as const, updatedAt: now - 10_000 },
+      { prNumber: 9, status: 'passed' as const, updatedAt: now },
+    ];
+    expect(topicPr('🎉', repo, qa)).toBe(5);
+    expect(topicPr('🐛', repo, qa)).toBe(8);
+    expect(topicPr('☕', repo, qa)).toBeNull();
+    expect(topicPr('🎉', undefined, [])).toBeNull();
+    expect(topicPr('🐛', repo, [])).toBeNull();
   });
 });

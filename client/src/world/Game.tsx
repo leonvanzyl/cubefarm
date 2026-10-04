@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
+import { Chatter } from './Chatter';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
@@ -72,6 +73,7 @@ export function Game() {
       <SoundListener />
       <Soundscape kind={isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />
       <TypingSounds />
+      <Chatter />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
       {statsEnabled && <StatsProbe paused={paused} />}
