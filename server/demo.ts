@@ -513,6 +513,7 @@ export function createDemoBackend(): Backend {
       return dir;
     },
     removeDesk: async () => undefined,
+    sweepDesks: async () => ({ desks: 0, folders: 0, branches: 0, patches: [], skipped: [] }),
     // A made-up install and build of 300-900 MB, so the setting and the phone message can be seen.
     trimDesk: async (_fullName, _slug, stillIdle) => {
       await new Promise((r) => setTimeout(r, 300));

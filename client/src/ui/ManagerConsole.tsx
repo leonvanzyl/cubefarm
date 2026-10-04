@@ -4,7 +4,7 @@ import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
 import { CEO_ID, type AgentCli, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
 import { CLAUDE_MODELS } from '../../../shared/models';
-import { BriefEditor, CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, LookSelect, ModelInput, NameInput, SpecialtyInput, TitleInput } from './AgentSettings';
+import { BriefEditor, CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, LookSelect, ModelInput, NameInput, PromptPreview, SpecialtyInput, TitleInput } from './AgentSettings';
 import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../officeUpdate';
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
@@ -285,6 +285,7 @@ function CeoTab() {
           <div className="muted small">
             {info.nextReviewAt ? `Next company review around ${new Date(info.nextReviewAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (skipped if nothing changed).` : 'Periodic reviews are off (Settings).'}
           </div>
+          <PromptPreview agent={ceo} />
           {ceo.terminal ? (
             <LiveTerminal agentId={ceo.id} className="ceo-term" />
           ) : (

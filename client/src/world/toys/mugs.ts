@@ -24,6 +24,13 @@ export function clampSips(n: unknown): number {
 /** How high the coffee stands in a mug, from 0 (empty) to 1 (full). */
 export const fillLevel = (sips: number) => clampSips(sips) / MUG.maxSips;
 
+/** How strongly a mug steams, from 0 (empty) to 1 (full): it thins with each sip, and the last sip still shows a little. */
+export function steamStrength(sips: number): number {
+  const s = clampSips(sips);
+  if (s === 0) return 0;
+  return MUG.maxSips === 1 ? 1 : 0.3 + (0.7 * (s - 1)) / (MUG.maxSips - 1);
+}
+
 /** The oldest loose mugs to remove so that dropping `adding` more keeps the floor at `cap` or fewer. */
 export const mugsToEvict = <T extends { born: number }>(mugs: readonly T[], cap = MUG.cap, adding = 1): T[] => toEvict(mugs, cap, adding);
 

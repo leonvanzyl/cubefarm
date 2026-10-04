@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 import { isBusy, useStore, type Agent } from '../store';
-import type { AgentCli, CliView, EffortLevel, SwarmSettings } from '../../../shared/types';
+import type { AgentCli, AgentPromptView, CliView, EffortLevel, SwarmSettings } from '../../../shared/types';
 import { CLAUDE_MODELS, effectiveModel, modelSuggestions } from '../../../shared/models';
 
 // One agent's setup (coding agent, model, effort, job), edited in place: the Team tab's row cells and the
@@ -197,6 +197,70 @@ export function BriefEditor({ agent, id, compact }: FieldProps & { compact?: boo
   );
 }
 
+/**
+ * "What they're told": the whole prompt the office gives them on a task, read-only, with the job description (the
+ * part the manager edits) highlighted. Fetched when opened and again whenever something in it changes.
+ */
+export function PromptPreview({ agent }: { agent: Agent }) {
+  const [open, setOpen] = useState(false);
+  const [prompt, setPrompt] = useState<AgentPromptView | null>(null);
+  const [failed, setFailed] = useState(false);
+  // The floor's (or, for the CEO, the office's) settings that appear in the prompt: changing one refreshes it.
+  const context = useStore((s) => {
+    const r = s.repos.find((x) => x.id === agent.repoId);
+    const o = s.settings;
+    return JSON.stringify(r ? [r.fullName, r.defaultBranch, r.autoMerge, r.browserTesting, r.links, r.mission, r.summary, r.qaBrief] : [o.companyName, o.managerName, o.sessionLimit, o.teamCap, o.hiring]);
+  });
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    api.agentPrompt(agent.id).then(
+      (p) => {
+        if (!live) return;
+        setPrompt(p);
+        setFailed(false);
+      },
+      () => live && setFailed(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, agent.id, agent.name, agent.role, agent.title, agent.brief, context]);
+  const hasBrief = prompt?.parts.some((p) => p.editable);
+  return (
+    <details className="prompt-preview" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        What they're told
+        {prompt && <span className="muted small"> · {prompt.text.length.toLocaleString()} characters</span>}
+      </summary>
+      {failed && !prompt && <p className="muted small">Couldn't load their prompt.</p>}
+      {!prompt && !failed && <p className="muted small">Loading…</p>}
+      {prompt && (
+        <>
+          <p className="muted small">
+            {prompt.kind === 'ceo'
+              ? "The CEO's instructions for every job. They're all the office's own."
+              : `The office builds this for every ${prompt.kind === 'qa' ? 'pull request they test' : 'issue they start'}; <placeholders> are filled in per task. `}
+            {prompt.kind !== 'ceo' && (hasBrief ? <>Only the <mark>job description</mark> is yours to edit: the rest is the office's workflow and safety rules.</> : 'They have no job description yet: add one above and it appears here.')}
+          </p>
+          <pre className="prompt-text" tabIndex={0} aria-label={`${agent.name}'s full prompt`}>
+            {prompt.parts.map((p, i) =>
+              p.editable ? (
+                <mark key={i} title={p.label}>
+                  {p.text}
+                </mark>
+              ) : (
+                <span key={i}>{p.text}</span>
+              ),
+            )}
+          </pre>
+          <p className="muted small">{prompt.text.length.toLocaleString()} characters, sent with every session.</p>
+        </>
+      )}
+    </details>
+  );
+}
+
 /** The ⚙️ Setup section of an agent's panel. The CEO always runs Claude Code, so they only get model and effort. */
 export function AgentSetup({ agent }: { agent: Agent }) {
   const terminal = useStore((s) => s.settings.runtime === 'terminal');
@@ -258,6 +322,7 @@ export function AgentSetup({ agent }: { agent: Agent }) {
         </label>
       )}
       {!ceo && <BriefEditor agent={agent} id={`${id}-brief`} />}
+      <PromptPreview agent={agent} />
       <p className="muted small">Name, model, effort and the other fields save when you leave them. Running sessions aren't restarted.</p>
     </section>
   );

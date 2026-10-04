@@ -1,5 +1,6 @@
 import { useStore, type Held } from '../../store';
-import { noise, thwip, tone } from '../../ui/sfx';
+import { dryClick, reloadSound, takeSound, thwip } from './blasterSfx';
+import { nextBurst, thwipVoice } from './blasterSounds';
 import { BLASTER, fire, reload, settle } from './darts';
 
 // The blaster in your hands: taking one, the trigger, reloading. Input (Player.tsx, hands.ts) calls in here;
@@ -19,6 +20,8 @@ export const kick = { at: -Infinity };
 const spare = new Map<string, number>();
 // Shots fired since the toy world's last physics step (you can only hold a blaster while one is mounted).
 let shots: string[] = [];
+// Shots in the current burst of rapid fire, so the thwips vary instead of buzzing.
+let burst = 0;
 
 /** A fresh floor: every blaster is back on the rack, full. */
 export function resetBlasters() {
@@ -26,9 +29,10 @@ export function resetBlasters() {
   shots = [];
 }
 
-/** Take a blaster (from the rack or the floor) into your hands. */
-export function takeBlaster(id: string) {
+/** Take a blaster (from the rack, which primes it, or the floor) into your hands. */
+export function takeBlaster(id: string, fromRack = false) {
   useStore.getState().setHeld({ kind: 'blaster', id, ammo: spare.get(id) ?? BLASTER.mag, reloadAt: null });
+  takeSound(fromRack);
 }
 
 // Remember what was left in a blaster when it leaves your hands (dropped, swapped, or a panel opening).
@@ -47,13 +51,14 @@ export function pullTrigger() {
   const next = fire(h, kick.at, now);
   if (!next) {
     const m = settle(h, now);
-    if (m.reloadAt === null && m.ammo === 0) tone({ freq: 1400, to: 900, type: 'square', dur: 0.03, peak: 0.03, attack: 0.002, group: 'toys' }); // dry click
+    if (m.reloadAt === null && m.ammo === 0) dryClick();
     return;
   }
+  burst = nextBurst(burst, now - kick.at);
   kick.at = now;
   if (shots.length < BLASTER.mag) shots.push(h.id);
   s.setHeld({ ...h, ...next });
-  thwip();
+  thwip(thwipVoice(burst, Math.random()));
 }
 
 /** R: reload the blaster in hand, if it isn't full. */
@@ -63,8 +68,7 @@ export function reloadHeld() {
   const next = reload(h, performance.now());
   if (!next) return;
   useStore.getState().setHeld({ ...h, ...next });
-  noise({ dur: 0.08, peak: 0.06, filter: 'bandpass', freq: 900, q: 2, group: 'toys' });
-  noise({ at: 0.75, dur: 0.07, peak: 0.08, filter: 'bandpass', freq: 1500, q: 2, group: 'toys' });
+  reloadSound(BLASTER.reloadMs);
   // Settle the store when the reload is done, so the HUD and __swarmToys show the full magazine.
   setTimeout(() => {
     const cur = heldBlaster();

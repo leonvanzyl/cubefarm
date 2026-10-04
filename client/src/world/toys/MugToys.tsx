@@ -1,18 +1,33 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
+import {
+  CuboidCollider,
+  CylinderCollider,
+  RigidBody,
+  useAfterPhysicsStep,
+  useBeforePhysicsStep,
+  useRapier,
+  type ContactForcePayload,
+  type RapierCollider,
+  type RapierRigidBody,
+} from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { escaped } from './balls';
 import { walk } from './hands';
-import { MUG_SIZE, MugLook, mugColor } from './mugLook';
+import { MUG_SIZE, MugLook, Steam, mugColor } from './mugLook';
 import { mugsToEvict, resetMugs, setMugSource, takeDrop, type HeldMug } from './mugs';
+import { clunkPeak, impactSpeed } from './sip';
+import { clunk, sipPose } from './sipping';
 
 // Coffee mugs in the toy world: the one in your hands (drawn in view, like the blaster) and mugs lying loose,
 // which are small Rapier bodies that fall, tip over and come to rest. Rendered inside <Physics> (ToyWorld.tsx).
 
 const TAKE_RANGE = 2.5;
+const STEP = 1 / 60;
+// Contact forces under this (N) aren't reported at all: well above a resting mug's weight (~3 N), well below a clunk.
+const FORCE_EVENTS = 6;
 // A dropped mug leaves your hands tipped and turning, so it lands on its side rather than neatly upright.
 // Both are relative to your facing (turned by your yaw at the drop), so it tips forward, into view, whichever way you face.
 const TUMBLE: [number, number, number] = [4, 1, 3];
@@ -28,25 +43,41 @@ const HANDLE = {
 
 // Where the held mug sits in view (camera space, metres), tipped a little towards you so the coffee shows.
 const VIEW = { x: 0.16, y: -0.13, z: -0.42, tilt: 0.55, turn: -0.6, scale: 0.75 };
+// Where it goes for a sip: up to the mouth, just below the middle of the view, turned to face you.
+const MOUTH = { x: 0.02, y: -0.1, z: -0.3, turn: -0.15 };
 
-/** The mug in your hands: lower right of the view, bobbing gently. */
+/** The mug in your hands: lower right of the view, bobbing gently, and raised to the mouth for a sip. */
 function ViewModel({ mug }: { mug: HeldMug }) {
   const root = useRef<THREE.Group>(null);
   const cup = useRef<THREE.Group>(null);
+  const steam = useRef<THREE.Group>(null);
   useFrame(({ camera }) => {
     const r = root.current;
     const c = cup.current;
     if (!r || !c) return;
+    // Its steam rises straight up from the rim at rest, and clears while the mug is up at your mouth.
+    if (steam.current) steam.current.visible = sipPose.lift < 0.05;
     r.position.copy(camera.position);
     r.quaternion.copy(camera.quaternion);
     const t = performance.now() / 1000;
-    c.position.set(VIEW.x, VIEW.y + Math.sin(t * 1.6) * 0.003, VIEW.z);
+    const k = sipPose.lift;
+    c.position.set(
+      VIEW.x + (MOUTH.x - VIEW.x) * k,
+      VIEW.y + (MOUTH.y - VIEW.y) * k + Math.sin(t * 1.6) * 0.003 * (1 - k),
+      VIEW.z + (MOUTH.z - VIEW.z) * k,
+    );
+    c.rotation.set(VIEW.tilt + sipPose.tilt, VIEW.turn + (MOUTH.turn - VIEW.turn) * k, 0);
   });
   return (
     <group ref={root}>
       <group ref={cup} rotation={[VIEW.tilt, VIEW.turn, 0]} scale={VIEW.scale}>
-        <MugLook color={mugColor(mug.id)} sips={mug.sips} shadow={false} />
+        <MugLook color={mugColor(mug.id)} sips={mug.sips} shadow={false} steam={false} />
       </group>
+      {mug.sips > 0 && (
+        <group ref={steam} position={[VIEW.x, VIEW.y + MUG_SIZE.h * VIEW.scale * 0.45, VIEW.z - 0.02]} scale={VIEW.scale}>
+          <Steam y={0} sips={mug.sips} />
+        </group>
+      )}
     </group>
   );
 }
@@ -66,7 +97,10 @@ interface Loose {
 function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number; bodies: Map<string, RapierRigidBody>; onLost: (id: string) => void }) {
   const ref = useInteractable<THREE.Group>({ id: `toy:${mug.id}`, label: 'Pick up mug', action: { kind: 'pickup', toyId: mug.id } }, TAKE_RANGE);
   const body = useRef<RapierRigidBody>(null);
+  const cup = useRef<RapierCollider>(null);
+  const handle = useRef<RapierCollider>(null);
   const tick = useRef(0);
+  const lastClunk = useRef(-Infinity);
   useEffect(() => {
     const b = body.current;
     if (!b) return;
@@ -75,6 +109,20 @@ function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number;
       if (bodies.get(mug.id) === b) bodies.delete(mug.id);
     };
   }, [bodies, mug.id]);
+  useEffect(() => {
+    cup.current?.setContactForceEventThreshold(FORCE_EVENTS);
+    handle.current?.setContactForceEventThreshold(FORCE_EVENTS);
+  }, []);
+  // A ceramic clunk where it lands, louder for harder knocks; resting and rocking stay quiet (sip.ts's CLUNK).
+  const onContactForce = useCallback((e: ContactForcePayload) => {
+    const b = body.current;
+    if (!b) return;
+    const now = performance.now();
+    const peak = clunkPeak(impactSpeed(e.totalForceMagnitude, STEP, b.mass()), now - lastClunk.current);
+    if (!peak) return;
+    lastClunk.current = now;
+    clunk(b.translation(), peak);
+  }, []);
   // Safety net, like the balls: a mug that got out of the building is gone.
   useAfterPhysicsStep(() => {
     const b = body.current;
@@ -94,9 +142,10 @@ function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number;
       angularDamping={ROLL_DAMPING}
       ccd
       userData={{ toy: mug.id }}
+      onContactForce={onContactForce}
     >
-      <CylinderCollider args={[h / 2, (r + rBase) / 2]} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
-      <CuboidCollider args={HANDLE.half} position={HANDLE.at} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
+      <CylinderCollider ref={cup} args={[h / 2, (r + rBase) / 2]} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
+      <CuboidCollider ref={handle} args={HANDLE.half} position={HANDLE.at} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
       <group ref={ref}>
         <MugLook color={mugColor(mug.id)} sips={mug.sips} />
         {/* an invisible, roomier target, so a small mug on the floor is easy to aim at */}
