@@ -14,6 +14,7 @@ import { DayLights } from './sky/DayLights';
 import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
+import { Soundscape } from './Soundscape';
 import { TypingSounds } from './TypingSounds';
 import { Weather } from './weather/Weather';
 import { WorldEvents } from './events/WorldEvents';
@@ -73,6 +74,7 @@ export function Game() {
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />
+      <Soundscape kind={isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />
       <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
