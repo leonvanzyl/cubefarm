@@ -1,7 +1,7 @@
 import { useStore } from './store';
-import type { AgentCli, AgentPromptView, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
+import type { AgentCli, AgentPromptView, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, VoiceOption } from '../../shared/types';
 
-async function call<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
+async function call<T = unknown>(method: string, url: string, body?: unknown, toast = true): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
@@ -10,10 +10,22 @@ async function call<T = unknown>(method: string, url: string, body?: unknown): P
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = (data as { error?: string }).error ?? `${res.status} ${res.statusText}`;
-    useStore.getState().pushToast('error', message);
+    if (toast) useStore.getState().pushToast('error', message);
     throw new Error(message);
   }
   return data as T;
+}
+
+/** An audio clip from the office (the voice settings' Test line); errors become toasts like the rest. */
+async function clip(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const message = (data as { error?: string }).error ?? `${res.status} ${res.statusText}`;
+    useStore.getState().pushToast('error', message);
+    throw new Error(message);
+  }
+  return res.blob();
 }
 
 const r = (repoId: string) => `/api/repos/${encodeURIComponent(repoId)}`;
@@ -62,6 +74,7 @@ export const api = {
   mergePull: (repoId: string, n: number, method: 'squash' | 'merge' | 'rebase' = 'squash') => call('POST', `${r(repoId)}/pulls/${n}/merge`, { method }),
   closePull: (repoId: string, n: number) => call('POST', `${r(repoId)}/pulls/${n}/close`),
   sendToQa: (repoId: string, n: number) => call('POST', `${r(repoId)}/pulls/${n}/qa`),
+  sendBack: (repoId: string, n: number, note?: string) => call('POST', `${r(repoId)}/pulls/${n}/fix`, { note }),
   hireAgent: (repoId: string, opts: { name?: string; model?: string; effort?: string; role?: 'dev' | 'qa'; title?: string; specialty?: string } = {}) =>
     call('POST', `${r(repoId)}/agents`, opts),
   updateAgent: (id: string, patch: { name?: string; model?: string; effort?: string; cli?: AgentCli | ''; look?: 'feminine' | 'masculine'; title?: string; specialty?: string; brief?: string }) =>
@@ -83,4 +96,8 @@ export const api = {
   phoneRead: (at: number) => call('POST', '/api/phone/read', { at }),
   approveRequest: (id: string, overrides: { name?: string; model?: string; effort?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
   rejectRequest: (id: string, note?: string) => call('POST', `/api/requests/${id}/reject`, { note }),
+  /** Saves (or with '' removes) the ElevenLabs key. No toast: the settings show why a key was rejected. */
+  setVoiceKey: (key: string) => call<{ voiceKeySet: boolean; voiceKeyHint: string }>('PUT', '/api/voice/key', { key }, false),
+  voices: () => call<VoiceOption[]>('GET', '/api/voice/voices'),
+  voiceSample: (voiceId: string) => clip(`/api/voice/sample?voiceId=${encodeURIComponent(voiceId)}`),
 };

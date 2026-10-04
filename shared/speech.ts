@@ -4,6 +4,9 @@
 /** About how much of a message is spoken; the cut lands on a sentence end. */
 export const SPEECH_MAX_CHARS = 1500;
 
+/** What the settings' Test button says, in ElevenLabs' voice or the browser's. */
+export const SAMPLE_LINE = "Hi! This is how I'll sound when I message you from the office.";
+
 const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}‍︎️⃣]/gu;
 const URL = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,;:!?'"]/gi;
 

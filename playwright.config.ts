@@ -20,6 +20,14 @@ if (!process.env.E2E_SWARM_HOME) {
 
 const { browser } = pickBrowser(process.env, installedBrowsers());
 
+const chromium = {
+  ...devices['Desktop Chrome'],
+  ...(browser === 'chrome' ? { channel: 'chrome' } : {}),
+  headless: true,
+  viewport: { width: 800, height: 450 }, // fewer pixels for software WebGL to fill
+  launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] },
+};
+
 export default defineConfig({
   testDir: 'e2e',
   // One demo office is shared by every test, and software WebGL is CPU-bound: run one test at a time.
@@ -37,17 +45,11 @@ export default defineConfig({
     trace: { mode: 'retain-on-failure', screenshots: false },
     screenshot: 'only-on-failure',
   },
+  // The first test into a fresh office walks through first-run setup (skip setup, the tour starts, the mouse is
+  // grabbed): smoke.spec.ts runs first so that's the boot smoke, not whichever feature spec sorts first.
   projects: [
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        ...(browser === 'chrome' ? { channel: 'chrome' } : {}),
-        headless: true,
-        viewport: { width: 800, height: 450 }, // fewer pixels for software WebGL to fill
-        launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] },
-      },
-    },
+    { name: 'smoke', testMatch: 'smoke.spec.ts', use: chromium },
+    { name: 'chromium', testIgnore: 'smoke.spec.ts', dependencies: ['smoke'], use: chromium },
   ],
   webServer: {
     command: webServerCommand(process.env),

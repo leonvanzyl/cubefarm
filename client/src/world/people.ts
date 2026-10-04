@@ -58,6 +58,9 @@ export function trackDirector(report: () => unknown) {
   };
 }
 
+/** In their chair and staying there (nobody told to get up, not rising, walking or sitting back down). */
+export const isSeated = (id: string) => !targets.has(id) && (live.get(id)?.stage ?? 'seated') === 'seated';
+
 // ---------- mugs ----------
 
 /** A mug someone holds, or one they left on their desk (until `until`, a Date.now() time). */

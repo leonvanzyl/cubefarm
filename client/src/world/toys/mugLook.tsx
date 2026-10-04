@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from '../Outlines';
 import * as THREE from 'three';
 import { useInteractable } from '../interact';
 import { shade, toon } from '../materials';
