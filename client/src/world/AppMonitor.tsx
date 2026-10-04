@@ -4,6 +4,7 @@ import type { RepoView } from '../../../shared/types';
 import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
 import { drawAppScreen } from './draw';
+import { useKeyName } from '../ui/controls';
 import { useCanvasTexture, useInteractable } from './interact';
 import { APP_SCREEN, HALF_D } from './layout';
 import { glow, mix } from './materials';
@@ -46,11 +47,12 @@ export function AppMonitor({ repo, agents }: { repo: RepoView; agents: Agent[] }
     return loadScreenshot(id, Number(at), (img) => setShot({ img, by }));
   }, [live, latest]);
 
+  const use = useKeyName('interact');
   const tex = useCanvasTexture(
     PX[0],
     PX[1],
-    (ctx) => drawAppScreen(ctx, PX[0], PX[1], { floor: repo.floor, name, color: repo.color, preview: p, shot: shot?.img ?? null, shotBy: shot?.by ?? null }),
-    [repo.floor, name, repo.color, p.status, p.url, p.ref, p.commit, p.startedAt, p.error, shot],
+    (ctx) => drawAppScreen(ctx, PX[0], PX[1], { floor: repo.floor, name, color: repo.color, preview: p, shot: shot?.img ?? null, shotBy: shot?.by ?? null, use }),
+    [repo.floor, name, repo.color, p.status, p.url, p.ref, p.commit, p.startedAt, p.error, shot, use],
   );
   const ref = useInteractable<THREE.Group>({ id: `app-${repo.id}`, label: 'Open the app', action: { kind: 'app', repoId: repo.id } }, 6);
 

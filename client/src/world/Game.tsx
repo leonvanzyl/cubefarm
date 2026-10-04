@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
+import { CameraRig } from './camera/CameraRig';
+import { CUT_PLANES } from './camera/rig';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
@@ -58,6 +60,7 @@ export function Game() {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.0;
         gl.shadowMap.type = THREE.PCFSoftShadowMap;
+        gl.clippingPlanes = CUT_PLANES; // the overview's cutaway, out of the way until it's used (camera/rig.ts)
       }}
     >
       <DayClock />
@@ -67,6 +70,7 @@ export function Game() {
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
       <Player colliders={colliders} floor={floor} />
+      <CameraRig />
       <Travel />
       <SoundListener />
       <TypingSounds />

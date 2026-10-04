@@ -19,7 +19,10 @@ export type Overlay =
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string }
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
-  | { kind: 'help' };
+  | { kind: 'help'; tab?: HelpTab };
+
+/** Help's tabs: how the office works, and the controls (keys, mouse, gamepad). */
+export type HelpTab = 'office' | 'controls';
 
 export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 

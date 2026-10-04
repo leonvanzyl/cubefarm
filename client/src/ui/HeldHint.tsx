@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { CHARGE, chargePower } from '../world/toys/hands';
 import { BlasterHud } from './BlasterHud';
+import { Key } from './Key';
 
 /** The throw meter under the crosshair. Animates itself while charging; hidden during the first moments of a tap. */
 function ChargeMeter({ at }: { at: number }) {
@@ -35,7 +36,7 @@ export function HeldHint() {
   if (held.kind === 'mug') {
     return (
       <div className="hud-hint hud-held">
-        ☕ {held.sips > 0 ? `${held.sips} ${held.sips === 1 ? 'sip' : 'sips'} left` : 'Empty mug'} · <kbd>G</kbd> drop
+        ☕ {held.sips > 0 ? `${held.sips} ${held.sips === 1 ? 'sip' : 'sips'} left` : 'Empty mug'} · <Key action="drop" /> drop
       </div>
     );
   }
@@ -43,7 +44,7 @@ export function HeldHint() {
     <>
       {chargeAt !== null && <ChargeMeter at={chargeAt} />}
       <div className="hud-hint hud-held">
-        <kbd>Click</kbd> / <kbd>F</kbd> throw · hold to charge · <kbd>G</kbd> drop
+        <kbd>Click</kbd> / <Key action="throw" /> throw · hold to charge · <Key action="drop" /> drop
       </div>
     </>
   );

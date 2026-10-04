@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import * as THREE from 'three';
 import { useRenderPaused } from '../perf';
 import { useStore } from '../store';
 import { musicDucked, musicTime, nowPlaying, playTrack, setMusicLevel, setMusicQuiet, stopMusic } from '../ui/music';
 import { clampMusicLevel, MAX_MUSIC_LEVEL } from '../ui/musicMix';
 import { noise, tone, type Vec3 } from '../ui/sfx';
+import { useKeyName } from '../ui/controls';
 import { roundRect, SANS } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { SONGS, beatAt, beatPulse, firstSongFor, noteAge, trackFor } from './jukeboxSongs';
@@ -265,6 +266,7 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
   }, [song.color]);
   useMemo(musicNoteTexture, []);
 
+  const use = useKeyName('interact');
   const display = useMemo(
     () => (ctx: CanvasRenderingContext2D) =>
       view.on
@@ -275,9 +277,9 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
           ])
         : drawDisplay(ctx, '#495057', view.vol, [
             { text: 'JUKEBOX', size: 66, weight: 800 },
-            { text: 'press E to play', size: 40, weight: 600 },
+            { text: `press ${use} to play`, size: 40, weight: 600 },
           ]),
-    [view.on, view.vol, song],
+    [view.on, view.vol, song, use],
   );
 
   const volume = `volume ${view.vol} of ${MAX_MUSIC_LEVEL}`;

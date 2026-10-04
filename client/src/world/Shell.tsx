@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import { ELEVATOR, HALF_D, HALF_W, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, sideSign, type Side } from './layout';
 import { drawGlass } from './draw';
 import { glow, shade, toon } from './materials';

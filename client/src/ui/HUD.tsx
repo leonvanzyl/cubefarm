@@ -5,6 +5,10 @@ import { HeldHint } from './HeldHint';
 import { eAction } from '../world/toys/sip';
 import { WorkersPanel } from './WorkersPanel';
 import { officeUpdateChip } from '../officeUpdate';
+import { useCameraView } from '../world/camera/rig';
+import { CameraHud, OverviewButton } from './CameraHud';
+import { useKeyName } from './controls';
+import { Key, MoveKeys } from './Key';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
 function OfficeUpdateChip() {
@@ -26,14 +30,15 @@ function PhoneButton() {
   const overlay = useStore((s) => s.overlay);
   const openOverlay = useStore((s) => s.openOverlay);
   const ceo = useStore((s) => s.agents[CEO_ID]);
+  const key = useKeyName('phone');
   if (!started || overlay?.kind === 'phone') return null;
   const busy = ceo?.status === 'working';
   return (
-    <button className={`phone-btn ${badge ? 'phone-btn-ring' : ''}`} onClick={() => openOverlay({ kind: 'phone' })} title="Your phone (P)">
+    <button className={`phone-btn ${badge ? 'phone-btn-ring' : ''}`} onClick={() => openOverlay({ kind: 'phone' })} title={`Your phone (${key})`}>
       <span className="phone-btn-icon">📱</span>
       {badge > 0 && <span className="badge phone-btn-badge">{badge}</span>}
       <span className="phone-btn-label">
-        <kbd>P</kbd> {badge ? `${badge} waiting` : busy ? `${ceo.name} is working` : 'Phone'}
+        <Key action="phone" /> {badge ? `${badge} waiting` : busy ? `${ceo.name} is working` : 'Phone'}
       </span>
     </button>
   );
@@ -72,6 +77,8 @@ export function HUD() {
   const travel = useStore((s) => s.travel);
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  // In the overview, the building view and the follow cam there's no crosshair to aim (camera/rig.ts).
+  const onFoot = useCameraView((s) => s.mode) === 'first';
 
   const repo = floor === 0 ? null : repoOnFloor(repos, floor);
   const running = useMemo(() => Object.values(agents).filter((a) => a.status === 'working' || a.status === 'preparing').length, [agents]);
@@ -91,6 +98,7 @@ export function HUD() {
               : `${repos.length} floor${repos.length === 1 ? '' : 's'} connected`}
           </div>
         </div>
+        <OverviewButton />
       </div>
 
       <div className="hud-status">
@@ -107,24 +115,25 @@ export function HUD() {
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
-      {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
-      {started && !overlay && (focus || sip) && (
+      {started && !overlay && !travel && onFoot && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {started && !overlay && onFoot && (focus || sip) && (
         <div className="hud-hint">
-          <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}
+          <Key action="interact" /> {!held && <>/ <kbd>Click</kbd> </>}
           {sip ? 'Sip coffee' : focus?.label}
           {!sip && focus?.action.kind === 'jukebox' && (
             <>
               {' '}
-              · <kbd>−</kbd> <kbd>+</kbd> / <kbd>Scroll</kbd> volume
+              · <Key action="volumeDown" /> <Key action="volumeUp" /> / <kbd>Scroll</kbd> volume
             </>
           )}
         </div>
       )}
-      {started && !overlay && !travel && <HeldHint />}
-      {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
+      {started && !overlay && !travel && onFoot && <HeldHint />}
+      {started && !overlay && !locked && !travel && onFoot && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>Tab</kbd> workers · <kbd>M</kbd> mute · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
+          <MoveKeys joined /> move · <Key action="run" /> run · <Key action="interact" /> / <kbd>Click</kbd> interact · <Key action="phone" /> phone · <Key action="overview" /> overview · <Key action="workers" /> workers ·{' '}
+          <Key action="mute" /> mute · <Key action="help" /> help · <kbd>Esc</kbd> free mouse
         </div>
       )}
 
@@ -132,6 +141,7 @@ export function HUD() {
         {travel && <div className="fade-label">{travel.to === 0 ? 'Lobby' : `Floor ${travel.to}`}</div>}
       </div>
 
+      <CameraHud />
       <PhoneButton />
       <VoiceIndicator />
       <div className="toasts">

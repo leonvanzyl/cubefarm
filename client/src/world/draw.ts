@@ -592,6 +592,8 @@ export interface AppScreenInfo {
   preview: PreviewView;
   shot: HTMLImageElement | null; // the latest agent screenshot on the floor, shown while the app is live
   shotBy: string | null;
+  /** The player's interact key (Help → Controls). */
+  use: string;
 }
 
 /** The wall screen at the front of an office floor: the floor's app and how it's doing. */
@@ -694,7 +696,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillText(`${i < at ? '✓ ' : ''}${s.label}`, x + segW / 2, y + 70);
       ctx.textAlign = 'left';
     });
-    footer(`Step ${at + 1} of ${APP_STEPS.length} · press E to watch`);
+    footer(`Step ${at + 1} of ${APP_STEPS.length} · press ${info.use} to watch`);
   } else {
     // running: where it's served and what's deployed, plus the latest thing an agent on this floor looked at
     const left = 56;

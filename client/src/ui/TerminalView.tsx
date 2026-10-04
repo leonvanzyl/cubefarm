@@ -10,6 +10,7 @@ import { MessageBox } from './MessageBox';
 import { closeOverlay, Panel } from './Overlays';
 import { loadScreenshot } from '../screenshot';
 import { toolVerb } from '../world/draw';
+import { followAgent } from '../world/camera/rig';
 
 const STATUS_LABEL: Record<string, string> = {
   idle: 'free',
@@ -119,6 +120,9 @@ export function TerminalView({ agentId }: { agentId: string }) {
           <StatusPill status={agent.status} />
           {working && agent.currentTool && <span className="muted small">{toolVerb(agent.currentTool)}…</span>}
           <span className="spacer" />
+          <button className="btn btn-small" title={`Trail ${agent.name} with the camera wherever they go (a movement key or Esc gives you the controls back)`} onClick={() => followAgent(agent.id)}>
+            🎥 Follow
+          </button>
           <button
             className={`btn btn-small setup-toggle ${showSetup ? 'setup-toggle-on' : ''}`}
             aria-expanded={showSetup}

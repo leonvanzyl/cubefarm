@@ -5,6 +5,8 @@ import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { closeOverlay } from './Overlays';
+import { isKey } from './controls';
+import { Key } from './Key';
 import { Games, type GameId } from './games/Games';
 import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
@@ -453,7 +455,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
-      if (e.key === 'Escape' || (!typing && e.code === 'KeyP')) {
+      if (e.key === 'Escape' || (!typing && isKey('phone', e.code))) {
         e.preventDefault();
         closeOverlay();
       }
@@ -507,7 +509,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
               <kbd>Backspace</kbd> games ·{' '}
             </>
           )}
-          <kbd>P</kbd> or <kbd>Esc</kbd> to put it away
+          <Key action="phone" /> or <kbd>Esc</kbd> to put it away
         </div>
       </div>
     </div>

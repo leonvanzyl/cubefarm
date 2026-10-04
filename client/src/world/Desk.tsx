@@ -11,6 +11,7 @@ import { useCanvasTexture, useInteractable } from './interact';
 import { glow, shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
+import { useKeyName } from '../ui/controls';
 
 const SCREEN = { w: 1.0, h: 0.6, px: 896, py: 538 };
 const WOOD = '#f1d19b';
@@ -140,6 +141,7 @@ function LiveMonitor({ agent, accent }: { agent: Agent; accent: string }) {
 }
 
 function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
+  const use = useKeyName('interact');
   const tex = useCanvasTexture(
     640,
     384,
@@ -149,10 +151,10 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
       drawSign(ctx, 640, 384, [
         { text: qa ? '🔍' : '🪑', size: 70 },
         { text: qa ? 'QA STATION' : 'VACANT', size: 70, color: '#ffd6a5' },
-        { text: qa ? 'press E or click to hire a tester' : 'press E or click to hire an agent', size: 36, color: '#a9adc6', weight: 500 },
+        { text: qa ? `press ${use} or click to hire a tester` : `press ${use} or click to hire an agent`, size: 36, color: '#a9adc6', weight: 500 },
       ], 'rgba(0,0,0,0)');
     },
-    [qa],
+    [qa, use],
   );
   return (
     <Monitor accent={accent}>
