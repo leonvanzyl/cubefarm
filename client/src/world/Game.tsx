@@ -9,7 +9,9 @@ import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Player } from './Player';
 import { Lights } from './Shell';
+import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
+import { TypingSounds } from './TypingSounds';
 
 function Travel() {
   const travel = useStore((s) => s.travel);
@@ -56,11 +58,13 @@ export function Game() {
     >
       <color attach="background" args={['#bfe3ff']} />
       <fog attach="fog" args={['#f3ece2', 30, 70]} />
+      <DayClock />
       <Lights />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />
+      <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
       {statsEnabled && <StatsProbe paused={paused} />}
