@@ -12,6 +12,7 @@ import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, handMug, seatBody, setBody, subscribeMugs, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
+import { SpeechBubble } from './SpeechBubble';
 import { MugLook, mugColor } from './toys/mugLook';
 import { Ball, Cyl } from './Toon';
 import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
@@ -59,18 +60,26 @@ const HAND_MUG = { at: [0, -0.02, -0.52] as [number, number, number], ahead: -0.
 const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> = {
   none: { l: null, r: null, head: 0 },
   reach: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // touch the board
+  post: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // a reach that's silent: StickyNotes.tsx plays its sticky's own sounds
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.55, yaw: 0.22 }, r: { pitch: 1.55, yaw: 0.22 }, head: 0.3 }, // arms overhead
+  stoop: { l: { pitch: -1.0, yaw: 0.3 }, r: { pitch: -1.0, yaw: 0.3 }, head: -0.5 }, // reach down for something on the floor
+  shoot: { l: { pitch: 1.2, yaw: 0.35 }, r: { pitch: 1.2, yaw: 0.35 }, head: 0.35 }, // ball overhead, eyes on the hoop
+  toss: { l: { pitch: 0.35, yaw: 0.3 }, r: { pitch: 0.35, yaw: 0.3 }, head: 0.05 }, // arms out where the ball went
+  catch: { l: { pitch: -0.1, yaw: 0.1 }, r: { pitch: -0.1, yaw: 0.1 }, head: 0.1 }, // hands out, ready
+  shrug: { l: { pitch: -0.7, yaw: -0.75 }, r: { pitch: -0.7, yaw: -0.75 }, head: -0.12 }, // palms out: oh well
   mug: { l: null, r: { pitch: -0.75, yaw: 0.3 }, head: -0.05 }, // a mug held in front
   tap: { l: null, r: { pitch: -0.3, yaw: 0.05 }, head: -0.3 }, // a hand on the counter: the dispenser, the machine
   chat: { l: { pitch: -0.55, yaw: -0.45 }, r: { pitch: -0.75, yaw: 0.3 }, head: 0.08 }, // mug in one hand, the other talking
+  cheer: { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch }, // the seated cheer's arms up in a V
+  wave: { l: null, r: { pitch: 1.25, yaw: -0.3 }, head: 0.1 }, // a hand up beside the head, waving (below)
+  talk: { l: null, r: { pitch: -0.3, yaw: 0.45 }, head: 0.05 }, // a hand out in front, moving as they talk
   // the gong (gongRunner.ts): a hand out for the mallet on its hook, raised back over the shoulder, then brought down
-  // onto the disc, then a V
+  // onto the disc (then the cheer above)
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
-  cheer: { l: { pitch: 1.45, yaw: -0.35 }, r: { pitch: 1.45, yaw: -0.35 }, head: 0.2 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -181,16 +190,22 @@ function fidgetPose(f: Fidget | null, p: number, t: number, toward: number, o: O
   return o;
 }
 
+/**
+ * `carrying` is drawn in their hands while they hold something (the 'hold' gesture), in the torso's frame, which
+ * faces -Z with the shoulders at y 0.44.
+ */
 export function Character({
   agent,
   chair,
   mug,
+  carrying,
   children,
 }: {
   agent: Agent;
   chair?: RefObject<THREE.Object3D | null>;
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
+  carrying?: ReactNode;
   children?: ReactNode;
 }) {
   const torso = useRef<THREE.Group>(null);
@@ -212,6 +227,8 @@ export function Character({
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
   const mallet = useRef<THREE.Group>(null);
+  const bubbleLift = useRef<THREE.Group>(null);
+  const held = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
   const handCup = useRef<THREE.Group>(null);
   const carried = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
@@ -293,12 +310,19 @@ export function Character({
         b.position.set(te[0] * dx + te[2] * dz, 0, te[8] * dx + te[10] * dz);
         b.rotation.y = st.heading - st.seatHeading;
       }
+      const gesture = st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none';
       const holding = st.stage === 'up' && malletHolder() === agent.id;
       // the one with the mallet plays out their own strike and pose (gongRunner.ts); the party is for everyone else
-      const g = party && !holding ? PARTY_ARMS : GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
+      const g = party && !holding ? PARTY_ARMS : GESTURES[gesture];
       const kg = 1 - Math.exp(-dt * 6);
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
+      if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'talk') {
+        move.r.pitch += Math.sin(t * 4.3) * 0.18;
+        move.r.yaw += Math.sin(t * 2.6) * 0.2;
+      }
+      if (held.current) held.current.visible = gesture === 'hold';
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
       move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
       move.gh += (g.head - move.gh) * kg;
@@ -449,6 +473,7 @@ export function Character({
       kneeL.current.rotation.x = (-Math.PI / 2) * k + bendL * up;
       kneeR.current.rotation.x = (-Math.PI / 2) * k + bendR * up;
     }
+    if (bubbleLift.current) bubbleLift.current.position.y = (HIP.standY - HIP.seatY) * up; // a "hey!" by the head, sat or standing
     if (tag.current) {
       const [tx, ty, tz] = TAG_SEATED;
       tag.current.position.set(tx * k, ty * k + (HIP.standY + look.height * 0.86 + 0.26) * up, tz * k);
@@ -510,7 +535,7 @@ export function Character({
   return (
     <group ref={root}>
       <group ref={body}>
-        {hit.bubble}
+        <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />
         {/* seated legs don't move, so both are one mesh; getting up swaps in jointed ones */}
         <group ref={seatedLegs}>
@@ -642,7 +667,14 @@ export function Character({
             )}
             {busy && phones}
           </group>
+          {carrying && (
+            <group ref={held} visible={false}>
+              {carrying}
+            </group>
+          )}
         </group>
+        {/* just above their name tag */}
+        <SpeechBubble id={agent.id} y={HIP.standY + look.height * 0.86 + 0.4} />
         {children && (
           <group ref={tag} position={TAG_SEATED}>
             {children}

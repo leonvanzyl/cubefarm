@@ -6,6 +6,8 @@ import { drawGlass } from './draw';
 import { glow, shade, toon } from './materials';
 import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { Box } from './Toon';
+import { LampHalos } from './sky/lamps';
+import { SunPatches } from './sky/SunPatches';
 
 const WALL = '#fbf3e4';
 const INK = '#1f1d2b';
@@ -186,6 +188,8 @@ export function Shell({ kind, accent, floorColor }: { kind: FloorKind; accent: s
       {lights.map((p) => (
         <CeilingLight key={p.join()} position={p} />
       ))}
+      <LampHalos positions={lights} />
+      <SunPatches kind={kind} />
 
       {/* walls */}
       <mesh position={[0, WALL_H / 2, -HALF_D - t / 2]} material={wall} receiveShadow>
@@ -218,28 +222,5 @@ export function Shell({ kind, accent, floorColor }: { kind: FloorKind; accent: s
         </group>
       ))}
     </group>
-  );
-}
-
-export function Lights() {
-  return (
-    <>
-      <hemisphereLight args={['#fffaf0', '#a48a6a', 0.95]} />
-      <ambientLight intensity={0.18} />
-      <directionalLight
-        position={[9, 14, 7]}
-        intensity={1.55}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-18}
-        shadow-camera-right={18}
-        shadow-camera-top={14}
-        shadow-camera-bottom={-14}
-        shadow-camera-near={1}
-        shadow-camera-far={40}
-        shadow-bias={-0.0006}
-        shadow-normalBias={0.03}
-      />
-    </>
   );
 }

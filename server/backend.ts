@@ -54,6 +54,8 @@ export interface Backend {
   removeDesk(fullName: string, agentSlug: string, main?: string): Promise<void>;
   /** Remove desks, stray desk folders and finished swarm/qa branches nothing in `keep` uses. */
   sweepDesks(fullName: string, keep: workspace.SweepKeep): Promise<workspace.SweepResult>;
+  /** Free disk space on an idle desk (node_modules, build output); null when it doesn't exist or `stillIdle` says no. */
+  trimDesk(fullName: string, agentSlug: string, stillIdle: () => boolean): Promise<workspace.DeskTrim | null>;
   /** Stop processes an agent left running (dev servers on its port, anything started in its desk). */
   releaseDesk(fullName: string, agentSlug: string, port: number): Promise<void>;
   /** An agent session: the real CLI in the agent's terminal when opts.terminal is set, else an Agent SDK session. */
@@ -109,6 +111,7 @@ export const realBackend: Backend = {
   installDeps: (dir, cb) => installDesk(dir, cb),
   removeDesk: workspace.removeDesk,
   sweepDesks: workspace.sweepDesks,
+  trimDesk: workspace.trimDesk,
   releaseDesk: (fullName, agentSlug, port) => workspace.releaseDesk(fullName, agentSlug, port, officeProcesses()),
   startSession: (opts, cb) => (opts.terminal ? startCliSession(opts, cb) : startSession(opts, cb)),
   terminals: terminalsAvailable,

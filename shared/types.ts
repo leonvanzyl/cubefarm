@@ -258,6 +258,7 @@ export interface SwarmSettings {
   tutorialStep: number; // index of the current tutorial step; -1 when finished or skipped
   autoUpdate?: boolean; // update the office itself once it's quiet (absent on servers without self-update)
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
+  trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
 }
 

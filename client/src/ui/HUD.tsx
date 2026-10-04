@@ -39,6 +39,18 @@ function PhoneButton() {
   );
 }
 
+/** On the phone icon while a message is read aloud (ui/voiceMessages.ts); a click stops it. */
+function VoiceIndicator() {
+  const speaking = useStore((s) => s.voiceSpeaking);
+  const started = useStore((s) => s.started);
+  if (!started || speaking === null) return null;
+  return (
+    <button className="voice-speaking" onClick={() => void import('./voiceMessages').then((v) => v.stopSpeaking())} title="Reading a message aloud. Click to stop" aria-label="Stop reading the message aloud">
+      🔊
+    </button>
+  );
+}
+
 export function HUD() {
   const floor = useStore((s) => s.floor);
   const repos = useStore((s) => s.repos);
@@ -121,6 +133,7 @@ export function HUD() {
       </div>
 
       <PhoneButton />
+      <VoiceIndicator />
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.level}`} onClick={() => dismiss(t.id)}>

@@ -6,13 +6,18 @@
 import type { AgentStatus } from '../../../shared/types';
 import type { Gesture } from './body';
 import type { Pt } from './toys/roombaBrain';
-import type { FloorKind } from './walkways';
+import type { FloorKind, Spot } from './walkways';
 
 /** What an errand needs to know about someone. */
 export interface ErrandAgent {
   id: string;
   status: AgentStatus;
   role: string;
+}
+
+/** Someone else on the floor, where their desk is. */
+export interface ErrandPeer extends ErrandAgent {
+  home: Spot;
 }
 
 /** What the director knows about someone, for `when`. Seconds are the director's clock (it stops with the render). */
@@ -24,11 +29,26 @@ export interface ErrandState {
   seatedFor: number;
   /** How long they sit before getting restless: drawn afresh each time they sit down. */
   restless: number;
+  /** A number in [0, 1) drawn with `restless`, for errands to share out who does what once restless. */
+  roll?: number;
+  /** Their own desk's spot, and everyone else on the floor (for errands to a teammate). */
+  home?: Spot;
+  others?: readonly ErrandPeer[];
 }
 
 export interface ErrandStep {
   gesture: Gesture;
   seconds: number;
+  /** Look this far (radians, + to their left) away from the spot's facing, for a look around. */
+  turn?: number;
+  /** Turn to the nearest teammate instead (a wave hello). */
+  face?: 'peer';
+  /** Say something: a small emoji bubble over their head (chats). */
+  say?: boolean;
+  /** Walk to this spot first (a few steps, say along the board); the step lasts at least as long as the walk. */
+  to?: (agentId: string) => string | null;
+  /** Passed to the errand's `cue` as the step starts. */
+  cue?: string;
 }
 
 export interface Errand {
@@ -39,14 +59,67 @@ export interface Errand {
   when(agent: ErrandAgent, state: ErrandState): boolean;
   /** Where to: spot ids from walkways.ts; `prefix*` matches every spot starting with prefix. Nearer ones win. */
   spot: readonly string[];
+  /** A spot of its own instead of `spot` (beside a teammate, say); null when there's nowhere to go. */
+  place?(agent: ErrandAgent, state: ErrandState): Spot | null;
   /** What they do once there, in order. */
   steps: readonly ErrandStep[];
   /** What their hands do on the walk back (carrying something). */
   carry?: Gesture;
+  /** How likely this one is picked when several idle errands are wanted at once (default 1). */
+  weight?: number;
+  /** ...and on the walk there. */
+  bring?: Gesture;
+  /** Walking speed (m/s) there and back, when it's brisker than a stroll. */
+  speed?: number;
+  /** Work errands that may still start this many seconds into 'working' (a tester fetching the PR they were just given). */
+  grace?: number;
+  /** Where to for this person, overriding `spot` (an errand to one particular board column). */
+  where?(agentId: string): readonly string[];
+  /** Asked just before they set off, once a spot is free: false leaves it queued for now (only so many at the board at once). */
+  claim?(agentId: string): boolean;
+  /** A step with a `cue` is starting; false cuts the errand short and sends them back. */
+  cue?(agentId: string, cue: string): boolean;
+  /** They're done with it and heading back ('done' after every step), or it was cut short or never got going ('cut'). */
+  end?(agentId: string, how: 'done' | 'cut'): void;
   /** At most this many people on this errand per floor at once. */
   max?: number;
   /** Errands with more to them than gestures at one spot (coffee): run by an actor once they've arrived, instead of `steps`. */
   act?: (agentId: string) => ErrandActor;
+  /**
+   * Errands that do more than stand and gesture (the toys, toyErrands.ts): once they reach the spot, a script runs
+   * them frame by frame instead of `steps`. Null when it can't go after all (the toy is taken): they sit a while longer.
+   */
+  script?: (agent: ErrandAgent, floor: FloorKind) => ErrandScript | null;
+}
+
+/** What a script wants its person to do this frame: stand (where they are), walk somewhere, or go back to their desk. */
+export interface Act {
+  do: 'stand' | 'walk' | 'done';
+  /** Where to walk to (ignored when standing). */
+  x: number;
+  z: number;
+  /** Facing (a body.ts heading) once there, or while standing. */
+  heading: number;
+  gesture: Gesture;
+}
+
+/** What a script sees of its person each frame (the same object every frame: don't keep it). */
+export interface Me {
+  id: string;
+  x: number;
+  z: number;
+  heading: number;
+  /** Whether they've got to where the last walk was going. */
+  arrived: boolean;
+  /** Seconds since the last frame (the director's clock). */
+  dt: number;
+  player: Pt;
+}
+
+export interface ErrandScript {
+  tick(me: Me): Act;
+  /** The errand is over, however it ended (done, called back to work, the floor left): let go of anything held. */
+  end(): void;
 }
 
 /** What an errand's actor asks for each frame: walk to a spot (then stand there), stand where they are, or head home. */
@@ -75,28 +148,45 @@ const FREE: readonly AgentStatus[] = ['idle', 'done', 'stopped'];
 /** Free to wander: nothing to work on. ('error' stays slumped at the desk, where the manager will see it.) */
 export const isFree = (status: AgentStatus) => FREE.includes(status);
 
-/** May someone with this status set off on this errand? Work errands also while preparing. */
-export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work'>) => isFree(status) || (!!errand.work && status === 'preparing');
+/** May someone with this status set off on this errand? Work errands also while preparing (or within their `grace`). */
+export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work' | 'grace'>, statusFor = Infinity) =>
+  isFree(status) || (!!errand.work && (status === 'preparing' || (status === 'working' && statusFor < (errand.grace ?? 0))));
 
 /** May they carry on with it, or must they hurry back to their desk? Work errands may finish once the work starts. */
 export const mayContinue = (status: AgentStatus, errand: Pick<Errand, 'work'>) =>
   isFree(status) || (!!errand.work && (status === 'preparing' || status === 'working'));
 
-/** Who of those with an errand waiting sets off now: longest waiting first, while there's room on the floor. */
+/**
+ * Who of those with an errand waiting sets off now: longest waiting first, while there's room on the floor. Work
+ * errands (the board's, with their own limits) always go, ahead of the rest and whatever the cap.
+ */
 export function admit<T extends { queue: readonly Queued[] }>(waiting: readonly T[], away: number, cap = MAX_WALKERS): T[] {
-  const room = Math.max(0, cap - away);
-  return waiting
-    .filter((p) => p.queue.length > 0)
-    .sort((a, b) => a.queue[0].at - b.queue[0].at)
-    .slice(0, room);
+  const queued = waiting.filter((p) => p.queue.length > 0).sort((a, b) => a.queue[0].at - b.queue[0].at);
+  const work = queued.filter((p) => p.queue[0].work);
+  const room = Math.max(0, cap - away - work.length);
+  return [...work, ...queued.filter((p) => !p.queue[0].work).slice(0, room)];
 }
 
 /** Seconds someone sits before their next idle errand: tens of seconds, sooner on arrival so the floor isn't still. */
 export const restlessSeconds = (rand: number, arriving = false) => (arriving ? 6 + rand * 40 : 25 + rand * 45);
 
-/** The errands this person wants to go on now and may, in registry order. */
+/** The errands this person wants to go on now and may: work errands first, then in registry order. */
 export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: ErrandState): Errand[] {
-  return registry.filter((e) => mayStart(agent.status, e) && e.when(agent, state));
+  const out = registry.filter((e) => mayStart(agent.status, e, state.statusFor) && e.when(agent, state));
+  return [...out.filter((e) => e.work), ...out.filter((e) => !e.work)];
+}
+
+/** One of the wanted errands: a work errand first, else an idle one at random by weight (`rand` in [0, 1)). */
+export function choose(list: readonly Errand[], rand: number): Errand | null {
+  const work = list.find((e) => e.work);
+  if (work) return work;
+  const total = list.reduce((t, e) => t + (e.weight ?? 1), 0);
+  let r = rand * total;
+  for (const e of list) {
+    r -= e.weight ?? 1;
+    if (r < 0) return e;
+  }
+  return list[list.length - 1] ?? null;
 }
 
 // ---------- the queue ----------
@@ -105,15 +195,23 @@ export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: E
 export interface Queued {
   name: string;
   at: number;
+  /** A work errand: it goes ahead of idle ones. */
+  work?: boolean;
 }
 
 export const QUEUE_MAX = 2;
 export const QUEUE_SECONDS = 20;
 
-/** Adds `name` unless it's already waiting or the queue is full (then it's skipped). Returns the queue to keep. */
-export function enqueue(q: readonly Queued[], name: string, now: number, max = QUEUE_MAX): Queued[] {
-  if (q.length >= max || q.some((x) => x.name === name)) return q as Queued[];
-  return [...q, { name, at: now }];
+/**
+ * Adds `name` unless it's already waiting or the queue is full (then it's skipped). A work errand goes ahead of the
+ * idle ones, bumping the last of them off a full queue. Returns the queue to keep.
+ */
+export function enqueue(q: readonly Queued[], name: string, now: number, max = QUEUE_MAX, work = false): Queued[] {
+  if (q.some((x) => x.name === name)) return q as Queued[];
+  if (!work) return q.length >= max ? (q as Queued[]) : [...q, { name, at: now }];
+  const ahead = q.filter((x) => x.work);
+  if (ahead.length >= max) return q as Queued[];
+  return [...ahead, { name, at: now, work: true }, ...q.filter((x) => !x.work)].slice(0, max);
 }
 
 /** Drops what has waited too long or may no longer go (`ok`), keeping the order. */
@@ -178,11 +276,14 @@ const registry: Errand[] = [stretch];
 /** Every errand, in the order they're considered. */
 export const errands = (): readonly Errand[] => registry;
 
-/** Adds an errand (later issues: the board, coffee, toys, chats). Replaces one with the same name. */
+/**
+ * Adds an errand (later issues: the board, coffee, toys, chats). Replaces one with the same name. New ones go ahead
+ * of stretching, the fallback for anyone restless with nothing better to do.
+ */
 export function registerErrand(e: Errand) {
   const i = registry.findIndex((x) => x.name === e.name);
   if (i >= 0) registry[i] = e;
-  else registry.push(e);
+  else registry.splice(registry.indexOf(stretch), 0, e);
 }
 
 export const errandNamed = (name: string) => registry.find((e) => e.name === name);

@@ -48,6 +48,14 @@ export const loadPhysics = () => (ready ??= RAPIER.init());
 
 /** Throws the basketball (after loadPhysics) and follows it for up to 3 s. */
 export function shoot(shot: Shot): ShotResult {
+  const view = shotView(shot);
+  const power = chargePower(shot.chargeMs);
+  const from = holdPoint(view, HOOP.ball.r, power * HOLD.windUp, { x: 0, y: 0, z: 0 });
+  return fly(view, from, power, shot.plain);
+}
+
+/** Throws the basketball from `from` with the player's throw maths, looking along `view`, and follows it. */
+export function fly(view: View, from: Vec3, power: number, plain = false): ShotResult {
   const world = new RAPIER.World(GRAVITY);
   world.timestep = STEP;
   world.numSolverIterations = 8;
@@ -65,12 +73,9 @@ export function shoot(shot: Shot): ShotResult {
     world.createCollider(RAPIER.ColliderDesc.cuboid(30, 0.5, 30).setTranslation(at.x, WALL_H + 0.5, at.z), fixed);
     world.createCollider(RAPIER.ColliderDesc.cuboid(30, 5, 0.5).setTranslation(at.x, 5, at.z + 0.5).setRestitution(0.5).setFriction(0.6), fixed);
 
-    const view = shotView(shot);
     const ballDef = HOOP.ball;
-    const power = chargePower(shot.chargeMs);
-    const from = holdPoint(view, ballDef.r, power * HOLD.windUp, { x: 0, y: 0, z: 0 });
     const v = { x: 0, y: 0, z: 0 };
-    if (shot.plain || !hoopShot(view, from, power, ballDef.throwSpeed, { rim: hoopRim('office'), square: hoopSquare('office') }, v)) throwVelocity(view, from, power, ballDef.throwSpeed, NO_WALK, v);
+    if (plain || !hoopShot(view, from, power, ballDef.throwSpeed, { rim: hoopRim('office'), square: hoopSquare('office') }, v)) throwVelocity(view, from, power, ballDef.throwSpeed, NO_WALK, v);
     const ball = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic().setTranslation(from.x, from.y, from.z).setLinvel(v.x, v.y, v.z).setLinearDamping(THROW.flightDamping).setAngularDamping(ballDef.damping).setCcdEnabled(true),
     );
