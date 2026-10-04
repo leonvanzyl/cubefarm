@@ -2,15 +2,17 @@
 // developer or QA tester walks over (an errand, errands.ts) and peels, carries and slaps the sticky, while the 3D
 // board holds the move back until they've placed it (never more than HOLD_MAX seconds). QA testers keep the sticky of
 // the PR they're testing on their monitor. The loose stickies are one instanced mesh over a small atlas texture.
+// The sticky the player peels off by hand (boardHands.ts) is one of them too: in their hands, back onto the board, or
+// onto the monitor of the developer they gave the issue to, where it stays while they work on it.
 // window.__swarmStickies shows the queue, the loose stickies and what happened, for QA.
 
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { coversView, useStore, type Agent, type KanbanColumns } from '../store';
+import { coversView, useStore, type Agent, type KanbanCard, type KanbanColumns } from '../store';
 import { stickyPeel, stickySlap } from '../ui/peopleSounds';
 import { angleDelta, smooth } from './body';
-import { drawSticky, kanbanNoteColor } from './draw';
+import { drawSticky, kanbanCardColor, kanbanNoteColor } from './draw';
 import { registerErrand, type Errand, type ErrandStep } from './errands';
 import { bodyState, bodyTarget } from './people';
 import {
@@ -30,16 +32,23 @@ import {
   stickyMoves,
   type Job,
   type MoveKind,
+  type Hold,
   type Pose,
 } from './stickies';
+import type { Slot } from './whiteboard';
 
-const PIECES = 12; // loose stickies at once: walkers' and the QA monitors'
-const ATLAS = { cols: 4, rows: 3, w: 256, h: 120 };
+const PIECES = 16; // loose stickies at once: walkers', the monitors' and the player's
+const ATLAS = { cols: 4, rows: 4, w: 256, h: 120 };
 const SPEED = 1.6; // a brisk walk: the board shouldn't wait long
 const GRACE = 5; // seconds into 'working' a tester may still fetch the PR they were just given
 const LOG_KEEP = 40;
 
 const now = () => performance.now() / 1000;
+/** The hand a sticky the player carries is in. */
+const PLAYER = 'player';
+const MINE = 'mine';
+/** How long the board keeps a sticky the player gave away out of sight while it waits for the real move (seconds). */
+const GIVE_WAIT = 10;
 const label = (c: { prNumber?: number; number: number }) => `${c.prNumber ? 'PR ' : ''}#${c.number}`;
 const newPose = (): Pose => ({ x: 0, y: -10, z: 0, yaw: 0, pitch: 0, roll: 0, w: 0, h: 0 });
 const copyPose = (to: Pose, from: Pose) => Object.assign(to, from);
@@ -102,7 +111,7 @@ registerErrand(errand('sticky-bring', [{ gesture: 'none', seconds: 0.2 }, { gest
 type Anchor = { pose: Pose; hand: null } | { pose: null; hand: string };
 
 interface Piece {
-  /** `job:<id>` or `mon:<agentId>`; null when free. */
+  /** `job:<id>`, `mon:<agentId>` or the player's (`mine`); null when free. */
   owner: string | null;
   drawn: string;
   label: string;
@@ -116,6 +125,19 @@ interface Piece {
   land: (() => void) | null;
 }
 
+/**
+ * The sticky the player peeled off. held: in their hands (or there while the office answers). back: on its way back to
+ * the board. given: on the monitor of the developer it went to; the board keeps its card out of sight until it moves.
+ */
+interface Mine {
+  key: string;
+  number: number;
+  label: string;
+  color: string;
+  stage: 'held' | 'back' | 'given';
+  agentId: string | null;
+}
+
 interface LogEntry {
   t: number;
   what: 'queued' | 'skipped' | 'started' | 'peeled' | 'placed' | 'late' | 'cut';
@@ -125,7 +147,8 @@ interface LogEntry {
   to: string;
 }
 
-type Ctrl = ReturnType<typeof makeController>;
+export type StickyCtrl = ReturnType<typeof makeController>;
+type Ctrl = StickyCtrl;
 
 function makeController() {
   const canvas = document.createElement('canvas');
@@ -141,6 +164,9 @@ function makeController() {
     agents: [] as Agent[],
     pieces: Array.from({ length: PIECES }, (): Piece => ({ owner: null, drawn: '', label: '', pose: newPose(), from: newPose(), to: { pose: newPose(), hand: null }, t: 0, dur: 0, curl: 0, land: null })),
     log: [] as LogEntry[],
+    mine: null as Mine | null,
+    /** Developers' monitors with a sticky the player brought them: the issue, while they work on it. */
+    given: new Map<string, { number: number; label: string; color: string; at: number }>(),
     canvas,
     tex,
     /** Monitor stickies need another look. */
@@ -162,6 +188,7 @@ function observe(c: Ctrl, cols: KanbanColumns, agents: Agent[]) {
   c.prev = c.cols;
   c.cols = cols;
   c.dirty = true;
+  if (c.mine?.stage === 'given' && !cols.backlog.some((k) => k.key === c.mine!.key)) c.mine = null; // it's started
   if (!c.prev) return; // just arrived: nothing has moved yet
   const looking = typeof document !== 'undefined' && !document.hidden && !coversView(useStore.getState().overlay);
   for (const m of stickyMoves(c.prev, cols)) {
@@ -229,6 +256,12 @@ function finish(c: Ctrl, j: Job, what: LogEntry['what']) {
   c.changed();
 }
 
+/** What the board holds back: the queue's moves, and the sticky the player has off the board. */
+function holdsOf(c: Ctrl, jobs: readonly Job[] = c.jobs): Hold[] {
+  const holds = boardHolds(jobs);
+  return c.mine ? [...holds, { keep: null, hide: [c.mine.key] }] : holds;
+}
+
 const jobOf = (c: Ctrl, agentId: string, stages: Job['stage'][]) => c.jobs.find((j) => j.move.agentId === agentId && stages.includes(j.stage));
 
 const seatOf = (c: Ctrl, agentId: string) => c.agents.find((a) => a.id === agentId) ?? { role: 'qa', desk: 0 };
@@ -272,7 +305,7 @@ function makeBoard(c: Ctrl): Board {
       if (cue === 'peel') {
         const j = jobOf(c, id, ['going']);
         if (!j || overdue(j, now()) || j.move.kind === 'pass' || j.move.kind === 'fail' || !c.cols) return false;
-        const shown = displayColumns(c.cols, boardHolds(c.jobs));
+        const shown = displayColumns(c.cols, holdsOf(c));
         const from = findCard(shown, j.move.from.card.key);
         const pose = boardPose(j.move.from.col, from?.col === j.move.from.col ? from.index : j.move.from.index, j.move.from.card.number, tmp);
         const p = spawn(c, `job:${j.id}`, label(j.move.from.card), kanbanNoteColor(j.move.from.col), pose);
@@ -289,7 +322,7 @@ function makeBoard(c: Ctrl): Board {
         if (j.stage === 'going' && j.move.kind !== 'pass' && j.move.kind !== 'fail') return false;
         const col = j.move.to;
         // where it goes once placed: what the board shows without it, or anyone waiting for it
-        const shown = displayColumns(c.cols, boardHolds(c.jobs.filter((x) => x !== j && x.after !== j.id)));
+        const shown = displayColumns(c.cols, holdsOf(c, c.jobs.filter((x) => x !== j && x.after !== j.id)));
         const at = findCard(shown, j.move.key);
         const pose = copyPose(newPose(), boardPose(col, at?.col === col ? at.index : shown[col].length, at?.card.number ?? j.move.from.card.number, tmp));
         const owner = `job:${j.id}`;
@@ -350,6 +383,84 @@ function handPose(agentId: string, out: Pose): boolean {
   return true;
 }
 
+// Where a sticky in the player's hands sits in view (camera space, metres): lower right, tipped towards them.
+const VIEW = { x: 0.15, y: -0.12, z: -0.42, tilt: 0.35, roll: 0.1, w: 0.17, h: 0.08 };
+const viewAt = new THREE.Vector3();
+
+/** The player's hand: in front of the camera, facing it. */
+function playerHand(camera: THREE.Camera, out: Pose): Pose {
+  viewAt.set(VIEW.x, VIEW.y, VIEW.z).applyQuaternion(camera.quaternion).add(camera.position);
+  out.x = viewAt.x;
+  out.y = viewAt.y;
+  out.z = viewAt.z;
+  out.yaw = camera.rotation.y;
+  out.pitch = camera.rotation.x + VIEW.tilt;
+  out.roll = VIEW.roll;
+  out.w = VIEW.w;
+  out.h = VIEW.h;
+  return out;
+}
+
+// ---------- the player's sticky (boardHands.ts) ----------
+
+/** Peel the card at `slot` off the board into the player's hands. False when they already have one. */
+export function peelForPlayer(c: Ctrl, slot: Slot & { card: KanbanCard }): boolean {
+  if (c.mine) return false;
+  const pose = boardPose(slot.col, slot.index, slot.card.number, tmp);
+  const color = kanbanCardColor(slot.card, slot.col);
+  const p = spawn(c, MINE, label(slot.card), color, pose);
+  if (!p) return false;
+  fly(p, { hand: PLAYER }, 0.35, 0, 0.6);
+  stickyPeel(pose);
+  c.mine = { key: slot.card.key, number: slot.card.number, label: label(slot.card), color, stage: 'held', agentId: null };
+  c.changed();
+  return true;
+}
+
+/** The sticky the player has goes back onto the board, wherever its card is now (or just goes, if its card has). */
+export function returnMine(c: Ctrl) {
+  const m = c.mine;
+  if (!m || m.stage !== 'held') return;
+  m.stage = 'back';
+  const done = () => {
+    free(c, MINE);
+    if (c.mine === m) c.mine = null;
+    c.changed();
+  };
+  const at = c.cols ? findCard(displayColumns(c.cols, boardHolds(c.jobs)), m.key) : null;
+  const p = pieceOf(c, MINE);
+  if (!p || !at) return done();
+  const pose = copyPose(newPose(), boardPose(at.col, at.index, m.number, tmp));
+  fly(p, { pose }, 0.5, 0, -0.3, () => {
+    stickySlap(pose);
+    done();
+  });
+}
+
+/** The sticky the player has goes onto `agent`'s monitor: they've just been given its issue. */
+export function giveMine(c: Ctrl, agent: { id: string; role: string; desk: number }) {
+  const m = c.mine;
+  if (!m || m.stage !== 'held') return;
+  Object.assign(m, { stage: 'given', agentId: agent.id });
+  c.given.set(agent.id, { number: m.number, label: m.label, color: m.color, at: now() });
+  const pose = copyPose(newPose(), monitorPose(agent, tmp));
+  // it's their monitor's sticky from now on, on its way there
+  const owner = `mon:${agent.id}`;
+  const p = pieceOf(c, MINE);
+  if (pieceOf(c, owner)) free(c, owner);
+  if (p) {
+    p.owner = owner;
+    fly(p, { pose }, 0.6, 0, 0.3, () => p.owner === owner && stickySlap(pose));
+  }
+  c.dirty = true;
+  // the board shows the card again if the office never moves it on
+  setTimeout(() => {
+    if (c.mine !== m) return;
+    c.mine = null;
+    c.changed();
+  }, GIVE_WAIT * 1000);
+}
+
 // ---------- the hook and the mesh ----------
 
 /** The board as the 3D whiteboard should draw it now, and the controller behind it (for <StickyNotes>). */
@@ -358,7 +469,7 @@ export function useStickyBoard(cols: KanbanColumns, agents: Agent[]) {
   const [version, bump] = useReducer((n: number) => n + 1, 0);
   ctrl.changed = bump;
   observe(ctrl, cols, agents);
-  const shown = useMemo(() => displayColumns(cols, boardHolds(ctrl.jobs)), [cols, version, ctrl.jobs]);
+  const shown = useMemo(() => displayColumns(cols, holdsOf(ctrl)), [cols, version, ctrl.jobs, ctrl.mine]);
   useEffect(() => {
     const b = makeBoard(ctrl);
     board = b;
@@ -377,6 +488,7 @@ const SLOT_H = 1 / ATLAS.rows;
 
 export function StickyNotes({ ctrl }: { ctrl: Ctrl }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
+  const camera = useThree((s) => s.camera);
   const gfx = useMemo(() => {
     const geometry = new THREE.PlaneGeometry(1, 1);
     const slots = new Float32Array(PIECES * 2);
@@ -445,7 +557,7 @@ export function StickyNotes({ ctrl }: { ctrl: Ctrl }) {
       if (!p.owner) continue;
       any = true;
       p.t += dt;
-      const target = p.to.hand ? (handPose(p.to.hand, gfx.target) ? gfx.target : p.pose) : p.to.pose!;
+      const target = p.to.hand === PLAYER ? playerHand(camera, gfx.target) : p.to.hand ? (handPose(p.to.hand, gfx.target) ? gfx.target : p.pose) : p.to.pose!;
       let s = 1;
       if (p.t < 0) copyPose(p.pose, p.from);
       else if (p.t < p.dur) {
@@ -460,6 +572,8 @@ export function StickyNotes({ ctrl }: { ctrl: Ctrl }) {
         p.pose.roll = f.roll + (target.roll - f.roll) * k;
         p.pose.w = f.w + (target.w - f.w) * k;
         p.pose.h = f.h + (target.h - f.h) * k;
+      } else if (p.to.hand === PLAYER) {
+        copyPose(p.pose, target); // in your own hand it moves with your view
       } else if (p.to.hand) {
         // in hand: keep up with it, a touch springy
         const k = 1 - Math.exp(-dt * 18);
@@ -507,7 +621,10 @@ export function StickyNotes({ ctrl }: { ctrl: Ctrl }) {
   return <instancedMesh ref={mesh} args={[gfx.geometry, gfx.material, PIECES]} frustumCulled={false} />;
 }
 
-/** One sticky on each tester's monitor while they have a PR's (and until they've taken it back to the board). */
+/**
+ * One sticky on each tester's monitor while they have a PR's (and until they've taken it back to the board), and on a
+ * developer's while they work on the issue the player brought them.
+ */
 function syncMonitors(c: Ctrl) {
   c.dirty = false;
   if (!c.cols) return;
@@ -516,11 +633,15 @@ function syncMonitors(c: Ctrl) {
     const fetching = c.jobs.some((j) => j.move.agentId === a.id && j.move.kind === 'take');
     const bringing = c.jobs.find((j) => j.move.agentId === a.id && (j.move.kind === 'pass' || j.move.kind === 'fail') && j.stage === 'waiting');
     const card = bringing ? bringing.move.from.card : !fetching ? testing : undefined;
+    const gave = c.given.get(a.id);
+    const onIt = !!gave && (now() - gave.at < GIVE_WAIT || (a.issueNumber === gave.number && (a.status === 'preparing' || a.status === 'working')));
+    if (gave && !onIt) c.given.delete(a.id);
     const owner = `mon:${a.id}`;
     const p = pieceOf(c, owner);
-    if (!card) {
+    const sticky = card ? { text: label(card), color: kanbanNoteColor('qa') } : onIt && gave ? { text: gave.label, color: gave.color } : null;
+    if (!sticky) {
       if (p) free(c, owner);
-    } else if (!p) spawn(c, owner, label(card), kanbanNoteColor('qa'), monitorPose(a, tmp));
+    } else if (!p) spawn(c, owner, sticky.text, sticky.color, monitorPose(a, tmp));
   }
 }
 
@@ -545,6 +666,11 @@ const probe = {
   /** What happened lately: queued, skipped, started, peeled, placed, late or cut, oldest first. */
   log() {
     return [...(this.ctrl?.log ?? [])];
+  },
+  /** The sticky the player peeled off, and the developers' monitors they gave one to. */
+  mine() {
+    const c = this.ctrl;
+    return c ? { mine: c.mine ? { ...c.mine } : null, given: [...c.given].map(([agent, g]) => ({ agent, issue: g.number })) } : null;
   },
 };
 

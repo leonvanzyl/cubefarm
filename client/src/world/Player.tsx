@@ -20,6 +20,7 @@ import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
+import { peelAimed, placeSticky, pressBoard, releaseBoard } from './boardHands';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -59,6 +60,7 @@ const lookDiag = { dropped: 0, skipped: 0 };
 export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   const s = useStore.getState();
   quietUntil = performance.now() + QUIET_MS;
+  if (placeSticky(focus, false)) return; // a sticky in hand goes onto a desk or back on the board
   if (focus.action.kind === 'pickup' && isBlasterId(focus.action.toyId)) {
     takeBlaster(focus.action.toyId, focus.id.startsWith('toy:rack:'));
     return;
@@ -159,10 +161,12 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
       // The coffee machine takes a click with your hands full (that's how the mug goes in).
       if (s.held && s.focus?.action.kind !== 'coffee') startCharge();
-      else if (s.focus) runFocusAction(s.focus, 'click');
+      else if (s.focus && !pressBoard(s.focus)) runFocusAction(s.focus, 'click'); // on a sticky, holding peels it off
     };
     const onMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) throwHeld();
+      if (e.button !== 0) return;
+      throwHeld();
+      releaseBoard((f) => runFocusAction(f, 'click'));
     };
     const onQuietMouse = (e: MouseEvent) => {
       if (performance.now() >= quietUntil) return;
@@ -209,7 +213,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         if (e.code === 'Equal' || e.code === 'NumpadAdd') jukeboxAction('vol+');
       }
       if (e.code === 'KeyF' && !e.repeat && !s.travel) startCharge();
-      if (e.code === 'KeyG' && !e.repeat) dropHeld();
+      // G puts a sticky down where you aim (or back on the board), peels the one you aim at off, or drops what you hold
+      if (e.code === 'KeyG' && !e.repeat && !placeSticky(s.focus, true) && !peelAimed(s.focus)) dropHeld();
       if (e.code === 'KeyR' && !e.repeat && !s.travel) reloadHeld();
       if (e.code === 'KeyH') s.openOverlay({ kind: 'help' });
       if (e.code === 'KeyP') {
@@ -321,7 +326,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       while (o && !interactables.has(o)) o = o.parent;
       if (!o) continue;
       const info = interactables.get(o)!;
-      if (h.distance <= info.range) found = { id: info.id, label: info.label, action: info.action };
+      if (h.distance <= info.range) found = info.pick?.(h.point, o) ?? { id: info.id, label: info.label, action: info.action };
       break;
     }
     s.setFocus(found);
