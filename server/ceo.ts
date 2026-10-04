@@ -2,6 +2,7 @@ import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@
 import { z } from 'zod';
 import { blockers, holdUps, setDependsOn } from '../shared/issues.ts';
 import type { CeoJobKind } from '../shared/types.ts';
+import { HttpError } from './httpError.ts';
 
 // The CEO: a Claude Code session in the lobby that runs the company instead of writing code.
 // It studies each floor's repo, shapes the team (hire / let-go proposals the manager approves),
@@ -34,6 +35,7 @@ export interface OfficeHandlers {
   proposeLetGo(a: { agent_id: string; reason: string }): string;
   fileIssue(a: { floor: number; title: string; body: string; specialty?: string }): Promise<string>;
   routeIssue(a: { floor: number; number: number; specialty?: string; depends_on?: number[] }): Promise<string>;
+  closeIssue(a: { floor: number; number: number; reason: string }): Promise<string>;
 }
 
 export interface OfficeTools {
@@ -144,6 +146,16 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
       },
       (a) => run(() => h.routeIssue(a)),
     ),
+    tool(
+      'close_issue',
+      'Close an open issue that is superseded or no longer wanted, as "not planned", with your reason as a comment. Not while an open pull request closes it. Nothing is deleted.',
+      {
+        floor: z.number().int(),
+        number: z.number().int().positive().describe('The issue number'),
+        reason: z.string().min(1).max(1000).describe('Posted as a comment, e.g. "Superseded by #152."'),
+      },
+      (a) => run(() => h.closeIssue(a)),
+    ),
   ];
   const server = createSdkMcpServer({ name: 'office', version: '1.0.0', tools: defs });
   return {
@@ -215,6 +227,7 @@ export function ceoSystemPrompt(o: {
     '- Before proposing a hire, check the floor and the pending proposals for someone who already covers it. If the manager declined a similar proposal (recentDecisions), do not propose it again unless something has changed, and say what.',
     `- ${o.hiring === 'auto' ? 'Hiring is on auto: proposals within the team cap are approved immediately, so be deliberate.' : 'The manager approves every hire, so explain each reason in a sentence or two they can decide on.'}`,
     '- Issues: plan for parallel work. What keeps a floor busy is the number of issues that can start right now (capacity.issuesReadyToStart in company_status); aim for at least one per developer. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most, keep foundation issues small, and split big pieces into parts that can be built side by side. The office starts the issues that hold up others first. Do not duplicate open issues: fix an existing issue\'s specialty or dependencies with route_issue. File at most 12 issues per job, or per message from the manager.',
+    '- Close an issue that is superseded or no longer wanted with close_issue, not by making it wait for another issue.',
     "- When company.usage in company_status says pacing or paused, Claude's usage is running low and the office is finishing open work first: file only what is needed next, not a whole milestone.",
     '- Your final message goes straight to the manager\'s phone. Keep it short and plain: what you found, what you proposed, what you filed, and any question you need answered. No headings, no tables.',
   ].join('\n');
@@ -377,6 +390,17 @@ export function planRoute(r: RouteRequest): RoutePlan {
 
   plan.summary = `#${r.number} on floor ${r.floor}: ${done.join(', ')}.`;
   return plan;
+}
+
+/**
+ * Whether close_issue may close an issue: only one open on that floor (`state` is its state in the floor's repo;
+ * null when unknown), and never one an open pull request closes.
+ */
+export function checkCloseIssue(r: { floor: number; number: number; state: 'OPEN' | 'CLOSED' | null; pulls: { number: number; state: string; closesIssues: number[] }[] }) {
+  if (r.state === 'CLOSED') throw new HttpError(404, `#${r.number} on floor ${r.floor} is already closed.`);
+  if (r.state !== 'OPEN') throw new HttpError(404, `There is no open issue #${r.number} on floor ${r.floor}.`);
+  const pr = r.pulls.find((p) => p.state === 'OPEN' && p.closesIssues.includes(r.number));
+  if (pr) throw new HttpError(409, `PR #${pr.number} closes #${r.number}. Close or finish that pull request first.`);
 }
 
 /** Does `from` wait for `to`, directly or through other issues? */
