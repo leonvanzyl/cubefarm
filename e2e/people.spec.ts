@@ -9,7 +9,7 @@ test('people get up with a chair creak, walk over with footsteps for the floor, 
   await startAt(page, spot);
   await enterOffice(page);
   // window.__swarmPeople (world/people.ts) moves people by hand
-  const people = (fn: 'list' | 'walkTo' | 'gesture', ...args: (string | number)[]) =>
+  const people = (fn: 'list' | 'walkTo' | 'gesture' | 'where', ...args: (string | number)[]) =>
     page.evaluate(([f, a]) => (window as unknown as { __swarmPeople: Record<string, (...x: unknown[]) => unknown> }).__swarmPeople[f](...a), [fn, args] as const);
   const ids = async () => ((await people('list')) as { id: string }[]).map((p) => p.id);
   await expect.poll(async () => (await ids()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
@@ -39,8 +39,16 @@ test('people get up with a chair creak, walk over with footsteps for the floor, 
   expect(chat.group).toBe('typing');
   expect(Math.abs(chat.at!.z - (spot.z - 1.5))).toBeLessThan(0.5); // from where they stand together
 
+  // Monitor stickies (StickyNotes.tsx) peel and slap too: count only a's, heard after the gesture changed, at them.
+  const fromA = async (name: string, since: number) => {
+    const me = (await people('where', a)) as { x: number; z: number };
+    return (await listen()).some((r) => r.name === name && r.t > since && r.at && Math.hypot(r.at.x - me.x, r.at.z - me.z) < 1);
+  };
+  const now = () => page.evaluate(() => performance.now());
+  const reachAt = await now();
   await people('gesture', a, 'reach');
-  await expect.poll(async () => (await names()).has('sticky:peel'), { timeout: 30_000, intervals: [250] }).toBe(true);
+  await expect.poll(() => fromA('sticky:peel', reachAt), { message: `a's sticky:peel`, timeout: 30_000, intervals: [250] }).toBe(true);
+  const doneAt = await now();
   await people('gesture', a, 'none');
-  await expect.poll(async () => (await names()).has('sticky:slap'), { timeout: 30_000, intervals: [250] }).toBe(true);
+  await expect.poll(() => fromA('sticky:slap', doneAt), { message: `a's sticky:slap`, timeout: 30_000, intervals: [250] }).toBe(true);
 });

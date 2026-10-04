@@ -6,13 +6,14 @@ import { doorSlide } from '../ui/sfx';
 import { doorOpen, resetDoors, tickDoors } from './doors';
 import { drawFacade } from './draw';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BENCH, FLOOR_HEIGHT, HALF_D, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFurniture, floorElevation, sideSign, type Side } from './layout';
-import { glow, toon, toonMap } from './materials';
+import { toon, toonMap } from './materials';
 import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { paneMaterial } from './Shell';
+import { LampHalos, balconyBulb } from './sky/lamps';
 
 // Outside the side walls: the sliding glass doors, the balconies (the lobby's is a patio on the ground), and the rest
-// of the building round you: its walls above and below your floor, every floor's balcony, and the ground. Everything
-// static is merged into a few meshes, so all of it costs a handful of draw calls.
+// of the building round you: its walls above and below your floor and every floor's balcony (the city, outside/City.tsx,
+// is the ground). Everything static is merged into a few meshes, so all of it costs a handful of draw calls.
 
 type FloorKind = 'office' | 'lobby';
 const INK = '#1f1d2b';
@@ -151,6 +152,9 @@ function furnitureGeometry(kind: FloorKind) {
   return { planters: boxesGeometry(planters), bench: boxesGeometry(bench), legs: boxesGeometry(legs), shrubs: merged(shrubs), flowers: merged(flowers), lamps, bulbs };
 }
 
+/** The bulbs' halos, on the underside of the balcony above (the lamp's own box hides the middle). */
+const BULB_HALOS = BALCONY_LIGHTS.map((l): [number, number, number] => [l.x, l.y + 0.055, l.z]);
+
 function Balconies({ kind, floor, top }: { kind: FloorKind; floor: number; top: number }) {
   const shell = useMemo(() => balconyGeometry(floor, top), [floor, top]);
   const stuff = useMemo(() => furnitureGeometry(kind), [kind]);
@@ -171,7 +175,8 @@ function Balconies({ kind, floor, top }: { kind: FloorKind; floor: number; top: 
       </mesh>
       <mesh geometry={stuff.legs} material={toon('#495057')} />
       <mesh geometry={stuff.lamps} material={toon('#e9ecef')} />
-      <mesh geometry={stuff.bulbs} material={glow('#fffbe8')} />
+      <mesh geometry={stuff.bulbs} material={balconyBulb} />
+      <LampHalos positions={BULB_HALOS} size="bulb" />
     </group>
   );
 }
@@ -225,15 +230,7 @@ function facadeGeometry(floor: number, top: number) {
 function Facade({ floor, top }: { floor: number; top: number }) {
   const geo = useMemo(() => facadeGeometry(floor, top), [floor, top]);
   useEffect(() => () => geo.dispose(), [geo]);
-  return (
-    <group>
-      <mesh geometry={geo} material={toonMap('facade', facadeTexture())} />
-      {/* the ground, for now: the city (Outside 2) builds on it */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -floorElevation(floor) - 0.02, 0]} material={toon('#b5c99a')}>
-        <planeGeometry args={[600, 600]} />
-      </mesh>
-    </group>
-  );
+  return <mesh geometry={geo} material={toonMap('facade', facadeTexture())} />;
 }
 
 /** Everything outside the side walls, for floor `floor` of a building whose top floor is `top`. */

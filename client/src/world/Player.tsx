@@ -203,6 +203,11 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
         else if (s.focus) runFocusAction(s.focus);
       }
+      // − and + turn the jukebox down and up while you look at it.
+      if (s.focus?.action.kind === 'jukebox') {
+        if (e.code === 'Minus' || e.code === 'NumpadSubtract') jukeboxAction('vol-');
+        if (e.code === 'Equal' || e.code === 'NumpadAdd') jukeboxAction('vol+');
+      }
       if (e.code === 'KeyF' && !e.repeat && !s.travel) startCharge();
       if (e.code === 'KeyG' && !e.repeat) dropHeld();
       if (e.code === 'KeyR' && !e.repeat && !s.travel) reloadHeld();
@@ -211,6 +216,19 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         e.preventDefault(); // don't type the "p" into the phone's message box
         s.openOverlay({ kind: 'phone', tab: pendingRequests(s.requests).length && !unreadMessages(s.messages, s.phoneReadAt) ? 'hires' : 'chat' });
       }
+    };
+    // The mouse wheel turns the jukebox up and down while you look at it: one step a notch (or a trackpad's worth).
+    let wheel = 0;
+    const onWheel = (e: WheelEvent) => {
+      const s = useStore.getState();
+      if (document.pointerLockElement !== gl.domElement || s.overlay || s.focus?.action.kind !== 'jukebox') {
+        wheel = 0;
+        return;
+      }
+      wheel -= e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+      if (Math.abs(wheel) < 80) return;
+      jukeboxAction(wheel > 0 ? 'vol+' : 'vol-');
+      wheel = 0;
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
@@ -227,6 +245,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     document.addEventListener('mousemove', onMove);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('wheel', onWheel, { passive: true });
     window.addEventListener('blur', onBlur);
     const stopLookLock = watchLookLock(requestLook, hushMouse);
     return () => {
@@ -238,6 +257,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       document.removeEventListener('mousemove', onMove);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('wheel', onWheel);
       window.removeEventListener('blur', onBlur);
     };
   }, [gl, lookFilter]);

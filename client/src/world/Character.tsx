@@ -57,6 +57,7 @@ const HAND_MUG = { at: [0, -0.02, -0.52] as [number, number, number], ahead: -0.
 const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> = {
   none: { l: null, r: null, head: 0 },
   reach: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // touch the board
+  post: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // a reach that's silent: StickyNotes.tsx plays its sticky's own sounds
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.55, yaw: 0.22 }, r: { pitch: 1.55, yaw: 0.22 }, head: 0.3 }, // arms overhead
@@ -64,11 +65,11 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   shoot: { l: { pitch: 1.2, yaw: 0.35 }, r: { pitch: 1.2, yaw: 0.35 }, head: 0.35 }, // ball overhead, eyes on the hoop
   toss: { l: { pitch: 0.35, yaw: 0.3 }, r: { pitch: 0.35, yaw: 0.3 }, head: 0.05 }, // arms out where the ball went
   catch: { l: { pitch: -0.1, yaw: 0.1 }, r: { pitch: -0.1, yaw: 0.1 }, head: 0.1 }, // hands out, ready
-  cheer: { l: { pitch: 1.45, yaw: -0.35 }, r: { pitch: 1.45, yaw: -0.35 }, head: 0.2 }, // arms up in a V
   shrug: { l: { pitch: -0.7, yaw: -0.75 }, r: { pitch: -0.7, yaw: -0.75 }, head: -0.12 }, // palms out: oh well
   mug: { l: null, r: { pitch: -0.75, yaw: 0.3 }, head: -0.05 }, // a mug held in front
   tap: { l: null, r: { pitch: -0.3, yaw: 0.05 }, head: -0.3 }, // a hand on the counter: the dispenser, the machine
   chat: { l: { pitch: -0.55, yaw: -0.45 }, r: { pitch: -0.75, yaw: 0.3 }, head: 0.08 }, // mug in one hand, the other talking
+  cheer: { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch }, // the seated cheer's arms up in a V
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
