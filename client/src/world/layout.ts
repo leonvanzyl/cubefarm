@@ -25,7 +25,7 @@ export interface Rect {
 export const rect = (cx: number, cz: number, w: number, d: number, h?: number): Rect => ({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, h });
 
 // How tall the furniture is, so toys can bounce off it (and land on it).
-const SOLID_H = { desk: 0.78, seated: 1.3, board: 3.45, couch: 0.95, coffeeTable: 0.5, kitchen: 2, cooler: 1.5, bookshelf: 2.2, cabinet: 2.1, reception: 1.13, glass: 2.8 };
+const SOLID_H = { desk: 0.78, seated: 1.3, board: 3.45, couch: 0.95, coffeeTable: 0.5, kitchen: 2, cooler: 1.5, bookshelf: 2.2, cabinet: 2.1, reception: 1.13, glass: 2.8, coffeeCorner: 1.55 };
 
 /** The shell every floor shares: outer walls (with the elevator doorway) and the elevator cabin. */
 export function shellColliders(): Rect[] {
@@ -78,8 +78,9 @@ export const BLASTER_RACK = { officeX: -10, lobbyX: -12.9, w: 1.3, d: 0.3, h: 1.
 export const blasterRack = (x: number): Rect => rect(x, HALF_D - BLASTER_RACK.d / 2, BLASTER_RACK.w, BLASTER_RACK.d, BLASTER_RACK.h);
 
 // Every floor's jukebox stands against the south wall, facing into the room: on office floors in the lounge corner
-// between the couch's plant and the blaster rack, in the lobby east of the floor directory.
-export const JUKEBOX = { officeX: -12.6, lobbyX: 8, w: 1, d: 0.6, h: 1.62 };
+// between the couch's plant and the blaster rack, in the lobby between the floor directory and the coffee corner
+// (with room to walk round the counter).
+export const JUKEBOX = { officeX: -12.6, lobbyX: 7, w: 1, d: 0.6, h: 1.62 };
 export const jukeboxRect = (x: number): Rect => rect(x, HALF_D - JUKEBOX.d / 2, JUKEBOX.w, JUKEBOX.d, JUKEBOX.h);
 
 // The merge gong stands against the north wall between the whiteboard's plant and the wall clock's, its disc facing
@@ -133,6 +134,10 @@ export const WAITING = { x: HALF_W - 1.4, seats: [6.6, 7.9, 9.2, 10.4] };
 export const WAITING_ROTATION = Math.PI / 2;
 // The big rug in front of reception; the manager's and CEO's offices are carpeted wall to wall.
 export const LOBBY_RUG = rect(3, 3, 14, 9);
+// The lobby's coffee corner: a short counter against the south wall, east of the elevator and the directory, in
+// view of the waiting sofa. w runs along the wall, d sticks out into the room; the machine and mugs face north.
+export const COFFEE_CORNER = { x: 9.8, w: 1.5, d: 0.9 };
+export const coffeeCorner = (): Rect => rect(COFFEE_CORNER.x, HALF_D - COFFEE_CORNER.d / 2, COFFEE_CORNER.w, COFFEE_CORNER.d, SOLID_H.coffeeCorner);
 
 export function lobbyColliders(): Rect[] {
   const out = shellColliders();
@@ -157,6 +162,7 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(11.5, 4, 3.2, 1, SOLID_H.couch)); // sofa
   out.push(rect(11.5, 6.2, 1.6, 0.9, SOLID_H.coffeeTable)); // table
   out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1, SOLID_H.cabinet)); // trophy cabinet
+  out.push(coffeeCorner()); // counter, coffee machine and mug dispenser
   return out;
 }
 

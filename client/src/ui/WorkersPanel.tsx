@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { agentsOnRepo, useStore, type Agent } from '../store';
-import { CEO_ID, type LogLine, type RepoView } from '../../../shared/types';
+import { CEO_ID, INSTALL_STEP, type LogLine, type RepoView } from '../../../shared/types';
 
 // Who is busy with what, across the whole company: everyone working right now with their project and their latest
 // thought, reply or tool call. Idle workers are left out; the floor you're on comes first. Click someone to watch
@@ -53,7 +53,7 @@ function Row({ a, now }: { a: Agent; now: number }) {
         </span>
         <span className="wk-line">
           <span className={`wk-last wk-last-${last?.kind ?? 'none'}`} title={last?.text}>
-            {a.status === 'preparing' ? 'setting up the worktree…' : (last?.text ?? (a.issueTitle ? `working on ${a.issueTitle}` : 'starting…'))}
+            {a.status === 'preparing' ? (a.currentTool === INSTALL_STEP ? 'installing dependencies…' : 'setting up the worktree…') : (last?.text ?? (a.issueTitle ? `working on ${a.issueTitle}` : 'starting…'))}
           </span>
           {last && a.status !== 'preparing' && <span className="wk-ago">{ago(last.t, now)}</span>}
         </span>

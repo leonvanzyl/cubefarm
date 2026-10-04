@@ -127,6 +127,15 @@ describe('system prompts', () => {
     expect(qaSystemPrompt({ ...qa, agent: agent({ title: '', brief: '' }), repo: repo({ autoMerge: false, browserTesting: false, summary: '', mission: '', qaBrief: '' }) })).toBe(BEFORE.qaCovering);
   });
 
+  it("say what the office did about the desk's dependencies, right after the worktree", () => {
+    const depsLine = 'Dependencies are already installed for this checkout.';
+    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), depsLine })).toBe(BEFORE.devFull.replace('Your worktree: /desk/m\n', `Your worktree: /desk/m\n${depsLine}\n`));
+    expect(qaSystemPrompt({ ...qa, agent: agent({ role: 'qa', title: 'QA lead' }), repo: repo(), depsLine })).toBe(
+      BEFORE.qaFull.replace('qa/pr-42-margaret.\n', `qa/pr-42-margaret.\n${depsLine}\n`),
+    );
+    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), depsLine: '' })).toBe(BEFORE.devFull);
+  });
+
   it("put a PR's own test step in the QA prompt", () => {
     const step = "3. GitHub's checks run on this PR.";
     const text = qaSystemPrompt({ ...qa, agent: agent({ role: 'qa' }), repo: repo(), testStep: step });

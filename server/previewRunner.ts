@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
+import { depsCurrent, INSTALL_TIMEOUT_MS, killTree, readDeps, writeMarker } from './deps.ts';
 import { git } from './exec.ts';
 import * as workspace from './workspace.ts';
 
@@ -13,9 +13,7 @@ export const PREVIEW_SLUG = 'preview';
 export const PREVIEW_BRANCH = 'swarm-preview';
 /** Scratch folder inside the preview worktree, offered to commands and env as {tmp}; excluded from git status. */
 export const PREVIEW_TMP = '.preview-tmp';
-const INSTALL_MARKER = '.cubefarm-preview-install';
 const START_TIMEOUT_MS = 3 * 60_000;
-const INSTALL_TIMEOUT_MS = 15 * 60_000;
 
 export interface PreviewJob {
   fullName: string;
@@ -104,24 +102,6 @@ export function defaultCommand(pkg: { scripts?: Record<string, string> } | null)
   return `npm run ${name}${vite ? ' -- --port {port} --strictPort' : ''}`;
 }
 
-/** Kill a process and its children. */
-function killTree(child: ChildProcess): Promise<void> {
-  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  if (process.platform === 'win32') {
-    return new Promise((resolve) => {
-      const tk = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-      tk.once('error', () => resolve());
-      tk.once('close', () => resolve());
-    });
-  }
-  try {
-    process.kill(-child.pid, 'SIGKILL'); // the whole process group (spawned detached)
-  } catch {
-    child.kill('SIGKILL');
-  }
-  return Promise.resolve();
-}
-
 class Stopped extends Error {}
 
 /** One run of a floor's app, from checkout to a listening port. */
@@ -206,20 +186,12 @@ class RealPreview implements PreviewHandle {
 
   /** npm ci (or npm install without a lockfile), skipped when package.json and the lockfile haven't changed. */
   private async install(wt: string, env: Record<string, string>) {
-    const lockFile = path.join(wt, 'package-lock.json');
-    const lock = await fs.readFile(lockFile, 'utf8').catch(() => null);
-    const hash = crypto
-      .createHash('sha256')
-      .update(await fs.readFile(path.join(wt, 'package.json'), 'utf8'))
-      .update('\0')
-      .update(lock ?? '')
-      .digest('hex');
-    const marker = path.join(wt, 'node_modules', INSTALL_MARKER);
-    if ((await fs.readFile(marker, 'utf8').catch(() => '')) === hash) {
+    const deps = await readDeps(wt);
+    if (depsCurrent(deps)) {
       this.cb.log(['Dependencies unchanged since the last install; skipping it.']);
       return;
     }
-    const cmd = lock !== null ? 'npm ci' : 'npm install';
+    const cmd = deps.lock !== null ? 'npm ci' : 'npm install';
     this.cb.log([`$ ${cmd}`]);
     const code = await Promise.race([this.spawn(cmd, wt, env), sleep(INSTALL_TIMEOUT_MS).then(() => 'timeout' as const)]);
     this.check();
@@ -229,7 +201,7 @@ class RealPreview implements PreviewHandle {
     }
     if (code !== 0) throw new Error(`${cmd} failed (code ${code}).`);
     this.child = null;
-    await fs.writeFile(marker, hash).catch(() => undefined);
+    await writeMarker(wt, deps.hash);
   }
 
   /** Run a command line through the platform shell; resolves with its exit code. */
