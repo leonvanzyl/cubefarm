@@ -439,6 +439,13 @@ export function whoosh(dur = 0.75) {
   tone({ name: 'whoosh', group: 'alerts', freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4 });
 }
 
+/** A side door sliding open (a rising whoosh) or shut (a falling one, with a soft bump at the end), from the doorway. */
+export function doorSlide(pos: Vec3, opening: boolean) {
+  const name = opening ? 'door:open' : 'door:close';
+  noise({ name, group: 'alerts', pos, dur: 0.45, peak: 0.07, filter: 'bandpass', freq: opening ? 300 : 1100, to: opening ? 1300 : 280, q: 0.9, attack: 0.15 });
+  if (!opening) tone({ name, group: 'alerts', pos, at: 0.4, freq: 110, to: 70, dur: 0.12, peak: 0.05, attack: 0.005 });
+}
+
 /** Someone hit by a toy: a soft, round "boop", from where they sit (`pos`). */
 export function boop(pos?: Vec3) {
   tone({ name: 'boop', group: 'toys', pos, freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008 });

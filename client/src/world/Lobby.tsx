@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Billboard } from '@react-three/drei';
-import { pendingRequests, useStore, type Agent } from '../store';
+import { floorPrCounts, pendingRequests, useStore, type Agent } from '../store';
 import { CEO_ID, type HireRequestView } from '../../../shared/types';
 import { Character } from './Character';
 import { Desk } from './Desk';
 import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
+import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
 import { Jukebox } from './Jukebox';
 import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
@@ -19,6 +20,7 @@ import { Toys } from './toys';
 
 const ACCENT = '#ff8a5b';
 const CEO_ACCENT = '#9b5de5';
+const CEO_DESK_AT: [number, number, number] = [CEO_DESK.x, 0, CEO_DESK.z]; // one array, so the memoised desk skips re-renders
 
 function useOfficeStats() {
   const repos = useStore((s) => s.repos);
@@ -40,9 +42,9 @@ function useOfficeStats() {
       working: list.filter((a) => a.repoId === r.id && (a.status === 'working' || a.status === 'preparing')).length,
       prs: r.pulls.filter((p) => p.state === 'OPEN').length,
     }));
-    const qaList = Object.values(qa);
-    const inQa = qaList.filter((q) => q.status !== 'passed').length;
-    const readyToMerge = qaList.filter((q) => q.status === 'passed').length;
+    const prCounts = repos.map((r) => floorPrCounts(r, qa));
+    const inQa = prCounts.reduce((n, c) => n + c.inQa, 0);
+    const readyToMerge = prCounts.reduce((n, c) => n + c.ready, 0);
     const pending = pendingRequests(requests).length;
     return { repos: repos.length, agents: list.length, working, openPrs, inQa, readyToMerge, merged, issues, floors, max: settings.sessionLimit, pending };
   }, [repos, agents, settings, qa, requests]);
@@ -90,7 +92,7 @@ function ManagerComputer() {
       ctx.font = `600 32px ${SANS}`;
       ctx.fillText('Press E or click to manage floors, team & issues', 50, 592);
     },
-    [stats],
+    [stats.repos, stats.agents, stats.working, stats.max, stats.issues, stats.inQa, stats.readyToMerge, stats.pending],
   );
   return (
     <group ref={ref} position={[MANAGER_DESK.x, 0, MANAGER_DESK.z]}>
@@ -251,8 +253,10 @@ function CeoBoard() {
 function CeoOffice() {
   const c = CEO_ROOM;
   const ceo = useStore((s) => s.agents[CEO_ID]);
+  const people = useMemo(() => (ceo ? [ceo] : []), [ceo]);
   return (
     <group>
+      <ErrandDirector floor="lobby" agents={people} />
       <Rug position={[(c.minX + c.maxX) / 2, 0.005, (c.minZ + c.maxZ) / 2]} size={[c.maxX - c.minX, c.maxZ - c.minZ]} color="#e6dcff" />
       <GlassWall from={[c.minX, c.minZ]} to={[c.minX, c.maxZ]} />
       <GlassWall from={[c.minX, c.maxZ]} to={[c.doorMinX, c.maxZ]} />
@@ -266,7 +270,7 @@ function CeoOffice() {
         draw={(ctx) => drawSign(ctx, 816, 120, [{ text: `CEO${ceo ? ` · ${ceo.name}` : ''}`, size: 52 }], CEO_ACCENT)}
         deps={[ceo?.name]}
       />
-      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={[CEO_DESK.x, 0, CEO_DESK.z]} />}
+      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
@@ -382,8 +386,7 @@ export function Lobby() {
   const boss = managerName || user;
   return (
     <group>
-      {/* east windows clear of the CEO's board (z -9.1 to -5.7) and the waiting room sign (from z 6.7) */}
-      <Shell accent={ACCENT} floorColor="#e2c7a3" westWindows={[1.5, 8]} eastWindows={[-2.5, 3.6]} seed={0} />
+      <Shell kind="lobby" accent={ACCENT} floorColor="#e2c7a3" />
       <Rug position={[(LOBBY_RUG.minX + LOBBY_RUG.maxX) / 2, 0.004, (LOBBY_RUG.minZ + LOBBY_RUG.maxZ) / 2]} size={[LOBBY_RUG.maxX - LOBBY_RUG.minX, LOBBY_RUG.maxZ - LOBBY_RUG.minZ]} color="#ffd6a5" />
 
       {/* manager's office */}

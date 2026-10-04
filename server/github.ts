@@ -144,9 +144,9 @@ export async function issueState(fullName: string, number: number): Promise<'OPE
   }
 }
 
-/** Close an issue as completed, with a comment saying why. */
-export async function closeIssue(fullName: string, number: number, comment: string): Promise<void> {
-  await gh(['issue', 'close', String(number), '-R', fullName, '--reason', 'completed', '--comment', comment]);
+/** Close an issue as completed (or not planned), with a comment saying why. */
+export async function closeIssue(fullName: string, number: number, comment: string, reason: 'completed' | 'not planned' = 'completed'): Promise<void> {
+  await gh(['issue', 'close', String(number), '-R', fullName, '--reason', reason, '--comment', comment]);
 }
 
 /** Replace an issue's body and/or add and remove labels. */

@@ -913,6 +913,14 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
     async chat(text: string) {
       const s = await status();
       await think('Reading your message.');
+      // "close #3, superseded by #5": the one request the demo CEO acts on, through the real tool.
+      const close = text.match(/\bclose #(\d+)[\s,:;.-]*(.*)/i);
+      const closeFloor = close && (s.floors.find((f) => (f.backlog as { number: number }[]).some((i) => i.number === Number(close[1]))) ?? s.floors[0]);
+      if (close && closeFloor) {
+        const reason = close[2].trim() || 'No longer wanted.';
+        const out = await use('close_issue', { floor: closeFloor.floor, number: Number(close[1]), reason });
+        return out.startsWith('Refused') ? `I couldn't close #${close[1]}: ${out.replace(/^Refused: /, '')}` : `Done: ${out} I left "${short(reason, 80)}" on it as a comment.`;
+      }
       const people = s.floors.reduce((n, f) => n + f.team.length, 0);
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const pending = s.pendingProposals.length;

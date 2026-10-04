@@ -6,7 +6,7 @@ import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
-import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { depsPromptLine, type DepsOutcome } from './deps.ts';
 import { setUpDesk } from './deskSetup.ts';
 import { fixOutcome } from './fixOutcome.ts';
@@ -399,6 +399,7 @@ export class Swarm {
       proposeLetGo: (a) => this.proposeLetGo(a),
       fileIssue: (a) => this.fileIssue(a),
       routeIssue: (a) => this.routeIssue(a),
+      closeIssue: (a) => this.closeIssue(a),
     });
   }
   private ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB); // issues filed during the current CEO job
@@ -3342,5 +3343,20 @@ export class Swarm {
       await this.syncRepo(repo.id); // the scheduler sees the new routing right away
     }
     return plan.summary;
+  }
+
+  /** Close an open issue as not planned, with the CEO's reason as its comment (see checkCloseIssue for what is refused). */
+  private async closeIssue(x: { floor: number; number: number; reason: string }) {
+    const repo = this.floorRepo(x.floor);
+    const n = Number(x.number);
+    const rt = this.repoRt.get(repo.id);
+    const reason = String(x.reason ?? '').trim().slice(0, 1000);
+    if (!reason) throw new HttpError(400, 'Say why the issue is closing: the reason is posted on it as a comment.');
+    const state = rt?.issues.some((i) => i.number === n) ? 'OPEN' : await this.backend.issueState(repo.fullName, n).catch(() => null);
+    checkCloseIssue({ floor: repo.floor, number: n, state, pulls: rt?.pulls ?? [] });
+    await this.backend.closeIssue(repo.fullName, n, reason, 'not planned');
+    await this.syncRepo(repo.id); // off the Kanban and out of the scheduler's queue right away
+    this.postMessage('office', `🗂️ ${this.ceo().name} closed #${n} on floor ${repo.floor}: ${reason.split('\n')[0].slice(0, 200)}`);
+    return `Closed #${n} on floor ${repo.floor} as not planned.`;
   }
 }
