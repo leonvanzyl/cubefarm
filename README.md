@@ -40,7 +40,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 - **Floors**: one per project. Ride the elevator between them.
 - **Desks**: walk up behind an agent to watch their monitor. Open it to see their real terminal: every agent is an actual coding agent running on your machine, and you can type into it. It also shows a live browser when they test the UI. Pick the coding agent, model and effort for the whole team or per agent.
 - **The QA lab**: every floor has at least one QA tester.
-- **The whiteboard**: the Kanban board, from backlog to merged.
+- **The whiteboard**: the Kanban board, from backlog to merged. Aim at a sticky and press `E` to read it up close, or peel a Backlog sticky off with `G` and carry it to a free developer's desk to hand them the issue. Red strings join issues to the ones they depend on, and the corner counts today's merges, the issue-to-merge time, the QA queue and anything that needs you.
 - **The lobby**: the manager's office, where you connect projects, hire, file issues and change settings, and the CEO's corner office.
 - **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model, effort and job description, and "What they're told" shows the full prompt the office gives them.
 - **Merges**: confetti bursts over the developer's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
@@ -57,7 +57,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine |
 | `E` with coffee | take a sip (three to a mug, the last a big gulp) |
 | `F` / left click, holding something | throw a ball (hold to charge) or fire a blaster |
-| `G` | drop what you're holding |
+| `G` | drop what you're holding, or peel the whiteboard sticky you aim at off the board |
 | `R` | reload a blaster |
 | `P` | your phone |
 | `Tab` | show or hide who's working |
