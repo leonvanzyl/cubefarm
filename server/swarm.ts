@@ -5,7 +5,7 @@ import type { WebSocket } from 'ws';
 import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
-import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
+import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
@@ -13,6 +13,7 @@ import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './m
 import { orphanedQa } from './qaOrphans.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
+import { PREVIEW_SLUG } from './previewRunner.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { isCli } from './clis.ts';
@@ -568,6 +569,7 @@ export class Swarm {
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
     setInterval(() => void this.saveTerminals(), TERMINAL_SAVE_MS);
+    setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
     void this.backend
       .detectClis()
       .then((clis) => {
@@ -1113,6 +1115,32 @@ export class Swarm {
     return { folderSync: await this.syncFolder(this.repo(repoId)) };
   }
 
+  /** Remove the floor's desks, desk folders and swarm/qa branches nobody uses any more; say so when something went. */
+  private async sweepFloor(repoId: string) {
+    const repo = this.state.repos.find((r) => r.id === repoId);
+    const rt = this.repoRt.get(repoId);
+    if (!repo || !rt || rt.cloneStatus !== 'ready') return;
+    try {
+      const pulls = rt.lastSync ? rt.pulls : await this.backend.listPulls(repo.fullName);
+      const agents = this.state.agents.filter((a) => a.repoId === repo.id);
+      const keep = {
+        desks: [...agents.map((a) => this.agentSlug(a)), PREVIEW_SLUG],
+        branches: [...agents.flatMap((a) => (a.branch ? [a.branch] : [])), ...pulls.filter((p) => p.state === 'OPEN').map((p) => p.headRefName)],
+      };
+      const r = await this.backend.sweepDesks(repo.fullName, keep);
+      const desks = r.desks + r.folders;
+      const saved = r.patches.length ? ` (${r.patches.length} patch${r.patches.length === 1 ? '' : 'es'} saved to ${path.dirname(r.patches[0])})` : '';
+      console.log(`desk sweep ${repo.fullName}: ${desks} desks, ${r.branches} branches removed${saved}${r.skipped.length ? `, ${r.skipped.length} still in use` : ''}`);
+      if (!desks && !r.branches) return;
+      const removed = [desks && `${desks} old desk${desks === 1 ? '' : 's'}`, r.branches && `${r.branches} finished branch${r.branches === 1 ? '' : 'es'}`].filter(Boolean).join(' and ');
+      const text = `🧹 ${repo.fullName.split('/')[1]}: removed ${removed}${saved}`;
+      this.toast('info', text);
+      this.postMessage('office', text);
+    } catch (err) {
+      console.warn(`desk sweep ${repo.fullName} failed: ${oneLine(err)}`);
+    }
+  }
+
   // ---------- the floor's app (preview monitor) ----------
 
   /** Run the floor's app from its preview worktree: the default branch, or an open PR. Replaces what it is running now. */
@@ -1147,6 +1175,7 @@ export class Swarm {
       await this.backend.ensureClone(repo.fullName);
       rt.cloneStatus = 'ready';
       void this.previews.refreshDefault(repo);
+      void this.sweepFloor(id);
     } catch (err) {
       rt.cloneStatus = 'error';
       rt.cloneError = (err as Error).message;
@@ -1375,10 +1404,12 @@ export class Swarm {
     const repo = this.state.repos.find((r) => r.id === a.repoId);
     if (repo) {
       const slug = this.agentSlug(a);
+      const main = this.backend.mainDir(repo.fullName); // now: a disconnect points the floor elsewhere before this runs
       void this.backend
         .releaseDesk(repo.fullName, slug, this.port(a))
-        .then(() => this.backend.removeDesk(repo.fullName, slug))
-        .catch(() => undefined);
+        .then(() => this.backend.removeDesk(repo.fullName, slug, main))
+        .catch(() => undefined)
+        .then(() => this.sweepFloor(repo.id));
     }
     this.state.agents = this.state.agents.filter((x) => x.id !== id);
     this.agentRt.delete(id);
