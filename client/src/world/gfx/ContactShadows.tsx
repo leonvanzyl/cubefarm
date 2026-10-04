@@ -1,6 +1,7 @@
 // High's soft contact shadows. Furniture: the floor is photographed from underneath, its depth turned into a darkness
 // that fades with height and blurred (drei's ContactShadows technique), baked again every few seconds with the people
-// hidden, so it costs one transparent quad a frame. People: a soft blob under everyone, moved with them every frame
+// and anything else that wanders (userData.person / .moving: the dog, the roomba) hidden, so it costs one transparent
+// quad a frame. People: a soft blob under everyone, moved with them every frame
 // (one instanced draw).
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -29,9 +30,9 @@ function shadowDepthMaterial() {
   return m;
 }
 
-/** Skipped by the bake: people (they get blobs), see-through things (glass, halos, tags) and the shadows themselves. */
+/** Skipped by the bake: people (they get blobs), things that move about, see-through things (glass, halos, tags) and the shadows themselves. */
 function skipInBake(o: THREE.Object3D) {
-  if (o.userData.person || o.userData.contactShadow) return true;
+  if (o.userData.person || o.userData.moving || o.userData.contactShadow) return true;
   const m = (o as THREE.Mesh).material as THREE.Material | undefined;
   if ((o as THREE.Points).isPoints || (o as THREE.Sprite).isSprite) return true;
   return !!m && !Array.isArray(m) && m.transparent && !m.depthWrite;
