@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { closeOverlay } from './Overlays';
 import { Games, type GameId } from './games/Games';
+import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
 
 // The manager's phone: text the CEO, decide on hires, see the whole company at a glance
@@ -134,6 +135,27 @@ function Hires({ focusId }: { focusId?: string }) {
 
 // ---------- chat ----------
 
+/** Replays a CEO message from its saved clip (or the browser's voice); stops it while it plays. */
+function ReplayButton({ m }: { m: PhoneMessage }) {
+  const saved = useStore((s) => s.voiceCache.saved.includes(m.id));
+  const playing = useStore((s) => s.voiceSpeaking === m.id);
+  const kind = replayKind(m, saved, typeof speechSynthesis !== 'undefined');
+  if (!kind) return null;
+  const gone = kind === 'gone';
+  return (
+    <button
+      type="button"
+      className={`bubble-play ${playing ? 'bubble-play-on' : ''}`}
+      disabled={gone && !playing}
+      title={gone ? 'Audio no longer saved' : undefined}
+      aria-label={playing ? 'Stop this message' : 'Play this message'}
+      onClick={() => void import('./voiceMessages').then((v) => (playing ? v.stopSpeaking() : kind !== 'gone' && v.replayMessage(m, kind)))}
+    >
+      {playing ? '⏹' : '▶'}
+    </button>
+  );
+}
+
 const QUICK = ["What's everyone working on?", 'Do we need anyone new?', 'Plan the next milestone for the busiest floor.'];
 
 function Bubble({ m, ceoName }: { m: PhoneMessage; ceoName: string }) {
@@ -146,7 +168,10 @@ function Bubble({ m, ceoName }: { m: PhoneMessage; ceoName: string }) {
         {!mine && <div className="bubble-from">{ceoName}</div>}
         {mine ? <div className="bubble-text">{m.text}</div> : <Markdown className="bubble-md" text={m.text} />}
         {req && req.status === 'pending' && m.from === 'ceo' && <Resume req={req} />}
-        <div className="bubble-time">{clock(m.at)}</div>
+        <div className="bubble-time">
+          {!mine && <ReplayButton m={m} />}
+          {clock(m.at)}
+        </div>
       </div>
     </div>
   );

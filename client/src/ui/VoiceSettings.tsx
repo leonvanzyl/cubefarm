@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { SAMPLE_LINE } from '../../../shared/speech';
+import { cacheLabel, clampKeepDays, KEEP_DAYS_MAX, KEEP_DAYS_MIN } from '../../../shared/voiceClips';
 import type { VoiceOption, VoiceProvider, VoiceSettings as Voice } from '../../../shared/types';
 import { confirmDialog } from './Confirm';
 import { getAudioPrefs } from './sfx';
@@ -242,9 +243,65 @@ function BrowserVoices({ voice, save }: { voice: Voice; save: Save }) {
   );
 }
 
+/** How long ElevenLabs clips are kept for the phone's ▶, how much is saved now, and a way to clear it. */
+function SavedClips({ voice, save }: { voice: Voice; save: Save }) {
+  const cache = useStore((s) => s.voiceCache);
+  const [days, setDays] = useState(String(voice.keepDays));
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setDays(String(voice.keepDays)), [voice.keepDays]);
+  const commit = () => {
+    const n = clampKeepDays(days);
+    setDays(String(n));
+    if (n !== voice.keepDays) save({ keepDays: n });
+  };
+  const clear = async () => {
+    const ok = await confirmDialog({
+      tone: 'danger',
+      title: 'Clear saved clips?',
+      body: "Messages read by ElevenLabs can't be replayed from the phone after this. New messages are saved again as they arrive.",
+      confirm: 'Clear',
+    });
+    if (!ok) return;
+    setBusy(true);
+    await api.clearVoiceCache().catch(() => undefined);
+    setBusy(false);
+  };
+  return (
+    <div className="voice-clips">
+      <label className="field">
+        <span>Keep voice clips for</span>
+        <span className="row">
+          <input
+            type="number"
+            min={KEEP_DAYS_MIN}
+            max={KEEP_DAYS_MAX}
+            step={1}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => e.key === 'Enter' && commit()}
+            style={{ width: '5em' }}
+          />
+          <span>days</span>
+        </span>
+      </label>
+      <div className="row wrap">
+        <span className="grow small">
+          💾 {cacheLabel(cache.clips, cache.bytes)}
+          <span className="muted"> · the newest 20 CEO messages always keep theirs, so ▶ on the phone replays them for free</span>
+        </span>
+        <button className="btn btn-small btn-ghost" disabled={busy || cache.clips === 0} onClick={() => void clear()}>
+          Clear saved clips
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function VoiceSettings() {
   const voice = useStore((s) => s.settings.voice);
   const keySet = useStore((s) => s.voiceKeySet);
+  const cache = useStore((s) => s.voiceCache);
   const [playing, setPlaying] = useState<Playing>(null);
   const radioName = useId();
   useEffect(() => stopVoice, []); // closing the console stops a preview
@@ -313,6 +370,7 @@ export function VoiceSettings() {
           </div>
         </>
       )}
+      {(eleven || cache.clips > 0) && <SavedClips voice={voice} save={save} />}
     </div>
   );
 }

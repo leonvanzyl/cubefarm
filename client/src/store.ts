@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
@@ -67,6 +67,7 @@ interface State {
   usage: UsageView; // Claude's subscription usage: normal, pacing after a warning, or paused at the limit
   voiceKeySet: boolean; // an ElevenLabs key is saved on the server
   voiceKeyHint: string; // its last 4 characters
+  voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
   restarting: boolean; // the connection dropped because the office is restarting to update
 
@@ -152,7 +153,7 @@ export const useStore = create<State>((set, get) => ({
     tutorialStep: -1,
     pacingSessions: 3,
     trimIdleDesksMin: 120,
-    voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false },
+    voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
   },
   clis: [],
   repos: [],
@@ -167,6 +168,7 @@ export const useStore = create<State>((set, get) => ({
   usage: { state: 'normal', until: null },
   voiceKeySet: false,
   voiceKeyHint: '',
+  voiceCache: { clips: 0, bytes: 0, saved: [] },
   voiceSpeaking: null,
   restarting: false,
 
@@ -222,6 +224,7 @@ export const useStore = create<State>((set, get) => ({
           clis: d.clis ?? [],
           voiceKeySet: d.voiceKeySet ?? false,
           voiceKeyHint: d.voiceKeyHint ?? '',
+          voiceCache: d.voiceCache ?? { clips: 0, bytes: 0, saved: [] },
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -335,6 +338,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'voiceKey':
         set({ voiceKeySet: ev.voiceKeySet, voiceKeyHint: ev.voiceKeyHint });
+        break;
+      case 'voiceCache':
+        set({ voiceCache: ev.voiceCache });
         break;
     }
   },

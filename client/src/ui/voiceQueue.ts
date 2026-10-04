@@ -14,6 +14,18 @@ export function speakable(m: PhoneMessage, v: VoiceSettings, now: number): boole
   return now - m.at <= VOICE_MAX_AGE_MS;
 }
 
+/**
+ * The phone's ▶ on a message: its saved clip, the browser's voice again (free), 'gone' when its ElevenLabs clip is no
+ * longer saved (a disabled button), or null (no button: the CEO's messages only, and only ones that had a voice).
+ */
+export type ReplayKind = 'clip' | 'browser' | 'gone';
+export function replayKind(m: PhoneMessage, saved: boolean, canSpeak: boolean): ReplayKind | null {
+  if (m.from !== 'ceo') return null;
+  if (saved) return 'clip';
+  if (m.voice === 'browser') return canSpeak ? 'browser' : null;
+  return m.voice === 'elevenlabs' ? 'gone' : null;
+}
+
 /** A message waiting its turn, with when this tab received it (the server's clock may differ). */
 export interface Queued {
   message: PhoneMessage;

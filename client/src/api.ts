@@ -1,5 +1,5 @@
 import { useStore } from './store';
-import type { AgentCli, AgentPromptView, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, VoiceOption } from '../../shared/types';
+import type { AgentCli, AgentPromptView, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings, VoiceCacheView, VoiceOption } from '../../shared/types';
 
 async function call<T = unknown>(method: string, url: string, body?: unknown, toast = true): Promise<T> {
   const res = await fetch(url, {
@@ -100,4 +100,5 @@ export const api = {
   setVoiceKey: (key: string) => call<{ voiceKeySet: boolean; voiceKeyHint: string }>('PUT', '/api/voice/key', { key }, false),
   voices: () => call<VoiceOption[]>('GET', '/api/voice/voices'),
   voiceSample: (voiceId: string) => clip(`/api/voice/sample?voiceId=${encodeURIComponent(voiceId)}`),
+  clearVoiceCache: () => call<VoiceCacheView>('DELETE', '/api/voice/cache'),
 };

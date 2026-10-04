@@ -1746,6 +1746,11 @@ input.inline:focus {
 }
 
 /* ui/VoiceSettings.tsx: the ElevenLabs voice picker */
+.voice-clips {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--muted);
+}
 .voice-list {
   position: relative; /* rows' offsetTop, for scrolling the chosen one into view */
   max-height: 300px;
@@ -2509,10 +2514,37 @@ input.inline:focus {
 }
 
 .bubble-time {
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
   font-size: 0.65rem;
   color: var(--muted);
   margin-top: 2px;
+}
+.bubble-play {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.bubble-play:hover:not(:disabled),
+.bubble-play-on {
+  background: #ffe9a8;
+}
+.bubble-play:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.bubble-play:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .bubble-office {
   align-self: center;

@@ -1,6 +1,7 @@
 // Phone messages read aloud the moment they arrive (docs/voice.md): ElevenLabs' clip through sfx.ts's 'voice' group,
 // or the browser's own voice. One at a time and in order, other sounds ducked meanwhile, and one office tab per
-// message (voiceClaim.ts). The store loads this on the first message to speak, so it isn't in the main bundle. window.__swarmVoice records what was read, for QA and e2e.
+// message (voiceClaim.ts). The phone's ▶ replays a message here too, from its saved clip only (never a new synthesis).
+// The store loads this on the first message to speak, so it isn't in the main bundle. window.__swarmVoice records what was read, for QA and e2e.
 import { speechText } from '../../../shared/speech';
 import type { PhoneMessage, VoiceProvider } from '../../../shared/types';
 import { useStore } from '../store';
@@ -8,7 +9,7 @@ import { sliderGain } from './audioPrefs';
 import { holdMusicDuck } from './music';
 import { audio, chirp, duckOthers, getAudioPrefs, groupOutput, subscribeAudio } from './sfx';
 import { wonVoice } from './voiceClaim';
-import { enqueue, nextUp, type Queued } from './voiceQueue';
+import { enqueue, nextUp, type Queued, type ReplayKind } from './voiceQueue';
 
 /** One message read aloud, for window.__swarmVoice. Times are performance.now(); end is null while it plays. */
 export interface SpokenRecord {
@@ -18,6 +19,8 @@ export interface SpokenRecord {
   end: number | null;
   /** How loud it started (master × voice level, 0 while muted). */
   volume: number;
+  /** Replayed from the phone's ▶ (a saved clip, or the browser's voice again). */
+  replay?: true;
 }
 
 const spoken: SpokenRecord[] = [];
@@ -29,6 +32,7 @@ export function speakMessage(message: PhoneMessage, arrived: number, wait: numbe
     () => {
       if (!wonVoice(message.id)) return;
       queue = enqueue(queue, { message, arrived });
+      if (replaying) stopCurrent?.(); // a new message cuts a replay short
       void pump();
     },
     Math.max(0, arrived + wait - Date.now()),
@@ -40,6 +44,15 @@ export function speakMessage(message: PhoneMessage, arrived: number, wait: numbe
 let queue: Queued[] = [];
 let stopCurrent: (() => void) | null = null;
 let busy = false;
+let replayNext: { message: PhoneMessage; kind: Exclude<ReplayKind, 'gone'> } | null = null;
+let replaying = false;
+
+/** The phone's ▶: plays `message` again in this tab, stopping whatever is being read now. */
+export function replayMessage(message: PhoneMessage, kind: Exclude<ReplayKind, 'gone'>) {
+  replayNext = { message, kind };
+  stopCurrent?.();
+  void pump();
+}
 
 /** Stops the message being read (the HUD's speaking indicator); the next one waiting follows. */
 export function stopSpeaking() {
@@ -56,6 +69,13 @@ async function pump() {
   busy = true;
   try {
     for (;;) {
+      if (replayNext) {
+        const r = replayNext;
+        replayNext = null;
+        replaying = true;
+        await read(r.message, r.kind).finally(() => (replaying = false));
+        continue;
+      }
       const { next, rest } = nextUp(queue, Date.now());
       queue = rest;
       if (!next) break;
@@ -63,18 +83,21 @@ async function pump() {
     }
   } finally {
     busy = false;
+    replaying = false;
   }
 }
 
 let warned = false;
 
-async function read(m: PhoneMessage) {
+/** Reads a live message with the voice in the settings, or replays one (`replay`) the way the phone's ▶ chose. */
+async function read(m: PhoneMessage, replay?: Exclude<ReplayKind, 'gone'>) {
   const { settings, voiceKeySet } = useStore.getState();
-  const { provider, voiceName } = settings.voice;
+  const { voiceName } = settings.voice;
+  const provider = replay ? (replay === 'clip' ? 'elevenlabs' : 'browser') : settings.voice.provider;
   if (provider === 'off') return; // turned off while it waited
   const now: { rec: SpokenRecord | null; unduckMusic?: () => void } = { rec: null };
   const began = () => {
-    now.rec = { id: m.id, provider, start: performance.now(), end: null, volume: level() };
+    now.rec = { id: m.id, provider, start: performance.now(), end: null, volume: level(), ...(replay ? { replay: true as const } : {}) };
     spoken.push(now.rec);
     if (spoken.length > 50) spoken.splice(0, spoken.length - 50);
     useStore.setState({ voiceSpeaking: m.id });
@@ -83,9 +106,15 @@ async function read(m: PhoneMessage) {
   };
   try {
     if (provider === 'browser') await speak(speechText(m.text), voiceName, began);
+    else if (replay) await playClip(m.id, began, true);
     else if (!voiceKeySet) throw new Error('no ElevenLabs key is saved');
     else await playClip(m.id, began);
   } catch (err) {
+    // A replay whose clip went meanwhile (pruned or cleared) says so; the phone's ▶ follows the server's list.
+    if (replay) {
+      if (!now.rec) useStore.getState().pushToast('info', replay === 'clip' ? '🔇 Audio no longer saved' : "🔇 The browser couldn't speak this message");
+      return;
+    }
     // No key, ElevenLabs being down, no voice in this browser: the message still rings, just without words.
     if (!now.rec) chirp();
     if (!warned) {
@@ -105,40 +134,54 @@ async function read(m: PhoneMessage) {
 
 // ---------- ElevenLabs ----------
 
-/** Fetches the message's clip and plays it through the 'voice' group, so the master volume, M and its slider apply. */
-async function playClip(id: number, began: () => void) {
+/**
+ * Fetches the message's clip and plays it through the 'voice' group, so the master volume, M and its slider apply.
+ * `cached`: the phone's ▶, saved clips only (a 404 when they're gone), every part of a long message in order.
+ */
+async function playClip(id: number, began: () => void, cached = false) {
   let stopped = false;
-  stopCurrent = () => void (stopped = true);
-  const res = await fetch(`/api/voice/messages/${id}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.arrayBuffer();
-  if (stopped) return;
-  const a = audio();
-  const out = groupOutput('voice');
-  if (!a || !out) throw new Error('audio is unavailable');
-  const buffer = await a.ctx.decodeAudioData(data);
-  if (stopped) return;
-  const src = a.ctx.createBufferSource();
-  src.buffer = buffer;
-  src.connect(out);
-  await new Promise<void>((resolve) => {
-    // A suspended context (a background tab, a headless browser) never ends the clip: don't let it stall the queue.
-    const deadline = setTimeout(() => resolve(), (buffer.duration + 2) * 1000);
-    src.onended = () => {
-      clearTimeout(deadline);
-      resolve();
-    };
-    stopCurrent = () => {
-      try {
-        src.stop();
-      } catch {
-        resolve(); // never started
-      }
-    };
-    src.start();
-    began();
-  });
-  src.disconnect();
+  let end: (() => void) | null = null;
+  stopCurrent = () => {
+    stopped = true;
+    end?.();
+  };
+  for (let part = 0, parts = 1; part < parts; part++) {
+    const res = await fetch(cached ? `/api/voice/messages/${id}?cached=1&part=${part}` : `/api/voice/messages/${id}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    parts = Math.max(1, Number(res.headers.get('X-Voice-Parts')) || 1);
+    const data = await res.arrayBuffer();
+    if (stopped) return;
+    const a = audio();
+    const out = groupOutput('voice');
+    if (!a || !out) throw new Error('audio is unavailable');
+    const buffer = await a.ctx.decodeAudioData(data);
+    if (stopped) return;
+    const src = a.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(out);
+    await new Promise<void>((resolve) => {
+      // A suspended context (a background tab, a headless browser) never ends the clip: don't let it stall the queue.
+      const deadline = setTimeout(() => resolve(), (buffer.duration + 2) * 1000);
+      src.onended = () => {
+        clearTimeout(deadline);
+        resolve();
+      };
+      end = () => {
+        clearTimeout(deadline);
+        try {
+          src.stop();
+        } catch {
+          // never started
+        }
+        resolve();
+      };
+      src.start();
+      if (part === 0) began();
+    });
+    end = null;
+    src.disconnect();
+    if (stopped) return;
+  }
 }
 
 // ---------- the browser's voice ----------

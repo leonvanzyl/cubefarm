@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { PhoneMessage, VoiceSettings } from '../../../shared/types';
-import { claimWinner, enqueue, nextUp, speakable, VOICE_MAX_AGE_MS, type Queued } from './voiceQueue';
+import { claimWinner, enqueue, nextUp, replayKind, speakable, VOICE_MAX_AGE_MS, type Queued } from './voiceQueue';
 
 const NOW = 1_000_000_000;
 const msg = (id: number, from: PhoneMessage['from'] = 'ceo', at = NOW): PhoneMessage => ({ id, from, text: `message ${id}`, at });
-const voice = (patch: Partial<VoiceSettings> = {}): VoiceSettings => ({ provider: 'elevenlabs', voiceId: 'v', voiceName: 'V', model: 'm', speakOffice: false, ...patch });
+const voice = (patch: Partial<VoiceSettings> = {}): VoiceSettings => ({ provider: 'elevenlabs', voiceId: 'v', voiceName: 'V', model: 'm', speakOffice: false, keepDays: 7, ...patch });
 const q = (id: number, arrived = NOW, at = arrived): Queued => ({ message: msg(id, 'ceo', at), arrived });
 
 describe('speakable', () => {
@@ -92,5 +92,26 @@ describe('claimWinner', () => {
   it('a lone tab reads its own messages, background or not', () => {
     expect(claimWinner([claim('a', false)], W)).toBe('a');
     expect(claimWinner([], W)).toBeNull();
+  });
+});
+
+describe('replayKind', () => {
+  const m = (voice?: PhoneMessage['voice'], from: PhoneMessage['from'] = 'ceo'): PhoneMessage => ({ ...msg(1, from), ...(voice ? { voice } : {}) });
+
+  it("plays a saved clip, whoever read it and whatever the voice is now", () => {
+    expect(replayKind(m('elevenlabs'), true, true)).toBe('clip');
+    expect(replayKind(m(), true, false)).toBe('clip');
+  });
+
+  it("says a browser-voice message again, and disables an ElevenLabs one whose clip is gone", () => {
+    expect(replayKind(m('browser'), false, true)).toBe('browser');
+    expect(replayKind(m('browser'), false, false)).toBeNull();
+    expect(replayKind(m('elevenlabs'), false, true)).toBe('gone');
+  });
+
+  it('has no button for a message nobody read aloud, or for anyone but the CEO', () => {
+    expect(replayKind(m(), false, true)).toBeNull();
+    expect(replayKind(m('elevenlabs', 'office'), true, true)).toBeNull();
+    expect(replayKind(m(undefined, 'manager'), true, true)).toBeNull();
   });
 });
