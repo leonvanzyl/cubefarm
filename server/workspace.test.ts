@@ -33,7 +33,7 @@ await fs.writeFile(gitConfig, '[user]\n\tname = Sync Test\n\temail = sync-test@e
 process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
-const { leftoversInDesk, mainDir, syncMain: sync } = await import('./workspace.ts');
+const { fileList, leftoversInDesk, mainDir, overwrittenPaths, porcelainPaths, syncMain: sync } = await import('./workspace.ts');
 // Most tests only care about the status line.
 const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
 
@@ -123,10 +123,45 @@ describe('syncMain', { timeout: 60_000 }, () => {
     await fs.writeFile(path.join(r.dir, 'README.md'), '# My work in progress\n');
     const before = await head(r.dir);
     await pushUpstream(r);
-    expect(await syncMain(r.fullName, 'main', { touch: true })).toBe('1 behind: local changes');
+    expect(await syncMain(r.fullName, 'main', { touch: true })).toBe('1 behind: local changes in README.md');
     expect(await head(r.dir)).toBe(before);
     expect(await fs.readFile(path.join(r.dir, 'README.md'), 'utf8')).toBe('# My work in progress\n');
     expect(await git(['stash', 'list'], { cwd: r.dir })).toBe('');
+  });
+
+  it('names the first three changed files, then how many more', async () => {
+    const r = await makeRepos();
+    for (const f of ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt']) await commitFile(r.upstream, f, 'one\n');
+    await git(['push', '-q', 'origin', 'main'], { cwd: r.upstream });
+    await syncMain(r.fullName, 'main', { touch: true });
+    for (const f of ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt']) await fs.writeFile(path.join(r.dir, f), 'mine\n');
+    await pushUpstream(r);
+    expect(await syncMain(r.fullName, 'main', { touch: true })).toBe('1 behind: local changes in a.txt, b.txt, c.txt +2 more');
+  });
+
+  it('names the new path of a renamed file', async () => {
+    const r = await makeRepos();
+    await git(['mv', 'README.md', 'GUIDE.md'], { cwd: r.dir });
+    await pushUpstream(r);
+    expect(await syncMain(r.fullName, 'main', { touch: true })).toBe('1 behind: local changes in GUIDE.md');
+  });
+
+  it('names a changed file in a subfolder with forward slashes', async () => {
+    const r = await makeRepos();
+    await commitFile(r.upstream, path.join('src', 'app', 'main.ts'), 'one\n');
+    await git(['push', '-q', 'origin', 'main'], { cwd: r.upstream });
+    await syncMain(r.fullName, 'main', { touch: true });
+    await fs.writeFile(path.join(r.dir, 'src', 'app', 'main.ts'), 'mine\n');
+    await pushUpstream(r);
+    expect(await syncMain(r.fullName, 'main', { touch: true })).toBe('1 behind: local changes in src/app/main.ts');
+  });
+
+  it('names untracked files that are in the way', async () => {
+    const r = await makeRepos();
+    await fs.writeFile(path.join(r.dir, 'notes.txt'), 'my own notes\n');
+    await pushUpstream(r);
+    expect(await syncMain(r.fullName, 'main', { touch: true })).toBe('1 behind: local files are in the way: notes.txt');
+    expect(await fs.readFile(path.join(r.dir, 'notes.txt'), 'utf8')).toBe('my own notes\n');
   });
 
   it('leaves a checkout on another branch alone', async () => {
@@ -217,6 +252,37 @@ describe('syncMain', { timeout: 60_000 }, () => {
     expect(await syncMain(r.fullName, 'main', { touch: true })).toMatch(/^updated to \w+$/);
     expect(await head(r.dir)).toBe(await head(r.upstream));
     expect(await fs.readFile(path.join(r.dir, 'lines.txt'), 'utf8')).toBe('one\r\ntwo\r\n');
+  });
+});
+
+describe('blocking files', () => {
+  it('reads the paths from porcelain status, including a first line whose leading space was trimmed', () => {
+    const porcelain = ['M package-lock.json', 'MM README.md', 'M  src/app.ts', 'R  old name.md -> docs/new name.md', 'R  "a -> b.md" -> c.md'].join('\n');
+    expect(porcelainPaths(porcelain)).toEqual(['package-lock.json', 'README.md', 'src/app.ts', 'docs/new name.md', 'c.md']);
+    expect(porcelainPaths('')).toEqual([]);
+  });
+
+  it('reads the files a failed merge says it would overwrite', () => {
+    const stderr = [
+      'error: The following untracked working tree files would be overwritten by merge:',
+      '\tnotes.txt',
+      '\tsrc/new.ts',
+      'Please move or remove them before you merge.',
+      'Aborting',
+    ].join('\n');
+    expect(overwrittenPaths(stderr)).toEqual(['notes.txt', 'src/new.ts']);
+    expect(overwrittenPaths('fatal: Not possible to fast-forward, aborting.')).toEqual([]);
+  });
+
+  it('lists the first three, then how many more, in about 120 characters', () => {
+    expect(fileList(['a'])).toBe('a');
+    expect(fileList(['a', 'b', 'c'])).toBe('a, b, c');
+    expect(fileList(['a', 'b', 'c', 'd', 'e'])).toBe('a, b, c +2 more');
+    const long = `${'x'.repeat(70)}.ts`;
+    expect(fileList([long, long, long])).toBe(`${long} +2 more`);
+    const huge = fileList([`${'deep/'.repeat(40)}file.ts`]);
+    expect(huge.length).toBe(120);
+    expect(huge.endsWith('/file.ts')).toBe(true);
   });
 });
 
