@@ -7,6 +7,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import { indoorLight, newIndoorLight, newShadowBox, shadowBox } from './indoor';
 import { setLamps } from './lamps';
+import { setSunPatches } from './SunPatches';
 import { dayTime } from './useDayTime';
 
 /** How far from the office's middle the key light sits (beyond every corner of the floor). */
@@ -48,6 +49,7 @@ export function DayLights() {
     a.intensity = L.ambient;
     gl.toneMappingExposure = L.exposure;
     setLamps(L.lamps);
+    setSunPatches(L.dir, L.keyColor, L.keyIntensity);
   });
 
   return (

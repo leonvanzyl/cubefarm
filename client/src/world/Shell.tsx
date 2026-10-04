@@ -7,6 +7,7 @@ import { glow, shade, toon } from './materials';
 import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { Box } from './Toon';
 import { LampHalos } from './sky/lamps';
+import { SunPatches } from './sky/SunPatches';
 
 const WALL = '#fbf3e4';
 const INK = '#1f1d2b';
@@ -188,6 +189,7 @@ export function Shell({ kind, accent, floorColor }: { kind: FloorKind; accent: s
         <CeilingLight key={p.join()} position={p} />
       ))}
       <LampHalos positions={lights} />
+      <SunPatches kind={kind} />
 
       {/* walls */}
       <mesh position={[0, WALL_H / 2, -HALF_D - t / 2]} material={wall} receiveShadow>
