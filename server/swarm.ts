@@ -1413,6 +1413,8 @@ export class Swarm {
       cli?: string;
       hiredBy?: 'manager' | 'ceo';
       appearance?: { color: string; hair: string; skin: string };
+      /** Their id, when it's known before they're hired (a proposal's): their look is seeded from it. */
+      id?: string;
     },
   ) {
     const repo = this.repo(repoId);
@@ -1425,7 +1427,7 @@ export class Swarm {
     }
     const name = opts.name?.trim() || this.freeName(role);
     const agent: PersistedAgent = {
-      id: crypto.randomUUID(),
+      id: opts.id && !this.state.agents.some((a) => a.id === opts.id) ? opts.id : crypto.randomUUID(),
       name,
       repoId: repo.id,
       role,
@@ -3419,11 +3421,14 @@ export class Swarm {
     this.save();
   }
 
-  approveRequest(id: string, overrides: { name?: string; model?: string; effort?: string } = {}, by: 'manager' | 'auto' = 'manager') {
+  approveRequest(id: string, overrides: { name?: string; model?: string; effort?: string; note?: string } = {}, by: 'manager' | 'auto' = 'manager') {
     const req = this.state.requests.find((r) => r.id === id);
     if (!req) throw new HttpError(404, 'That proposal no longer exists');
     if (req.status !== 'pending') throw new HttpError(409, `That proposal was already ${req.status}`);
     const repo = this.repo(req.repoId);
+    // The manager's note (from the interview card) reaches the CEO as managerNote, as a decline's does.
+    const note = (overrides.note ?? '').trim().slice(0, 400);
+    const quoted = note ? ` Your note: "${note}"` : '';
     if (req.kind === 'hire') {
       const name = overrides.name?.trim() || req.name;
       const agent = this.hireAgent(repo.id, {
@@ -3437,20 +3442,22 @@ export class Swarm {
         brief: req.brief,
         hiredBy: 'ceo',
         appearance: { color: req.color, hair: req.hair, skin: req.skin },
+        // the proposal's id: the candidate waiting in the lobby was drawn from it, so they look the same at their desk
+        id: req.id,
       });
       req.agentId = agent.id;
       req.name = agent.name;
-      this.decide(req, { status: 'approved', note: '', decidedBy: by });
+      this.decide(req, { status: 'approved', note, decidedBy: by });
       this.postMessage(
         'office',
-        by === 'auto' ? `🤖 Auto-approved: ${agent.name} joined floor ${repo.floor} as ${req.title}.` : `✅ You hired ${agent.name} as ${req.title} on floor ${repo.floor}.`,
+        by === 'auto' ? `🤖 Auto-approved: ${agent.name} joined floor ${repo.floor} as ${req.title}.` : `✅ You hired ${agent.name} as ${req.title} on floor ${repo.floor}.${quoted}`,
         req.id,
       );
       this.toast('success', `${agent.name} (${req.title}) joined floor ${repo.floor}`);
       return;
     }
     const a = req.agentId ? this.state.agents.find((x) => x.id === req.agentId) : undefined;
-    this.decide(req, { status: 'approved', note: a ? '' : 'They had already left.', decidedBy: by });
+    this.decide(req, { status: 'approved', note: a ? note : 'They had already left.', decidedBy: by });
     if (a) {
       try {
         this.fireAgent(a.id);
@@ -3459,7 +3466,7 @@ export class Swarm {
         throw err;
       }
     }
-    this.postMessage('office', `👋 ${req.name} left floor ${repo.floor}${by === 'auto' ? ' (auto-approved)' : ''}.`, req.id);
+    this.postMessage('office', `👋 ${req.name} left floor ${repo.floor}${by === 'auto' ? ' (auto-approved)' : ''}.${a ? quoted : ''}`, req.id);
   }
 
   rejectRequest(id: string, note = '') {
@@ -3469,6 +3476,47 @@ export class Swarm {
     this.decide(req, { status: 'rejected', note: note.trim().slice(0, 400), decidedBy: 'manager' });
     const what = req.kind === 'hire' ? `${req.name} (${req.title})` : `letting ${req.name} go`;
     this.postMessage('office', `✋ You declined ${what}${req.note ? `: "${req.note}"` : '.'}`, req.id);
+  }
+
+  /**
+   * Demo only: the CEO proposes a hire for a free desk, or letting an idle developer go, right now (the demo office's
+   * Hires tab and __swarmHiring). It goes through the CEO's own proposal path: same checks, phone message and auto mode.
+   */
+  demoPropose(kind: unknown, floor?: unknown) {
+    const candidate = this.backend.demoCandidate;
+    if (!this.backend.demo || !candidate) throw new HttpError(404, 'Only the demo office makes up proposals');
+    if (kind !== 'hire' && kind !== 'let-go') throw new HttpError(400, 'kind must be "hire" or "let-go"');
+    const floors = [...this.state.repos].sort((x, y) => x.floor - y.floor).filter((r) => floor === undefined || floor === null || r.floor === Number(floor));
+    if (!floors.length) throw new HttpError(404, floor === undefined || floor === null ? 'There are no floors yet' : `There is no floor ${floor}`);
+    const pending = this.state.requests.filter((r) => r.status === 'pending');
+    const refuse = (err: unknown) => new HttpError(409, (err as Error).message);
+    if (kind === 'hire') {
+      for (const r of floors) {
+        const devs = this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev');
+        const hires = pending.filter((p) => p.kind === 'hire' && p.repoId === r.id);
+        if (devs.length + hires.filter((p) => p.role === 'dev').length >= MAX_DESKS.dev) continue;
+        const c = candidate(r.fullName, [...devs.map((a) => a.specialty), ...hires.map((p) => p.specialty)]);
+        if (!c) continue;
+        try {
+          return { text: this.proposeHire({ floor: r.floor, role: 'dev', ...c }) };
+        } catch (err) {
+          throw refuse(err);
+        }
+      }
+      throw new HttpError(409, 'No floor has both a free desk and a made-up candidate left');
+    }
+    for (const r of floors) {
+      const devs = this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev');
+      const idle = devs.filter((a) => FREE.includes(a.status) && !pending.some((p) => p.kind === 'let-go' && p.agentId === a.id));
+      const who = idle.sort((x, y) => y.desk - x.desk)[0];
+      if (!who) continue;
+      try {
+        return { text: this.proposeLetGo({ agent_id: who.id, reason: `Floor ${r.floor} has ${devs.length} developers and ${this.repoRt.get(r.id)?.issues.length ?? 0} open issues; ${who.name} has nothing on.` }) };
+      } catch (err) {
+        throw refuse(err);
+      }
+    }
+    throw new HttpError(409, 'Nobody idle to let go');
   }
 
   // ---------- the CEO's office tools ----------

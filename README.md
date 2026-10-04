@@ -32,7 +32,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 
 1. **Set up your company.** A short wizard asks your name, names your company and introduces your CEO.
 2. **Move in a project.** Pick one of your project folders or a GitHub repo, or start a new one. It gets its own floor. Every project needs to be on GitHub, because issues and pull requests are how the team works.
-3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires.
+3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires, or meet the candidates waiting in the lobby and interview them face to face.
 4. **Watch the work.** Developers pick up issues and open pull requests. QA testers review and test each one in a real browser, then post a report with screenshots. With auto-merge on, a pull request merges itself once QA passes and GitHub's checks are green.
 
 ## What's in the office

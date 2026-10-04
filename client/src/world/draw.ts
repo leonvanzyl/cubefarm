@@ -482,10 +482,10 @@ export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: nu
   };
   ctx.fillStyle = '#23263a';
   ctx.font = `700 40px ${SANS}`;
-  ctx.fillText(fit(`${name} · candidate`, w - 100), 80, h * 0.36);
+  ctx.fillText(fit(`Candidate: ${name}`, w - 100), 80, h * 0.36);
   ctx.fillStyle = '#5c6078';
   ctx.font = `600 28px ${SANS}`;
-  ctx.fillText(fit(`${title}${floor ? ` · floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
+  ctx.fillText(fit(`${title}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
 }
 
 export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, lines: { text: string; size: number; color?: string; weight?: number }[], bg: string, fg = '#ffffff') {

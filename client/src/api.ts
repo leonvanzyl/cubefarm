@@ -94,8 +94,10 @@ export const api = {
   messageCeo: (text: string) => call('POST', '/api/ceo/message', { text }),
   ceoReview: () => call('POST', '/api/ceo/review'),
   phoneRead: (at: number) => call('POST', '/api/phone/read', { at }),
-  approveRequest: (id: string, overrides: { name?: string; model?: string; effort?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
+  approveRequest: (id: string, overrides: { name?: string; model?: string; effort?: string; note?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
   rejectRequest: (id: string, note?: string) => call('POST', `/api/requests/${id}/reject`, { note }),
+  /** Demo office only: the CEO proposes a hire (or letting someone go) on demand. */
+  demoPropose: (kind: 'hire' | 'let-go', floor?: number) => call<{ text: string }>('POST', '/api/demo/proposals', { kind, floor }),
   /** Saves (or with '' removes) the ElevenLabs key. No toast: the settings show why a key was rejected. */
   setVoiceKey: (key: string) => call<{ voiceKeySet: boolean; voiceKeyHint: string }>('PUT', '/api/voice/key', { key }, false),
   voices: () => call<VoiceOption[]>('GET', '/api/voice/voices'),

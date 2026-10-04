@@ -71,6 +71,22 @@ describe('the doors on your floor', () => {
     expect(doorOpen('east')).toBe(0);
   });
 
+  it('opens for someone else on foot by it too (a candidate leaving the lobby), and shuts once they have gone', () => {
+    resetDoors('lobby', 0);
+    const lobbyDoor = SIDE_OPENINGS.lobby.east.door;
+    const sounds: [Side, boolean][] = [];
+    const moved = (side: Side, opening: boolean) => void sounds.push([side, opening]);
+    for (let i = 0; i < 60; i++) tickDoors(0, 0, DT, moved, [{ x: HALF_W - 0.6, z: lobbyDoor }]);
+    expect(doorOpen('east')).toBe(1);
+    expect(doorOpen('west')).toBe(0);
+    for (let i = 0; i < 60; i++) tickDoors(0, 0, DT, moved, []);
+    expect(doorOpen('east')).toBe(0);
+    expect(sounds).toEqual([
+      ['east', true],
+      ['east', false],
+    ]);
+  });
+
   it("blocks nothing once the floor's gone", () => {
     resetDoors('lobby', 0);
     expect(shutDoorways()).toHaveLength(2);

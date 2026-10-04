@@ -191,9 +191,18 @@ app.post('/api/ceo/review', route(() => swarm.requestReview()));
 app.post('/api/phone/read', route((req) => swarm.markPhoneRead(Number(req.body?.at) || Date.now())));
 app.post(
   '/api/requests/:id/approve',
-  route((req) => swarm.approveRequest(String(req.params.id), { name: str(req.body?.name) || undefined, model: typeof req.body?.model === 'string' ? req.body.model : undefined, effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined })),
+  route((req) =>
+    swarm.approveRequest(String(req.params.id), {
+      name: str(req.body?.name) || undefined,
+      model: typeof req.body?.model === 'string' ? req.body.model : undefined,
+      effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
+      note: str(req.body?.note),
+    }),
+  ),
 );
 app.post('/api/requests/:id/reject', route((req) => swarm.rejectRequest(String(req.params.id), str(req.body?.note))));
+// The demo office only: the CEO proposes a hire (or a let-go) on demand.
+app.post('/api/demo/proposals', route((req) => swarm.demoPropose(req.body?.kind, req.body?.floor)));
 
 // Serve the built client: the published package, or `npm start` after `npm run build`.
 const dist = path.resolve(import.meta.dirname, '../dist');

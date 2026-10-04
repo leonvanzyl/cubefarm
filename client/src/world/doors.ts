@@ -47,13 +47,21 @@ export function resetDoors(kind: FloorKind, floor: number, live = true) {
   for (const side of SIDES) Object.assign(doors[side], { open: 0, want: false, doorway: sideDoorway(kind, side) });
 }
 
-/** Steps both doors towards open or shut by where the player stands. Calls `moved` when one starts to open or close. */
-export function tickDoors(x: number, z: number, dt: number, moved: (side: Side, opening: boolean) => void) {
+/**
+ * Steps both doors towards open or shut by where the player stands, and anyone else on foot (`walkers`: a candidate
+ * leaving the lobby). Calls `moved` when one starts to open or close.
+ */
+export function tickDoors(x: number, z: number, dt: number, moved: (side: Side, opening: boolean) => void, walkers: Iterable<{ x: number; z: number }> = []) {
   player.x = x;
   player.z = z;
+  const near = (side: Side) => {
+    if (nearDoor(player.kind, side, x, z)) return true;
+    for (const w of walkers) if (nearDoor(player.kind, side, w.x, w.z)) return true;
+    return false;
+  };
   for (const side of SIDES) {
     const d = doors[side];
-    const want = nearDoor(player.kind, side, x, z);
+    const want = near(side);
     if (want !== d.want && (want ? d.open < 1 : d.open > 0)) moved(side, want);
     d.want = want;
     d.open = stepDoor(d.open, want, dt);

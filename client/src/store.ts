@@ -19,6 +19,8 @@ export type Overlay =
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string }
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
+  /** A proposal face to face: a candidate's interview in the lobby, or the CEO's let-go note on a desk. */
+  | { kind: 'interview'; requestId: string }
   | { kind: 'help' };
 
 export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';

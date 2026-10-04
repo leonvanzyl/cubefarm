@@ -80,6 +80,10 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
+  // a hired candidate (Candidates.tsx): the right hand out to shake, pumping (below), with a big smile
+  shake: { l: null, r: { pitch: -0.12, yaw: 0.15 }, head: 0.08 },
+  // a declined one: a polite nod (below)
+  nod: { l: null, r: null, head: -0.05 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -199,6 +203,7 @@ export function Character({
   chair,
   mug,
   carrying,
+  standAt = STAND,
   children,
 }: {
   agent: Agent;
@@ -206,6 +211,8 @@ export function Character({
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
   carrying?: ReactNode;
+  /** Where they step out to when they get up, in chair space (default: beside the chair). */
+  standAt?: { x: number; z: number };
   children?: ReactNode;
 }) {
   const torso = useRef<THREE.Group>(null);
@@ -231,10 +238,11 @@ export function Character({
   const held = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
   const handCup = useRef<THREE.Group>(null);
+  const mouth = useRef<THREE.Mesh>(null);
   const carried = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
-    () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
+    () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, nod: 0, smile: 0, l: { ...HANG }, r: { ...HANG } }),
     [],
   );
   // Their merge cheer (cheerSfx.ts): their own voice, whether they were cheering last frame and where their head is.
@@ -296,8 +304,8 @@ export function Character({
       st.seatX = te[12];
       st.seatZ = te[14];
       st.seatHeading = Math.atan2(te[8], te[10]);
-      st.standX = te[0] * STAND.x + te[8] * STAND.z + te[12];
-      st.standZ = te[2] * STAND.x + te[10] * STAND.z + te[14];
+      st.standX = te[0] * standAt.x + te[8] * standAt.z + te[12];
+      st.standZ = te[2] * standAt.x + te[10] * standAt.z + te[14];
       stepBody(st, goal ?? null, dt);
       const b = body.current;
       if (b && st.stage === 'seated') {
@@ -318,6 +326,9 @@ export function Character({
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
       if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'shake') move.r.pitch += Math.sin(t * 11) * 0.13;
+      move.nod = gesture === 'nod' ? -Math.max(0, Math.sin(t * 4.2)) * 0.38 : 0;
+      move.smile += ((gesture === 'shake' ? 1 : 0) - move.smile) * kg;
       if (gesture === 'talk') {
         move.r.pitch += Math.sin(t * 4.3) * 0.18;
         move.r.yaw += Math.sin(t * 2.6) * 0.2;
@@ -478,11 +489,12 @@ export function Character({
       const [tx, ty, tz] = TAG_SEATED;
       tag.current.position.set(tx * k, ty * k + (HIP.standY + look.height * 0.86 + 0.26) * up, tz * k);
     }
+    if (mouth.current) mouth.current.scale.set(1 + 0.6 * move.smile, 1 + 0.5 * move.smile, 1);
     if (head.current) {
       // Every few seconds, glance down at the keyboard; while setting up, look around.
       const glance = busy && Math.sin(t * 0.55 + 2) > 0.92 ? -0.22 : 0;
       const gaze = agent.status === 'preparing' ? Math.sin(t * 1.3) * 0.5 : Math.sin(t * 0.4) * 0.08;
-      const pitch = lerp(c.headPitch + glance + (busy ? Math.sin(t * 4.5) * 0.02 * burst : 0), o.pitch, o.pitchW * fw) * k + (Math.sin(t * 0.3) * 0.05 + move.gh) * up;
+      const pitch = lerp(c.headPitch + glance + (busy ? Math.sin(t * 4.5) * 0.02 * burst : 0), o.pitch, o.pitchW * fw) * k + (Math.sin(t * 0.3) * 0.05 + move.gh + move.nod) * up;
       const yaw = (gaze + c.headYaw + o.yaw * fw) * k + Math.sin(t * 0.4) * 0.15 * (1 - walk) * up;
       head.current.rotation.set(pitch + (h.headPitch - pitch) * h.w, yaw + (h.headYaw - yaw) * h.w, ((name === 'thinking' ? 0.12 : 0) + o.roll * fw) * k * (1 - h.w));
     }
@@ -646,7 +658,7 @@ export function Character({
             <mesh geometry={PARTS.ears} material={skin} />
             <mesh geometry={PARTS.eyes} material={dark} />
             <mesh position={[0, -0.02, -0.2]} geometry={PARTS.nose} material={toon(shade(agent.skin, -0.08))} />
-            <mesh position={[0, sad ? -0.1 : -0.075, -0.175]} rotation={[0.25, 0, sad ? 0 : Math.PI]} geometry={PARTS.mouth} material={dark} />
+            <mesh ref={mouth} position={[0, sad ? -0.1 : -0.075, -0.175]} rotation={[0.25, 0, sad ? 0 : Math.PI]} geometry={PARTS.mouth} material={dark} />
             {facialGeo && <mesh geometry={facialGeo} material={toon(look.facialHair === 'stubble' ? mix(agent.skin, agent.hair, 0.3) : agent.hair)} />}
             {feminine && (
               <>

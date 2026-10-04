@@ -45,6 +45,8 @@ You can message an agent at any time. While they're working, the message is inje
 
 ## The team
 
+When the CEO proposes a hire, the candidate waits in the lobby: six chairs by the glass door, each candidate looking as they will once hired, with their CV on their lap and a name tag (more than six: "+N waiting" on the sign). Press `E` on one to interview them: their title, specialty and floor, the CEO's reason as their pitch, the job description, model and effort, and a note the CEO reads. **Hire** and they shake your hand and take the elevator up to their floor, where they get a welcome tour (the coffee machine, the whiteboard and the gong, a teammate waving at each) before sitting down; if work comes in on the way, they go straight to their desk. **Decline** and they nod politely and leave by the door. A let-go the CEO proposes is an envelope on that person's desk. Deciding on the phone or in the manager's console works the same, and the people in the building react either way. In the demo office, Hires on the phone can send a candidate or a let-go on demand.
+
 Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
 
 ## Models and usage

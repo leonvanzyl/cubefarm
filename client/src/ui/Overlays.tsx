@@ -4,6 +4,7 @@ import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
 import { ElevatorPanel } from './ElevatorPanel';
+import { Interview } from './Interview';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
 import { Phone } from './Phone';
@@ -191,7 +192,7 @@ function Help() {
         <DaySettings />
         <h3>The building</h3>
         <p>
-          The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
+          The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the glass door. Walk up to one and press <kbd>E</kbd> to interview them: hire them and they shake your hand and take the elevator up to their floor for a welcome tour; decline and they leave by the door. When the CEO suggests letting someone go, an envelope waits on their desk. Every connected GitHub repo gets its own
           floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
         </p>
         <h3>Your phone</h3>
@@ -251,6 +252,8 @@ export function Overlays() {
       return <ElevatorPanel />;
     case 'manager':
       return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} />;
+    case 'interview':
+      return <Interview requestId={overlay.requestId} />;
     case 'help':
       return <Help />;
   }
