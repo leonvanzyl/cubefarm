@@ -271,7 +271,7 @@ export const BUILDING = {
   dist: 34,
   minFov: 30,
   maxFov: 100,
-  margin: 0.05,
+  margin: 0.12,
 };
 
 /** Ground and roof (relative to floor `floor`, which is at 0) of a tower whose top floor is `top`. */
