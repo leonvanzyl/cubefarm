@@ -1,15 +1,12 @@
 import { useStore } from '../../store';
 import { noise } from '../../ui/sfx';
 import { pullTrigger } from './gun';
+import { chargePower } from './throwing';
 
 // The player's hands. store.held says what is being carried; input (Player.tsx) charges and throws here,
 // and the toy world picks the throw up on its next physics step.
 
-/** Holding the throw button this long (ms) is still a tap, a gentle lob; by `full` the throw is at full power. */
-export const CHARGE = { tap: 150, full: 1000 };
-
-/** 0 for a tap up to 1 for a full charge. */
-export const chargePower = (ms: number) => Math.min(1, Math.max(0, (ms - CHARGE.tap) / (CHARGE.full - CHARGE.tap)));
+export { CHARGE, chargePower } from './throwing';
 
 /** The player's walking velocity in m/s, written by Player every frame, so a throw carries it. */
 export const walk = { x: 0, z: 0 };
