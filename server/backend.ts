@@ -45,7 +45,10 @@ export interface Backend {
   prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string): Promise<string>;
   /** npm ci in a prepared desk unless nothing changed since the last one; never throws (see deps.ts installDesk). */
   installDeps(dir: string, cb: DepsCallbacks): Promise<DepsOutcome>;
-  removeDesk(fullName: string, agentSlug: string): Promise<void>;
+  /** `main`: the floor's checkout as it was when the desk was let go (default: mainDir now). */
+  removeDesk(fullName: string, agentSlug: string, main?: string): Promise<void>;
+  /** Remove desks, stray desk folders and finished swarm/qa branches nothing in `keep` uses. */
+  sweepDesks(fullName: string, keep: workspace.SweepKeep): Promise<workspace.SweepResult>;
   /** Stop processes an agent left running (dev servers on its port, anything started in its desk). */
   releaseDesk(fullName: string, agentSlug: string, port: number): Promise<void>;
   /** An agent session: the real CLI in the agent's terminal when opts.terminal is set, else an Agent SDK session. */
@@ -97,6 +100,7 @@ export const realBackend: Backend = {
   prepareDesk: workspace.prepareDesk,
   installDeps: (dir, cb) => installDesk(dir, cb),
   removeDesk: workspace.removeDesk,
+  sweepDesks: workspace.sweepDesks,
   releaseDesk: (fullName, agentSlug, port) => workspace.releaseDesk(fullName, agentSlug, port, officeProcesses()),
   startSession: (opts, cb) => (opts.terminal ? startCliSession(opts, cb) : startSession(opts, cb)),
   terminals: terminalsAvailable,

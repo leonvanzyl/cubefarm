@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PLAYER_RADIUS, type Rect } from '../layout';
 import type { ToyFloor } from './balls';
-import { NAV_R, ROOMBA, clear, createRoomba, dockFor, makeNav, planPath, roombaRects, roombaStatus, segmentClear, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba, type RoombaEnv, type RoombaState } from './roombaBrain';
+import { FULL, NAV_R, ROOMBA, ROOMBA_EVENT, clear, createRoomba, dockFor, makeNav, planPath, roombaRects, roombaStatus, segmentClear, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba, type RoombaEnv, type RoombaState } from './roombaBrain';
 
 const DT = 1 / 60;
 const FLOORS: ToyFloor[] = ['office', 'lobby'];
@@ -159,5 +159,44 @@ describe('a whole cycle', () => {
     expect(cells.size).toBeGreaterThan(25);
     // and after its 30 s charge it went out again
     expect(r.state).not.toBe('charging');
+  });
+
+  it('flags leaving, heading home, docking, a full charge and bumps as they happen', () => {
+    const e = env('office');
+    const r = createRoomba(e.dock, 42);
+    const order: string[] = [];
+    let bumps = 0;
+    for (let i = 0; i < 60 * 60 * 5; i++) {
+      const state = r.state;
+      stepRoomba(r, DT, e);
+      for (const [name, bit] of Object.entries(ROOMBA_EVENT)) {
+        if (!(r.events & bit)) continue;
+        if (name === 'bump') bumps++;
+        else if (name !== 'stuck') order.push(name);
+      }
+      if (r.events & ROOMBA_EVENT.leave) expect([state, r.state]).toEqual(['charging', 'leaving']);
+      if (r.events & ROOMBA_EVENT.home) expect([state, r.state]).toEqual(['cleaning', 'returning']);
+      if (r.events & ROOMBA_EVENT.dock) expect([state, r.state]).toEqual(['docking', 'charging']);
+      if (r.events & ROOMBA_EVENT.full) expect(r.battery).toBeGreaterThanOrEqual(FULL);
+      r.events = 0;
+    }
+    expect(order.slice(0, 6)).toEqual(['full', 'leave', 'home', 'dock', 'full', 'leave']);
+    expect(bumps).toBeGreaterThan(3);
+  });
+
+  it('flags getting stuck', () => {
+    const s = NAV_R + 0.01;
+    const box: Rect[] = [
+      { minX: -1, maxX: 1, minZ: -1, maxZ: -s },
+      { minX: -1, maxX: 1, minZ: s, maxZ: 1 },
+      { minX: -1, maxX: -s, minZ: -1, maxZ: 1 },
+      { minX: s, maxX: 1, minZ: -1, maxZ: 1 },
+    ];
+    const e: RoombaEnv = { nav: makeNav(box), dock: dockFor('office'), player: null };
+    const r = cleaning(e.dock, 0, 0, 0);
+    r.move = 'turn';
+    r.turnLeft = 1000;
+    for (let i = 0; i < 60 * 6; i++) stepRoomba(r, DT, e);
+    expect(r.events & ROOMBA_EVENT.stuck).toBeTruthy();
   });
 });

@@ -6,6 +6,7 @@ import { useStore, type Held } from '../../store';
 import { dartCount, stuckDartCount } from './darts';
 import { reactionCount } from './hits';
 import { looseMugs, takeNewMug, type LooseMug } from './mugs';
+import { sipping } from './sipping';
 import { vacuumedCount } from './vacuum';
 
 export interface ToyBallState {
@@ -36,6 +37,8 @@ export interface ToysSnapshot {
   vacuumed: number;
   /** Coffee mugs lying loose on this floor, with the sips (0-3) left in each. A mug in hand shows in `held`. */
   mugs: LooseMug[];
+  /** Whether a sip (or the last big gulp) of the mug in hand is under way. */
+  sipping: boolean;
 }
 
 export interface HoopScore {
@@ -54,7 +57,7 @@ export interface ToyRoombaState {
   spins: number;
 }
 
-type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop' | 'roomba' | 'darts' | 'dartsStuck' | 'reactions' | 'vacuumed' | 'mugs'>;
+type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop' | 'roomba' | 'darts' | 'dartsStuck' | 'reactions' | 'vacuumed' | 'mugs' | 'sipping'>;
 
 let source: Source | null = null;
 let hoop: (() => HoopScore) | null = null;
@@ -91,7 +94,7 @@ function snapshot(): ToysSnapshot {
   } catch {
     // being torn down
   }
-  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null, roomba, darts: dartCount(), dartsStuck: stuckDartCount(), reactions: reactionCount(), vacuumed: vacuumedCount(), mugs: safeMugs() };
+  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null, roomba, darts: dartCount(), dartsStuck: stuckDartCount(), reactions: reactionCount(), vacuumed: vacuumedCount(), mugs: safeMugs(), sipping: sipping() };
   try {
     if (source) return { ...source(), ...hands };
   } catch {

@@ -3,7 +3,6 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { CuboidCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../../store';
-import { noise } from '../../ui/sfx';
 import { drawSign } from '../draw';
 import { useInteractable } from '../interact';
 import { BLASTER_RACK, HALF_D, elevatorDoorway } from '../layout';
@@ -11,7 +10,9 @@ import { shade, toon } from '../materials';
 import { WallSign } from '../OfficeFloor';
 import { Box, Cyl } from '../Toon';
 import { escaped, type ToyFloor } from './balls';
-import { BLASTERS, DART_CAP, reloadProgress, setDartSource, sticks, toEvict, type BlasterDef } from './darts';
+import { blasterClatter, dartSound } from './blasterSfx';
+import { LANDING_SOUNDS, dartImpact, dartSurface, heardSurface, landingSpeed, type DartSurface } from './blasterSounds';
+import { BLASTERS, DART_CAP, FLOOR_Y, reloadProgress, setDartSource, sticks, toEvict, type BlasterDef } from './darts';
 import { kick, resetBlasters, takeShot } from './gun';
 import { walk } from './hands';
 
@@ -136,9 +137,21 @@ function LooseBlaster({ def, spot, groups, onLost }: { def: BlasterDef; spot: Ex
   const ref = useInteractable<THREE.Group>({ id: `toy:${def.id}`, label: 'Pick up blaster', action: { kind: 'pickup', toyId: def.id } }, TAKE_RANGE);
   const body = useRef<RapierRigidBody>(null);
   const tick = useRef(0);
-  // Safety net, like the balls: a blaster that got out of the building goes back on the rack.
+  const fall = useRef({ vy: 0, landings: 0 });
   useAfterPhysicsStep(() => {
     const b = body.current;
+    // The first bounces after a drop clatter where it lands.
+    const f = fall.current;
+    if (b && f.landings < LANDING_SOUNDS.blaster && !b.isSleeping()) {
+      const vy = b.linvel().y;
+      const speed = landingSpeed(f.vy, vy);
+      f.vy = vy;
+      if (speed !== null) {
+        f.landings++;
+        blasterClatter(b.translation(), Math.min(1, speed / 3.5));
+      }
+    }
+    // Safety net, like the balls: a blaster that got out of the building goes back on the rack.
     if (++tick.current % 15 || !b || b.isSleeping()) return;
     if (escaped(b.translation())) onLost();
   });
@@ -183,13 +196,39 @@ interface Dart {
   color: THREE.Color;
   state: 'flying' | 'loose' | 'stuck';
   dir: THREE.Vector3;
+  /**
+   * For its sounds: its speed in flight, what its look-ahead ray last met and how many steps ago it met someone, its
+   * vertical speed while loose, and landings heard.
+   */
+  speed: number;
+  ahead: DartSurface | null;
+  sincePerson: number;
+  vy: number;
+  landings: number;
 }
 
 /** A dart that hit something falls and rolls like any other toy. */
 function tumble(d: Dart) {
+  const impact = dartImpact('glance', heardSurface(d.ahead, d.sincePerson, 'furniture'), d.speed);
+  if (impact) dartSound(impact.sound, d.body.translation(), impact.gain);
+  d.vy = d.body.linvel().y;
   d.state = 'loose';
   d.body.setGravityScale(1, true);
   d.body.setLinearDamping(0.3);
+}
+
+/** A tumbling dart's first few landings patter on the floor, or tick on whatever else catches it. */
+function listenForLanding(d: Dart) {
+  const b = d.body;
+  if (d.landings >= LANDING_SOUNDS.dart || b.isSleeping()) return;
+  const vy = b.linvel().y;
+  const speed = landingSpeed(d.vy, vy);
+  d.vy = vy;
+  if (speed === null) return;
+  d.landings++;
+  const at = b.translation();
+  const impact = dartImpact('land', at.y < FLOOR_Y ? 'floor' : 'furniture', speed);
+  if (impact) dartSound(impact.sound, at, impact.gain);
 }
 
 function Darts({ groups }: { groups: number }) {
@@ -301,7 +340,7 @@ function Darts({ groups }: { groups: number }) {
         rapier.ColliderDesc.capsule(DART.half, DART.r).setDensity(DART.density).setRestitution(0.35).setFriction(0.9).setCollisionGroups(groups),
         body,
       );
-      darts.current.push({ id: nextId.current++, born: performance.now(), body, color: new THREE.Color(def.foam), state: 'flying', dir: v.clone() });
+      darts.current.push({ id: nextId.current++, born: performance.now(), body, color: new THREE.Color(def.foam), state: 'flying', dir: v.clone(), speed: DART.speed, ahead: null, sincePerson: Infinity, vy: 0, landings: 0 });
     },
     [camera, castFrom, groups, rapier, remove, tmp, world],
   );
@@ -315,7 +354,8 @@ function Darts({ groups }: { groups: number }) {
       b.setTranslation(point.addScaledVector(n, DART.tip - DART.embed), false);
       b.setRotation(tmp.q.setFromUnitVectors(UP, n.negate()), false);
       d.state = 'stuck';
-      noise({ dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 700, q: 1.5, group: 'toys' });
+      const impact = dartImpact('stick', heardSurface(d.ahead, d.sincePerson, 'wall'), d.speed);
+      if (impact) dartSound(impact.sound, point, impact.gain);
     },
     [rapier, tmp, world],
   );
@@ -324,6 +364,7 @@ function Darts({ groups }: { groups: number }) {
     for (let id = takeShot(); id; id = takeShot()) spawn(id);
     const { v, n, p, q } = tmp;
     for (const d of [...darts.current]) {
+      if (d.state === 'loose') listenForLanding(d);
       if (d.state !== 'flying') continue;
       const b = d.body;
       const lv = b.linvel();
@@ -342,6 +383,19 @@ function Darts({ groups }: { groups: number }) {
       ray.origin = at;
       ray.dir = v;
       const hit = world.castRayAndGetNormal(ray, speed * STEP + DART.tip, true, undefined, groups, undefined, b);
+      d.speed = speed;
+      if (hit) {
+        const c = hit.collider;
+        const body = c.parent();
+        d.ahead = dartSurface({
+          fixed: !!body?.isFixed(),
+          tag: body?.userData,
+          halfHeight: c.shapeType() === rapier.ShapeType.Cuboid ? c.halfExtents().y : null,
+          normalY: hit.normal.y,
+          y: at.y + v.y * hit.timeOfImpact,
+        });
+      } else d.ahead = null;
+      d.sincePerson = d.ahead === 'person' ? 0 : d.sincePerson + 1;
       if (!hit || !hit.collider.parent()?.isFixed()) continue;
       p.set(at.x, at.y, at.z).addScaledVector(v, hit.timeOfImpact);
       const inDoorway = p.x > DOOR.minX && p.x < DOOR.maxX && p.z > DOOR.minZ - 0.05; // the doorway only exists for toys
@@ -351,7 +405,7 @@ function Darts({ groups }: { groups: number }) {
     // Safety net: a dart that somehow left the building is gone.
     if (++tick.current % 15) return;
     for (const d of [...darts.current]) if (d.state !== 'stuck' && escaped(d.body.translation())) remove(d);
-  }, [groups, ray, remove, spawn, stick, tmp, world]);
+  }, [groups, rapier, ray, remove, spawn, stick, tmp, world]);
   useBeforePhysicsStep(step);
 
   useFrame(() => {
