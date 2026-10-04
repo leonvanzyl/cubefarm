@@ -9,6 +9,7 @@ import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../o
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { LiveTerminal } from './LiveTerminal';
+import { MicButton } from './MicButton';
 import { OpsTab } from './MissionConsole';
 import { NotifySettings } from './NotifySettings';
 import { Panel } from './Overlays';
@@ -260,6 +261,11 @@ function CeoTab() {
   if (!ceo) return <p className="muted">The corner office is empty.</p>;
   const working = ceo.status === 'working';
   const pending = pendingRequests(requests);
+  const send = (t: string) => {
+    if (!t.trim()) return;
+    setText('');
+    void attempt(() => api.messageCeo(t));
+  };
   const decided = requests.filter((r) => r.status !== 'pending').slice(-6).reverse();
   return (
     <div className="tab-grid">
@@ -305,13 +311,11 @@ function CeoTab() {
             className="row"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!text.trim()) return;
-              const t = text;
-              setText('');
-              void attempt(() => api.messageCeo(t));
+              send(text);
             }}
           >
             <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${ceo.name} (or press P anywhere for your phone)…`} />
+            <MicButton kind="console" value={text} onChange={setText} onSend={send} />
             <button className="btn" disabled={!text.trim()}>
               Send
             </button>
@@ -679,6 +683,10 @@ function SettingsTab() {
         <label className="field">
           <span>Company name</span>
           <input defaultValue={settings.companyName} placeholder="cubefarm" onBlur={(e) => e.target.value !== settings.companyName && set({ companyName: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>The office dog's name</span>
+          <input key={settings.dogName} defaultValue={settings.dogName} placeholder="Biscuit" maxLength={24} onBlur={(e) => e.target.value.trim() !== settings.dogName && set({ dogName: e.target.value })} />
         </label>
         <label className="field">
           <span>Projects folder (new projects are created here)</span>

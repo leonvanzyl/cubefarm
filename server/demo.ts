@@ -1193,7 +1193,10 @@ const demoVoices = [
   { id: 'demoVoiceCleo000003', name: 'Cleo', category: 'premade', labels: { accent: 'australian', gender: 'female', age: 'young', description: 'friendly', use_case: 'conversational' }, previewUrl: null },
 ];
 
-/** No network: any key works except one containing "bad", three voices, and a chime for every message. */
+/** What the demo's Speech to Text hears in any recording (docs/voice.md). */
+export const DEMO_TRANSCRIPT = "What's everyone working on?";
+
+/** No network: any key works except one containing "bad", three voices, a chime for every message, and one fixed transcript. */
 const demoVoice: VoiceApi = {
   checkKey: async (key) => {
     if (/bad/i.test(key)) throw new VoiceApiError(401, '401: invalid_api_key (demo)');
@@ -1202,6 +1205,10 @@ const demoVoice: VoiceApi = {
   synthesize: async (_key, { text, voiceId }) => {
     await new Promise((r) => setTimeout(r, 300));
     return demoChime(text.length, voiceId);
+  },
+  transcribe: async () => {
+    await new Promise((r) => setTimeout(r, 400));
+    return DEMO_TRANSCRIPT;
   },
 };
 

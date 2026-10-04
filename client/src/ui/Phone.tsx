@@ -4,6 +4,8 @@ import { floorPrCounts, isBusy, pendingRequests, unreadMessages, useStore, type 
 import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
+import { MicButton } from './MicButton';
+import { handsFreeProblem, setHandsFree } from './mic';
 import { closeOverlay } from './Panel';
 import { Games, type GameId } from './games/Games';
 import { replayKind } from './voiceQueue';
@@ -158,6 +160,26 @@ function ReplayButton({ m }: { m: PhoneMessage }) {
 
 const QUICK = ["What's everyone working on?", 'Do we need anyone new?', 'Plan the next milestone for the busiest floor.'];
 
+/** The hands-free conversation's switch: after the CEO's spoken reply, the phone listens for up to 8 s. */
+function HandsFreeToggle({ ceoName }: { ceoName: string }) {
+  const listen = useStore((s) => s.settings.listen);
+  useStore((s) => `${s.voiceKeySet}:${s.settings.voice.provider}`); // handsFreeProblem() follows the key and the voice
+  if (!listen || listen.provider === 'off') return null;
+  const on = listen.handsFree;
+  const why = handsFreeProblem(ceoName);
+  return (
+    <button
+      type="button"
+      className={`hands-free ${on ? 'hands-free-on' : ''}`}
+      aria-pressed={on}
+      title={on ? `Hands-free is on: after ${ceoName}'s spoken reply the phone listens for up to 8 s and sends what you say. Esc or M closes the mic.` : why || `Hands-free: talk with ${ceoName} without touching anything`}
+      onClick={() => void setHandsFree(!on, ceoName)}
+    >
+      🎧 {on ? 'Hands-free on' : 'Hands-free'}
+    </button>
+  );
+}
+
 function Bubble({ m, ceoName }: { m: PhoneMessage; ceoName: string }) {
   const req = useStore((s) => (m.requestId ? s.requests.find((r) => r.id === m.requestId) : undefined));
   if (m.from === 'office') return <div className="bubble-office">{m.text}</div>;
@@ -228,6 +250,7 @@ export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
           <b>{ceo.name}</b> <span className="muted small">CEO</span>
           <div className={`small ${ceo.status === 'working' ? 'presence-busy' : 'muted'}`}>{presence}</div>
         </div>
+        <HandsFreeToggle ceoName={ceo.name} />
       </div>
       <div className="chat-log" ref={scroller}>
         {messages.length === 0 && (
@@ -263,6 +286,7 @@ export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
         }}
       >
         <MessageBox value={text} onChange={setText} placeholder={`Message ${ceo.name}…`} aria-label={`Message ${ceo.name}`} title="Enter sends · Shift+Enter adds a new line" autoFocus={autoFocus} />
+        <MicButton kind="phone" value={text} onChange={setText} onSend={send} />
         <button className="btn btn-small btn-good" disabled={!text.trim()}>
           Send
         </button>
@@ -439,6 +463,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
   const messages = useStore((s) => s.messages);
   const readAt = useStore((s) => s.phoneReadAt);
   const ceoName = useStore((s) => s.agents[CEO_ID]?.name ?? 'CEO');
+  const listenOn = useStore((s) => (s.settings.listen?.provider ?? 'off') !== 'off');
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 20_000);
@@ -501,6 +526,11 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
           {tab === 'chat' && (
             <>
               <kbd>Shift</kbd>+<kbd>Enter</kbd> new line ·{' '}
+              {listenOn && (
+                <>
+                  <kbd>V</kbd> to talk ·{' '}
+                </>
+              )}
             </>
           )}
           {tab === 'games' && game && (
