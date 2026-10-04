@@ -206,3 +206,18 @@ test('__swarmSfx records sounds, fading and panning with where you stand', async
   const left = await ping(v.x - right.x * 3, v.z - right.z * 3);
   expect(left.pan).toBeLessThan(-0.5);
 });
+
+test('the roomba beeps from its dock as it heads out', async ({ page }) => {
+  await enterOffice(page);
+  // It starts on its dock nearly charged: a full-charge tune, then two beeps as it backs off. Both are recorded (and
+  // positional, in the toys group) even when it's too far away to hear.
+  const leave = () =>
+    page.evaluate(() => {
+      const w = window as unknown as { __swarmSfx: { name: string; group: string | null; at: unknown }[] };
+      return w.__swarmSfx.find((r) => r.name === 'roomba:leave') ?? null;
+    });
+  await expect.poll(leave, { timeout: 60_000, intervals: [250] }).not.toBeNull();
+  const rec = (await leave())!;
+  expect(rec.group).toBe('toys');
+  expect(rec.at).not.toBeNull();
+});
