@@ -144,8 +144,18 @@ test('interact rebound to F works, shows everywhere and survives a reload', asyn
   await expect(panel).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
-  await enterOffice(page); // a reload
-  await expect(page.locator('.hud-hint kbd').first()).toHaveText('F');
-  await page.keyboard.press('f');
-  await expect(panel).toBeVisible();
+  // A reload, as a second tab: navigating this one away can abort a request in flight, which the fixture counts as a
+  // failure. Same browser storage, same checks for errors.
+  const baseURL = test.info().project.use.baseURL!;
+  await page.context().route((url) => !url.href.startsWith(baseURL) && !url.protocol.startsWith('data'), (route) => route.fulfill({ status: 200, body: '' }));
+  const again = await page.context().newPage();
+  const problems: string[] = [];
+  again.on('console', (m) => void (m.type() === 'error' && problems.push(m.text())));
+  again.on('pageerror', (e) => void problems.push(e.message));
+  await enterOffice(again);
+  await expect(again.locator('.hud-hint kbd').first()).toHaveText('F');
+  await again.keyboard.press('f');
+  await expect(again.getByText(/Manager's console/)).toBeVisible();
+  expect(problems, 'console errors after the reload').toEqual([]);
+  await again.close();
 });
