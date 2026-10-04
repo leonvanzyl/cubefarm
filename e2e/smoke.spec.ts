@@ -178,6 +178,67 @@ test('holding W walks forward', async ({ page }) => {
   expect(to.yaw).toBeCloseTo(from.yaw); // W walks, it doesn't turn
 });
 
+test('the coffee machine fills a mug you put under it', async ({ page }) => {
+  // Floor 1's kitchenette (east wall): stand in front of the coffee machine, looking down at its drip tray.
+  const spot: SavedView = { floor: 1, x: 14.75, z: 5.9, yaw: -Math.PI / 2, pitch: -0.83 };
+  await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(spot)] as const);
+  await enterOffice(page);
+  const coffee = () => page.evaluate(() => (window as unknown as { __swarmCoffee: { state: string; mug: { sips: number } | null } }).__swarmCoffee);
+  const held = () => page.evaluate(() => (window as unknown as { __swarmToys: { held: unknown } }).__swarmToys.held);
+  const act = (op: string) => page.evaluate((o) => (window as unknown as { __swarmCoffeeDo(op: string): void }).__swarmCoffeeDo(o), op);
+
+  await act('brew'); // no mug: nothing happens
+  expect((await coffee()).state).toBe('empty');
+
+  await page.evaluate(() => (window as unknown as { __swarmGiveMug(sips: number): void }).__swarmGiveMug(0));
+  await expect(page.getByText('Put mug under the machine')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('e');
+  await expect.poll(async () => (await coffee()).state).toBe('mugPlaced');
+  expect(await held()).toBeNull();
+
+  await act('brew');
+  expect((await coffee()).state).toBe('brewing');
+  await expect.poll(async () => (await coffee()).state, { timeout: 15_000 }).toBe('ready');
+  await expect(page.getByText('Take coffee')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('e');
+  await expect.poll(held).toMatchObject({ kind: 'mug', sips: 3 });
+  expect((await coffee()).state).toBe('empty');
+
+  const sounds = await page.evaluate(() => (window as unknown as { __swarmSfx: { name: string; group: string | null; at: unknown }[] }).__swarmSfx.filter((s) => s.name.startsWith('coffee-')));
+  expect(sounds.map((s) => s.name)).toEqual(expect.arrayContaining(['coffee-nope', 'coffee-mug', 'coffee-button']));
+  expect(sounds.every((s) => s.group === 'toys' && s.at)).toBe(true);
+});
+
+test('__swarmSfx records sounds, fading and panning with where you stand', async ({ page }) => {
+  type Rec = { name: string; at: { x: number } | null; gain: number; pan: number; played: boolean };
+  const ping = (x: number, z: number) =>
+    page.evaluate(([px, pz]) => {
+      const w = window as unknown as { __swarmSfxPing: (x: number, y: number, z: number) => void; __swarmSfx: Rec[] };
+      w.__swarmSfxPing(px, 1.2, pz);
+      return w.__swarmSfx[w.__swarmSfx.length - 1];
+    }, [x, z]);
+
+  // Before any click or key press nothing plays, but the probe still records it.
+  await page.goto('/');
+  const locked = await ping(0, 0);
+  expect(locked.name).toBe('ping');
+  expect(locked.played).toBe(false);
+
+  await enterOffice(page);
+  await expect.poll(() => savedView(page)).not.toBeNull(); // frames have run, so the listener follows the camera
+  const v = (await savedView(page))!;
+  const right = { x: Math.cos(v.yaw), z: -Math.sin(v.yaw) }; // the camera's right, at yaw 0 it's +x
+  const at = (d: number) => ping(v.x + right.x * d, v.z + right.z * d);
+  const [near, mid, far] = [await at(2), await at(8), await at(30)];
+  expect(near.gain).toBeGreaterThan(mid.gain);
+  expect(mid.gain).toBeGreaterThan(0);
+  expect(far.gain).toBe(0); // beyond hearing: culled
+  expect(far.played).toBe(false);
+  expect(near.pan).toBeGreaterThan(0.5);
+  const left = await ping(v.x - right.x * 3, v.z - right.z * 3);
+  expect(left.pan).toBeLessThan(-0.5);
+});
+
 test("working agents type at their desks, and stop while a panel covers the view", async ({ page }) => {
   // The middle of floor 1, where the demo's developers are busy.
   const spot: SavedView = { floor: 1, x: 0, z: -7, yaw: 0, pitch: 0.15 };
@@ -186,7 +247,7 @@ test("working agents type at their desks, and stop while a panel covers the view
   const entered = await page.evaluate(() => performance.now());
   type Vec = { x: number; y: number; z: number };
   type Entry = { name: string; group: string; at: Vec | null; played: boolean; from: Vec | null; t: number };
-  const typing = () => page.evaluate(() => ((window as unknown as { __swarmSfx?: Entry[] }).__swarmSfx ?? []).filter((e) => e.group === 'typing'));
+  const typing = () => page.evaluate(() => ((window as unknown as { __swarmTyping?: Entry[] }).__swarmTyping ?? []).filter((e) => e.group === 'typing'));
   await expect.poll(async () => (await typing()).filter((e) => e.t > entered).length, { message: 'typing sounds', timeout: 60_000 }).toBeGreaterThan(0);
   // Every keystroke comes from someone's keyboard or mouse on this floor.
   const desks = [

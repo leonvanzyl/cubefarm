@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useStore } from '../store';
 import { keyboardFor } from '../ui/keyboards';
-import { TYPING_CHANNELS, TYPING_RANGE, moveListener, placeTypingChannel, typingGeneration, typingSound } from '../ui/typingSfx';
+import { TYPING_CHANNELS, TYPING_RANGE, placeTypingChannel, typingGeneration, typingSound } from '../ui/typingSfx';
 import {
   TAP_PHASE,
   assignSlots,
@@ -57,7 +57,6 @@ export function TypingSounds() {
   );
 
   useFrame(() => {
-    moveListener(camera.matrixWorld.elements);
     const s = useStore.getState();
     const now = performance.now();
     // Silent while the elevator travels; the next floor starts fresh.

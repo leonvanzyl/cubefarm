@@ -9,6 +9,7 @@ import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Player } from './Player';
 import { Lights } from './Shell';
+import { SoundListener } from './SoundListener';
 import { TypingSounds } from './TypingSounds';
 
 function Travel() {
@@ -60,6 +61,7 @@ export function Game() {
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Player colliders={colliders} floor={floor} />
       <Travel />
+      <SoundListener />
       <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />

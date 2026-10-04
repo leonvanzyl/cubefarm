@@ -32,6 +32,13 @@ export function HeldHint() {
   const chargeAt = useStore((s) => s.chargeAt);
   if (!held) return null;
   if (held.kind === 'blaster') return <BlasterHud held={held} />;
+  if (held.kind === 'mug') {
+    return (
+      <div className="hud-hint hud-held">
+        ☕ {held.sips > 0 ? `${held.sips} ${held.sips === 1 ? 'sip' : 'sips'} left` : 'Empty mug'} · <kbd>G</kbd> drop
+      </div>
+    );
+  }
   return (
     <>
       {chargeAt !== null && <ChargeMeter at={chargeAt} />}
