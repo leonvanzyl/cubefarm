@@ -93,7 +93,8 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
 function NameTag({ agent }: { agent: Agent }) {
   const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color]);
   return (
-    <Billboard position={[0, 1.98, -0.32]}>
+    // placed by Character, which carries it about with the person
+    <Billboard>
       <mesh>
         <planeGeometry args={[1.15, 0.216]} />
         <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
@@ -243,6 +244,7 @@ export function Desk({
   const mug = agent ? shade(agent.color, 0.1) : '#ffffff';
   const top = qa ? LAB_BENCH : WOOD;
   const chair = qa ? QA_ORANGE : accent;
+  const chairRef = useRef<THREE.Group>(null);
   return (
     <group ref={ref} position={position} rotation={[0, rotationY, 0]}>
       {/* desk */}
@@ -262,7 +264,6 @@ export function Desk({
           <LiveMonitor agent={agent} accent={accent} />
           <Keyboard />
           <Cyl r={0.045} h={0.1} position={[0.76, 0.82, 0.02]} color={mug} outline />
-          <NameTag agent={agent} />
         </>
       ) : (
         <VacantMonitor accent={accent} qa={qa} />
@@ -282,14 +283,20 @@ export function Desk({
         </>
       )}
 
-      {/* chair */}
-      <group position={[0, 0, agent ? 0.8 : 0.6]}>
+      {/* chair (it rolls back when its owner gets up) */}
+      <group ref={chairRef} position={[0, 0, agent ? 0.8 : 0.6]}>
         <Box size={[0.52, 0.08, 0.5]} position={[0, 0.44, 0]} color={chair} outline />
         <Box size={[0.48, 0.42, 0.07]} position={[0, 0.72, 0.28]} color={chair} outline />
         <Cyl r={0.035} h={0.36} position={[0, 0.22, 0]} color="#444a5c" />
         <Cyl r={0.26} h={0.04} position={[0, 0.03, 0]} color="#444a5c" />
-        {agent && <Character agent={agent} />}
       </group>
+      {agent && (
+        <group position={[0, 0, 0.8]}>
+          <Character key={agent.id} agent={agent} chair={chairRef}>
+            <NameTag agent={agent} />
+          </Character>
+        </group>
+      )}
     </group>
   );
 }

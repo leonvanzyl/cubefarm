@@ -253,11 +253,16 @@ function build<K extends string, V>(keys: readonly K[], make: (k: K) => V) {
 
 export const PARTS = {
   // body
-  // both legs (thighs + shins) as one mesh: legs never move, so this saves draw calls on every character
+  // both legs (thighs + shins) as one mesh while seated, when they don't move: saves draw calls on every character
   legs: merge(
     ...[-0.11, 0.11].flatMap((x) => [xf(capsule(0.08, 0.26), { at: [x, 0.5, -0.17], rot: [Math.PI / 2, 0, 0] }), xf(capsule(0.07, 0.3), { at: [x, 0.27, -0.36] })]),
   ),
   shoes: merge(...[-0.11, 0.11].map((x) => xf(box(0.13, 0.09, 0.22), { at: [x, 0.05, -0.42] }))),
+  // one leg for standing and walking, the same pieces as above: a thigh hanging from the hip (hip-space), and a
+  // shin and shoe hanging from the knee (knee-space, 0.32 below the hip)
+  thigh: xf(capsule(0.08, 0.26), { at: [0, -0.13, 0] }),
+  shin: xf(capsule(0.07, 0.3), { at: [0, -0.23, 0] }),
+  shoe: xf(box(0.13, 0.09, 0.22), { at: [0, -0.45, -0.06] }),
   torso: capsule(0.2, 0.24, 8, 16),
   collar: new THREE.TorusGeometry(0.1, 0.03, 8, 20),
   sleeve: capsule(0.065, 0.36, 6, 12),
