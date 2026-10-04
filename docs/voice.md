@@ -42,7 +42,7 @@ What a message costs: on ElevenLabs' API pricing, Flash costs about **$0.04 per 
 and v3: $0.08). A typical CEO update is 300–800 characters of speech once markdown, emoji and links are stripped,
 so about **1–3 cents**; the office never speaks more than about 1,500 characters of one message (about 6 cents). On a
 subscription plan the same text uses credits from your monthly allowance instead. Each message is synthesized once and
-cached (`<SWARM_HOME>/voice/`, at most 200 clips or 7 days), so replaying it is free. The settings' **Test** button
+cached (`<SWARM_HOME>/voice/`, at most 200 clips, kept 7 days by default), so replaying it is free. The settings' **Test** button
 speaks one short line (about 60 characters) and caches it too.
 
 ## Shortlisted voices
@@ -84,7 +84,21 @@ each message (the one you're looking at, if any).
 The **Voice** slider in the sound settings (help, **H**) sets its level under the master volume, and **M** mutes it
 like every other sound. Other office sounds dip by about 8 dB while a message is spoken. A 🔊 on the phone icon shows
 it's speaking; click it to stop. If the clip can't be fetched (no key, ElevenLabs down), you hear the usual message
-chirp instead. `window.__swarmVoice` lists the messages read aloud (`id`, `provider`, `start`, `end`, `volume`).
+chirp instead. `window.__swarmVoice` lists the messages read aloud (`id`, `provider`, `start`, `end`, `volume`, and
+`replay: true` for a replay).
+
+## Replaying a message
+
+Every CEO message that was read aloud has a ▶ in the phone chat. It plays the clip saved when the message first
+arrived, never a new one: `clips.json` in the cache folder records which clips belong to which message, so a message
+keeps its clip after you pick another voice or model. A message read by the browser's voice is said again by the
+browser (free). While it plays the button shows ⏹; replaying stops whatever is being read, and a new message stops a
+replay. When a clip has been deleted, the ▶ is greyed out with "Audio no longer saved". Messages that arrived with the
+voice off have no button.
+
+The cache is tidied when the office starts and on its housekeeping timer (every 15 minutes): clips older than
+**Keep voice clips for N days** (Settings → Voice, 1–90, default 7) go, then the oldest beyond 200, but the clips of the
+newest 20 CEO messages always stay. Settings → Voice also shows the cache's size and has **Clear saved clips**.
 
 ## API
 
@@ -93,11 +107,15 @@ chirp instead. `window.__swarmVoice` lists the messages read aloud (`id`, `provi
 | `PUT /api/voice/key` `{ key }` | checks and saves the key; `""` removes it. 400 if ElevenLabs rejects it |
 | `GET /api/voice/voices` | `[{ id, name, category, labels: { accent, gender, age, description, use_case }, previewUrl, recommended }]`, cached 10 minutes; 409 without a key |
 | `GET /api/voice/messages/:id` | `audio/mpeg` for a CEO message (or an office note with Speak office notes on); 404 when the voice isn't ElevenLabs or there's no such message, 502 when ElevenLabs fails |
+| `GET /api/voice/messages/:id?cached=1&part=N` | the phone's ▶: part N of the message's saved clips (`X-Voice-Parts` says how many), or 404 when none is saved. Never calls ElevenLabs |
+| `DELETE /api/voice/cache` | deletes every saved clip |
 | `GET /api/voice/sample?voiceId=…` | the Test line in that voice (default: the chosen one) |
 
 Settings travel in `settings.voice` (`PATCH /api/settings`): `{ provider: 'off' | 'browser' | 'elevenlabs', voiceId,
-voiceName, model, speakOffice }`. The snapshot has `voiceKeySet` and `voiceKeyHint`, and a `voiceKey` event follows
-every key change. One clip is made at a time (20 s timeout); requests for a clip that's being made share that call.
+voiceName, model, speakOffice, keepDays }`. The snapshot has `voiceKeySet`, `voiceKeyHint` and `voiceCache`
+(`{ clips, bytes, saved }`, `saved` being the message ids the ▶ can replay); a `voiceKey` event follows every key change
+and a `voiceCache` event every change to the cache. A phone message's `voice` says who read it when it arrived. One clip is made at a time (20 s timeout); requests for a clip that's being made share that call.
 
 The demo office (`--demo`) fakes all of it with no network: any key except one containing "bad" is accepted, there are
-three voices, and every message is a short generated chime (a WAV).
+three voices, and every message is a short generated chime (a WAV), pitched by the voice, cached and replayed like a
+real clip. The server logs `voice: made a new clip …` for every clip it makes.
