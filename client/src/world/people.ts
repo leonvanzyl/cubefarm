@@ -38,6 +38,9 @@ export function trackBody(id: string, s: BodyState) {
   };
 }
 
+/** Everyone drawn on the current floor, by agent id. */
+export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
+
 /** Someone's live body (where they are now), while they're drawn on the current floor. */
 export const bodyState = (id: string) => live.get(id);
 
@@ -58,8 +61,57 @@ export function trackDirector(report: () => unknown) {
 /** In their chair and staying there (nobody told to get up, not rising, walking or sitting back down). */
 export const isSeated = (id: string) => !targets.has(id) && (live.get(id)?.stage ?? 'seated') === 'seated';
 
-/** Everyone drawn on the current floor, by agent id. */
-export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
+// ---------- mugs ----------
+
+/** A mug someone holds, or one they left on their desk (until `until`, a Date.now() time). */
+export interface PersonMug {
+  id: string;
+  sips: number;
+}
+
+const hands = new Map<string, PersonMug>();
+const desks = new Map<string, PersonMug & { until: number }>();
+const mugListeners = new Set<() => void>();
+const changed = () => {
+  for (const fn of mugListeners) fn();
+};
+
+/** Character.tsx and Desk.tsx redraw when someone's mugs change (rarely: a mug taken, a sip, back at the desk). */
+export function subscribeMugs(fn: () => void) {
+  mugListeners.add(fn);
+  return () => void mugListeners.delete(fn);
+}
+
+/** The mug in someone's hand; null for none. */
+export const handMug = (id: string) => hands.get(id) ?? null;
+
+export function setHandMug(id: string, mug: PersonMug | null) {
+  if (mug) hands.set(id, mug);
+  else hands.delete(id);
+  changed();
+}
+
+/** A coffee someone brought back to their desk, while it's still there. */
+export function deskMug(id: string, now = Date.now()) {
+  const d = desks.get(id);
+  return d && d.until > now ? d : null;
+}
+
+export function setDeskMug(id: string, mug: PersonMug, seconds: number) {
+  desks.set(id, { ...mug, until: Date.now() + seconds * 1000 });
+  changed();
+}
+
+// ---------- errands asked for by hand ----------
+
+const asks = new Map<string, string>();
+
+/** The errand someone was sent on through the probe, once (the director takes it). */
+export function takeAsk(id: string) {
+  const name = asks.get(id);
+  asks.delete(id);
+  return name;
+}
 
 const round = (n: number) => Math.round(n * 100) / 100;
 const modeOf = (s: BodyState): BodyMode => (s.stage === 'seated' ? 'seated' : s.speed > 0.05 ? 'walking' : 'standing');
@@ -95,7 +147,13 @@ const probe = {
       speed: round(s.speed),
       errand: busy.get(id) ?? null,
       target: targets.get(id) ?? null,
+      mug: hands.get(id) ?? null,
+      deskMug: deskMug(id),
     }));
+  },
+  /** Sends someone seated on an errand by name ('coffee', 'stretch') as soon as the rules and the cap allow. */
+  send(id: string, errand: string) {
+    asks.set(id, errand);
   },
   /** The errand director on this floor: how many are away, the cap, who is queued. Null on a floor without one. */
   errands() {

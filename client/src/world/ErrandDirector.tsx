@@ -3,7 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber';
 import type { AgentStatus } from '../../../shared/types';
 import { useRenderPaused } from '../perf';
 import type { Agent } from '../store';
-import { WALK_SPEED } from './body';
+import { WALK_SPEED, type Gesture } from './body';
+import './coffeeErrand';
 import {
   HURRY_SPEED,
   admit,
@@ -24,9 +25,10 @@ import {
   spotChoices,
   wanted,
   type Errand,
+  type ErrandActor,
   type Queued,
 } from './errands';
-import { bodyState, bodyTarget, seatBody, setBody, setErrand, trackDirector } from './people';
+import { bodyState, bodyTarget, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
 
@@ -54,6 +56,10 @@ interface Person {
   step: number;
   stepLeft: number;
   hurry: boolean;
+  /** Runs an errand with an `act` once there; the spot it last sent them to, and whether they've got there. */
+  actor: ErrandActor | null;
+  walking: string | null;
+  arrived: boolean;
   /** Seconds held up behind another walker, and seconds left walking through them once that lasted too long. */
   waited: number;
   ghost: number;
@@ -61,7 +67,7 @@ interface Person {
 
 const TICK = 0.5; // seconds between "who wants to go?" checks
 const CARROT = 0.8; // how far ahead (m) a steered walker aims
-const GIVE_UP = { leaving: 45, returning: 60 }; // seconds before a walk that got stuck is cut short
+const GIVE_UP = { leaving: 45, returning: 60, acting: 180 }; // seconds before a walk (or an actor) that got stuck is cut short
 
 export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Agent[] }) {
   const camera = useThree((s) => s.camera);
@@ -109,12 +115,17 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
         step: 0,
         stepLeft: 0,
         hurry: false,
+        actor: null,
+        walking: null,
+        arrived: false,
         waited: 0,
         ghost: 0,
       });
     }
-    for (const id of people.keys()) {
+    for (const [id, p] of people) {
       if (seen.has(id)) continue;
+      p.actor?.abort();
+      p.actor?.end(false);
       seatBody(id);
       setErrand(id, null);
       people.delete(id);
@@ -124,7 +135,8 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
   // Leaving the floor: everyone back in their chair for next time.
   useEffect(
     () => () => {
-      for (const id of people.keys()) {
+      for (const [id, p] of people) {
+        p.actor?.end(false);
         seatBody(id);
         setErrand(id, null);
       }
@@ -145,6 +157,7 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
           errand: p.errand?.name ?? null,
           spot: p.dest?.id ?? null,
           hurry: p.hurry,
+          doing: p.actor && 'stage' in p.actor ? p.actor.stage : null,
           queued: p.queue.map((q) => q.name),
           restlessIn: p.phase === 'seated' ? Math.max(0, Math.round(p.restless - (run.clock - p.seatedAt))) : null,
         })),
@@ -162,12 +175,16 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     p.errand = null;
     p.dest = null;
     p.hurry = false;
+    p.actor?.end(true);
+    p.actor = null;
     report(p);
   };
 
   const start = (p: Person, e: Errand): boolean => {
+    if (e.max !== undefined && [...people.values()].filter((o) => o.errand?.name === e.name).length >= e.max) return false;
     const taken = new Set<string>();
-    for (const o of people.values()) if (o.dest) taken.add(o.dest.id);
+    // An errand with an actor shares its spots and takes turns there itself (coffee: a line at the machine).
+    if (!e.act) for (const o of people.values()) if (o.dest) taken.add(o.dest.id);
     const ids = spotChoices(e.spot, w.spots.map((s) => s.id), taken);
     const dest = pickSpot(ids.map((id) => spotById(w, id)!), p.home, Math.random());
     const path = dest && findPath(w, p.home, dest);
@@ -196,16 +213,16 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
   };
 
   /** One frame along the path; true once at its end (stopped there, for the errand's spot). */
-  const follow = (p: Person, x: number, z: number, speed: number, stop: boolean, dt: number): boolean => {
+  const follow = (p: Person, x: number, z: number, speed: number, stop: boolean, dt: number, hands?: Gesture): boolean => {
     p.wp = nextWaypoint(p.path, p.wp, { x, z });
     const goal = p.path[p.wp];
     const last = p.wp === p.path.length - 1;
     const dx = goal.x - x;
     const dz = goal.z - z;
     const d = Math.hypot(dx, dz);
-    const gesture = p.phase === 'returning' && !p.hurry ? (p.errand?.carry ?? 'none') : 'none';
+    const gesture = hands ?? (p.phase === 'returning' && !p.hurry ? (p.actor?.carry ?? p.errand?.carry ?? 'none') : 'none');
     if (last && (stop ? d < 0.08 && (bodyState(p.id)?.speed ?? 0) < 0.05 : d < PASS)) return true;
-    const face = last && p.dest && p.phase === 'leaving' ? headingFor(p.dest.facing) : Math.atan2(-dx, -dz);
+    const face = last && p.dest && p.phase !== 'returning' ? headingFor(p.dest.facing) : Math.atan2(-dx, -dz);
     let tx = goal.x;
     let tz = goal.z;
     let sp = speed;
@@ -238,6 +255,41 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     return false;
   };
 
+  /** One frame of an errand's actor: walk where it says, stand how it says, or head home when it's done. */
+  const act = (p: Person, actor: ErrandActor, st: Pt, long: number, dt: number) => {
+    const ask = long > GIVE_UP.acting ? 'done' : actor.step(run.clock, p.arrived);
+    if (ask === 'done') {
+      if (long > GIVE_UP.acting) actor.abort();
+      goHome(p, false, st);
+      return;
+    }
+    if ('walk' in ask && ask.walk !== p.walking) {
+      const to = spotById(w, ask.walk);
+      if (!to) {
+        actor.abort();
+        goHome(p, false, st);
+        return;
+      }
+      p.walking = ask.walk;
+      p.dest = to;
+      p.path = findPath(w, st, to) ?? [{ x: to.x, z: to.z }];
+      p.wp = 0;
+      p.arrived = false;
+      p.waited = p.ghost = 0;
+      report(p);
+    }
+    if ('walk' in ask && !p.arrived) {
+      p.arrived = follow(p, st.x, st.z, WALK_SPEED, true, dt, ask.gesture);
+      return;
+    }
+    const gesture = 'walk' in ask ? ask.gesture : ask.stand;
+    const d = p.dest;
+    const t = bodyTarget(p.id);
+    if (d && (t?.mode !== 'standing' || t.gesture !== gesture || t.x !== d.x || t.z !== d.z)) {
+      setBody(p.id, { mode: 'standing', x: d.x, z: d.z, heading: headingFor(d.facing), gesture });
+    }
+  };
+
   useFrame((_, delta) => {
     const dt = run.fresh ? 0 : Math.min(delta, 0.1);
     run.fresh = false;
@@ -265,7 +317,10 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
       if (!st) continue; // not drawn yet
       const e = p.errand;
       // Work came in: hurry back and sit down.
-      if (e && !p.hurry && (p.phase === 'leaving' || p.phase === 'there') && !mayContinue(a.status, e)) goHome(p, true, st);
+      if (e && !p.hurry && (p.phase === 'leaving' || p.phase === 'there') && !mayContinue(a.status, e)) {
+        p.actor?.abort();
+        goHome(p, true, st);
+      }
       const long = run.clock - p.phaseAt;
       switch (p.phase) {
         case 'leaving': {
@@ -275,11 +330,20 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
             p.phaseAt = run.clock;
             p.step = -1;
             p.stepLeft = 0;
+            if (e.act) {
+              p.actor = e.act(p.id);
+              p.walking = p.dest.id;
+              p.arrived = true;
+            }
             report(p);
           }
           break;
         }
         case 'there': {
+          if (p.actor) {
+            act(p, p.actor, st, long, dt);
+            break;
+          }
           p.stepLeft -= dt;
           if (p.stepLeft > 0 || !e || !p.dest) break;
           p.step++;
@@ -316,6 +380,8 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
       const a = byId.get(p.id);
       if (!a || p.phase !== 'seated') continue;
       if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
+      const ask = takeAsk(p.id);
+      if (ask && errandNamed(ask) && mayStart(a.status, errandNamed(ask)!)) p.queue = enqueue(p.queue, ask, run.clock);
       const state = { floor, statusFor: run.clock - p.statusAt, seatedFor: run.clock - p.seatedAt, restless: p.restless };
       for (const e of wanted(errands(), a, state)) p.queue = enqueue(p.queue, e.name, run.clock);
       const kept = prune(p.queue, run.clock, (n) => {
