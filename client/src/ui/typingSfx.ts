@@ -5,7 +5,7 @@
 // window.__swarmTyping (like __swarmSfx, which a busy floor would otherwise flood), even while audio is locked or
 // unavailable, with where its panner really was (`from`).
 
-import { audio, createPanner, groupOutput, recordSfx, setPannerPosition, type SfxRecord, type Vec3 } from './sfx';
+import { audio, createPanner, groupOutput, occlusionAt, recordSfx, setPannerPosition, type SfxRecord, type Vec3 } from './sfx';
 import { KEYBOARDS, MOUSE_CLICK, WHEEL_NOTCH, renderKey, type KeySound } from './keyboards';
 import { MAX_DISTANCE } from './sfxMix';
 
@@ -25,9 +25,10 @@ const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
 const log: SfxRecord[] = [];
 if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__swarmTyping = log;
 
-function record(name: string, at: Vec3, peak: number, panner?: PannerNode) {
+function record(name: string, at: Vec3, peak: number, panner: PannerNode | undefined, occluded: boolean) {
   const rec = recordSfx(name, { group: 'typing', pos: at, peak, played: !!panner }, log);
   rec.from = panner?.positionX ? { x: panner.positionX.value, y: panner.positionY.value, z: panner.positionZ.value } : null;
+  if (occluded) rec.occluded = true;
 }
 
 // ---------- the mixer chain ----------
@@ -106,9 +107,11 @@ export function placeTypingChannel(channel: number, at: Vec3): boolean {
  */
 export function typingSound(channel: number, name: TypingSound, keyboard: number, variation: number, delay: number, at: Vec3) {
   const kb = KEYBOARDS[keyboard];
-  const gain = KEY_GAIN * GAIN[name] * (name === 'click' || name === 'scroll' ? 1 : kb.level) * (0.8 + variation * 0.35);
+  // Heard from the elevator or a balcony, through the wall: quieter and duller.
+  const occ = occlusionAt(at);
+  const gain = KEY_GAIN * GAIN[name] * (name === 'click' || name === 'scroll' ? 1 : kb.level) * (0.8 + variation * 0.35) * (occ?.gain ?? 1);
   const c = getChain();
-  record(name, at, gain, c?.channels[channel]);
+  record(name, at, gain, c?.channels[channel], !!occ);
   if (!c) return;
   try {
     const src = c.ctx.createBufferSource();
@@ -117,7 +120,15 @@ export function typingSound(channel: number, name: TypingSound, keyboard: number
     src.playbackRate.value = 0.94 + variation * 0.12;
     const g = c.ctx.createGain();
     g.gain.value = gain;
-    src.connect(g).connect(c.channels[channel]);
+    let dest: AudioNode = c.channels[channel];
+    if (occ) {
+      const f = c.ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = occ.cutoff;
+      f.connect(dest);
+      dest = f;
+    }
+    src.connect(g).connect(dest);
     src.start(c.ctx.currentTime + Math.max(0, delay));
   } catch {
     // audio is optional

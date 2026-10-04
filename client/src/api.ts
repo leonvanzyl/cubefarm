@@ -80,7 +80,8 @@ export const api = {
   updateAgent: (id: string, patch: { name?: string; model?: string; effort?: string; cli?: AgentCli | ''; look?: 'feminine' | 'masculine'; title?: string; specialty?: string; brief?: string }) =>
     call('PATCH', `/api/agents/${id}`, patch),
   fireAgent: (id: string) => call('DELETE', `/api/agents/${id}`),
-  assign: (id: string, issueNumber: number, note?: string) => call('POST', `/api/agents/${id}/assign`, { issueNumber, note }),
+  /** waitForDeps: refuse an issue that still waits for open ones, as the whiteboard's stickies do. */
+  assign: (id: string, issueNumber: number, note?: string, waitForDeps?: boolean) => call('POST', `/api/agents/${id}/assign`, { issueNumber, note, waitForDeps }),
   stop: (id: string) => call('POST', `/api/agents/${id}/stop`),
   reset: (id: string) => call('POST', `/api/agents/${id}/reset`),
   message: (id: string, text: string) => call('POST', `/api/agents/${id}/message`, { text }),
