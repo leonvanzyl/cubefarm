@@ -5,6 +5,7 @@ import { drawSky } from './draw';
 import { useCanvasTexture } from './interact';
 import { glow, shade, toon } from './materials';
 import { Box } from './Toon';
+import { LampHalos } from './sky/lamps';
 
 const WALL = '#fbf3e4';
 
@@ -101,6 +102,7 @@ export function Shell({
       {lights.map((p) => (
         <CeilingLight key={p.join()} position={p} />
       ))}
+      <LampHalos positions={lights} />
 
       {/* walls */}
       <mesh position={[0, WALL_H / 2, -HALF_D - t / 2]} material={wall} receiveShadow>
@@ -146,28 +148,5 @@ export function Shell({
         <Window key={`e${z}`} position={[HALF_W - 0.02, 1.95, z]} rotationY={-Math.PI / 2} width={5.5} seed={seed * 5 + i + 7} />
       ))}
     </group>
-  );
-}
-
-export function Lights() {
-  return (
-    <>
-      <hemisphereLight args={['#fffaf0', '#a48a6a', 0.95]} />
-      <ambientLight intensity={0.18} />
-      <directionalLight
-        position={[9, 14, 7]}
-        intensity={1.55}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-18}
-        shadow-camera-right={18}
-        shadow-camera-top={14}
-        shadow-camera-bottom={-14}
-        shadow-camera-near={1}
-        shadow-camera-far={40}
-        shadow-bias={-0.0006}
-        shadow-normalBias={0.03}
-      />
-    </>
   );
 }
