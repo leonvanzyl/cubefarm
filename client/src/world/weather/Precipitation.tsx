@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { MAX_DPR } from '../../perf';
-import { BALCONY_OUT, HALF_D, WALL_T } from '../layout';
+import { BALCONY_OUT, HALF_D, ROOF_HUT, WALL_T } from '../layout';
 import { nightFactor, skyAt, type SkyPalette } from '../sky/time';
 import { dayTime } from '../sky/useDayTime';
 import { seeded, weatherSky } from './weatherRules';
@@ -21,6 +21,8 @@ const AHEAD = 12;
 const MAX = { rain: 1200, snow: 1400 };
 /** The building and its balconies: no rain or snow in there. */
 const HOLE = new THREE.Vector2(BALCONY_OUT - 0.1, HALF_D + WALL_T + 0.05);
+/** The hut over the elevator on the roof (and the cabin under it): dry inside. */
+const HUT = new THREE.Vector4(ROOF_HUT.minX - 0.1, ROOF_HUT.maxX + 0.1, ROOF_HUT.minZ - 0.1, ROOF_HUT.maxZ + 0.1);
 /** The weather's clock wraps after this many seconds, so the shader's float maths stays precise all day. */
 const WRAP = 600;
 
@@ -30,6 +32,9 @@ uniform vec3 uCam;
 uniform vec3 uEye;
 uniform vec3 uBox;
 uniform vec2 uHole;
+uniform float uRoof;
+uniform vec4 uHut;
+uniform float uHutTop;
 uniform float uGround;
 uniform float uTime;
 uniform float uFall;
@@ -50,7 +55,10 @@ void main() {
   // faded out at the box's edges, and right in front of your eyes, where a streak would fill the screen
   float near = length(p - uEye);
   vAlpha = (1.0 - smoothstep(0.65, 1.0, max(d.x, max(d.y, d.z)))) * smoothstep(3.0, 6.0, near);
-  if ((abs(p.x) < uHole.x && abs(p.z) < uHole.y) || p.y < uGround || vAlpha <= 0.0) {
+  // the building's column is dry below its roof; up on the roof, only the hut is
+  bool inside = abs(p.x) < uHole.x && abs(p.z) < uHole.y && p.y < uRoof;
+  bool hut = p.x > uHut.x && p.x < uHut.y && p.z > uHut.z && p.z < uHut.w && p.y < uHutTop;
+  if (inside || hut || p.y < uGround || vAlpha <= 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
@@ -125,7 +133,8 @@ void main() {
 
 const palette = {} as SkyPalette;
 
-export function Precipitation({ elevation }: { elevation: number }) {
+/** `elevation`: how far your floor is above the street; `roof`: how far the roof deck is above your floor (0 up there). */
+export function Precipitation({ elevation, roof, onRoof }: { elevation: number; roof: number; onRoof: boolean }) {
   const gl = useThree((s) => s.gl);
   const stuff = useMemo(() => {
     const make = (count: number, seed: number) => {
@@ -148,6 +157,9 @@ export function Precipitation({ elevation }: { elevation: number }) {
           uEye: { value: new THREE.Vector3() },
           uBox: { value: BOX },
           uHole: { value: HOLE },
+          uRoof: { value: 0 },
+          uHut: { value: HUT },
+          uHutTop: { value: -1e5 },
           uGround: { value: 0 },
           uTime: { value: 0 },
           uFall: { value: 9 },
@@ -225,6 +237,8 @@ export function Precipitation({ elevation }: { elevation: number }) {
       (u.uCam.value as THREE.Vector3).copy(stuff.centre);
       (u.uEye.value as THREE.Vector3).copy(camera.position);
       u.uGround.value = -elevation;
+      u.uRoof.value = roof;
+      u.uHutTop.value = onRoof ? ROOF_HUT.h + 0.2 : -1e5;
       u.uTime.value = t;
       (u.uWind.value as THREE.Vector2).set(windX * (snow ? 0.5 : 1), windZ * (snow ? 0.5 : 1));
       (u.uColor.value as THREE.Color).copy(stuff.color);

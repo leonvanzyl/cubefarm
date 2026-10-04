@@ -1,11 +1,12 @@
 import { useStore } from '../../store';
 import { noise, tone, type Vec3 } from '../../ui/sfx';
 import { dropMug } from './mugs';
-import { cuesDue, planFor, pose, type SipCue, type SipPlan } from './sip';
+import { biteFor, cuesDue, planFor, pose, type SipCue, type SipPlan } from './sip';
 
 // Drinking the coffee in your hands: E starts a sip (Player.tsx), Player ticks it every frame, and the first-person
 // mug (MugToys.tsx) and the camera read `sipPose`. The timings are in sip.ts. Outside the lazily loaded toy chunk, so
-// sips still count down when the physics engine isn't there; walking carries on throughout.
+// sips still count down when the physics engine isn't there; walking carries on throughout. A sausage from the roof's
+// grill is eaten the same way, bite by bite (roof/HeldSausage.tsx draws it).
 
 let sip: { plan: SipPlan; mugId: string; start: number; next: number } | null = null;
 
@@ -31,6 +32,13 @@ const sounds: Record<SipCue, (pos?: Vec3) => void> = {
     noise({ ...TOYS, name: 'mug-ahh', dur: 0.65, peak: 0.07, filter: 'bandpass', freq: 1200, to: 700, q: 1.3, attack: 0.05 });
     tone({ ...TOYS, name: 'mug-ahh', freq: 230, to: 165, type: 'triangle', dur: 0.6, peak: 0.035, attack: 0.06 });
   },
+  chomp: () => {
+    noise({ ...TOYS, name: 'sausage-bite', dur: 0.09, peak: 0.08, filter: 'bandpass', freq: 2400, to: 1100, q: 1.4, attack: 0.003 });
+    tone({ ...TOYS, name: 'sausage-bite', freq: 150, to: 90, dur: 0.08, peak: 0.05, attack: 0.004 });
+  },
+  munch: () => {
+    for (let i = 0; i < 3; i++) noise({ ...TOYS, name: 'sausage-munch', at: i * 0.16, dur: 0.1, peak: 0.035, filter: 'lowpass', freq: 900, attack: 0.01 });
+  },
   drink: () => undefined,
   drop: () => undefined,
 };
@@ -45,11 +53,11 @@ export function clunk(pos: Vec3, peak: number) {
 /** Someone else's sip (an agent on a coffee break), heard from where they stand. */
 export const slurpAt = (pos: Vec3) => sounds.slurp(pos);
 
-/** E with coffee in hand: start a sip (or the big last gulp). Does nothing mid-sip or without coffee. */
+/** E with coffee in hand: start a sip (or the big last gulp); with a sausage, a bite. Does nothing mid-sip or without either. */
 export function sipCoffee(now = performance.now()): boolean {
   const held = useStore.getState().held;
-  if (sip || held?.kind !== 'mug') return false;
-  const plan = planFor(held.sips);
+  if (sip || !held) return false;
+  const plan = held.kind === 'mug' ? planFor(held.sips) : held.kind === 'sausage' ? biteFor(held.bites) : null;
   if (!plan) return false;
   sip = { plan, mugId: held.id, start: now, next: 0 };
   return true;
@@ -62,8 +70,8 @@ export const sipping = () => sip !== null;
 export function tickSip(now = performance.now()) {
   if (!sip) return;
   const s = useStore.getState();
-  // The mug left your hands some other way (G, a panel, the machine): the sip is off.
-  if (s.held?.kind !== 'mug' || s.held.id !== sip.mugId) return endSip();
+  // The mug (or sausage) left your hands some other way (G, a panel, the machine): the sip is off.
+  if (s.held?.id !== sip.mugId) return endSip();
   const { plan } = sip;
   const t = (now - sip.start) / 1000;
   const to = cuesDue(plan, sip.next, t);
@@ -71,6 +79,15 @@ export function tickSip(now = performance.now()) {
     const cue = plan.cues[i].cue;
     sounds[cue]();
     const held = useStore.getState().held;
+    if (held?.kind === 'sausage') {
+      if (cue === 'drink') s.setHeld({ ...held, bites: Math.max(0, held.bites - 1) });
+      if (cue === 'drop') {
+        endSip();
+        s.setHeld(null); // all gone
+        return;
+      }
+      continue;
+    }
     if (held?.kind !== 'mug') break;
     if (cue === 'drink') s.setHeld({ ...held, sips: Math.max(0, held.sips - 1) });
     if (cue === 'drop') {

@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useStore } from '../../../store';
 import { loop, placeAt } from '../../../ui/eventSfx';
+import { HELIPAD, ROOF, roofElevation } from '../../layout';
 import { seeded } from '../director';
-import { eyeAbove, inOut, lerp, sign, smooth, toonOut, type SceneProps } from '../kit';
+import { eyeAbove, inOut, lerp, sign, smooth, span, toonOut, type SceneProps } from '../kit';
 
 // A news helicopter flying in, circling the block a few times just above the rooftops (banked into the turn, its
-// rotor a blur), and flying off again, with the chop of its rotor coming and going as it rounds the building.
+// rotor a blur), and flying off again, with the chop of its rotor coming and going as it rounds the building. About
+// half the time (and always when you're up on the roof to see it) it lands on the roof's helipad for a few seconds
+// on the way, its rotor slowing, then lifts off again.
 
 const IN = 8; // seconds flying in, and out at the end
 const LAP = 19; // seconds per circle
+/** A landing: circling until `approach`, over the pad by `over`, down by `down`, up again from `lift` to `up`. */
+const LAND = { approach: 20, over: 27, down: 31, lift: 42, up: 46 };
+/** The skids' depth below the body's middle (scaled), so it sits on the pad. */
+const SKIDS = 1.62 * 1.6;
 
 export default function Helicopter({ run, elevation }: SceneProps) {
   const body = useRef<THREE.Group>(null);
@@ -18,15 +26,19 @@ export default function Helicopter({ run, elevation }: SceneProps) {
   const s = sign(run.side);
   const p = useMemo(() => {
     const r = seeded(run.seed);
-    return { cx: s * (85 + r() * 20), cz: (r() - 0.5) * 40, radius: 42 + r() * 10, y: eyeAbove(elevation) + 9 + r() * 8, dir: r() < 0.5 ? 1 : -1, phase: r() * Math.PI * 2, far: { x: s * 420, z: (r() - 0.5) * 500 } };
+    const st = useStore.getState();
+    const top = st.repos.reduce((m, x) => Math.max(m, x.floor), 0);
+    const land = st.floor === ROOF || r() < 0.5;
+    const pad = { x: HELIPAD.x, y: roofElevation(top) + SKIDS, z: HELIPAD.z };
+    return { cx: s * (85 + r() * 20), cz: (r() - 0.5) * 40, radius: 42 + r() * 10, y: eyeAbove(elevation) + 9 + r() * 8, dir: r() < 0.5 ? 1 : -1, phase: r() * Math.PI * 2, far: { x: s * 420, z: (r() - 0.5) * 500 }, land, pad, from: new THREE.Vector3(), fromSet: false, heading: 0 };
   }, [run.seed, s, elevation]);
-  const sound = useMemo(() => ({ rotor: null as ReturnType<typeof loop> | null, prev: new THREE.Vector3(), first: true }), []);
+  const sound = useMemo(() => ({ rotor: null as ReturnType<typeof loop> | null, prev: new THREE.Vector3(), first: true, spin: 0 }), []);
   useEffect(() => {
     sound.rotor = loop('rotor');
     return () => sound.rotor?.stop(1);
   }, [sound]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const t = run.t;
     const g = body.current;
     if (!g) return;
@@ -40,23 +52,45 @@ export default function Helicopter({ run, elevation }: SceneProps) {
     x = lerp(p.far.x, x, arrive);
     z = lerp(-p.far.z, z, arrive);
     y += (1 - arrive) * 40;
+    // the landing: across to hover over the pad, down onto it, a rest, and up again before flying off
+    let landed = 0;
+    if (p.land && t >= LAND.approach && t < run.seconds - IN) {
+      if (!p.fromSet) p.from.set(x, y, z);
+      p.fromSet = true;
+      const hover = p.pad.y + 14;
+      const k = span(t, LAND.approach, LAND.over);
+      x = lerp(p.from.x, p.pad.x, k);
+      z = lerp(p.from.z, p.pad.z, k);
+      y = lerp(p.from.y, hover, k);
+      y = lerp(y, p.pad.y, span(t, LAND.over, LAND.down) - span(t, LAND.lift, LAND.up));
+      landed = span(t, LAND.down - 0.5, LAND.down) * (1 - span(t, LAND.lift, LAND.lift + 1));
+    }
+    if (p.land && t >= run.seconds - IN) {
+      x = p.pad.x;
+      z = p.pad.z;
+      y = p.pad.y + 14;
+    }
     x = lerp(x, p.far.x, leave);
     z = lerp(z, p.far.z, leave);
     y += leave * 40;
     if (sound.first) sound.prev.set(x, y, z);
     sound.first = false;
-    // nose along the way it's going, banked into the turn
+    // nose along the way it's going, banked into the turn (level while it hovers and sits)
     const dx = x - sound.prev.x;
     const dz = z - sound.prev.z;
-    if (dx * dx + dz * dz > 1e-6) g.rotation.y = Math.atan2(dx, dz);
-    g.rotation.z = -p.dir * 0.22 * arrive * (1 - leave);
-    g.rotation.x = 0.12;
+    if (dx * dx + dz * dz > 1e-5) p.heading = Math.atan2(dx, dz);
+    g.rotation.y = p.heading;
+    const circling = p.land ? 1 - span(t, LAND.approach, LAND.approach + 3) + span(t, run.seconds - IN, run.seconds - IN + 2) : 1;
+    g.rotation.z = -p.dir * 0.22 * arrive * (1 - leave) * Math.min(1, circling);
+    g.rotation.x = 0.12 * (1 - landed);
     g.position.set(x, y, z);
     sound.prev.set(x, y, z);
-    if (rotor.current) rotor.current.rotation.y = t * 31;
-    if (tail.current) tail.current.rotation.x = t * 40;
+    // the rotor winds down while it sits on the pad
+    sound.spin += Math.min(delta, 0.1) * (31 - 22 * landed);
+    if (rotor.current) rotor.current.rotation.y = sound.spin;
+    if (tail.current) tail.current.rotation.x = sound.spin * 1.3;
     const heard = placeAt(x, y - elevation, z, 60);
-    sound.rotor?.set(heard.gain * inOut(t, run.seconds, 2), heard.pan);
+    sound.rotor?.set(heard.gain * inOut(t, run.seconds, 2) * (1 - 0.6 * landed), heard.pan, 1 - 0.35 * landed);
   });
 
   const red = toonOut('#d62828');

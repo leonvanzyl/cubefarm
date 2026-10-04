@@ -11,7 +11,7 @@ import { outsideHearing, type OutsideHearing } from './outsideMix';
 import { groupOutput, listenerAt, recordSfx } from './sfx';
 import { patterSamples, rainHeard, thunderHeard, weatherSoundLayers } from './weatherMix';
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 type Mix = { rain: number; snow: number; storm: number; wind: number; cloud: number };
 
 const TICK_MS = 100;

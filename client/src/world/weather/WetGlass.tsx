@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { doorOpen } from '../doors';
-import { BALCONY, BALCONY_OUT, HALF_W, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_T, WINDOW, sideSign } from '../layout';
+import { BALCONY, BALCONY_OUT, DECKING, HALF_W, ROOF_EDGE, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_T, WINDOW, sideSign } from '../layout';
 import { merged } from '../shapes';
 import { nightFactor, skyAt, type SkyPalette } from '../sky/time';
 import { dayTime } from '../sky/useDayTime';
@@ -12,9 +12,10 @@ import { weather } from './weatherState';
 // The weather on the floor you're on: raindrops running down the outside of the side windows and the glass doors
 // (the doors' fade as they slide open), frost creeping up the panes in snow, and on the balconies (or the lobby's
 // patio) the wet: the slab darkening, puddles shining with the sky, rings rippling out in them while it rains, and
-// snow drifting in from the railing. Two draw calls, all in shaders; the frame loop sets a handful of uniforms.
+// snow drifting in from the railing. Up on the roof there's no glass, and the whole deck (paving and decking) gets
+// wet or snowed on. Two draw calls at most, all in shaders; the frame loop sets a handful of uniforms.
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 const HASH = /* glsl */ `
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -84,6 +85,7 @@ void main() {
 /** A plane over every window pane and glass door of a floor's side walls, a centimetre outside the glass. */
 function glassGeometry(kind: FloorKind) {
   const parts: THREE.BufferGeometry[] = [];
+  if (kind === 'roof') return new THREE.BufferGeometry();
   const add = (side: (typeof SIDES)[number], z: number, y: number, w: number, h: number, door: number) => {
     const s = sideSign(side);
     const g = new THREE.PlaneGeometry(w, h).rotateY((s * Math.PI) / 2).translate(s * (HALF_W + WALL_T / 2 + 0.015), y, z);
@@ -149,8 +151,21 @@ void main() {
   gl_FragColor = vec4(col, a);
 }`;
 
+/** The roof: the paving inside the parapet and the decking's top, a few millimetres up, all of it out in the open (out = 1). */
+function roofGeometry() {
+  const { x, z, t } = ROOF_EDGE;
+  const open = (g: THREE.BufferGeometry) => g.setAttribute('aOut', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(1), 1));
+  const deckW = DECKING.maxX - DECKING.minX;
+  const deckD = DECKING.maxZ - DECKING.minZ;
+  return merged([
+    open(new THREE.PlaneGeometry(2 * (x - t), 2 * (z - t)).rotateX(-Math.PI / 2).translate(0, 0.008, 0)),
+    open(new THREE.PlaneGeometry(deckW, deckD).rotateX(-Math.PI / 2).translate((DECKING.minX + DECKING.maxX) / 2, 0.068, (DECKING.minZ + DECKING.maxZ) / 2)),
+  ]);
+}
+
 /** The balcony floors (or the patio) between the wall and the railing, a few millimetres up, out = 0 at the wall to 1 at the railing. */
-function floorGeometry() {
+function floorGeometry(kind: FloorKind) {
+  if (kind === 'roof') return roofGeometry();
   const inner = HALF_W + WALL_T;
   const outer = BALCONY_OUT - BALCONY.railT;
   const len = BALCONY.maxZ - BALCONY.minZ - BALCONY.railT * 2;
@@ -185,7 +200,7 @@ export function WetGlass({ kind }: { kind: FloorKind }) {
     );
     glass.renderOrder = 2;
     const floor = new THREE.Mesh(
-      floorGeometry(),
+      floorGeometry(kind),
       new THREE.ShaderMaterial({
         vertexShader: FLOOR_VERT,
         fragmentShader: FLOOR_FRAG,
@@ -220,7 +235,7 @@ export function WetGlass({ kind }: { kind: FloorKind }) {
     g.uTime.value = t;
     (g.uOpen.value as THREE.Vector2).set(doorOpen('west'), doorOpen('east'));
     (g.uLight.value as THREE.Color).setHex(p.hemiSky).multiplyScalar(light * 0.8);
-    stuff.glass.visible = g.uRain.value > 0.01 || g.uSnow.value > 0.01;
+    stuff.glass.visible = kind !== 'roof' && (g.uRain.value > 0.01 || g.uSnow.value > 0.01);
     const f = (stuff.floor.material as THREE.ShaderMaterial).uniforms;
     f.uWet.value = weather.wet * (1 - weather.snow);
     f.uRain.value = m.rain;

@@ -4,6 +4,7 @@ import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
 import { CardView } from './CardView';
+import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ElevatorPanel } from './ElevatorPanel';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
@@ -14,6 +15,8 @@ import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
 import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
+import { GRAPHICS_PRESETS, type GraphicsPreset } from '../world/gfx/quality';
+import { effectiveTier, setGraphicsPreset, useGfx } from '../world/gfx/useGraphics';
 
 export { closeOverlay, Panel } from './Panel';
 
@@ -109,6 +112,30 @@ function DaySettings() {
   );
 }
 
+const GRAPHICS_LABELS: Record<GraphicsPreset, string> = { low: 'Low', medium: 'Medium', high: 'High', auto: 'Auto' };
+
+/** Graphics quality: Low, Medium, High or Auto (which shows the tier it has settled on); saved in this browser. */
+function GraphicsSettings() {
+  const preset = useGfx((s) => s.preset);
+  const tier = useGfx(effectiveTier);
+  const blocked = useGfx((s) => s.blocked);
+  return (
+    <div className="day-settings" role="radiogroup" aria-label="Graphics quality">
+      <span>Graphics</span>
+      {GRAPHICS_PRESETS.map((p) => (
+        <label key={p} className="toggle">
+          <input type="radio" name="graphics" checked={preset === p} onChange={() => setGraphicsPreset(p)} /> {GRAPHICS_LABELS[p]}
+        </label>
+      ))}
+      {blocked ? (
+        <span className="muted small">Effects are off: {blocked}.</span>
+      ) : (
+        preset === 'auto' && <span className="muted small">now {GRAPHICS_LABELS[tier]}</span>
+      )}
+    </div>
+  );
+}
+
 function Help() {
   return (
     <Panel title="How the office works">
@@ -167,10 +194,22 @@ function Help() {
           windows to watch. <b>Settings → World events</b> sets how often, or keeps it calm.
         </p>
         <DaySettings />
+        <h3>Graphics</h3>
+        <p>
+          <b>Low</b> is the plain cartoon look and the lightest on your laptop. <b>Medium</b> adds glow: screens, lamps, the jukebox and, after dark, the city's windows and the moon, and the monitors light up desks and faces at
+          night. <b>High</b> adds soft shadows where things meet the floor and colour that follows the time of day. <b>Auto</b> starts on High and steps down when frames get slow, then back up once there's room. Saved in this
+          browser.
+        </p>
+        <GraphicsSettings />
         <h3>The building</h3>
         <p>
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
           floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
+        </p>
+        <p>
+          The elevator's top stop is the roof terrace (<kbd>R</kbd> on its panel). Sit back in a deck chair (<kbd>E</kbd>; walk or press <kbd>E</kbd> to get up), grill a sausage at the barbecue (<kbd>E</kbd> puts one
+          on and turns it, <kbd>E</kbd> again takes it once it's done, then <kbd>E</kbd> eats it a bite at a time), or look through the telescope (<kbd>E</kbd>; the mouse aims and the wheel zooms): the
+          billboards on the rooftops by day, the moon and the constellations at night. The string lights come on at dusk. Idle teammates go up for a break now and then, and the CEO takes calls up there.
         </p>
         <h3>Mission control</h3>
         <p>
@@ -200,6 +239,17 @@ function Help() {
         <p>
           <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model, effort, title, specialty and job description. Changes apply from their next task, so nothing is interrupted.
           Open <b>What they're told</b> there to read the full prompt the office gives them, with their job description highlighted. The CEO's model, effort and prompt are in the console's CEO tab.
+        </p>
+        <h3>Coins, decorations and trophies</h3>
+        <p>
+          Every merged PR earns its floor coins (🪙 at the top right): 10 a merge, 5 more when QA passed it first time, 5 when its checks were green first time, and 10 for the third merge on a floor within an hour. Nothing
+          ever costs coins but the catalogue. Spend them at the catalogue kiosk in the lobby; what you buy waits in the floor's 📦 decor box by its elevator. Take something out, walk to a glowing spot and press <kbd>E</kbd>:
+          it snaps in. <kbd>E</kbd> on a placed decoration picks it up to move it, and the box puts things away. The arcade cabinet plays your phone's games. Achievements fill the trophy shelf in the lobby: <kbd>E</kbd> on a
+          trophy says what it was for and when.
+        </p>
+        <p>
+          Desks tell their owner's story: a plaque on the monitor for every merged PR, a gold star for ten first-time QA passes, specialty stickers, and a plant, a photo and a desk toy that arrive with time on the team. Look at a
+          desk for a moment to see its career card (or open <b>🏅 Career</b> in their panel); the console's Team tab compares everyone.
         </p>
         <h3>The QA lab</h3>
         <p>
@@ -246,5 +296,9 @@ export function Overlays() {
       return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
     case 'help':
       return <Help />;
+    case 'catalogue':
+      return <Catalogue repoId={overlay.repoId} />;
+    case 'decor-box':
+      return <DecorBoxPanel repoId={overlay.repoId} />;
   }
 }

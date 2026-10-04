@@ -5,12 +5,15 @@ import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type Weather
 import { DEFAULT_NOTIFY } from '../../shared/notify';
 import { showDesktopNote } from './notifications';
 import { EMPTY_OPS, newAlarms } from './ops';
+import type { DecorItem, ProgressView } from '../../shared/progress';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { alarm, audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { gongForMerge } from './world/gongRunner';
+import { ROOF } from './world/layout';
+import { emitReward } from './world/decor/rewards';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -25,7 +28,9 @@ export type Overlay =
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string; card?: string } // card: an OpsAlarm id, or 'usage', to open at
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
-  | { kind: 'help' };
+  | { kind: 'help' }
+  | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
+  | { kind: 'decor-box'; repoId: string }; // a floor's decor box
 
 export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings';
 
@@ -33,7 +38,7 @@ export interface Focus {
   id: string;
   label: string;
   // resume: the usage meter while pacing, resume full speed (asks first)
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' } | { kind: 'roof'; op: string } | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string } | { kind: 'trophy'; id: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -44,7 +49,11 @@ export type Held =
   /** A coffee mug: sips of coffee left, 0 (empty) to 3 (full). */
   | { kind: 'mug'; id: string; sips: number }
   /** A sticky peeled off the whiteboard (boardHands.ts): an issue for a developer's desk, or a PR for the QA lab. */
-  | { kind: 'sticky'; id: string; repoId: string; key: string; number: number; pr: boolean };
+  | { kind: 'sticky'; id: string; repoId: string; key: string; number: number; pr: boolean }
+  /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
+  | { kind: 'sausage'; id: string; bites: number; charred: boolean }
+  /** A decoration on its way to a slot (#210): from the floor's decor box (from null) or from the slot it stood in. */
+  | { kind: 'decor'; id: string; item: DecorItem; from: string | null };
 
 export interface Toast {
   id: number;
@@ -79,6 +88,7 @@ interface State {
   voiceKeySet: boolean; // an ElevenLabs key is saved on the server
   voiceKeyHint: string; // its last 4 characters
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
+  progress: ProgressView; // coins, decorations and achievements (#210)
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
   weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   ticker: TickerItem[]; // the floors' recent activity lines, oldest first (world/ActivityTicker.tsx)
@@ -191,6 +201,7 @@ export const useStore = create<State>((set, get) => ({
   voiceKeySet: false,
   voiceKeyHint: '',
   voiceCache: { clips: 0, bytes: 0, saved: [] },
+  progress: { floors: {}, achievements: [], coffees: 0, merges: 0 },
   voiceSpeaking: null,
   weather: EMPTY_WEATHER_VIEW,
   ticker: [],
@@ -226,8 +237,8 @@ export const useStore = create<State>((set, get) => ({
         for (const q of d.qa) qa[qaKey(q.repoId, q.prNumber)] = q;
         const prPreviews: Record<string, PrPreviewView> = {};
         for (const p of d.prPreviews ?? []) prPreviews[qaKey(p.repoId, p.pr)] = p;
-        // Stay on the current (or remembered) floor if it still exists; otherwise go to the lobby.
-        const floorExists = d.repos.some((r) => r.floor === get().floor);
+        // Stay on the current (or remembered) floor if it still exists (the roof always does); otherwise go to the lobby.
+        const floorExists = get().floor === ROOF || d.repos.some((r) => r.floor === get().floor);
         set({
           loaded: true,
           user: d.user,
@@ -257,6 +268,7 @@ export const useStore = create<State>((set, get) => ({
           weather: d.weather ?? EMPTY_WEATHER_VIEW,
           ticker: d.ticker ?? [],
           notifyChannels: d.notifyChannels ?? get().notifyChannels,
+          progress: d.progress ?? { floors: {}, achievements: [], coffees: 0, merges: 0 },
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -401,6 +413,12 @@ export const useStore = create<State>((set, get) => ({
       case 'notify':
         // This tab shows it only while it's hidden (notifications.ts); a visible office already chimes and toasts.
         showDesktopNote(ev.note, get().settings.notify?.channels.desktop !== false);
+        break;
+      case 'progress':
+        set({ progress: ev.progress });
+        break;
+      case 'reward':
+        if (live) emitReward(ev.reward);
         break;
     }
   },

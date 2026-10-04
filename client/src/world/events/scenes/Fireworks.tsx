@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { placeAt, play } from '../../../ui/eventSfx';
+import { markBloom } from '../../gfx/bloomMarks';
 import { seeded } from '../director';
 import { eyeAbove, sign, type SceneProps } from '../kit';
 
@@ -97,14 +98,14 @@ export default function Fireworks({ run, elevation }: SceneProps) {
     geo.setAttribute('aTime', attr(2));
     geo.setAttribute('aSize', attr(1));
     (geo.attributes.aTime.array as Float32Array).fill(-1000);
-    const mat = new THREE.ShaderMaterial({
+    const mat = markBloom(new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       uniforms: { uTime: { value: 0 }, uScale: { value: 400 } },
-    });
+    }));
     const points = new THREE.Points(geo, mat);
     points.frustumCulled = false;
     points.renderOrder = 5;

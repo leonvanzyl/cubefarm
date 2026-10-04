@@ -31,7 +31,7 @@ import {
 import { groupOutput, listenerAt, listenerFacing, recordSfx } from './sfx';
 import { panOf } from './sfxMix';
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 const TICK_MS = 100;
 /** Each layer's gain at full level, before the Outside slider: a bed well under footsteps (peaks ~0.03). */
@@ -127,7 +127,7 @@ function tick() {
   const ear = listenerAt();
   for (const side of SIDES) open[side] = doorOpen(side);
   hearing = outsideHearing(kind, ear.x, ear.z, open);
-  layers = weatherLayers(outsideLayers(sampleDayTime()), weather.mix); // birds go quiet in the rain, snow hushes the city
+  layers = weatherLayers(outsideLayers(sampleDayTime(), kind), weather.mix); // birds go quiet in the rain, snow hushes the city
   const silent = quiet || document.hidden;
   const level = silent ? 0 : hearing.level;
 

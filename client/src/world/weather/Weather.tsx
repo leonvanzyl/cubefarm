@@ -3,8 +3,9 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useRenderPaused } from '../../perf';
 import { useStore } from '../../store';
+import { markBloom } from '../gfx/bloomMarks';
 import { setWeatherQuiet, startWeatherSounds, stopWeatherSounds } from '../../ui/weatherSfx';
-import { floorElevation } from '../layout';
+import { roofElevation, viewElevation } from '../layout';
 import { Precipitation } from './Precipitation';
 import { seeded } from './weatherRules';
 import { weather, WeatherClock, useWeather } from './weatherState';
@@ -14,7 +15,7 @@ import { WetGlass } from './WetGlass';
 // there's any weather at all, the rain or snow, the wet glass and balcony, lightning bolts and the sounds. In a clear
 // sky (and with the weather Off) only the clock is mounted, and it does next to nothing.
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 export function Weather({ kind }: { kind: FloorKind }) {
   const { active } = useWeather();
@@ -28,10 +29,11 @@ export function Weather({ kind }: { kind: FloorKind }) {
 
 function WeatherScene({ kind }: { kind: FloorKind }) {
   const floor = useStore((s) => s.floor);
-  const elevation = floorElevation(kind === 'lobby' ? 0 : floor);
+  const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
+  const elevation = viewElevation(kind === 'lobby' ? 0 : floor, top);
   return (
     <>
-      <Precipitation elevation={elevation} />
+      <Precipitation elevation={elevation} roof={roofElevation(top) - elevation} onRoof={kind === 'roof'} />
       <WetGlass kind={kind} />
       <Bolt elevation={elevation} />
       <WeatherSounds kind={kind} />
@@ -65,7 +67,7 @@ function Bolt({ elevation }: { elevation: number }) {
   const stuff = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(VERTS * 3), 3));
-    const mat = new THREE.MeshBasicMaterial({ color: '#eef2ff', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    const mat = markBloom(new THREE.MeshBasicMaterial({ color: '#eef2ff', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide }));
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     mesh.renderOrder = 4;

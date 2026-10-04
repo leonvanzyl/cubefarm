@@ -11,7 +11,7 @@ import { groupOutput, listenerAt, listenerFacing, recordSfx } from './sfx';
 import { panOf } from './sfxMix';
 import { patterSamples } from './weatherMix';
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 /** Indoors the events are heard through the glass: at least this loud and this clear. */
 const THROUGH_GLASS = { level: 0.28, clarity: 0.32 };

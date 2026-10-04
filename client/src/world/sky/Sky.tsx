@@ -7,6 +7,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
 import { dayTime } from './useDayTime';
@@ -184,6 +185,8 @@ export function Sky() {
           uCover: { value: 0 },
           uFlash: { value: 0 },
         },
+        // the moon blooms after dusk (the dark sky round it is too dim to), and so do the stars
+        userData: BLOOM_AT_NIGHT,
       }),
       cloudGeometry: new THREE.SphereGeometry(1, 14, 10),
       cloud: new THREE.ShaderMaterial({
@@ -202,6 +205,7 @@ export function Sky() {
         transparent: true,
         depthWrite: false,
         uniforms: { uTime: { value: 0 }, uOpacity: { value: 0 }, uPixel: { value: 1 } },
+        userData: BLOOM_AT_NIGHT,
       }),
     };
   }, []);

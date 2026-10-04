@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useRenderPaused } from '../../perf';
 import { useStore } from '../../store';
 import { eventSoundsOff, eventSoundsOn, setEventsQuiet } from '../../ui/eventSfx';
-import { floorElevation } from '../layout';
+import { viewElevation } from '../layout';
 import type { EventId } from './director';
 import { stepEvents, useEventRuns } from './eventsState';
 import type { SceneProps } from './kit';
@@ -12,7 +12,7 @@ import type { SceneProps } from './kit';
 // the first time it's needed and torn down when it ends, in a group at street level. Nothing is drawn while no event
 // runs. Stepped in the frame loop, so the events stop with the render (a hidden tab or a panel over the office).
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 const SCENES: Record<EventId, LazyExoticComponent<ComponentType<SceneProps>>> = {
   plane: lazy(() => import('./scenes/Plane')),
@@ -34,7 +34,8 @@ const SCENES: Record<EventId, LazyExoticComponent<ComponentType<SceneProps>>> = 
 export function WorldEvents({ kind }: { kind: FloorKind }) {
   const runs = useEventRuns();
   const floor = useStore((s) => s.floor);
-  const elevation = floorElevation(kind === 'lobby' ? 0 : floor);
+  const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
+  const elevation = viewElevation(kind === 'lobby' ? 0 : floor, top);
   const paused = useRenderPaused();
   const away = useStore((s) => s.travel !== null || s.overlay !== null);
   useFrame((_, delta) => stepEvents(Math.min(delta, 0.1)));

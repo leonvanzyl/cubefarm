@@ -8,6 +8,8 @@ import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
+import { BLOOM } from './gfx/bloomMarks';
+import { DeskGlow } from './gfx/ScreenGlow';
 import { glow, shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
@@ -133,7 +135,7 @@ function LiveMonitor({ agent, accent }: { agent: Agent; accent: string }) {
     <Monitor accent={accent}>
       <mesh ref={screenRef} position={[0, 0, 0.026]}>
         <planeGeometry args={[SCREEN.w, SCREEN.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
     </Monitor>
   );
@@ -158,7 +160,7 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
     <Monitor accent={accent}>
       <mesh position={[0, 0, 0.026]}>
         <planeGeometry args={[SCREEN.w, SCREEN.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
     </Monitor>
   );
@@ -293,6 +295,7 @@ export const Desk = memo(function Desk({
       ) : (
         <VacantMonitor accent={accent} qa={qa} />
       )}
+      <DeskGlow color={accent} />
       {qa ? (
         // test-tube rack: every good QA desk has one
         <group position={[-0.72, 0.77, -0.2]}>
@@ -301,12 +304,13 @@ export const Desk = memo(function Desk({
             <Cyl key={c} r={0.022} h={0.16} position={[-0.09 + i * 0.09, 0.1, 0]} color={c} outline />
           ))}
         </group>
-      ) : (
+      ) : !agent || agent.role === 'ceo' ? (
+        // a team member's plant grows with them (desk/DeskStory.tsx)
         <>
           <Cyl r={0.06} rTop={0.07} h={0.09} position={[-0.76, 0.815, -0.22]} color="#e07a5f" outline />
           <Ball r={0.09} position={[-0.76, 0.92, -0.22]} color="#52b788" outline />
         </>
-      )}
+      ) : null}
 
       {/* chair (it rolls back when its owner gets up) */}
       <group ref={chairRef} position={[0, 0, agent ? 0.8 : 0.6]}>

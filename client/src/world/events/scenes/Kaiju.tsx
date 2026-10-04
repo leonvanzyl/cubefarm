@@ -5,6 +5,7 @@ import { placeAt, play } from '../../../ui/eventSfx';
 import { outsideAt } from '../../layout';
 import { cityLayout } from '../../outside/cityLayout';
 import { cityWaterTowers, setTowerDown } from '../../outside/City';
+import { BOARD_RANGE } from '../../roof/billboardLayout';
 import { seeded } from '../director';
 import { clamp01, sign, span, toonOut, type SceneProps } from '../kit';
 
@@ -34,10 +35,11 @@ export default function Kaiju({ run, elevation }: SceneProps) {
   const p = useMemo(() => {
     const r = seeded(run.seed);
     const dir = r() < 0.5 ? 1 : -1;
-    // a water tower in its way, out on our side of the city, if there's one
+    // a city water tower in its way, out on our side: beyond the roof's billboards (within BOARD_RANGE of the office,
+    // and never on a roof with a tower anyway) and nowhere near our own roof and its water tank
     const towers = cityWaterTowers()
       .map((t, i) => ({ ...t, i }))
-      .filter((t) => s * t.x > 110 && s * t.x < 260 && Math.abs(t.z) < 160);
+      .filter((t) => s * t.x > BOARD_RANGE.max + 10 && s * t.x < 260 && Math.abs(t.z) < 160);
     // the one most in front of the windows, at a good distance
     const away = (t: { x: number; z: number }) => Math.abs(s * t.x - 175) + Math.abs(t.z) * 0.8;
     towers.sort((a, b) => away(a) - away(b));

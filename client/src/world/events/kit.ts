@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { markBloom } from '../gfx/bloomMarks';
 import { cityHaze } from '../outside/City';
 
 // What every world event's scene shares: toon materials that light like the office's but fade into the city's haze
@@ -52,12 +53,12 @@ export function toonOut(color: string, opts: { emissive?: string; emissiveIntens
   return m;
 }
 
-/** A flat, self-lit colour (lights, flames, beams, sparks): additive when `add`, never fogged or tone mapped. */
+/** A flat, self-lit colour (lights, flames, beams, sparks): additive when `add`, never fogged or tone mapped, and glowing under the graphics' bloom. */
 export function glowOut(color: string, opts: { opacity?: number; add?: boolean } = {}): THREE.MeshBasicMaterial {
   const key = `g|${color}|${opts.opacity ?? ''}|${opts.add ? 1 : 0}`;
   let m = cache.get(key) as THREE.MeshBasicMaterial | undefined;
   if (!m) {
-    m = new THREE.MeshBasicMaterial({
+    m = markBloom(new THREE.MeshBasicMaterial({
       color,
       fog: false,
       toneMapped: false,
@@ -65,7 +66,7 @@ export function glowOut(color: string, opts: { opacity?: number; add?: boolean }
       opacity: opts.opacity ?? 1,
       depthWrite: !(opts.opacity !== undefined || opts.add),
       blending: opts.add ? THREE.AdditiveBlending : THREE.NormalBlending,
-    });
+    }));
     cache.set(key, m);
   }
   return m;

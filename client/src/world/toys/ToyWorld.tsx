@@ -10,6 +10,7 @@ import { bodyState } from '../people';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
+import { DecorColliders } from '../decor/DecorColliders';
 import { Dog } from './Dog';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
@@ -543,6 +544,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
   return (
     <Physics timeStep={STEP} paused={paused} numSolverIterations={8}>
       <Building floor={floor} />
+      {floor === 'office' && <DecorColliders groups={BUILDING_GROUPS} />}
       <Pusher />
       <Balls floor={floor} />
       <Hoop floor={floor} groups={BUILDING_GROUPS} />
