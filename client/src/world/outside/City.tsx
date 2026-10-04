@@ -1,11 +1,12 @@
 import { useEffect, useMemo } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../../store';
 import { dayTime } from '../sky/useDayTime';
 import { skyAt, sunDirection } from '../sky/time';
-import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, floorElevation, MAX_CARS, type CityBox } from './cityLayout';
+import { floorElevation } from '../layout';
+import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, type CityBox } from './cityLayout';
 
 // The city around the building (cityLayout.ts says where everything is). Six draw calls: the buildings (one
 // InstancedMesh with a shared window texture), roof bits as instanced boxes, cylinders and cones, the ground
@@ -428,7 +429,7 @@ const carMatrix = new THREE.Matrix4();
 let lastT = -1;
 
 /** The time of day into the shared uniforms. skyAt allocates, so only when the clock has moved on noticeably. */
-function followSky(background: unknown) {
+function followSky() {
   const t = dayTime.t;
   if (Math.abs(t - lastT) < 1e-4) return;
   lastT = t;
@@ -442,8 +443,6 @@ function followSky(background: unknown) {
   shared.uAmbient.value = sky.ambient;
   shared.uHaze.value.setHex(sky.horizon);
   shared.uLights.value = sky.cityLights;
-  // Until the sky dome (#166) is drawn over it, keep the plain background on the haze so the skyline meets it.
-  if (background instanceof THREE.Color) background.copy(shared.uHaze.value);
 }
 
 let probe: { buildings: number; cars: number; elevation: number } = { buildings: 0, cars: 0, elevation: 0 };
@@ -451,7 +450,6 @@ let probe: { buildings: number; cars: number; elevation: number } = { buildings:
 /** The city around the building, at the current floor's height below you. Mounted once, in Game.tsx. */
 export function City() {
   const floor = useStore((s) => s.floor);
-  const scene = useThree((s) => s.scene);
   const city = useMemo(buildCity, []);
   useEffect(() => () => city.dispose(), [city]);
   // A hair below street level, so the plaza never fights the lobby's floor.
@@ -459,7 +457,7 @@ export function City() {
   probe = { buildings: city.layout.buildings.length, cars: city.routes.length, elevation };
 
   useFrame(({ clock }) => {
-    followSky(scene.background);
+    followSky();
     const time = clock.elapsedTime;
     const { traffic, routes, scales, cars } = city;
     for (let i = 0; i < routes.length; i++) {

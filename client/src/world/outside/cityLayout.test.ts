@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CAR_RANGE, carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, floorElevation, HOME_FOOTPRINT, MAX_CARS, type CityBox } from './cityLayout';
+import { floorElevation } from '../layout';
+import { CAR_RANGE, carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, HOME_FOOTPRINT, MAX_CARS, type CityBox } from './cityLayout';
 
 const city = cityLayout();
 const everything = (c = city): CityBox[] => [...c.buildings, ...c.boxes, ...c.cylinders, ...c.cones];

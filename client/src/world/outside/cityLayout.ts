@@ -3,7 +3,7 @@
 // so the same seed always gives the same city and the tests can check it. City.tsx draws it. Units are metres,
 // x/z as in layout.ts (our building is centred on the origin), y up from street level. Colours are 0xrrggbb.
 
-import { HALF_D, HALF_W } from '../layout';
+import { BALCONY_OUT, HALF_D } from '../layout';
 
 export const CITY = {
   seed: 165,
@@ -25,13 +25,8 @@ export const CITY = {
 /** Half a street: the road and the pavement on one side. */
 export const CORRIDOR_HALF = CITY.roadHalf + CITY.pavement;
 
-/** Our building with its balconies (about 2.5 m deep on the west and east sides): what the gap is kept from. */
-export const HOME_FOOTPRINT = { halfX: HALF_W + 2.5, halfZ: HALF_D };
-
-// TODO: use FLOOR_HEIGHT / floorElevation(floor) from layout.ts once the balcony issue (#164) has merged.
-export const FLOOR_HEIGHT = 4.2;
-/** How far the current floor is above the street (the lobby is at street level). */
-export const floorElevation = (floor: number) => Math.max(0, floor) * FLOOR_HEIGHT;
+/** Our building with its balconies on the west and east sides: what the gap is kept from. */
+export const HOME_FOOTPRINT = { halfX: BALCONY_OUT, halfZ: HALF_D };
 
 export interface CityBox {
   /** Centre of the footprint. */
