@@ -438,16 +438,10 @@ export function whoosh(dur = 0.75) {
   tone({ name: 'whoosh', group: 'alerts', freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4 });
 }
 
-/** A foam blaster's "thwip": a puff of air through the barrel with a springy little pop. */
-export function thwip() {
-  noise({ dur: 0.09, peak: 0.1, filter: 'bandpass', freq: 2600, to: 900, q: 1.4, attack: 0.003 });
-  tone({ freq: 520, to: 190, type: 'triangle', dur: 0.08, peak: 0.07, attack: 0.004 });
-}
-
-/** Someone hit by a toy: a soft, round "boop". */
-export function boop() {
-  tone({ freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008 });
-  tone({ freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004 });
+/** Someone hit by a toy: a soft, round "boop", from where they sit (`pos`). */
+export function boop(pos?: Vec3) {
+  tone({ name: 'boop', group: 'toys', pos, freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008 });
+  tone({ name: 'boop', group: 'toys', pos, freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004 });
 }
 
 /** The roomba sucking up a dart: a rising slurp of air with a little pop at the end. */
