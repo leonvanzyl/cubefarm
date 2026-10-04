@@ -330,11 +330,21 @@ export interface ToneOpts extends PlaceOpts {
   dur: number;
   peak: number; // 0-1, before the master volume
   attack?: number;
+  pan?: number; // -1 (left) to 1 (right)
+}
+
+/** Route a voice to its destination, through a stereo panner when it has a pan (and no world position). */
+function output(ctx: AudioContext, dest: AudioNode, pan?: number): AudioNode {
+  if (!pan || !ctx.createStereoPanner) return dest;
+  const p = ctx.createStereoPanner();
+  p.pan.value = pan;
+  p.connect(dest);
+  return p;
 }
 
 /** One enveloped oscillator note. */
 export function tone(opts: ToneOpts) {
-  const { freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015 } = opts;
+  const { freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, pan } = opts;
   const p = place('tone', opts, peak);
   if (!p) return;
   const a = p.a;
@@ -348,7 +358,7 @@ export function tone(opts: ToneOpts) {
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain).connect(p.dest);
+    osc.connect(gain).connect(opts.pos ? p.dest : output(a.ctx, p.dest, pan));
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src: osc });
@@ -366,13 +376,14 @@ export interface NoiseOpts extends PlaceOpts {
   to?: number; // sweep the filter to this frequency by the end
   q?: number;
   attack?: number;
+  pan?: number;
 }
 
 let noiseBuf: AudioBuffer | null = null;
 
 /** A burst of filtered white noise: footsteps, whooshes, pops. */
 export function noise(opts: NoiseOpts) {
-  const { at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005 } = opts;
+  const { at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005, pan } = opts;
   const p = place('noise', opts, peak);
   if (!p) return;
   const a = p.a;
@@ -394,7 +405,7 @@ export function noise(opts: NoiseOpts) {
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(bq).connect(gain).connect(p.dest);
+    src.connect(bq).connect(gain).connect(opts.pos ? p.dest : output(a.ctx, p.dest, pan));
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.05);
     voices.push({ end: t0 + dur + 0.05, loud: p.loud, env: gain, src });
@@ -455,23 +466,6 @@ export function slurp() {
   noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05 });
   tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03 });
   noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002 });
-}
-
-/** One soft footstep: a muffled thud. */
-export function footstep(running = false) {
-  noise({ dur: running ? 0.09 : 0.12, peak: running ? 0.07 : 0.045, freq: (running ? 700 : 480) * (0.9 + Math.random() * 0.2), q: 0.7 });
-}
-
-let stepCount = 0;
-
-/**
- * Called every frame with the head-bob phase: one step each half bob cycle (so the step rate follows
- * the bob and speeds up when running), and none while standing still.
- */
-export function footstepsFollow(bobPhase: number, moving: boolean, running: boolean) {
-  const n = Math.floor(bobPhase / Math.PI);
-  if (moving && n !== stepCount) footstep(running);
-  stepCount = n;
 }
 
 /** A basket: the net's swish, then a small cheer. */
