@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { WORKSPACE_ROOT } from './config.ts';
-import { gh, git, run } from './exec.ts';
+import { type CommandError, gh, git, run } from './exec.ts';
 
 // Layout on disk:
 //   <your projects folder>/<repo>                    the floor's main checkout: your own folder, only fetched and fast-forwarded (syncMain)
@@ -80,9 +80,49 @@ function npmInstall(dir: string) {
   return next;
 }
 
+/**
+ * The paths in `git status --porcelain` output, as git prints them (repo-relative, forward slashes); for a rename
+ * or copy (`old -> new`) the new path. Tolerates a first line whose leading space was trimmed (exec trims stdout).
+ */
+export function porcelainPaths(porcelain: string): string[] {
+  return porcelain
+    .split(/\r?\n/)
+    .map((line) => /^([ MTADRCU?!]{1,2}) (.+)$/.exec(line))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map(([, xy, file]) => (/[RC]/.test(xy) ? (/^(?:"(?:[^"\\]|\\.)*"|.*?) -> (.+)$/.exec(file)?.[1] ?? file) : file));
+}
+
+/** The paths git lists (tab-indented) under "... would be overwritten by merge:" in a failed merge's stderr. */
+export function overwrittenPaths(stderr: string): string[] {
+  const lines = stderr.split(/\r?\n/);
+  const start = lines.findIndex((l) => /would be overwritten by/.test(l));
+  if (start < 0) return [];
+  const files: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith('\t')) break;
+    files.push(line.trim());
+  }
+  return files.filter(Boolean);
+}
+
+/** The first few paths, then "+K more": "a, b, c +2 more", kept to about `maxChars` so a status stays short. */
+export function fileList(files: string[], max = 3, maxChars = 120): string {
+  const shown: string[] = [];
+  let length = 0;
+  for (const file of files.slice(0, max)) {
+    const name = file.length > maxChars ? `…${file.slice(-(maxChars - 1))}` : file;
+    const add = name.length + (shown.length ? 2 : 0);
+    if (shown.length && length + add > maxChars) break;
+    shown.push(name);
+    length += add;
+  }
+  const more = files.length - shown.length;
+  return `${shown.join(', ')}${more ? ` +${more} more` : ''}`;
+}
+
 /** How a floor's main checkout stands after syncMain. */
 export interface MainSync {
-  status: string; // e.g. "in sync", "updated to abc1234", "update ready (3 commits)" or "2 behind: local changes"
+  status: string; // e.g. "in sync", "updated to abc1234", "update ready (3 commits)" or "2 behind: local changes in README.md"
   behind: number; // commits it is still behind GitHub's default branch
   updatable: boolean; // on the default branch without local commits, so a fast-forward would bring it up to date
 }
@@ -110,12 +150,17 @@ export async function syncMain(fullName: string, defaultBranch: string, opts: { 
       if (behind === 0) return stays('in sync');
       if (Number(await g(['rev-list', '--count', `${target}..HEAD`])) > 0) return stays(`diverged: local commits, and ${commits} to pull`);
       if (!opts.touch) return { status: `update ready (${commits})`, behind, updatable: true };
-      if (await g(['status', '--porcelain', '--untracked-files=no'])) return { status: `${behind} behind: local changes`, behind, updatable: true };
+      const dirty = await g(['status', '--porcelain', '--untracked-files=no']);
+      if (dirty) {
+        const files = porcelainPaths(dirty);
+        return { status: `${behind} behind: local changes${files.length ? ` in ${fileList(files)}` : ''}`, behind, updatable: true };
+      }
       const before = await g(['rev-parse', 'HEAD']);
       try {
         await g(['merge', '--ff-only', target], 120_000);
-      } catch {
-        return { status: `${behind} behind: local files are in the way`, behind, updatable: true };
+      } catch (err) {
+        const files = overwrittenPaths((err as CommandError).stderr ?? '');
+        return { status: `${behind} behind: local files are in the way${files.length ? `: ${fileList(files)}` : ''}`, behind, updatable: true };
       }
       const changed = (await g(['diff', '--name-only', before, 'HEAD'])).split(/\r?\n/);
       const install = changed.some((f) => f === 'package.json' || f === 'package-lock.json') && (await exists(path.join(dir, 'package.json')));

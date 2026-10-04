@@ -123,7 +123,7 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
           </div>
           <div className="muted small" title={repo.localPath ? 'Your own project folder' : 'A clone the office manages'}>
             📁 <code>{repo.checkoutPath}</code>
-            {officeFolder ? " · the office's own folder, updated from the Office row" : repo.folderSync && ` · ${repo.folderSync}`}{' '}
+            {officeFolder ? " · the office's own folder, updated from the Office row" : repo.folderSync && <span title={repo.folderSync}> · {repo.folderSync}</span>}{' '}
             <button className="btn btn-small btn-ghost" title="Fast-forward it to GitHub's default branch, when that's safe" onClick={() => void attempt(() => api.syncFolder(repo.id))}>
               ⟳ Sync now
             </button>
