@@ -9,6 +9,8 @@ import { coversView, useStore, type Agent } from '../store';
 import { canBurst, onMerge } from './confetti';
 import { onGongParty } from './gongState';
 import { BOARD, GONG, deskPosition } from './layout';
+import { useThemeConfetti } from './themes/active';
+import { heart } from './themes/kit/geo';
 
 const SLOTS = 3; // bursts at once
 const PIECES = 90; // per burst
@@ -44,6 +46,8 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
   const mesh = useRef<THREE.InstancedMesh>(null);
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  // a holiday theme's colours (and Valentine's hearts) in place of the usual
+  const themed = useThemeConfetti();
 
   // Everything the frame loop touches is allocated once here.
   const sim = useMemo(() => {
@@ -56,11 +60,11 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       spin: new Float32Array(n * 3),
       phase: new Float32Array(n),
       dummy: new THREE.Object3D(),
-      colors: [...PALETTE, repo.color].map((c) => new THREE.Color(c)),
-      geometry: new THREE.PlaneGeometry(0.1, 0.06),
+      colors: (themed?.colors ?? [...PALETTE, repo.color]).map((c) => new THREE.Color(c)),
+      geometry: themed?.shape === 'heart' ? heart(0.1) : new THREE.PlaneGeometry(0.1, 0.06),
       material: new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false }),
     };
-  }, [repo.color]);
+  }, [repo.color, themed]);
 
   useEffect(
     () => () => {

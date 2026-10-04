@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { HOLD, REST, SONGS, STEPS_PER_BAR, beatAt, beatPulse, compileSong, degreeMidi, firstSongFor, midiHz, noteAge, parseLine, passMix, stepAt, stepTime, trackFor, type Song } from './jukeboxSongs';
+import { HOLD, HOLIDAY_SONGS, REST, SONGS, STEPS_PER_BAR, beatAt, beatPulse, compileSong, degreeMidi, firstSongFor, midiHz, noteAge, parseLine, passMix, playlist, stepAt, stepTime, trackFor, type Song } from './jukeboxSongs';
+import { THEMES } from './themes/themes';
 
 const song = (over: Partial<Song> = {}): Song => ({
   id: 'test',
@@ -148,7 +149,7 @@ describe('the playlist', () => {
     for (const s of SONGS) expect(() => compileSong(s), s.id).not.toThrow();
   });
 
-  it.each(SONGS.map((s) => [s.id, s] as const))('%s is a sensible length, tempo and range', (_, s) => {
+  it.each([...SONGS, ...HOLIDAY_SONGS].map((s) => [s.id, s] as const))('%s is a sensible length, tempo and range', (_, s) => {
     const t = compileSong(s);
     expect(t.duration, 'seconds').toBeGreaterThan(40);
     expect(t.duration, 'seconds').toBeLessThan(120);
@@ -171,5 +172,31 @@ describe('the playlist', () => {
     expect(firstSongFor(0)).toBe(0);
     expect(firstSongFor(3)).toBe(3);
     expect(firstSongFor(SONGS.length + 1)).toBe(1);
+  });
+});
+
+describe('holiday songs', () => {
+  it('all compile, with ids of their own', () => {
+    const ids = [...SONGS, ...HOLIDAY_SONGS].map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const s of HOLIDAY_SONGS) expect(() => compileSong(s), s.id).not.toThrow();
+  });
+
+  it("every theme's playlist names real songs, and each holiday song belongs to a theme", () => {
+    const named = Object.values(THEMES).flatMap((t) => t.playlist);
+    for (const id of named) expect(HOLIDAY_SONGS.some((s) => s.id === id), id).toBe(true);
+    for (const s of HOLIDAY_SONGS) expect(named, s.id).toContain(s.id);
+  });
+
+  it("puts the theme's songs first, then the usual playlist", () => {
+    expect(playlist()).toBe(SONGS);
+    expect(playlist(['nope'])).toBe(SONGS);
+    const list = playlist(THEMES.halloween.playlist);
+    expect(list.slice(0, 2).map((s) => s.id)).toEqual(['haunted-hotfix', 'monster-merge']);
+    expect(list.slice(2)).toEqual(SONGS);
+    expect(trackFor(1, list).song.id).toBe('monster-merge');
+    expect(trackFor(list.length, list).song.id).toBe('haunted-hotfix');
+    // every floor starts on one of the theme's songs
+    expect([0, 1, 2, 3].map((f) => firstSongFor(f, 2))).toEqual([0, 1, 0, 1]);
   });
 });

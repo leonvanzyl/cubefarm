@@ -13,6 +13,7 @@ import { mix, shade, toon } from './materials';
 import { bodyTarget, handMug, seatBody, setBody, subscribeMugs, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
+import { ThemeCostume } from './themes/ThemeCostume';
 import { MugLook, mugColor } from './toys/mugLook';
 import { Ball, Cyl } from './Toon';
 import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
@@ -590,6 +591,7 @@ export function Character({
                 <mesh position={[0.1, 0.38, -0.19]} rotation={[0.1, 0, 0]} geometry={PARTS.badge} material={toon('#ffd166')} />
               </>
             )}
+            <ThemeCostume agent={agent} look={look} part="body" />
             {!busy && phones && (
               // resting around the neck
               <group position={[0, 0.49, -0.09]} rotation={[Math.PI / 2 - 0.5, 0, 0]} scale={0.74}>
@@ -666,6 +668,7 @@ export function Character({
               </mesh>
             )}
             {busy && phones}
+            <ThemeCostume agent={agent} look={look} part="head" />
           </group>
           {carrying && (
             <group ref={held} visible={false}>

@@ -33,6 +33,7 @@ import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
+import { DEFAULT_THEME_SETTINGS, dueGreeting, themeSettings } from '../shared/themes.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentCli,
@@ -395,6 +396,7 @@ export class Swarm {
       pacingSessions: DEFAULT_PACING_SESSIONS,
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
+      themes: DEFAULT_THEME_SETTINGS,
     },
     repos: [],
     agents: [],
@@ -549,6 +551,7 @@ export class Swarm {
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
+      this.state.settings.themes = themeSettings(DEFAULT_THEME_SETTINGS, loaded.settings?.themes);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -641,6 +644,8 @@ export class Swarm {
       void this.voice.prune();
     }, this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
+    setInterval(() => this.greet(), 60_000);
+    setTimeout(() => this.greet(), 5000);
     void this.backend
       .detectClis()
       .then((clis) => {
@@ -2521,6 +2526,10 @@ export class Swarm {
       s.voice = voiceSettings(s.voice, patch.voice);
       if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
     }
+    if (patch.themes !== undefined) {
+      s.themes = themeSettings(s.themes, patch.themes);
+      setTimeout(() => this.greet(), 1000);
+    }
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
@@ -3390,6 +3399,12 @@ export class Swarm {
     this.broadcast({ type: 'message', message: m });
     this.save();
     return m;
+  }
+
+  /** The team's holiday greeting (shared/themes.ts) from the CEO, once a day while a theme is on. */
+  private greet() {
+    const text = dueGreeting(new Date(), this.state.settings.themes, this.state.settings.managerName || this.user || '', this.state.messages);
+    if (text) this.postMessage('ceo', text);
   }
 
   markPhoneRead(at: number) {

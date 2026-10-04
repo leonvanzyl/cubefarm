@@ -13,6 +13,7 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
+import { ThemeSettings } from './ThemeSettings';
 import { VoiceSettings } from './VoiceSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -692,6 +693,7 @@ function SettingsTab() {
         </div>
       </div>
       <VoiceSettings />
+      <ThemeSettings />
     </div>
   );
 }

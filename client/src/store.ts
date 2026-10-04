@@ -26,7 +26,7 @@ export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' } | { kind: 'theme'; id: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -154,6 +154,7 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    themes: { mode: 'auto', disabled: [], birthday: null },
   },
   clis: [],
   repos: [],

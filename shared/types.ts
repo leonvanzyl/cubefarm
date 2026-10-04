@@ -1,5 +1,7 @@
 // Types shared between the swarm server and the 3D client.
 
+import type { ThemeSettings } from './themes.ts';
+
 export type AgentStatus =
   | 'idle' // at desk, nothing assigned
   | 'preparing' // setting up the git worktree
@@ -261,6 +263,7 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  themes: ThemeSettings; // holiday themes: Settings → Themes (shared/themes.ts)
 }
 
 /** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */

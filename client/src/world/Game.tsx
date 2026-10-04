@@ -14,6 +14,9 @@ import { DayLights } from './sky/DayLights';
 import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
+import { useTheme } from './themes/active';
+import { ThemeLayer } from './themes/ThemeLayer';
+import { decorColliders } from './themes/themes';
 import { TypingSounds } from './TypingSounds';
 
 function Travel() {
@@ -42,7 +45,8 @@ export function Game() {
   const repo = floor === 0 ? null : repoOnFloor(repos, floor);
   const isOffice = !!repo;
   const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
-  const colliders = useMemo(() => (isOffice ? officeColliders() : lobbyColliders()), [isOffice]);
+  const theme = useTheme((s) => s.id);
+  const colliders = useMemo(() => [...(isOffice ? officeColliders() : lobbyColliders()), ...decorColliders(theme, isOffice ? 'office' : 'lobby')], [isOffice, theme]);
   // Stop drawing while nobody can see the office; switching back to 'always' draws a fresh frame at once.
   const paused = useRenderPaused();
   const [maxDpr, setMaxDpr] = useState(MAX_DPR);
@@ -66,6 +70,7 @@ export function Game() {
       <City />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
+      <ThemeLayer key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} repoId={repo?.id ?? null} />
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />

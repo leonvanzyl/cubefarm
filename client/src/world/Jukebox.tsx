@@ -9,8 +9,9 @@ import { clampMusicLevel, MAX_MUSIC_LEVEL } from '../ui/musicMix';
 import { noise, tone, type Vec3 } from '../ui/sfx';
 import { roundRect, SANS } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
-import { SONGS, beatAt, beatPulse, firstSongFor, noteAge, trackFor } from './jukeboxSongs';
+import { beatAt, beatPulse, firstSongFor, noteAge, playlist, trackFor } from './jukeboxSongs';
 import { HALF_D, JUKEBOX } from './layout';
+import { themeSongs } from './themes/active';
 import { glow, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
 
@@ -39,7 +40,9 @@ const volumes = new Map<number, number>(); // floor → volume level, loaded fro
 const spot: Vec3 = { x: 0, y: 1, z: 0 };
 const listeners = new Set<() => void>();
 
-const songIndex = (floor: number) => songs.get(floor) ?? firstSongFor(floor);
+/** The playlist now: a holiday theme's songs first while it's on (each floor starts on one of them). */
+const list = () => playlist(themeSongs());
+const songIndex = (floor: number) => songs.get(floor) ?? firstSongFor(floor, themeSongs().length || list().length);
 
 function volumeFor(floor: number) {
   let v = volumes.get(floor);
@@ -64,8 +67,8 @@ function start() {
   if (floor !== null) setMusicLevel(volumeFor(floor));
   if (floor === null || !on) stopMusic();
   else {
-    playTrack(trackFor(songIndex(floor)), spot, () => {
-      songs.set(floor, (songIndex(floor) + 1) % SONGS.length);
+    playTrack(trackFor(songIndex(floor), list()), spot, () => {
+      songs.set(floor, (songIndex(floor) + 1) % list().length);
       start();
     });
   }
@@ -122,7 +125,7 @@ export function jukeboxAction(op: JukeboxOp) {
   }
   clunk();
   if (op === 'next') {
-    songs.set(floorNow, (songIndex(floorNow) + 1) % SONGS.length);
+    songs.set(floorNow, (songIndex(floorNow) + 1) % list().length);
     on = true;
   } else on = !on;
   try {
@@ -156,7 +159,7 @@ if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '_
       const t = nowPlaying();
       const sec = musicTime();
       const index = floorNow === null ? null : songIndex(floorNow);
-      const s = index === null ? null : SONGS[index];
+      const s = index === null ? null : list()[index % list().length];
       return {
         on,
         floor: floorNow,
@@ -254,7 +257,7 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
   }, [x, floor]);
 
   const view = useJukeboxView(floor);
-  const song = SONGS[view.index];
+  const song = list()[view.index % list().length];
   const dance = useRef<THREE.Group>(null);
   const record = useRef<THREE.Group>(null);
   const dome = useRef<THREE.Mesh>(null);
