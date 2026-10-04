@@ -11,6 +11,7 @@ import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
 import { Jukebox } from './Jukebox';
+import { MissionControl } from './MissionControl';
 import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
@@ -461,6 +462,7 @@ export function Lobby() {
         deps={[company]}
       />
 
+      <MissionControl />
       <CeoOffice />
       <WaitingRoom />
       <Elevator floorLabel="▲ G · Lobby" accent={ACCENT} />

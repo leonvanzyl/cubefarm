@@ -70,6 +70,10 @@ describe('decoration slots', () => {
     const lobby = walkways('lobby');
     const lift = spot(lobby, 'elevator')!;
     for (const s of lobby.spots) expect(findPath(lobby, lift, s), s.id).not.toBeNull();
+    // and they stand clear of everything else in the lobby (mission control, the hoop's wall, reception)
+    const mine = [KIOSK, TROPHY_SHELF].map((k) => ({ minX: k.x - k.w / 2, maxX: k.x + k.w / 2, minZ: k.z - k.d / 2, maxZ: k.z + k.d / 2 }));
+    const others = lobbyColliders().filter((r) => !mine.some((m) => Math.abs(m.minX - r.minX) < 1e-9 && Math.abs(m.minZ - r.minZ) < 1e-9));
+    for (const m of mine) expect(others.filter((r) => overlaps(m, r)), JSON.stringify(m)).toEqual([]);
   });
 });
 

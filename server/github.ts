@@ -63,8 +63,10 @@ interface RawPull {
   deletions: number;
   headRefOid: string;
   mergeStateStatus: string;
-  // check runs (GitHub Actions…) carry name/status/conclusion/detailsUrl; commit statuses (Vercel…) carry context/state/targetUrl
-  statusCheckRollup: { name?: string; context?: string; status?: string; conclusion?: string; state?: string; detailsUrl?: string; targetUrl?: string }[] | null;
+  // check runs (GitHub Actions…) carry name/status/conclusion/detailsUrl and startedAt/completedAt; commit statuses (Vercel…) carry context/state/targetUrl
+  statusCheckRollup:
+    | { name?: string; context?: string; status?: string; conclusion?: string; state?: string; detailsUrl?: string; targetUrl?: string; startedAt?: string; completedAt?: string }[]
+    | null;
 }
 
 const PR_FIELDS =
@@ -81,6 +83,19 @@ function checksOf(rollup: RawPull['statusCheckRollup']): PullInfo['checks'] {
   if (rollup.some(failed)) return 'failing';
   if (rollup.some(pending)) return 'pending';
   return 'passing';
+}
+
+/**
+ * How long the head commit's check runs took, first start to last finish, once none is running; null without times
+ * (commit statuses have none). For mission control's CI numbers.
+ */
+export function checkRunOf(rollup: RawPull['statusCheckRollup']): PullInfo['checkRun'] {
+  if (!rollup?.length || rollup.some(pending)) return null;
+  const starts = rollup.map((c) => Date.parse(c.startedAt ?? '')).filter(Number.isFinite);
+  const ends = rollup.map((c) => Date.parse(c.completedAt ?? '')).filter(Number.isFinite);
+  if (!starts.length || !ends.length) return null;
+  const doneAt = Math.max(...ends);
+  return { ms: Math.max(0, doneAt - Math.min(...starts)), doneAt };
 }
 
 function toPull(p: RawPull): PullInfo {
@@ -103,6 +118,7 @@ function toPull(p: RawPull): PullInfo {
     mergeState: p.mergeStateStatus || 'UNKNOWN',
     failedChecks: (p.statusCheckRollup ?? []).filter(failed).map((c) => ({ name: checkName(c), url: c.detailsUrl || c.targetUrl || null })),
     pendingChecks: (p.statusCheckRollup ?? []).filter(pending).map(checkName),
+    checkRun: checkRunOf(p.statusCheckRollup),
   };
 }
 

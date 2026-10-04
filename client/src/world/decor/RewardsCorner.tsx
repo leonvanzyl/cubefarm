@@ -166,7 +166,8 @@ export function TrophyShelf() {
     [won.size],
   );
   return (
-    <group position={[S.x, 0, S.z]}>
+    // against the south wall, facing into the lobby
+    <group position={[S.x, 0, S.z]} rotation={[0, Math.PI, 0]}>
       <mesh geometry={shelfModel()} material={vertexToon} castShadow receiveShadow />
       <instancedMesh key={Math.max(1, spots.length)} ref={cups} args={[cupModel(), vertexToon, Math.max(1, spots.length)]} />
       {ROWS_Y.map((_, row) => (

@@ -10,6 +10,7 @@ import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../o
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { LiveTerminal } from './LiveTerminal';
+import { OpsTab } from './MissionConsole';
 import { NotifySettings } from './NotifySettings';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
@@ -716,11 +717,14 @@ function SettingsTab() {
   );
 }
 
-export function ManagerConsole({ initialTab, initialRepo }: { initialTab?: ManagerTab; initialRepo?: string }) {
+/** card: open Mission control at this card (an alarm's id, or 'usage'). */
+export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?: ManagerTab; initialRepo?: string; card?: string }) {
   const [tab, setTab] = useState<ManagerTab>(initialTab ?? 'floors');
   const pending = useStore((s) => pendingRequests(s.requests).length);
+  const alarms = useStore((s) => s.ops.alarms.length);
   const tabs: [ManagerTab, string][] = [
     ['floors', '🏢 Floors & repos'],
+    ['ops', `🛰️ Mission control${alarms ? ` (${alarms})` : ''}`],
     ['ceo', `🧠 CEO & hiring${pending ? ` (${pending})` : ''}`],
     ['team', '👩‍💻 Team'],
     ['issues', '📝 Issues'],
@@ -737,6 +741,7 @@ export function ManagerConsole({ initialTab, initialRepo }: { initialTab?: Manag
       </div>
       <div className="tab-body">
         {tab === 'floors' && <FloorsTab />}
+        {tab === 'ops' && <OpsTab card={card} />}
         {tab === 'ceo' && <CeoTab />}
         {tab === 'team' && <TeamTab />}
         {tab === 'issues' && <IssuesTab initialRepo={initialRepo} />}

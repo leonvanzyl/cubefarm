@@ -200,6 +200,9 @@ app.post('/api/notify/push/devices', route((req) => swarm.notifier.subscribe(req
 app.delete('/api/notify/push/devices', route((req) => swarm.notifier.unsubscribe(str(req.body?.endpoint))));
 // The office's own update: Update now / Later
 app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.action)));
+// Claude's usage: resume full speed after a usage warning; in the demo, a warning or the limit on demand
+app.post('/api/usage/resume', route(() => swarm.resumeFullSpeed()));
+app.post('/api/usage/simulate', route((req) => swarm.simulateUsage(req.body?.kind)));
 
 // The CEO and the manager's phone
 app.post('/api/ceo/message', route((req) => swarm.messageCeo(str(req.body.text))));
