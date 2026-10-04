@@ -3,8 +3,11 @@ import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { hooksReady, officeProcesses, reconnectClis, releaseClis, startCliSession, terminalsAvailable, type ReconnectedCli } from './cliRunner.ts';
 import { detectClis } from './clis.ts';
+import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
 import { realPreviews, type PreviewBackend } from './previewRunner.ts';
 import { realOffice, type OfficeHost } from './officeUpdate.ts';
+import { elevenLabs } from './elevenlabs.ts';
+import type { VoiceApi } from './voice.ts';
 import type { AgentTerminal } from './terminal.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
@@ -41,8 +44,14 @@ export interface Backend {
   createProject(root: string, name: string, opts: { visibility: 'private' | 'public'; owner?: string; description?: string }): Promise<{ fullName: string; path: string }>;
   mainDir(fullName: string): string;
   deskDir(fullName: string, agentSlug: string): string;
-  prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string): Promise<string>;
-  removeDesk(fullName: string, agentSlug: string): Promise<void>;
+  /** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
+  prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string>;
+  /** npm ci in a prepared desk unless nothing changed since the last one; never throws (see deps.ts installDesk). */
+  installDeps(dir: string, cb: DepsCallbacks): Promise<DepsOutcome>;
+  /** `main`: the floor's checkout as it was when the desk was let go (default: mainDir now). */
+  removeDesk(fullName: string, agentSlug: string, main?: string): Promise<void>;
+  /** Remove desks, stray desk folders and finished swarm/qa branches nothing in `keep` uses. */
+  sweepDesks(fullName: string, keep: workspace.SweepKeep): Promise<workspace.SweepResult>;
   /** Stop processes an agent left running (dev servers on its port, anything started in its desk). */
   releaseDesk(fullName: string, agentSlug: string, port: number): Promise<void>;
   /** An agent session: the real CLI in the agent's terminal when opts.terminal is set, else an Agent SDK session. */
@@ -61,6 +70,8 @@ export interface Backend {
   previews: PreviewBackend;
   /** The running office's own folder and its launcher, for the office's self-update. */
   office: OfficeHost;
+  /** Text to speech for the manager's phone (ElevenLabs). */
+  voice: VoiceApi;
 }
 
 export const realBackend: Backend = {
@@ -92,7 +103,9 @@ export const realBackend: Backend = {
   mainDir: workspace.mainDir,
   deskDir: workspace.deskDir,
   prepareDesk: workspace.prepareDesk,
+  installDeps: (dir, cb) => installDesk(dir, cb),
   removeDesk: workspace.removeDesk,
+  sweepDesks: workspace.sweepDesks,
   releaseDesk: (fullName, agentSlug, port) => workspace.releaseDesk(fullName, agentSlug, port, officeProcesses()),
   startSession: (opts, cb) => (opts.terminal ? startCliSession(opts, cb) : startSession(opts, cb)),
   terminals: terminalsAvailable,
@@ -102,4 +115,5 @@ export const realBackend: Backend = {
   detectClis,
   previews: realPreviews,
   office: realOffice,
+  voice: elevenLabs,
 };

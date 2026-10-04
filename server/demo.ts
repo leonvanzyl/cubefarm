@@ -9,6 +9,7 @@ import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR } from './config.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
+import { VoiceApiError, type VoiceApi } from './voice.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
 // dev → QA → fix loop) can be explored without spending any usage or touching real repos.
@@ -124,18 +125,28 @@ function devScript(opts: SessionOptions, cb: SessionCallbacks, issueNumber: numb
   ];
 }
 
-function qaScript(cb: SessionCallbacks, pr: number, title: string, round: number): Step[] {
+function qaScript(cb: SessionCallbacks, pr: number, title: string, round: number, checks: string): Step[] {
   const port = 5600 + (pr % 50);
   const hue = (pr * 41) % 360;
+  // With GitHub checks on the PR, QA reads what they cover instead of re-running the suite.
+  const verify: Step[] = checks.endsWith(': none')
+    ? [
+        [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm ci && npm test -- --run' }],
+        [
+          { kind: 'result', text: '  ⎿ Test Files  8 passed (8)' },
+          { kind: 'result', text: '    Tests  41 passed (41)' },
+        ],
+        [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run lint && npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.84s' }],
+      ]
+    : [
+        [{ kind: 'tool', tool: 'Read', text: '⏺ Read .github/workflows/ci.yml' }, { kind: 'result', text: '  ⎿ Read 41 lines' }],
+        [{ kind: 'text', text: '● CI already runs the tests, lint and build, so I only need a build to start the app.' }],
+        [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm ci && npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.84s' }],
+      ];
   return [
-    [{ kind: 'text', text: `● Testing PR #${pr} "${title}" (round ${round}). First, the acceptance criteria from the issue.` }],
+    [{ kind: 'text', text: `● Testing PR #${pr} "${title}" (round ${round}). ${checks}. First, the acceptance criteria from the issue.` }],
     [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git diff origin/main...HEAD --stat' }, { kind: 'result', text: '  ⎿  3 files changed, 82 insertions(+), 9 deletions(-)' }],
-    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm ci && npm test -- --run' }],
-    [
-      { kind: 'result', text: '  ⎿ Test Files  8 passed (8)' },
-      { kind: 'result', text: '    Tests  41 passed (41)' },
-    ],
-    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run lint && npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.84s' }],
+    ...verify,
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ npm run preview -- --port ${port} &` }, { kind: 'result', text: `  ⎿ Local: http://localhost:${port}/` }],
     () => cb.browserUrl(`http://localhost:${port}/`),
     [{ kind: 'tool', tool: 'mcp__playwright__browser_navigate', text: `⏺ 🌐 navigate http://localhost:${port}/` }, { kind: 'result', text: `  ⎿ Page URL: http://localhost:${port}/` }],
@@ -177,7 +188,8 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     { kind: 'system', text: `✻ Claude Code (demo) · ${opts.model} · ${opts.effort} effort` },
     { kind: 'system', text: `  cwd ${opts.cwd}` },
   ];
-  const body = kind === 'qa' ? qaScript(cb, number, title, round) : kind === 'fix' ? fixScript(number, pushes) : devScript(opts, cb, number, title);
+  const checks = opts.prompt.match(/^GitHub checks right now: .*$/m)?.[0] ?? 'GitHub checks right now: none';
+  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes) : devScript(opts, cb, number, title);
   const script = [header, ...body];
 
   const finish = () => {
@@ -381,6 +393,8 @@ function fakeUsageWarning(cb: SessionCallbacks) {
 export function createDemoBackend(): Backend {
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
+  // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
+  const installedDesks = new Set<string>();
   // A pretend projects folder: the demo repos, one git folder that isn't on GitHub yet, and one plain folder.
   const folders = new Map<string, LocalFolder>();
   const addFolder = (name: string, github: string | null, git = true) =>
@@ -488,6 +502,10 @@ export function createDemoBackend(): Backend {
         state: pr.state,
         mergeable: pr.mergeable,
         mergeState: pr.mergeState,
+        checks: pr.checks,
+        checkNames: pr.checks === 'none' ? [] : ['CI / build', 'Vercel'],
+        failedChecks: pr.failedChecks.map((c) => c.name),
+        pendingChecks: pr.pendingChecks,
       };
     },
     issueDetails: async (fullName, number) => {
@@ -512,7 +530,20 @@ export function createDemoBackend(): Backend {
       deskRepo.set(dir, fullName);
       return dir;
     },
+    installDeps: async (dir, cb) => {
+      if (installedDesks.has(dir)) {
+        cb.log(['Dependencies unchanged since the last install; skipping it.']);
+        return 'skipped';
+      }
+      cb.log(['Installing dependencies…', '$ npm ci']);
+      cb.installing();
+      await new Promise((r) => setTimeout(r, 1500));
+      cb.log(['Dependencies installed.']);
+      installedDesks.add(dir);
+      return 'installed';
+    },
     removeDesk: async () => undefined,
+    sweepDesks: async () => ({ desks: 0, folders: 0, branches: 0, patches: [], skipped: [] }),
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => {
       if (++sessionsStarted === USAGE_WARNING_AT) fakeUsageWarning(cb);
@@ -526,6 +557,7 @@ export function createDemoBackend(): Backend {
       CLIS.map((c) => ({ id: c.id, label: c.label, installed: true, version: 'demo', integrated: c.integrated })),
     previews: demoPreviews,
     office: demoOffice,
+    voice: demoVoice,
   };
 }
 
@@ -954,3 +986,50 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
     },
   };
 }
+
+// ---------- voice ----------
+
+/** A short two-note chime as 8 kHz mono WAV: something to hear without ElevenLabs, a little longer for longer text. */
+export function demoChime(chars: number): Buffer {
+  const rate = 8000;
+  const seconds = Math.min(0.4 + chars / 400, 2);
+  const n = Math.round(rate * seconds);
+  const wav = Buffer.alloc(44 + n);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + n, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); // PCM
+  wav.writeUInt16LE(1, 22); // mono
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate, 28);
+  wav.writeUInt16LE(1, 32);
+  wav.writeUInt16LE(8, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(n, 40);
+  for (let i = 0; i < n; i++) {
+    const t = i / rate;
+    const f = t < seconds / 2 ? 660 : 880;
+    const fade = Math.min(1, (seconds - t) * 8, t * 40);
+    wav[44 + i] = Math.round(128 + 40 * fade * Math.sin(2 * Math.PI * f * t));
+  }
+  return wav;
+}
+
+const demoVoices = [
+  { id: 'demoVoiceAvery00001', name: 'Avery', category: 'premade', labels: { accent: 'american', gender: 'female', age: 'middle aged', description: 'calm', use_case: 'conversational' }, previewUrl: null },
+  { id: 'demoVoiceBasil00002', name: 'Basil', category: 'premade', labels: { accent: 'british', gender: 'male', age: 'middle aged', description: 'warm', use_case: 'narration' }, previewUrl: null },
+  { id: 'demoVoiceCleo000003', name: 'Cleo', category: 'premade', labels: { accent: 'australian', gender: 'female', age: 'young', description: 'friendly', use_case: 'conversational' }, previewUrl: null },
+];
+
+/** No network: any key works except one containing "bad", three voices, and a chime for every message. */
+const demoVoice: VoiceApi = {
+  checkKey: async (key) => {
+    if (/bad/i.test(key)) throw new VoiceApiError(401, '401: invalid_api_key (demo)');
+  },
+  listVoices: async () => demoVoices,
+  synthesize: async (_key, { text }) => {
+    await new Promise((r) => setTimeout(r, 300));
+    return demoChime(text.length);
+  },
+};

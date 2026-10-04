@@ -14,11 +14,11 @@ The details behind the office: how an issue becomes a merged pull request, who d
 3. **In QA.** The PR is handed to the floor's QA lab. A free QA tester checks out the PR head in their own worktree; when every tester is busy, a free developer who didn't write the PR covers for them, `testing` specialists first. The tester then:
    - reads the PR and the linked issue to work out the acceptance criteria
    - reviews the diff like a code reviewer: bugs, unhandled errors and edge cases, security problems, leftover debug code, missing tests
-   - runs the test suite, linters and build
+   - runs the test suite, linters and build, unless the PR has GitHub checks: then the tester is told what they say right now, reads what they cover and runs only what the change needs (a failing check is a finding)
    - exercises the feature in a real headless browser (Playwright), including phone sizes and edge cases, taking screenshots of each important state
    - returns a structured report: a verdict, the checks performed, the commands run, and a caption for each screenshot
 4. **Evidence on the PR.** The server uploads the screenshots to an orphan branch called `swarm-qa-evidence`, so evidence never lands in your code, and posts a comment on the PR. The comment contains the verdict, a table of checks, the commands run, and the screenshots.
-5. **Fail → fix → re-test.** If QA fails, the report goes back to the developer who wrote the PR, who resumes their own session and pushes fixes to the same branch. If they're busy on something else, any free developer takes the fix instead. The PR then goes back to QA for the next round. After 3 failed rounds it's flagged **needs you**.
+5. **Fail → fix → re-test.** If QA fails, the report goes back to the developer who wrote the PR, who resumes their own session and pushes fixes to the same branch. If they're busy on something else, any free developer takes the fix instead. The PR then goes back to QA for the next round, which checks last round's findings first, then tests what changed since the commit it last tested plus a quick smoke of the main flow. After 3 failed rounds it's flagged **needs you**.
 6. **Merge.** Once QA passes, the PR moves to **Ready to merge**. With **auto-merge** on for the floor (the default; switch it in the manager's console or on the Kanban board), the office takes it from there:
    - It waits for GitHub's checks (Actions, Vercel and so on) and merges as soon as they're green, but only the exact commit QA signed off on. Commits pushed after the sign-off go back through QA first.
    - If checks fail, or the PR conflicts with the default branch because other work merged first, a free developer gets the failing checks or the conflict, fixes the branch, and QA re-tests it when the code changed. After 3 such fixes it's flagged **needs you**.
@@ -43,7 +43,7 @@ You can message an agent at any time. While they're working, the message is inje
 
 ## The team
 
-Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team.
+Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
 
 ## Models and usage
 
@@ -77,6 +77,9 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 - `~/.cubefarm/sessions/<token>/`: a running CLI session's settings, MCP config and instructions (removed when it ends); `~/.cubefarm/bin/`: the small scripts the CLIs call back to the office with
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
 - `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent
+- `~/.cubefarm/leftovers/<owner>__<repo>/`: work saved from desks the office swept away
+
+Every 30 minutes (and when a floor starts, or someone is let go) the office sweeps each floor: it removes desks nobody uses any more and the finished `swarm/issue-*` and `qa/pr-*` branches nobody has checked out or has an open PR for. A desk with uncommitted changes to tracked files or unpushed commits is saved as a `.patch` in `leftovers/` first, and a folder that a program still has open is left for the next sweep. Your own branches and worktrees outside `desks/` are never touched.
 
 Workspaces live outside this project on purpose: agents working in them never pick up this project's `CLAUDE.md`.
 

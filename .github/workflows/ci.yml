@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,20 +15,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Does this PR touch anything that can behave differently per OS? client/, e2e/ and docs run the same everywhere.
+  # Pushes to main and manual runs always count, and so does a diff that can't be worked out.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      os-sensitive: ${{ steps.diff.outputs.os-sensitive }}
+    steps:
+      # A PR is checked out as its merge commit: its first parent is the base it merges into.
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          sensitive=true
+          if [ "$EVENT" = pull_request ] && files=$(git diff --name-only HEAD^1 HEAD); then
+            echo "$files"
+            if ! grep -qE '^(server|shared|scripts|bin|\.github)/|^(package\.json|package-lock\.json|playwright\.config\.ts|\.gitattributes)$|^(vite|vitest)\.config\.[^/]+$|^tsconfig[^/]*\.json$' <<< "$files"; then
+              sensitive=false
+            fi
+          fi
+          echo "os-sensitive=$sensitive" | tee -a "$GITHUB_OUTPUT"
+
+  # Every PR on Ubuntu. Windows and macOS (people run the office on both: paths, child processes, terminals, git
+  # worktrees) only when `changes` says so; otherwise they show as skipped under the same names, which counts as passing.
   check:
-    name: check (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows and macOS too: people run the office on both (paths, child processes, terminals, git worktrees).
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: check (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
+    env: &check-env
       # Never let anything in CI look at a real office's state or ports.
       SWARM_HOME: ${{ github.workspace }}/.ci-swarm-home
       SWARM_PORT: '0'
-    steps:
+    steps: &check-steps
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
@@ -41,6 +66,24 @@ jobs:
       - run: npm run build
       # The npm package as users get it: packed, installed into an empty folder and booted in demo mode.
       - run: node scripts/smoke-package.mjs
+
+  check-windows:
+    name: check (windows-latest)
+    needs: changes
+    if: needs.changes.outputs.os-sensitive == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env: *check-env
+    steps: *check-steps
+
+  check-macos:
+    name: check (macos-latest)
+    needs: changes
+    if: needs.changes.outputs.os-sensitive == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env: *check-env
+    steps: *check-steps
 
   # The built app in a real browser: a demo office boots, renders, and its panels open (e2e/, Playwright).
   e2e:

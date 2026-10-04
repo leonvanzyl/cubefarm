@@ -122,6 +122,9 @@ export type AgentRole = 'dev' | 'qa' | 'ceo';
 /** Fixed id of the CEO agent. */
 export const CEO_ID = 'ceo';
 
+/** An agent's currentTool while the office installs their desk's dependencies (status 'preparing'). */
+export const INSTALL_STEP = 'Installing dependencies';
+
 /** How the cartoon character is drawn. Picked from the agent's name when hired; the manager can change it. */
 export type AgentLook = 'feminine' | 'masculine';
 
@@ -182,7 +185,7 @@ export interface AgentView {
   branch: string | null;
   prNumber: number | null; // devs: the PR they opened; QA: the PR under test
   prUrl: string | null;
-  currentTool: string | null;
+  currentTool: string | null; // while preparing: the setup step (INSTALL_STEP), null for the worktree
   startedAt: number | null;
   endedAt: number | null;
   costUsd: number;
@@ -192,6 +195,21 @@ export interface AgentView {
   screenshotAt: number | null;
   lastError: string | null;
   log: LogLine[]; // tail of the terminal log (full buffer on snapshot)
+}
+
+/** One piece of an agent's prompt; the parts' texts concatenated are the whole prompt. */
+export interface PromptPart {
+  label: string;
+  text: string;
+  /** The manager can change it (the job description); the rest is the office's workflow and safety rules. */
+  editable: boolean;
+}
+
+/** GET /api/agents/:id/prompt: what the agent is told on a task, with placeholders for the task's details. */
+export interface AgentPromptView {
+  kind: 'dev' | 'qa' | 'ceo';
+  text: string;
+  parts: PromptPart[];
 }
 
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -240,6 +258,28 @@ export interface SwarmSettings {
   tutorialStep: number; // index of the current tutorial step; -1 when finished or skipped
   autoUpdate?: boolean; // update the office itself once it's quiet (absent on servers without self-update)
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
+  voice: VoiceSettings;
+}
+
+/** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */
+export type VoiceProvider = 'off' | 'browser' | 'elevenlabs';
+
+export interface VoiceSettings {
+  provider: VoiceProvider;
+  voiceId: string; // the ElevenLabs voice (or the browser voice's name)
+  voiceName: string;
+  model: string; // ElevenLabs model id
+  speakOffice: boolean; // read the office's own notes too, not just the CEO's messages
+}
+
+/** GET /api/voice/voices: a voice the manager can pick. recommended: on docs/voice.md's shortlist. */
+export interface VoiceOption {
+  id: string;
+  name: string;
+  category: string;
+  labels: { accent: string; gender: string; age: string; description: string; use_case: string };
+  previewUrl: string | null;
+  recommended: boolean;
 }
 
 /** Claude's subscription usage: normal, pacing new work after a usage warning, or paused at the limit until `until`. */
@@ -324,6 +364,8 @@ export interface WorldSnapshot {
   officeUpdate?: OfficeUpdateView;
   usage: UsageView;
   clis: CliView[];
+  voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
+  voiceKeyHint: string; // its last 4 characters, '' when none
 }
 
 export type ServerEvent =
@@ -344,6 +386,7 @@ export type ServerEvent =
   | { type: 'officeUpdate'; officeUpdate: OfficeUpdateView }
   | { type: 'usage'; usage: UsageView }
   | { type: 'clis'; clis: CliView[] }
+  | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

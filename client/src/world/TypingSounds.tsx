@@ -3,6 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { useStore } from '../store';
 import { keyboardFor } from '../ui/keyboards';
 import { TYPING_CHANNELS, TYPING_RANGE, placeTypingChannel, typingGeneration, typingSound } from '../ui/typingSfx';
+import { isCelebrating } from './gongState';
+import { isSeated } from './people';
 import {
   TAP_PHASE,
   assignSlots,
@@ -77,7 +79,8 @@ export function TypingSounds() {
           p.lastTool = a.currentTool;
           p.lastToolAt = now;
         }
-        if (a.status !== 'working' && a.status !== 'preparing') continue;
+        // Out of their chair (or the whole floor cheering a merge): hands off the keyboard.
+        if ((a.status !== 'working' && a.status !== 'preparing') || !isSeated(id) || isCelebrating(a.repoId, now)) continue;
         p.pose = poseFor(a.status, a.currentTool, p.lastTool, now - p.lastToolAt, false);
         if (p.pose === 'thinking') continue;
         keyboardSpot(a.role, a.desk, p.pose === 'browsing', p.spot);
