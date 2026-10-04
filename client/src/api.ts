@@ -83,3 +83,5 @@ export const api = {
   approveRequest: (id: string, overrides: { name?: string; model?: string; effort?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
   rejectRequest: (id: string, note?: string) => call('POST', `/api/requests/${id}/reject`, { note }),
 };
+
+// throwaway: CI skip proof for #116, do not merge
