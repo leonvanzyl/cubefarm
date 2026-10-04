@@ -232,6 +232,44 @@ export function kanbanColumnSpan(ci: number, w: number) {
   return { x0: 40 + ci * colW, colW };
 }
 
+const NOTE = { top: 96, h: 104, gap: 12, perCol: 2 };
+
+/** How many notes fit in a column on a canvas `h` pixels tall (one slot goes to "+N more" when there are more). */
+export const kanbanCapacity = (h: number) => Math.floor((h - NOTE.top - 70) / (NOTE.h + NOTE.gap)) * NOTE.perCol;
+
+/** Where drawKanban puts the `i`th note of column `ci` on a `w` × `h` canvas. */
+export function kanbanNoteRect(ci: number, i: number, w: number) {
+  const { x0, colW } = kanbanColumnSpan(ci, w);
+  const nw = (colW - 48) / 2;
+  return { x: x0 + 16 + (i % NOTE.perCol) * (nw + 16), y: NOTE.top + 68 + Math.floor(i / NOTE.perCol) * (NOTE.h + NOTE.gap), w: nw, h: NOTE.h };
+}
+
+/** A column's sticky-note colour. */
+export const kanbanNoteColor = (key: keyof KanbanColumns) => COLS.find((c) => c.key === key)?.note ?? '#fff3b0';
+
+/** A loose sticky (StickyNotes.tsx's atlas): the note colour, its number big, a darker edge for the toon outline. */
+export function drawSticky(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, label: string, color: string) {
+  ctx.clearRect(x, y, w, h);
+  ctx.fillStyle = shadeHex(color, -0.35);
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 4, y + 4, w - 8, h - 8);
+  ctx.fillStyle = 'rgba(0,0,0,0.07)';
+  ctx.fillRect(x + 4, y + 4, w - 8, h * 0.14);
+  ctx.fillStyle = '#2d3142';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(h * 0.42)}px ${SANS}`;
+  ctx.fillText(label, x + w / 2, y + h * 0.56, w - 16);
+  ctx.textAlign = 'left';
+}
+
+function shadeHex(hex: string, k: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (c: number) => Math.round(k < 0 ? c * (1 + k) : c + (255 - c) * k);
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
 export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, repo: RepoView, cols: KanbanColumns) {
   ctx.fillStyle = '#fbfbf8';
   ctx.fillRect(0, 0, w, h);
@@ -250,7 +288,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   ctx.fillText(`${repo.autoAssign ? '⚡ auto-assign on · ' : ''}${synced}`, w - 40, 50);
   ctx.textAlign = 'left';
 
-  const top = 96;
+  const top = NOTE.top;
   COLS.forEach((c, ci) => {
     const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
@@ -269,22 +307,17 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
       ctx.stroke();
     }
 
-    const noteW = (colW - 48) / 2;
-    const noteH = 104;
-    const perCol = 2;
-    const rowsFit = Math.floor((h - top - 70) / (noteH + 12));
-    const capacity = rowsFit * perCol;
+    const capacity = kanbanCapacity(h);
     const shown = cards.length > capacity ? cards.slice(0, capacity - 1) : cards;
     shown.forEach((card, i) => {
-      const nx = x0 + 16 + (i % perCol) * (noteW + 16);
-      const ny = top + 68 + Math.floor(i / perCol) * (noteH + 12);
-      drawNote(ctx, nx, ny, noteW, noteH, card, card.tone ? TONE[card.tone] : c.note);
+      const n = kanbanNoteRect(ci, i, w);
+      drawNote(ctx, n.x, n.y, n.w, n.h, card, card.tone ? TONE[card.tone] : c.note);
     });
     if (cards.length > shown.length) {
       ctx.fillStyle = '#6c7086';
       ctx.font = `600 26px ${SANS}`;
-      const i = shown.length;
-      ctx.fillText(`+${cards.length - shown.length} more`, x0 + 30 + (i % perCol) * (noteW + 16), top + 68 + Math.floor(i / perCol) * (noteH + 12) + noteH / 2);
+      const n = kanbanNoteRect(ci, shown.length, w);
+      ctx.fillText(`+${cards.length - shown.length} more`, n.x + 14, n.y + n.h / 2);
     }
     if (cards.length === 0) {
       ctx.fillStyle = '#b4b7c5';
@@ -300,12 +333,22 @@ function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   ctx.translate(x + w / 2, y + h / 2);
   ctx.rotate(tilt);
   ctx.translate(-w / 2, -h / 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
-  ctx.fillRect(4, 6, w, h);
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = 'rgba(0,0,0,0.06)';
-  ctx.fillRect(0, 0, w, 10);
+  if (card.ghost) {
+    // the sticky is off the board, with whoever took it: just its outline and a faded copy of what it says
+    ctx.globalAlpha = 0.45;
+    ctx.setLineDash([12, 9]);
+    ctx.strokeStyle = '#8a8fa3';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(2, 2, w - 4, h - 4);
+    ctx.setLineDash([]);
+  } else {
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(4, 6, w, h);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.fillRect(0, 0, w, 10);
+  }
 
   ctx.fillStyle = '#2d3142';
   ctx.font = `700 22px ${SANS}`;
@@ -332,6 +375,7 @@ function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
     ctx.fillText(card.note, w - 12, h - 14);
     ctx.textAlign = 'left';
   }
+  ctx.globalAlpha = 1;
   ctx.restore();
   ctx.textBaseline = 'middle';
 }

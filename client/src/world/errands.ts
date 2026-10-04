@@ -29,6 +29,10 @@ export interface ErrandState {
 export interface ErrandStep {
   gesture: Gesture;
   seconds: number;
+  /** Walk to this spot first (a few steps, say along the board); the step lasts at least as long as the walk. */
+  to?: (agentId: string) => string | null;
+  /** Passed to the errand's `cue` as the step starts. */
+  cue?: string;
 }
 
 export interface Errand {
@@ -43,6 +47,20 @@ export interface Errand {
   steps: readonly ErrandStep[];
   /** What their hands do on the walk back (carrying something). */
   carry?: Gesture;
+  /** ...and on the walk there. */
+  bring?: Gesture;
+  /** Walking speed (m/s) there and back, when it's brisker than a stroll. */
+  speed?: number;
+  /** Work errands that may still start this many seconds into 'working' (a tester fetching the PR they were just given). */
+  grace?: number;
+  /** Where to for this person, overriding `spot` (an errand to one particular board column). */
+  where?(agentId: string): readonly string[];
+  /** Asked just before they set off, once a spot is free: false leaves it queued for now (only so many at the board at once). */
+  claim?(agentId: string): boolean;
+  /** A step with a `cue` is starting; false cuts the errand short and sends them back. */
+  cue?(agentId: string, cue: string): boolean;
+  /** They're done with it and heading back ('done' after every step), or it was cut short or never got going ('cut'). */
+  end?(agentId: string, how: 'done' | 'cut'): void;
   /** At most this many people on this errand per floor at once. */
   max?: number;
   /** Errands with more to them than gestures at one spot (coffee): run by an actor once they've arrived, instead of `steps`. */
@@ -75,28 +93,32 @@ const FREE: readonly AgentStatus[] = ['idle', 'done', 'stopped'];
 /** Free to wander: nothing to work on. ('error' stays slumped at the desk, where the manager will see it.) */
 export const isFree = (status: AgentStatus) => FREE.includes(status);
 
-/** May someone with this status set off on this errand? Work errands also while preparing. */
-export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work'>) => isFree(status) || (!!errand.work && status === 'preparing');
+/** May someone with this status set off on this errand? Work errands also while preparing (or within their `grace`). */
+export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work' | 'grace'>, statusFor = Infinity) =>
+  isFree(status) || (!!errand.work && (status === 'preparing' || (status === 'working' && statusFor < (errand.grace ?? 0))));
 
 /** May they carry on with it, or must they hurry back to their desk? Work errands may finish once the work starts. */
 export const mayContinue = (status: AgentStatus, errand: Pick<Errand, 'work'>) =>
   isFree(status) || (!!errand.work && (status === 'preparing' || status === 'working'));
 
-/** Who of those with an errand waiting sets off now: longest waiting first, while there's room on the floor. */
+/**
+ * Who of those with an errand waiting sets off now: longest waiting first, while there's room on the floor. Work
+ * errands (the board's, with their own limits) always go, ahead of the rest and whatever the cap.
+ */
 export function admit<T extends { queue: readonly Queued[] }>(waiting: readonly T[], away: number, cap = MAX_WALKERS): T[] {
-  const room = Math.max(0, cap - away);
-  return waiting
-    .filter((p) => p.queue.length > 0)
-    .sort((a, b) => a.queue[0].at - b.queue[0].at)
-    .slice(0, room);
+  const queued = waiting.filter((p) => p.queue.length > 0).sort((a, b) => a.queue[0].at - b.queue[0].at);
+  const work = queued.filter((p) => p.queue[0].work);
+  const room = Math.max(0, cap - away - work.length);
+  return [...work, ...queued.filter((p) => !p.queue[0].work).slice(0, room)];
 }
 
 /** Seconds someone sits before their next idle errand: tens of seconds, sooner on arrival so the floor isn't still. */
 export const restlessSeconds = (rand: number, arriving = false) => (arriving ? 6 + rand * 40 : 25 + rand * 45);
 
-/** The errands this person wants to go on now and may, in registry order. */
+/** The errands this person wants to go on now and may: work errands first, then in registry order. */
 export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: ErrandState): Errand[] {
-  return registry.filter((e) => mayStart(agent.status, e) && e.when(agent, state));
+  const out = registry.filter((e) => mayStart(agent.status, e, state.statusFor) && e.when(agent, state));
+  return [...out.filter((e) => e.work), ...out.filter((e) => !e.work)];
 }
 
 // ---------- the queue ----------
@@ -105,15 +127,23 @@ export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: E
 export interface Queued {
   name: string;
   at: number;
+  /** A work errand: it goes ahead of idle ones. */
+  work?: boolean;
 }
 
 export const QUEUE_MAX = 2;
 export const QUEUE_SECONDS = 20;
 
-/** Adds `name` unless it's already waiting or the queue is full (then it's skipped). Returns the queue to keep. */
-export function enqueue(q: readonly Queued[], name: string, now: number, max = QUEUE_MAX): Queued[] {
-  if (q.length >= max || q.some((x) => x.name === name)) return q as Queued[];
-  return [...q, { name, at: now }];
+/**
+ * Adds `name` unless it's already waiting or the queue is full (then it's skipped). A work errand goes ahead of the
+ * idle ones, bumping the last of them off a full queue. Returns the queue to keep.
+ */
+export function enqueue(q: readonly Queued[], name: string, now: number, max = QUEUE_MAX, work = false): Queued[] {
+  if (q.some((x) => x.name === name)) return q as Queued[];
+  if (!work) return q.length >= max ? (q as Queued[]) : [...q, { name, at: now }];
+  const ahead = q.filter((x) => x.work);
+  if (ahead.length >= max) return q as Queued[];
+  return [...ahead, { name, at: now, work: true }, ...q.filter((x) => !x.work)].slice(0, max);
 }
 
 /** Drops what has waited too long or may no longer go (`ok`), keeping the order. */
