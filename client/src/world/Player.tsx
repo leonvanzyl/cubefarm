@@ -441,6 +441,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     camera.rotation.set(pitch + sipPose.head, yaw, 0, 'YXZ');
     playerAt.x = camera.position.x;
     playerAt.z = camera.position.z;
+    playerAt.yaw = yaw;
 
     const now = performance.now();
     if (s.started && !s.travel && now - lastSave.current > 1000) {

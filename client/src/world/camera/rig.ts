@@ -82,8 +82,8 @@ export function followBody(id: string, label: string): FollowTarget {
 
 // ---------- state ----------
 
-/** Where the player is standing: the camera in first person, and where they left themselves in any other view. */
-export const playerAt = { x: 0, z: 0 };
+/** Where the player is standing and facing: the camera in first person, and where they left themselves in any other view. */
+export const playerAt = { x: 0, z: 0, yaw: 0 };
 
 interface Home {
   x: number;
@@ -276,6 +276,7 @@ function leaveFirst() {
   rig.home = { x: camera.position.x, z: camera.position.z, yaw: look.yaw, pitch: look.pitch };
   playerAt.x = rig.home.x;
   playerAt.z = rig.home.z;
+  playerAt.yaw = rig.home.yaw;
   const s = useStore.getState();
   if (s.held) s.setHeld(null);
   if (s.focus) s.setFocus(null);
@@ -415,6 +416,7 @@ export function arriveOnFloor(spawn: Home) {
   rig.home = { ...spawn };
   playerAt.x = spawn.x;
   playerAt.z = spawn.z;
+  playerAt.yaw = spawn.yaw;
   const want = rig.arrival;
   rig.arrival = null;
   if (want?.mode === 'follow') {

@@ -20,13 +20,15 @@ export type ActionId =
   | 'workers'
   | 'overview'
   | 'rotateLeft'
-  | 'rotateRight';
+  | 'rotateRight'
+  | 'talk';
 
 /**
  * Where an action works: `global` everywhere; `move` on foot and in the overview (where the movement keys pan);
- * `walk` on foot only; `overview` in the overview only. Two actions on one key clash when their scopes overlap.
+ * `walk` on foot only; `overview` in the overview only; `panel` in an open panel or the phone. Two actions on one key
+ * clash when their scopes overlap.
  */
-export type Scope = 'global' | 'move' | 'walk' | 'overview';
+export type Scope = 'global' | 'move' | 'walk' | 'overview' | 'panel';
 
 export interface ActionDef {
   id: ActionId;
@@ -56,6 +58,7 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'overview', label: 'Overview (twice: the building)', group: 'Overview', scope: 'global', keys: ['Tab'] },
   { id: 'rotateLeft', label: 'Turn the overview left', group: 'Overview', scope: 'overview', keys: ['KeyQ'] },
   { id: 'rotateRight', label: 'Turn the overview right', group: 'Overview', scope: 'overview', keys: ['KeyE'] },
+  { id: 'talk', label: 'Hold to talk (in a message box)', group: 'Office', scope: 'panel', keys: ['KeyV'] },
 ];
 
 export const ACTION_IDS = ACTIONS.map((a) => a.id);
@@ -77,6 +80,7 @@ export const bindable = (code: unknown): code is string => typeof code === 'stri
 
 export function scopesOverlap(a: Scope, b: Scope) {
   if (a === b || a === 'global' || b === 'global') return true;
+  if (a === 'panel' || b === 'panel') return false; // the office's own keys rest while a panel is open
   return a === 'move' || b === 'move'; // walk and overview never run at the same time
 }
 

@@ -29,6 +29,7 @@ describe('default bindings', () => {
     expect(b.volumeDown).toEqual(['Minus', 'NumpadSubtract']);
     expect(b.volumeUp).toEqual(['Equal', 'NumpadAdd']);
     expect(b.overview).toEqual(['Tab']);
+    expect(b.talk).toEqual(['KeyV']);
   });
 
   it('have no conflicts (E interacts on foot and turns the overview, which never run together)', () => {
@@ -138,6 +139,17 @@ describe('findConflicts', () => {
     const b = defaultBindings();
     b.drop = ['KeyE'];
     expect(findConflicts(b)).toEqual([{ code: 'KeyE', actions: ['interact', 'drop'] }]);
+  });
+
+  it('keeps a panel key apart from the office keys, but not from the global ones', () => {
+    const b = defaultBindings();
+    b.interact = ['KeyV'];
+    expect(findConflicts(b)).toEqual([]);
+    b.phone = ['KeyV'];
+    expect(findConflicts(b)).toEqual([
+      { code: 'KeyV', actions: ['interact', 'phone'] },
+      { code: 'KeyV', actions: ['phone', 'talk'] },
+    ]);
   });
 
   it('counts a global key against everything', () => {

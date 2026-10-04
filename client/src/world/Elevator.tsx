@@ -8,6 +8,7 @@ import { drawSign } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { glow, toon } from './materials';
 import { bodies } from './people';
+import { dogNow } from './toys/dogState';
 import { Box } from './Toon';
 
 const METAL = '#b9c2cf';
@@ -32,6 +33,7 @@ export function Elevator({ floorLabel, accent }: { floorLabel: string; accent: s
     let near = Math.hypot(dx, dz) < 2.8;
     // People on foot (a new hire stepping out, someone leaving) open the doors too.
     for (const b of bodies()) if (b.stage !== 'seated' && Math.abs(b.x) < doorHalf + 0.6 && Math.abs(b.z - zDoor) < 2) near = true;
+    if (dogNow.drawn && Math.abs(dogNow.x) < doorHalf + 0.6 && Math.abs(dogNow.z - zDoor) < 2) near = true; // and the dog
     const want = travel?.phase === 'closing' ? 0 : near || travel?.phase === 'opening' ? 1 : 0;
     open.current += (want - open.current) * (1 - Math.exp(-dt * 5));
     const slide = open.current * doorHalf * 0.98;
