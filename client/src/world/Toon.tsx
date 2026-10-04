@@ -1,4 +1,4 @@
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import type { ReactNode } from 'react';
 import { toon } from './materials';
 
