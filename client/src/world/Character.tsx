@@ -9,6 +9,7 @@ import { PARTS } from './characterParts';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, trackBody } from './people';
 import { useHitReaction } from './useHitReaction';
+import { hearBody, hearing } from '../ui/peopleSounds';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
 // people controller (people.ts, body.ts) can get them up, walk them about and sit them back down. `children` (the
@@ -77,6 +78,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
   const hit = useHitReaction(agent.id, body);
   if (agent.currentTool) lastTool.current = { name: agent.currentTool, at: performance.now() };
   useEffect(() => trackBody(agent.id, move.s), [agent.id, move]);
+  useEffect(() => hearing(agent.id), [agent.id]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
@@ -117,6 +119,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
       move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
       move.gh += (g.head - move.gh) * kg;
+      hearBody(agent.id, st, st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none', dt, te[13]);
     }
     const seated = st.stage === 'seated';
     const k = smooth(st.sit); // 1 seated, 0 standing
