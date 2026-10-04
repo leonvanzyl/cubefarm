@@ -18,6 +18,7 @@ import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
+import { tuneChannel } from '../ui/theatre';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 
@@ -81,6 +82,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'channel') {
+    tuneChannel(focus.action.repoId, focus.action.pr);
     return;
   }
   if (focus.action.kind === 'hire') {
