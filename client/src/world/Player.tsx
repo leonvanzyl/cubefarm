@@ -3,16 +3,18 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Focus } from '../store';
 import { api } from '../api';
-import { EYE_HEIGHT, SPAWN, collide, type Rect } from './layout';
+import { EYE_HEIGHT, SPAWN, collide, surfaceAt, type Rect } from './layout';
 import { interactables } from './interact';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
-import { footstepsFollow, getAudioPrefs, toggleMute } from '../ui/sfx';
+import { getAudioPrefs, toggleMute } from '../ui/sfx';
+import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
 import { watchLookLock } from './lookLock';
 import { pokeToy } from './toys/poke';
 import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
+import { isMugId, takeMug } from './toys/mugs';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -54,6 +56,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   quietUntil = performance.now() + QUIET_MS;
   if (focus.action.kind === 'pickup' && isBlasterId(focus.action.toyId)) {
     takeBlaster(focus.action.toyId, focus.id.startsWith('toy:rack:'));
+    return;
+  }
+  if (focus.action.kind === 'pickup' && isMugId(focus.action.toyId)) {
+    takeMug(focus.action.toyId);
     return;
   }
   if (focus.action.kind === 'pickup') {
@@ -247,7 +253,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     }
     bob.current += moving ? dt * speed * 2.2 : 0;
     camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
-    footstepsFollow(bob.current, moving, speed > 5);
+    footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
     camera.rotation.set(pitch, yaw, 0, 'YXZ');
 
     const now = performance.now();
