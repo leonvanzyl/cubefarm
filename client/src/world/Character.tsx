@@ -11,6 +11,7 @@ import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, seatBody, setBody, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
+import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
 import { useHitReaction } from './useHitReaction';
 import { Zzz } from './Zzz';
 import { hearBody, hearing } from '../ui/peopleSounds';
@@ -21,7 +22,6 @@ import { hearBody, hearing } from '../ui/peopleSounds';
 
 type Arm = { pitch: number; yaw: number }; // yaw > 0 swings the hand toward the body's centre line
 type Pose = { l: Arm; r: Arm; lean: number; headPitch: number; headYaw: number; type: number; mouse: number };
-type PoseName = 'typing' | 'browsing' | 'thinking' | 'relaxed' | 'cheer' | 'slump';
 
 const KEYS: Arm = { pitch: -0.34, yaw: 0.26 };
 const POSES: Record<PoseName, Pose> = {
@@ -182,7 +182,8 @@ export function Character({
   const armL = useRef<THREE.Group>(null);
   const armR = useRef<THREE.Group>(null);
   const cur = useRef<Pose>(clone(POSES.relaxed));
-  const seed = useRef(Math.random() * 100);
+  // From the id, so the typing sounds tap in time with these hands.
+  const seed = useMemo(() => typingSeed(agent.id), [agent.id]);
   const lastTool = useRef({ name: null as string | null, at: 0 });
   const look = useMemo(() => appearanceFor(agent), [agent.id, agent.look, agent.role]);
   const root = useRef<THREE.Group>(null);
@@ -235,7 +236,7 @@ export function Character({
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const now = performance.now();
-    const t = now / 1000 + seed.current;
+    const t = now / 1000 + seed;
     const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
 
     // ---------- where the body is ----------
@@ -289,22 +290,7 @@ export function Character({
     // ---------- the seated pose ----------
     const busy = agent.status === 'working' || agent.status === 'preparing';
     const cheering = party || (agent.status === 'done' && agent.endedAt != null && Date.now() - agent.endedAt < 7000);
-    // A little hysteresis so poses don't flicker between quick tool calls.
-    const sinceTool = now - lastTool.current.at;
-    const browsing = lastTool.current.name?.startsWith('mcp__playwright') && sinceTool < 4000;
-    const name: PoseName = party ? 'cheer' : busy
-      ? agent.status === 'preparing'
-        ? 'typing'
-        : browsing
-          ? 'browsing'
-          : !agent.currentTool && sinceTool > 2500
-            ? 'thinking'
-            : 'typing'
-      : agent.status === 'error'
-        ? 'slump'
-        : cheering
-          ? 'cheer'
-          : 'relaxed';
+    const name: PoseName = party ? 'cheer' : poseFor(agent.status, agent.currentTool, lastTool.current.name, now - lastTool.current.at, cheering);
     const target = POSES[name];
     const c = cur.current;
     const k5 = 1 - Math.exp(-dt * 5);
@@ -315,16 +301,16 @@ export function Character({
     for (const key of ['lean', 'headPitch', 'headYaw', 'type', 'mouse'] as const) c[key] += (target[key] - c[key]) * k5;
 
     // Typing comes in bursts: fast alternating taps, then a short pause to read.
-    const burst = Math.sin(t * 0.8) + Math.sin(t * 2.1) * 0.6 > -0.35 ? 1 : 0.15;
+    const burst = burstLevel(t);
     const tap = c.type * burst * 0.1;
-    const speed = agent.status === 'preparing' ? 10 : 19;
-    const tapL = Math.max(0, Math.sin(t * speed)) * tap;
-    const tapR = Math.max(0, Math.sin(t * speed + 2.4)) * tap * (1 - c.mouse);
+    const speed = tapSpeed(agent.status);
+    const tapL = handLift(t, speed, TAP_PHASE.l) * tap;
+    const tapR = handLift(t, speed, TAP_PHASE.r) * tap * (1 - c.mouse);
     const driftL = Math.sin(t * 3.1) * 0.05 * c.type;
     const driftR = Math.sin(t * 2.7 + 1) * 0.05 * c.type;
     // Mouse hand: small glides plus a click now and then.
     const glide = Math.sin(t * 1.9) * 0.06 * c.mouse;
-    const click = (Math.sin(t * 5.3) > 0.93 ? 0.04 : 0) * c.mouse;
+    const click = mouseDip(t) * c.mouse;
     const wave = cheering ? Math.sin(t * 9) * 0.35 : 0;
     const waveUp = party ? wave * up : 0; // up and partying, they wave too
 

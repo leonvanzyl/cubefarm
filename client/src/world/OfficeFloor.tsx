@@ -8,7 +8,8 @@ import { Elevator } from './Elevator';
 import { Gong } from './Gong';
 import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
-import { DESK_RUGS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
+import { Jukebox } from './Jukebox';
+import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
@@ -133,6 +134,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <CoffeeTable position={[-HALF_W + 2.6, 0, 6.5]} rotationY={Math.PI / 2} />
       <Kitchenette position={[HALF_W - 0.45, 0, 7]} />
       <WaterCooler position={[HALF_W - 0.5, 0, -9.5]} />
+      <Jukebox x={JUKEBOX.officeX} floor={repo.floor} />
       <WallClock position={[-10, 2.75, -HALF_D + 0.05]} />
       <WallSign
         position={[10, 2.2, -HALF_D + 0.03]}

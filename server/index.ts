@@ -10,6 +10,8 @@ import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
 import { underLauncher } from './officeUpdate.ts';
+import { screenStatus } from './screenReply.ts';
+import { parseSendBackNote } from './sendBack.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
 const swarm = new Swarm(DEMO ? createDemoBackend() : realBackend);
@@ -115,6 +117,7 @@ app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(r
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
+app.post('/api/repos/:repo/pulls/:n/fix', route((req) => swarm.sendBackToDev(repoId(req), num(req.params.n), parseSendBackNote(req.body))));
 app.post(
   '/api/repos/:repo/agents',
   route((req) =>
@@ -140,9 +143,9 @@ app.post('/api/agents/:id/message', route((req) => swarm.message(String(req.para
 app.get('/api/agents/:id/prompt', route((req) => swarm.agentPrompt(String(req.params.id))));
 app.get('/api/agents/:id/screen', (req, res) => {
   const shot = swarm.screenshot(String(req.params.id));
-  if (!shot) return void res.status(404).end();
-  res.setHeader('Content-Type', shot.mime);
   res.setHeader('Cache-Control', 'no-store');
+  if (!shot) return void res.status(screenStatus(shot)).end();
+  res.setHeader('Content-Type', shot.mime);
   res.end(shot.data);
 });
 

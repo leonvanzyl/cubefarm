@@ -8,7 +8,8 @@ import { Desk } from './Desk';
 import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
 import { useCanvasTexture, useInteractable } from './interact';
-import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
+import { Jukebox } from './Jukebox';
+import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
 import { Bookshelf, CoffeeCorner, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
@@ -462,6 +463,7 @@ export function Lobby() {
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
       <Couch position={[11.5, 0, 4]} rotationY={Math.PI} color="#4cc9f0" />
       <CoffeeTable position={[11.5, 0, 6.2]} />
+      <Jukebox x={JUKEBOX.lobbyX} floor={0} />
       {/* coffee for visitors, across from the sofa: the counter's front faces north, into the lobby */}
       <CoffeeCorner position={[COFFEE_CORNER.x, 0, HALF_D - COFFEE_CORNER.d / 2 + 0.02]} rotationY={-Math.PI / 2} />
       <Plant position={[HALF_W - 0.7, 0, HALF_D - 0.7]} scale={1.2} />

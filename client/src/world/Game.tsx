@@ -11,6 +11,7 @@ import { Player } from './Player';
 import { Lights } from './Shell';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
+import { TypingSounds } from './TypingSounds';
 
 function Travel() {
   const travel = useStore((s) => s.travel);
@@ -63,6 +64,7 @@ export function Game() {
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />
+      <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
       {statsEnabled && <StatsProbe paused={paused} />}

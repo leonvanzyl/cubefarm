@@ -18,6 +18,7 @@ import { catchUp, failedRunId, logTail, noChangeReason, PR_LIMITS_VERSION, QA_ST
 import { conflictFixInstructions, lastQaRound, MAX_QA_ROUNDS, qaGate, qaOutcome, type PreQa, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
+import { sendBackPatch } from './sendBack.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, failedLogLines, noPushNudge, ownPrLine, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
@@ -758,8 +759,10 @@ export class Swarm {
     };
   }
 
+  /** The agent's latest screenshot: null when it has none right now, undefined for an unknown agent. */
   screenshot(agentId: string) {
-    return this.agentRt.get(agentId)?.screenshot ?? null;
+    const rt = this.agentRt.get(agentId);
+    return rt ? rt.screenshot : undefined;
   }
 
   // ---------- clients ----------
@@ -1955,6 +1958,22 @@ export class Swarm {
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
+  /** Manager's "send back to dev" for a PR that needs a human or failed QA: a developer fixes it, with the note. */
+  async sendBackToDev(repoId: string, prNumber: number, note?: string) {
+    const repo = this.repo(repoId);
+    const find = () => this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === prNumber);
+    const listed = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === prNumber);
+    sendBackPatch(prNumber, listed, find(), repo.defaultBranch, note); // refuse before asking GitHub
+    // The last sync's mergeability may be stale or UNKNOWN: ask about the PR itself whether it conflicts now.
+    const details = await this.backend.prDetails(repo.fullName, prNumber).catch(() => null);
+    const pr = details && listed ? { ...listed, state: details.state, mergeable: details.mergeable, mergeState: details.mergeState } : listed;
+    const rec = find();
+    const patch = sendBackPatch(prNumber, pr, rec, repo.defaultBranch, note);
+    this.setQa(rec!, { ...patch, preQa: null });
+    setTimeout(() => this.schedule(), 200);
+    this.toast('info', `PR #${prNumber} goes back to a developer${patch.fixReason === 'conflict' ? ' to resolve its conflicts' : ''}`);
+  }
+
   private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string, deps?: DepsOutcome) {
     return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr, testStep, depsLine: depsPromptLine(deps) });
   }
@@ -2202,6 +2221,8 @@ export class Swarm {
             rec.preQa
               ? `Pull request #${rec.prNumber} (${pull?.url ?? ''}) conflicts with ${repo.defaultBranch} because other work was merged first, so it comes back to you before QA tests it.${takeover}`
               : `QA passed pull request #${rec.prNumber} (${pull?.url ?? ''}), but it now conflicts with ${repo.defaultBranch} because other work was merged first.${takeover}`,
+            // A conflict found before QA keeps QA's last findings for the re-test, not for this fix.
+            !rec.preQa && rec.fixInstructions ? `\nWhat needs fixing:\n${rec.fixInstructions}` : '',
             '',
             `Bring it up to date: git fetch origin && git merge origin/${repo.defaultBranch}. Resolve the conflicts so both this change and the newly merged work keep working, run the project's checks, and ${push}`,
           ]
