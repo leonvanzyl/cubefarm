@@ -1,13 +1,14 @@
 // Confetti over a developer's desk when their PR merges (over the Kanban board when nobody on the floor
-// wrote it). One pooled InstancedMesh per floor: a few slots of flat paper bits, hidden and skipped
-// entirely while no burst is flying.
+// wrote it), and over the floor's gong when a merge strikes it (gongState.ts). One pooled InstancedMesh per
+// floor: a few slots of flat paper bits, hidden and skipped entirely while no burst is flying.
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { RepoView } from '../../../shared/types';
 import { coversView, useStore, type Agent } from '../store';
 import { canBurst, onMerge } from './confetti';
-import { BOARD, deskPosition } from './layout';
+import { onGongParty } from './gongState';
+import { BOARD, GONG, deskPosition } from './layout';
 
 const SLOTS = 3; // bursts at once
 const PIECES = 90; // per burst
@@ -17,7 +18,7 @@ const DRAG = 1.6;
 const PALETTE = ['#ff5d8f', '#ffd23f', '#3bceac', '#3a86ff', '#ff8c42', '#9b5de5'];
 
 interface Slot {
-  key: string | null; // the desk (agent id) or 'board' while flying, null when free
+  key: string | null; // the desk (agent id), 'board' or 'gong' while flying, null when free
   age: number;
 }
 
@@ -29,7 +30,7 @@ interface Controller {
 let controller: Controller | null = null;
 
 // window.__swarmConfetti: for QA and Playwright. burst() goes over that developer's desk on this floor,
-// or over the Kanban board.
+// over the gong for burst('gong'), or over the Kanban board.
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmConfetti')) {
   Object.defineProperty(window, '__swarmConfetti', {
     value: { active: () => controller?.active() ?? 0, burst: (agentId?: string) => controller?.burst(agentId) },
@@ -88,21 +89,23 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
     const active = () => sim.slots.filter((s) => s.key).length;
 
     const burst = (agentId?: string | null) => {
+      const gong = agentId === 'gong';
       const m = mesh.current;
       if (!m || !canBurst({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reducedMotion() })) return;
       const dev = agentId ? agentsRef.current.find((a) => a.id === agentId && a.role === 'dev') : undefined;
-      const key = dev?.id ?? 'board';
+      const key = dev?.id ?? (gong ? 'gong' : 'board');
       if (sim.slots.some((s) => s.key === key)) return; // one per desk
       const s = sim.slots.findIndex((x) => !x.key);
       if (s < 0) return; // full: dropped, never queued
-      const at = dev ? { ...deskPosition(dev.desk), y: 1.5 } : { x: 0, z: BOARD.z + 1.2, y: BOARD.y + BOARD.h * 0.6 };
+      const at = dev ? { ...deskPosition(dev.desk), y: 1.5 } : gong ? { x: GONG.x, z: GONG.z + 0.3, y: GONG.h + 0.1 } : { x: 0, z: BOARD.z + 1.2, y: BOARD.y + BOARD.h * 0.6 };
       sim.slots[s] = { key, age: 0 };
       for (let k = 0; k < PIECES; k++) {
         const i = s * PIECES + k;
         const a = Math.random() * Math.PI * 2;
         const out = 0.6 + Math.random() * 1.6;
         sim.pos.set([at.x + (Math.random() - 0.5) * 0.3, at.y, at.z + (Math.random() - 0.5) * 0.3], i * 3);
-        sim.vel.set([Math.cos(a) * out, 2.6 + Math.random() * 2.2, Math.sin(a) * out], i * 3);
+        // the gong stands against the north wall: its burst goes out into the room, not through the wall
+        sim.vel.set([Math.cos(a) * out, 2.6 + Math.random() * 2.2, gong ? Math.abs(Math.sin(a)) * out + 0.2 : Math.sin(a) * out], i * 3);
         sim.rot.set([Math.random() * 6, Math.random() * 6, Math.random() * 6], i * 3);
         sim.spin.set([(Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 14], i * 3);
         sim.phase[i] = Math.random() * Math.PI * 2;
@@ -127,9 +130,13 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
     const off = onMerge((b) => {
       if (b.repoId === repo.id) burst(b.agentId);
     });
+    const offGong = onGongParty((repoId) => {
+      if (repoId === repo.id) burst('gong');
+    });
     controller = { active, burst };
     return () => {
       off();
+      offGong();
       unsub();
       if (controller?.burst === burst) controller = null;
     };

@@ -200,7 +200,13 @@ export interface PrDetails {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
   mergeable: string;
   mergeState: string;
+  checks: PullInfo['checks'];
+  checkNames: string[]; // every check on the head commit, once each
+  failedChecks: string[];
+  pendingChecks: string[];
 }
+
+const uniqueNames = (checks: Check[]) => [...new Set(checks.map(checkName))];
 
 export async function prDetails(fullName: string, number: number): Promise<PrDetails> {
   const raw = await ghJson<{
@@ -215,7 +221,9 @@ export async function prDetails(fullName: string, number: number): Promise<PrDet
     state: PrDetails['state'];
     mergeable: string;
     mergeStateStatus: string;
-  }>(['pr', 'view', String(number), '-R', fullName, '--json', 'number,title,body,url,headRefName,headRefOid,isCrossRepository,closingIssuesReferences,state,mergeable,mergeStateStatus']);
+    statusCheckRollup: RawPull['statusCheckRollup'];
+  }>(['pr', 'view', String(number), '-R', fullName, '--json', 'number,title,body,url,headRefName,headRefOid,isCrossRepository,closingIssuesReferences,state,mergeable,mergeStateStatus,statusCheckRollup']);
+  const rollup = raw.statusCheckRollup ?? [];
   return {
     number: raw.number,
     title: raw.title,
@@ -228,6 +236,10 @@ export async function prDetails(fullName: string, number: number): Promise<PrDet
     state: raw.state,
     mergeable: raw.mergeable,
     mergeState: raw.mergeStateStatus || 'UNKNOWN',
+    checks: checksOf(rollup),
+    checkNames: uniqueNames(rollup),
+    failedChecks: uniqueNames(rollup.filter(failed)),
+    pendingChecks: uniqueNames(rollup.filter(pending)),
   };
 }
 
