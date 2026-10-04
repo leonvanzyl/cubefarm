@@ -9,6 +9,7 @@ import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR } from './config.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
+import { VoiceApiError, type VoiceApi } from './voice.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
 // dev → QA → fix loop) can be explored without spending any usage or touching real repos.
@@ -556,6 +557,7 @@ export function createDemoBackend(): Backend {
       CLIS.map((c) => ({ id: c.id, label: c.label, installed: true, version: 'demo', integrated: c.integrated })),
     previews: demoPreviews,
     office: demoOffice,
+    voice: demoVoice,
   };
 }
 
@@ -984,3 +986,50 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
     },
   };
 }
+
+// ---------- voice ----------
+
+/** A short two-note chime as 8 kHz mono WAV: something to hear without ElevenLabs, a little longer for longer text. */
+export function demoChime(chars: number): Buffer {
+  const rate = 8000;
+  const seconds = Math.min(0.4 + chars / 400, 2);
+  const n = Math.round(rate * seconds);
+  const wav = Buffer.alloc(44 + n);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + n, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); // PCM
+  wav.writeUInt16LE(1, 22); // mono
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate, 28);
+  wav.writeUInt16LE(1, 32);
+  wav.writeUInt16LE(8, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(n, 40);
+  for (let i = 0; i < n; i++) {
+    const t = i / rate;
+    const f = t < seconds / 2 ? 660 : 880;
+    const fade = Math.min(1, (seconds - t) * 8, t * 40);
+    wav[44 + i] = Math.round(128 + 40 * fade * Math.sin(2 * Math.PI * f * t));
+  }
+  return wav;
+}
+
+const demoVoices = [
+  { id: 'demoVoiceAvery00001', name: 'Avery', category: 'premade', labels: { accent: 'american', gender: 'female', age: 'middle aged', description: 'calm', use_case: 'conversational' }, previewUrl: null },
+  { id: 'demoVoiceBasil00002', name: 'Basil', category: 'premade', labels: { accent: 'british', gender: 'male', age: 'middle aged', description: 'warm', use_case: 'narration' }, previewUrl: null },
+  { id: 'demoVoiceCleo000003', name: 'Cleo', category: 'premade', labels: { accent: 'australian', gender: 'female', age: 'young', description: 'friendly', use_case: 'conversational' }, previewUrl: null },
+];
+
+/** No network: any key works except one containing "bad", three voices, and a chime for every message. */
+const demoVoice: VoiceApi = {
+  checkKey: async (key) => {
+    if (/bad/i.test(key)) throw new VoiceApiError(401, '401: invalid_api_key (demo)');
+  },
+  listVoices: async () => demoVoices,
+  synthesize: async (_key, { text }) => {
+    await new Promise((r) => setTimeout(r, 300));
+    return demoChime(text.length);
+  },
+};

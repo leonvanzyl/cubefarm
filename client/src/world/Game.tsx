@@ -10,6 +10,7 @@ import { OfficeFloor } from './OfficeFloor';
 import { Outside } from './Outside';
 import { Player } from './Player';
 import { Lights } from './Shell';
+import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
 
 function Travel() {
@@ -58,6 +59,7 @@ export function Game() {
     >
       <color attach="background" args={['#bfe3ff']} />
       <fog attach="fog" args={['#f3ece2', 30, 70]} />
+      <DayClock />
       <Lights />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
