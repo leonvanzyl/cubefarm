@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page, type Request } from '@playwright/test';
 import { colourStats, decodePng } from './png';
 
 // What every e2e spec shares: the `test` that fails on console errors and failed requests, walking into the office,
@@ -31,11 +31,25 @@ export const test = base.extend<{ page: Page }>({
       if (m.type() === 'error') problems.push(`console error: ${m.text()}`);
     });
     page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
-    page.on('requestfailed', (r) => problems.push(`request failed: ${r.method()} ${r.url()} (${r.failure()?.errorText})`));
+    // A reload or a second goto cancels whatever the page it replaces was still loading (a lazy chunk, say): those
+    // ERR_ABORTEDs are the navigation's doing, not a failure. Each request is tagged with the page it was made by.
+    let pages = 0;
+    const madeBy = new WeakMap<Request, number>();
+    const aborted: { request: Request; line: string }[] = [];
+    page.on('framenavigated', (f) => {
+      if (f === page.mainFrame()) pages++;
+    });
+    page.on('request', (r) => madeBy.set(r, pages));
+    page.on('requestfailed', (r) => {
+      const line = `request failed: ${r.method()} ${r.url()} (${r.failure()?.errorText})`;
+      if (r.failure()?.errorText === 'net::ERR_ABORTED') aborted.push({ request: r, line });
+      else problems.push(line);
+    });
     page.on('response', (r) => {
       if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.request().method()} ${r.url()}`);
     });
     await use(page);
+    for (const { request, line } of aborted) if ((madeBy.get(request) ?? pages) >= pages) problems.push(line);
     expect(problems, 'console errors or failed requests').toEqual([]);
   },
 });
