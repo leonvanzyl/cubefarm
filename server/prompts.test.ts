@@ -140,6 +140,13 @@ ${ONE_TURN}`);
     ];
     for (const p of prompts) expect(p.split(ONE_TURN)).toHaveLength(2);
   });
+
+  it("put a PR's own test step in the QA prompt", () => {
+    const step = "3. GitHub's checks run on this PR.";
+    const text = qaSystemPrompt({ ...qa, agent: agent({ role: 'qa' }), repo: repo(), testStep: step });
+    expect(text).toContain(`HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.\n${step}\n4. `);
+    expect(text).not.toContain('test suite');
+  });
 });
 
 /** Fills a preview's placeholders with a real task's details. */

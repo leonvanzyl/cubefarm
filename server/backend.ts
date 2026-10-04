@@ -41,7 +41,8 @@ export interface Backend {
   createProject(root: string, name: string, opts: { visibility: 'private' | 'public'; owner?: string; description?: string }): Promise<{ fullName: string; path: string }>;
   mainDir(fullName: string): string;
   deskDir(fullName: string, agentSlug: string): string;
-  prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string): Promise<string>;
+  /** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
+  prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string>;
   /** `main`: the floor's checkout as it was when the desk was let go (default: mainDir now). */
   removeDesk(fullName: string, agentSlug: string, main?: string): Promise<void>;
   /** Remove desks, stray desk folders and finished swarm/qa branches nothing in `keep` uses. */
