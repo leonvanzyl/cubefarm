@@ -18,6 +18,7 @@ import { CoinBurst } from './decor/CoinBurst';
 import { Decorations } from './decor/Decorations';
 import { DeskStory, MvpSign } from './desk/DeskStory';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
+import { OfficeRituals } from './Rituals';
 import { Shell } from './Shell';
 import { Toys } from './toys';
 
@@ -97,6 +98,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
       <ErrandDirector floor="office" agents={agents} leavers={leavers} onGone={gone} repoId={repo.id} />
+      <OfficeRituals repo={repo} agents={agents} />
       {leavers.map((a) => (
         <Leaver key={a.id} agent={a} />
       ))}

@@ -10,7 +10,8 @@ import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, ty
 import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
-import { bodyTarget, handMug, seatBody, setBody, subscribeMugs, trackBody } from './people';
+import { FoodLook } from './food';
+import { bodyTarget, handFood, handMug, isHidden, seatBody, setBody, subscribeMugs, trackBody } from './people';
 import { takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
 import { MugLook, mugColor } from './toys/mugLook';
@@ -80,6 +81,10 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
+  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up
+  clap: { l: { pitch: 0.05, yaw: 0.62 }, r: { pitch: 0.05, yaw: 0.62 }, head: 0.08 },
+  nod: { l: null, r: null, head: -0.05 },
+  thumbs: { l: null, r: { pitch: 0.45, yaw: 0.25 }, head: 0.12 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -199,6 +204,7 @@ export function Character({
   chair,
   mug,
   carrying,
+  scale = 1,
   children,
 }: {
   agent: Agent;
@@ -206,6 +212,8 @@ export function Character({
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
   carrying?: ReactNode;
+  /** Drawn smaller or bigger than life (the rituals' pizza courier). */
+  scale?: number;
   children?: ReactNode;
 }) {
   const torso = useRef<THREE.Group>(null);
@@ -232,6 +240,7 @@ export function Character({
   const chairZ = useRef<number | null>(null);
   const handCup = useRef<THREE.Group>(null);
   const carried = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
+  const food = useSyncExternalStore(subscribeMugs, () => handFood(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
     () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
@@ -288,6 +297,7 @@ export function Character({
     const r0 = root.current;
     const goal = bodyTarget(agent.id);
     if (r0) {
+      r0.visible = !isHidden(agent.id);
       if (!move.placed) {
         r0.updateWorldMatrix(true, false);
         move.placed = true;
@@ -321,6 +331,12 @@ export function Character({
       if (gesture === 'talk') {
         move.r.pitch += Math.sin(t * 4.3) * 0.18;
         move.r.yaw += Math.sin(t * 2.6) * 0.2;
+      }
+      if (gesture === 'clap' && !party) {
+        // the hands meet in front of the chest a few times a second
+        const c = Math.abs(Math.sin(t * 7)) * 0.3;
+        move.l.yaw -= c;
+        move.r.yaw -= c;
       }
       if (held.current) held.current.visible = gesture === 'hold';
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
@@ -482,7 +498,8 @@ export function Character({
       // Every few seconds, glance down at the keyboard; while setting up, look around.
       const glance = busy && Math.sin(t * 0.55 + 2) > 0.92 ? -0.22 : 0;
       const gaze = agent.status === 'preparing' ? Math.sin(t * 1.3) * 0.5 : Math.sin(t * 0.4) * 0.08;
-      const pitch = lerp(c.headPitch + glance + (busy ? Math.sin(t * 4.5) * 0.02 * burst : 0), o.pitch, o.pitchW * fw) * k + (Math.sin(t * 0.3) * 0.05 + move.gh) * up;
+      const nod = st.stage === 'up' && goal?.gesture === 'nod' ? Math.max(0, Math.sin(t * 6)) * 0.22 : 0;
+      const pitch = lerp(c.headPitch + glance + (busy ? Math.sin(t * 4.5) * 0.02 * burst : 0), o.pitch, o.pitchW * fw) * k + (Math.sin(t * 0.3) * 0.05 + move.gh - nod) * up;
       const yaw = (gaze + c.headYaw + o.yaw * fw) * k + Math.sin(t * 0.4) * 0.15 * (1 - walk) * up;
       head.current.rotation.set(pitch + (h.headPitch - pitch) * h.w, yaw + (h.headYaw - yaw) * h.w, ((name === 'thinking' ? 0.12 : 0) + o.roll * fw) * k * (1 - h.w));
     }
@@ -534,7 +551,7 @@ export function Character({
 
   return (
     <group ref={root}>
-      <group ref={body}>
+      <group ref={body} scale={scale}>
         <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />
         {/* seated legs don't move, so both are one mesh; getting up swaps in jointed ones */}
@@ -616,6 +633,11 @@ export function Character({
                     <mesh geometry={PARTS.phone} material={dark} />
                     <mesh geometry={PARTS.phoneScreen} material={toon('#8ecae6', { emissive: '#8ecae6', emissiveIntensity: 0.5 })} />
                   </group>
+                  {food && (
+                    <group position={HAND_MUG.at}>
+                      <FoodLook kind={food} />
+                    </group>
+                  )}
                   {carried && (
                     <group ref={handCup} position={HAND_MUG.at} visible={false}>
                       <group position={[0, 0, HAND_MUG.ahead]} rotation={[0, -Math.PI / 2, 0]} scale={HAND_MUG.scale}>

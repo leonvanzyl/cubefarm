@@ -28,10 +28,13 @@ export const starSpot = (): Spot => ({ x: plaqueSpot(PLAQUES + 1).x, y: SHELF.y 
 export const stickerSpot = (i: number): Spot => ({ x: -MONITOR.w / 2 + 0.055 + i * 0.058, y: -MONITOR.h / 2 + 0.03, z: MONITOR.d / 2 + 0.002 });
 export const STICKER = 0.048;
 
-/** The plant's pot (developers keep it where every desk's plant was; testers have their test tubes there). */
-export const plantSpot = (role: string): Spot => (role === 'qa' ? { x: 0.72, y: TOP, z: -0.27 } : { x: -0.76, y: TOP, z: -0.22 });
-export const photoSpot = (): Spot => ({ x: -0.6, y: TOP, z: 0.12, rotY: 0.35 });
-export const toySpot = (): Spot => ({ x: -0.43, y: TOP, z: 0.3, rotY: 0.5 });
+/**
+ * The plant's pot: developers keep it where every desk's plant was; testers have their test tubes there, so theirs
+ * stands behind them. The photo and the toy keep clear of the evening lamp and the lunch plate (Rituals.tsx).
+ */
+export const plantSpot = (role: string): Spot => (role === 'qa' ? { x: -0.72, y: TOP, z: -0.39 } : { x: -0.76, y: TOP, z: -0.22 });
+export const photoSpot = (): Spot => ({ x: -0.42, y: TOP, z: -0.12, rotY: 0.25 });
+export const toySpot = (): Spot => ({ x: 0.5, y: TOP, z: -0.08, rotY: -0.5 });
 
 /** Everything one desk shows, as spots: what DeskStory.tsx instances. */
 export function deskLayout(items: DeskItems, role: string) {

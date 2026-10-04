@@ -14,7 +14,7 @@ describe('a desk with a story', () => {
     expect(plaqueSpot(0).y - PLAQUE.h / 2).toBeGreaterThan(MONITOR.y + MONITOR.h / 2);
   });
 
-  it('keeps the stickers on the bezel and the personal items clear of the keyboard, mouse, mug and test tubes', () => {
+  it('keeps the stickers on the bezel and the personal items clear of the keyboard, mouse, mug, lamp, lunch and test tubes', () => {
     for (let i = 0; i < 3; i++) {
       const s = stickerSpot(i);
       expect(Math.abs(s.x) + STICKER / 2).toBeLessThan(MONITOR.w / 2);
@@ -26,8 +26,14 @@ describe('a desk with a story', () => {
       { x: 0.76, z: 0.02, r: 0.06 }, // mug
       { x: -0.72, z: -0.2, r: 0.16 }, // QA test tubes
       { x: 0, z: -0.34, r: 0.18 }, // monitor stand
+      { x: 0.72, z: -0.3, r: 0.1 }, // the evening desk lamp (Rituals.tsx)
+      { x: -0.56, z: 0.2, r: 0.12 }, // the lunch plate
     ];
-    for (const p of [photoSpot(), toySpot(), plantSpot('qa')]) for (const b of busy) expect(Math.hypot(p.x - b.x, p.z - b.z), JSON.stringify({ p, b })).toBeGreaterThan(b.r + 0.05);
+    for (const p of [photoSpot(), toySpot()]) for (const b of busy) expect(Math.hypot(p.x - b.x, p.z - b.z), JSON.stringify({ p, b })).toBeGreaterThan(b.r + 0.05);
+    // the testers' plant stands behind their test tubes, inside the desk
+    const qa = plantSpot('qa');
+    expect(qa.z - 0.07).toBeGreaterThan(-0.475);
+    expect(qa.z + 0.07).toBeLessThan(-0.25);
   });
 
   it('shows what the career earned, and only that', () => {

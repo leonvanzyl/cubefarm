@@ -88,7 +88,7 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
   return tex;
 }
 
-function NameTag({ agent }: { agent: Agent }) {
+export function NameTag({ agent }: { agent: Agent }) {
   const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color]);
   return (
     // placed by Character, which carries it about with the person
