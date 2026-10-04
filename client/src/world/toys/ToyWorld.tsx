@@ -4,6 +4,7 @@ import { BallCollider, CapsuleCollider, CuboidCollider, interactionGroups, Physi
 import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
+import { bodyState } from '../people';
 import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
@@ -14,6 +15,8 @@ import { Hoop } from './Hoop';
 import { hoopRim, hoopSquare } from './hoopScore';
 import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
+import { npcGrips, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
+import { npcHoldPoint, npcView, type NpcAim } from './npcAim';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
 import { HOLD, THROW, holdPoint, hoopShot, throwVelocity, type HoopAim, type View } from './throwing';
@@ -66,6 +69,7 @@ function Building({ floor }: { floor: ToyFloor }) {
 }
 
 const ZERO = { x: 0, y: 0, z: 0 };
+const STILL = { x: 0, z: 0 };
 
 // The player as the physics world sees them: a capsule from just above the floor to head height that chases the
 // camera. It shoves balls (harder when running, because it moves faster) but nothing ever pushes back on the
@@ -175,7 +179,14 @@ function Balls({ floor }: { floor: ToyFloor }) {
   const bodies = useRef<(RapierRigidBody | null)[]>([]);
   const refs = useMemo(() => defs.map((_, i) => (b: RapierRigidBody | null) => void (bodies.current[i] = b)), [defs]);
 
+  // Other people's hands (npc.ts) see every ball through these, updated after each step.
+  const seen = useMemo<NpcBall[]>(
+    () => defs.map((d) => ({ id: d.id, kind: d.kind, r: d.r, home: { ...d.start }, x: d.start.x, y: d.start.y, z: d.start.z, vx: 0, vy: 0, vz: 0, sleeping: true })),
+    [defs],
+  );
+
   useEffect(() => {
+    setNpcBalls(seen);
     setToySource(() => ({
       bodies: world.bodies.len(),
       balls: defs.map((d, i) => {
@@ -186,15 +197,30 @@ function Balls({ floor }: { floor: ToyFloor }) {
     }));
     return () => {
       setToySource(null);
+      setNpcBalls(null);
       dropHeld(); // leaving the floor: whatever you carried stays behind
     };
-  }, [world, defs]);
+  }, [world, defs, seen]);
 
   // Safety net: a ball that somehow got out of the building comes back to where it started. Asleep means it
   // hasn't moved, so only awake balls are checked, a few times a second.
   const tick = useRef(0);
   const respawned = useRef<boolean[]>([]); // its sudden stop isn't a bounce: listen() skips it once
   const check = useCallback(() => {
+    for (let i = 0; i < defs.length; i++) {
+      const b = bodies.current[i];
+      if (!b) continue;
+      const p = b.translation();
+      const v = b.linvel();
+      const o = seen[i];
+      o.x = p.x;
+      o.y = p.y;
+      o.z = p.z;
+      o.vx = v.x;
+      o.vy = v.y;
+      o.vz = v.z;
+      o.sleeping = b.isSleeping();
+    }
     if (++tick.current % 15) return;
     for (let i = 0; i < defs.length; i++) {
       const b = bodies.current[i];
@@ -203,7 +229,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
         respawned.current[i] = true;
       }
     }
-  }, [defs]);
+  }, [defs, seen]);
   useAfterPhysicsStep(check);
 
   // ---------- picking up, carrying, throwing ----------
@@ -263,13 +289,9 @@ function Balls({ floor }: { floor: ToyFloor }) {
     [defs],
   );
 
-  const steer = useCallback(
-    (b: RapierRigidBody, r: number, chargeAt: number | null) => {
-      view.pitch = camera.rotation.x;
-      view.yaw = camera.rotation.y;
-      // winding up a throw pulls the ball back towards you
-      const pull = chargeAt === null ? 0 : chargePower(performance.now() - chargeAt) * HOLD.windUp;
-      holdPoint(view, r, pull, at);
+  /** Steers a carried ball towards `at`; returns how far off it is. */
+  const chase = useCallback(
+    (b: RapierRigidBody, at: { x: number; y: number; z: number }) => {
       const p = b.translation();
       const dx = at.x - p.x;
       const dy = at.y - p.y;
@@ -282,8 +304,94 @@ function Balls({ floor }: { floor: ToyFloor }) {
       b.setLinvel(v, true);
       return d;
     },
-    [at, camera, v, view],
+    [v],
   );
+
+  const steer = useCallback(
+    (b: RapierRigidBody, r: number, chargeAt: number | null) => {
+      view.pitch = camera.rotation.x;
+      view.yaw = camera.rotation.y;
+      // winding up a throw pulls the ball back towards you
+      const pull = chargeAt === null ? 0 : chargePower(performance.now() - chargeAt) * HOLD.windUp;
+      holdPoint(view, r, pull, at);
+      return chase(b, at);
+    },
+    [at, camera, chase, view],
+  );
+
+  // ---------- other people's hands (npc.ts) ----------
+  const npcHeld = useRef<(string | null)[]>([]); // who holds each ball, as this world last carried it out
+  const npcLostFor = useRef<number[]>([]);
+  const hand = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
+  const npcEye = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
+
+  const npcRelease = useCallback(
+    (i: number, who: string, aim: NpcAim | null, how: 'dropped' | 'stuck' = 'dropped') => {
+      const b = bodies.current[i];
+      const d = defs[i];
+      npcHeld.current[i] = null;
+      if (!b) return released(who, how);
+      b.setGravityScale(1, true);
+      b.setAngularDamping(d.damping);
+      b.collider(0).setCollisionGroups(TOY_GROUPS);
+      const st = bodyState(who);
+      const g = npcGrips().get(who);
+      if (!aim || !st || !g) {
+        b.setLinearDamping(d.damping);
+        b.setLinvel(ZERO, true);
+        return released(who, how);
+      }
+      // from exactly where their hands are, with the player's throw maths
+      npcHoldPoint(st, g.pose, d.r, g.pull, hand);
+      b.setTranslation(hand, true);
+      b.setAngvel(ZERO, true); // no spin from being carried about, as in the throw simulation
+      const look = npcView(st, aim, npcEye);
+      const top = d.throwSpeed ?? THROW.hard;
+      if (d.kind !== 'basketball' || !hoopShot(look, hand, aim.power, top, hoop, v)) throwVelocity(look, hand, aim.power, top, STILL, v);
+      b.setLinearDamping(THROW.flightDamping);
+      b.setLinvel(v, true);
+      flying.current[i] = true;
+      released(who, 'thrown');
+    },
+    [defs, hand, hoop, npcEye, v],
+  );
+
+  const others = useCallback(() => {
+    const grips = npcGrips();
+    // let go of balls whose grip went away without a release (the errand ended)
+    for (let i = 0; i < defs.length; i++) {
+      const who = npcHeld.current[i];
+      if (who && !grips.has(who)) npcRelease(i, who, null);
+    }
+    for (const [who, g] of grips) {
+      let i = -1;
+      for (let j = 0; j < defs.length; j++) if (defs[j].id === g.ball) i = j;
+      const b = i >= 0 ? bodies.current[i] : null;
+      const st = bodyState(who);
+      if (!b || !st || i === holding.current) {
+        released(who, i === holding.current ? 'taken' : 'stuck');
+        continue;
+      }
+      if (npcHeld.current[i] !== who) {
+        grab(b);
+        grabSound(defs[i].kind, b.translation());
+        flying.current[i] = false;
+        grace.current[i] = 0;
+        npcHeld.current[i] = who;
+        npcLostFor.current[i] = 0;
+      }
+      const rel = takeRelease(who);
+      if (rel) {
+        npcRelease(i, who, rel.kind === 'throw' ? rel.aim : null);
+        continue;
+      }
+      // stuck behind something they walked past: it stays there
+      if (chase(b, npcHoldPoint(st, g.pose, defs[i].r, g.pull, hand)) > HOLD.lost) {
+        npcLostFor.current[i] = (npcLostFor.current[i] ?? 0) + STEP;
+        if (npcLostFor.current[i] > HOLD.lostFor) npcRelease(i, who, null, 'stuck');
+      } else npcLostFor.current[i] = 0;
+    }
+  }, [chase, defs, grab, hand, npcRelease]);
 
   const hands = useCallback(() => {
     const s = useStore.getState();
@@ -294,7 +402,12 @@ function Balls({ floor }: { floor: ToyFloor }) {
       if (cur >= 0) letGo(cur, takeThrow(defs[cur].id));
       const b = want >= 0 ? bodies.current[want] : null;
       if (b) {
-        grab(b);
+        // taken out of someone's hands: it's yours now
+        const from = npcHeld.current[want];
+        if (from) released(from, 'taken');
+        npcHeld.current[want] = null;
+        playerTook(defs[want].id);
+        if (!from) grab(b);
         grabSound(defs[want].kind, b.translation());
         flying.current[want] = false;
         grace.current[want] = 0;
@@ -311,6 +424,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
         if (lostFor.current > HOLD.lostFor) dropHeld();
       } else lostFor.current = 0;
     }
+    others();
     // Released balls start bumping into you again once they're clear of you.
     const now = performance.now();
     for (let j = 0; j < defs.length; j++) {
@@ -324,7 +438,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
         b.collider(0).setCollisionGroups(TOY_GROUPS);
       }
     }
-  }, [camera, defs, grab, letGo, steer]);
+  }, [camera, defs, grab, letGo, steer, others]);
   useBeforePhysicsStep(hands);
 
   // ---------- bounce sounds ----------

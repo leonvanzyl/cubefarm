@@ -93,19 +93,26 @@ export function hoopShot(view: View, from: Vec3, power: number, top: number, hoo
   const reach = Math.hypot(dx, dz);
   const away = Math.hypot(hoop.rim.x - eye.x, hoop.rim.z - eye.z);
   if (away < ASSIST.minDist || away > ASSIST.maxDist || reach < 0.1 || from.y >= hoop.rim.y) return false;
-  // up to the top of the arc and down to the rim's height, the time between setting the speed across
-  const apex = ASSIST.top;
-  const up = Math.sqrt(2 * GRAVITY * (apex - from.y));
-  const t = up / GRAVITY + Math.sqrt((2 * (apex - hoop.rim.y)) / GRAVITY);
-  // the little drag of a flight, made up for
-  const k = 1 + (THROW.flightDamping * t) / 2;
-  const across = (reach / t) * k;
-  const ideal = Math.hypot(across, up * k);
+  const { across, up, ideal } = hoopArc(from, hoop.rim);
   const off = (THROW.lob + (top - THROW.lob) * power) / ideal - 1;
   const near = Math.min(Math.abs(off), ASSIST.band);
   const s = 1 + Math.sign(off) * (near * Math.min(1, ASSIST.sweet / reach) + Math.abs(off) - near);
   out.x = (dx / reach) * across * s;
-  out.y = up * k * s;
+  out.y = up * s;
   out.z = (dz / reach) * across * s;
   return true;
+}
+
+/** The arcade shot's arc from `from` into `rim`: its speed across and up, and the throw speed that makes it (`ideal`). */
+export function hoopArc(from: Vec3, rim: Vec3) {
+  const reach = Math.hypot(rim.x - from.x, rim.z - from.z);
+  // up to the top of the arc and down to the rim's height, the time between setting the speed across
+  const apex = ASSIST.top;
+  const rise = Math.sqrt(2 * GRAVITY * (apex - from.y));
+  const t = rise / GRAVITY + Math.sqrt((2 * (apex - rim.y)) / GRAVITY);
+  // the little drag of a flight, made up for
+  const k = 1 + (THROW.flightDamping * t) / 2;
+  const across = (reach / t) * k;
+  const up = rise * k;
+  return { across, up, ideal: Math.hypot(across, up) };
 }

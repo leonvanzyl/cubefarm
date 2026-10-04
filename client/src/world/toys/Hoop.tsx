@@ -12,6 +12,7 @@ import { HALF_D } from '../layout';
 import { toon } from '../materials';
 import type { ToyFloor } from './balls';
 import { HOOP, HOOP_X, RIM_OUT, hoopColliders, hoopRim, newTrack, stepHoop, type HoopTrack } from './hoopScore';
+import { basketBy } from './npc';
 import { setHoopSource, type HoopScore } from './probe';
 
 // The basketball hoop on the south wall of every floor: backboard, rim and net, physics colliders for the board
@@ -300,15 +301,17 @@ export const Hoop = memo(function Hoop({ floor, groups }: { floor: ToyFloor; gro
     return () => setHoopSource(null);
   }, []);
 
+  // Someone on a toy errand (npc.ts) scoring gets the swish and the confetti, but it isn't the player's score.
   const basket = useCallback(() => {
+    burst.current = performance.now();
+    swish();
+    if (basketBy('basketball')) return;
     const prev = live.current;
     const next = { score: prev.score + 1, best: Math.max(prev.best, prev.score + 1) };
     live.current = next;
     sessionScores.set(floorKey, next.score);
     if (next.best > prev.best) saveBest(floorKey, next.best);
     setTally(next);
-    burst.current = performance.now();
-    swish();
   }, [floorKey]);
 
   // Basket detection: follow each awake basketball's centre from step to step.
