@@ -14,6 +14,7 @@ import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
 import { VoiceSettings } from './VoiceSettings';
+import { OutsideSettings } from './OutsideSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
   try {
@@ -692,6 +693,7 @@ function SettingsTab() {
         </div>
       </div>
       <VoiceSettings />
+      <OutsideSettings />
     </div>
   );
 }

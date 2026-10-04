@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
+import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type WeatherView } from '../../shared/outside';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
@@ -69,6 +70,7 @@ interface State {
   voiceKeyHint: string; // its last 4 characters
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
+  weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -154,6 +156,8 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    weather: DEFAULT_WEATHER,
+    worldEvents: DEFAULT_WORLD_EVENTS,
   },
   clis: [],
   repos: [],
@@ -170,6 +174,7 @@ export const useStore = create<State>((set, get) => ({
   voiceKeyHint: '',
   voiceCache: { clips: 0, bytes: 0, saved: [] },
   voiceSpeaking: null,
+  weather: EMPTY_WEATHER_VIEW,
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -225,6 +230,7 @@ export const useStore = create<State>((set, get) => ({
           voiceKeySet: d.voiceKeySet ?? false,
           voiceKeyHint: d.voiceKeyHint ?? '',
           voiceCache: d.voiceCache ?? { clips: 0, bytes: 0, saved: [] },
+          weather: d.weather ?? EMPTY_WEATHER_VIEW,
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -343,6 +349,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'voiceCache':
         set({ voiceCache: ev.voiceCache });
+        break;
+      case 'weather':
+        set({ weather: ev.weather });
         break;
     }
   },

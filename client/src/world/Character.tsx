@@ -80,6 +80,9 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
+  // watching something outside (events/watch.ts): pointing up at it, and both hands to the cheeks
+  point: { l: null, r: { pitch: 0.6, yaw: -0.12 }, head: 0.28 },
+  gasp: { l: { pitch: 0.72, yaw: 0.95 }, r: { pitch: 0.72, yaw: 0.95 }, head: 0.18 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };

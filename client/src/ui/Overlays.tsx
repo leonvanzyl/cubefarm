@@ -80,7 +80,7 @@ export function SoundControls() {
       </div>
       <div className="sound-groups" role="group" aria-label="Volume for each kind of sound">
         {SOUND_GROUPS.map((g) => (
-          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : g === 'music' ? "Each floor's jukebox" : g === 'voice' ? 'Messages read aloud' : g === 'outside' ? 'Wind, the city, birds and crickets, on the balconies' : undefined}>
+          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : g === 'music' ? "Each floor's jukebox" : g === 'voice' ? 'Messages read aloud' : g === 'outside' ? 'Wind, the city, birds and crickets, rain and thunder, and whatever is happening outside' : undefined}>
             <span className="muted small sound-group-name">{SOUND_GROUP_LABELS[g]}</span>
             <input
               type="range"
@@ -182,12 +182,17 @@ function Help() {
         <h3>Sound</h3>
         <p>
           The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. Every floor's jukebox plays in its corner: <kbd>E</kbd> on it skips to the next song, and its red button stops or starts the music. While you look at it, <kbd>−</kbd> and <kbd>+</kbd>, the mouse wheel or its own − and + buttons set its volume, from quiet background up to music that fills the whole floor; the meter on its card shows the level, and each floor keeps its own. The music dips under the gong, alerts and voices, and goes quiet while a panel or the phone is open and in the elevator. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
-          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud) and outside (wind, the city, birds by day and crickets at night, heard out on a balcony or through an open side door) up or down on their own. Your
+          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud) and outside (wind, the city, birds by day and crickets at night, rain and thunder and the world's goings-on, heard out on a balcony or through an open side door, and the rain on the windows) up or down on their own. Your
           settings are saved in this browser.
         </p>
         <SoundControls />
         <h3>Outside</h3>
         <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
+        <p>
+          It has weather too: rain running down the glass and puddles on the balconies, thunderstorms, fog and snow. In the manager's console, <b>Settings → Weather</b> picks a calm cycle of its own (mostly fair), your
+          real local weather or none. And now and then something happens outside, from a plane or a blimp with the office's news to fireworks at night, a UFO or, very rarely, a friendly kaiju; idle teammates run to the
+          windows to watch. <b>Settings → World events</b> sets how often, or keeps it calm.
+        </p>
         <DaySettings />
         <h3>The building</h3>
         <p>

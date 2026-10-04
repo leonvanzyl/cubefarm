@@ -31,8 +31,10 @@ import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, free
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
 import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
+import { WeatherService } from './weather.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
+import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, weatherSettings, worldEventSettings } from '../shared/outside.ts';
 import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentCli,
@@ -395,6 +397,8 @@ export class Swarm {
       pacingSessions: DEFAULT_PACING_SESSIONS,
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
+      weather: { ...DEFAULT_WEATHER },
+      worldEvents: { ...DEFAULT_WORLD_EVENTS },
     },
     repos: [],
     agents: [],
@@ -456,8 +460,17 @@ export class Swarm {
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
   /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
   readonly voice: Voice;
+  /** The real local weather (Settings → Weather), read by the server so it's cached and survives a restart. */
+  readonly weather: WeatherService;
 
   constructor(private backend: Backend) {
+    this.weather = new WeatherService({
+      api: backend.weather,
+      file: path.join(HOME_DIR, backend.demo ? 'demo-weather.json' : 'weather.json'),
+      settings: () => this.state.settings.weather,
+      changed: (weather) => this.broadcast({ type: 'weather', weather }),
+      log: (line) => console.log(line),
+    });
     this.voice = new Voice({
       api: backend.voice,
       secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
@@ -549,6 +562,8 @@ export class Swarm {
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
+      this.state.settings.weather = weatherSettings(DEFAULT_WEATHER, loaded.settings?.weather);
+      this.state.settings.worldEvents = worldEventSettings(DEFAULT_WORLD_EVENTS, loaded.settings?.worldEvents);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -557,6 +572,7 @@ export class Swarm {
       // first run
     }
     await this.voice.init();
+    await this.weather.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
     for (const a of this.state.agents) {
@@ -795,6 +811,7 @@ export class Swarm {
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
+      weather: this.weather.current(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
@@ -2521,6 +2538,11 @@ export class Swarm {
       s.voice = voiceSettings(s.voice, patch.voice);
       if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
     }
+    if (patch.weather !== undefined) {
+      s.weather = weatherSettings(s.weather, patch.weather);
+      this.weather.settingsChanged();
+    }
+    if (patch.worldEvents !== undefined) s.worldEvents = worldEventSettings(s.worldEvents, patch.worldEvents);
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();

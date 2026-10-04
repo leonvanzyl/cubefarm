@@ -8,6 +8,7 @@ import { realPreviews, type PreviewBackend } from './previewRunner.ts';
 import { realOffice, type OfficeHost } from './officeUpdate.ts';
 import { elevenLabs } from './elevenlabs.ts';
 import type { VoiceApi } from './voice.ts';
+import { openMeteo, type WeatherApi } from './weather.ts';
 import type { AgentTerminal } from './terminal.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
@@ -78,6 +79,8 @@ export interface Backend {
   office: OfficeHost;
   /** Text to speech for the manager's phone (ElevenLabs). */
   voice: VoiceApi;
+  /** The real local weather for Settings → Weather (Open-Meteo, keyless; only coordinates are sent once a city is found). */
+  weather: WeatherApi;
 }
 
 export const realBackend: Backend = {
@@ -125,4 +128,5 @@ export const realBackend: Backend = {
   previews: realPreviews,
   office: realOffice,
   voice: elevenLabs,
+  weather: openMeteo,
 };

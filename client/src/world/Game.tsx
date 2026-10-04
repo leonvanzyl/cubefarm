@@ -15,6 +15,8 @@ import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
 import { TypingSounds } from './TypingSounds';
+import { Weather } from './weather/Weather';
+import { WorldEvents } from './events/WorldEvents';
 
 function Travel() {
   const travel = useStore((s) => s.travel);
@@ -61,9 +63,11 @@ export function Game() {
       }}
     >
       <DayClock />
+      <Weather kind={isOffice ? 'office' : 'lobby'} />
       <Sky />
       <DayLights />
       <City />
+      <WorldEvents kind={isOffice ? 'office' : 'lobby'} />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
       <Player colliders={colliders} floor={floor} />

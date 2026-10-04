@@ -1,5 +1,7 @@
 // Types shared between the swarm server and the 3D client.
 
+import type { WeatherSettings, WeatherView, WorldEventSettings } from './outside.ts';
+
 export type AgentStatus =
   | 'idle' // at desk, nothing assigned
   | 'preparing' // setting up the git worktree
@@ -261,6 +263,8 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  weather: WeatherSettings; // Settings → Weather: the calm cycle, off, or the manager's real local weather
+  worldEvents: WorldEventSettings; // Settings → World events: how often something happens outside
 }
 
 /** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */
@@ -378,6 +382,7 @@ export interface WorldSnapshot {
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
 }
 
 export type ServerEvent =
@@ -400,6 +405,7 @@ export type ServerEvent =
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'weather'; weather: WeatherView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {
