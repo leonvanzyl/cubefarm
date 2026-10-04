@@ -23,6 +23,7 @@ import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type La
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { isCli } from './clis.ts';
 import { AgentTerminal } from './terminal.ts';
+import { DEFAULT_VOICE, Voice, voiceSettings } from './voice.ts';
 import { blockers, holdUps, issueSpecialty } from '../shared/issues.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { CEO_ID } from '../shared/types.ts';
@@ -369,6 +370,7 @@ export class Swarm {
       tutorialStep: 0,
       autoUpdate: true,
       pacingSessions: DEFAULT_PACING_SESSIONS,
+      voice: { ...DEFAULT_VOICE },
     },
     repos: [],
     agents: [],
@@ -420,8 +422,19 @@ export class Swarm {
   };
   private lastOfficeView = '';
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
+  /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
+  readonly voice: Voice;
 
   constructor(private backend: Backend) {
+    this.voice = new Voice({
+      api: backend.voice,
+      secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
+      cacheDir: path.join(HOME_DIR, backend.demo ? 'demo-voice' : 'voice'),
+      settings: () => this.state.settings.voice,
+      message: (id) => this.state.messages.find((m) => m.id === id),
+      officeNote: (text) => this.postMessage('office', text),
+      keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
+    });
     this.previews = new Previews(backend, {
       emit: (id) => {
         const r = this.state.repos.find((x) => x.id === id);
@@ -491,6 +504,7 @@ export class Swarm {
         delete old.maxConcurrent;
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
+      this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -498,6 +512,7 @@ export class Swarm {
     } catch {
       // first run
     }
+    await this.voice.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
     for (const a of this.state.agents) {
@@ -713,6 +728,7 @@ export class Swarm {
       phoneReadAt: this.state.phoneReadAt,
       usage: this.usageNow(),
       clis: this.clis,
+      ...this.voice.keyView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
     };
@@ -2232,6 +2248,7 @@ export class Swarm {
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
     if (typeof patch.autoUpdate === 'boolean') s.autoUpdate = patch.autoUpdate;
     if (patch.pacingSessions !== undefined) s.pacingSessions = clampPacingSessions(patch.pacingSessions);
+    if (patch.voice !== undefined) s.voice = voiceSettings(s.voice, patch.voice);
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
