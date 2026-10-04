@@ -20,6 +20,8 @@ export interface Backend {
   /** OPEN or CLOSED; null when there is no such issue. */
   issueState(fullName: string, number: number): Promise<'OPEN' | 'CLOSED' | null>;
   editIssue(fullName: string, number: number, edit: { body?: string; addLabels?: string[]; removeLabels?: string[] }): Promise<void>;
+  /** Close an issue as completed, with a comment. */
+  closeIssue(fullName: string, number: number, comment: string): Promise<void>;
   mergePull(fullName: string, number: number, method: 'squash' | 'merge' | 'rebase', headSha?: string): Promise<void>;
   updateBranch(fullName: string, number: number): Promise<void>;
   closePull(fullName: string, number: number): Promise<void>;
@@ -71,6 +73,7 @@ export const realBackend: Backend = {
   createIssue: github.createIssue,
   issueState: github.issueState,
   editIssue: github.editIssue,
+  closeIssue: github.closeIssue,
   mergePull: github.mergePull,
   updateBranch: github.updateBranch,
   closePull: github.closePull,

@@ -450,8 +450,17 @@ export function createDemoBackend(): Backend {
       mergedSinceSync.set(fullName, (mergedSinceSync.get(fullName) ?? 0) + 1);
       pr.state = 'MERGED';
       pr.mergedAt = now();
-      for (const n of pr.closesIssues) closedIssues.add(`${fullName}#${n}`);
-      r.issues = r.issues.filter((i) => !pr.closesIssues.includes(i.number));
+      // GitHub closes what "Closes #N" links a little after the merge, not straight away.
+      setTimeout(() => {
+        for (const n of pr.closesIssues) closedIssues.add(`${fullName}#${n}`);
+        r.issues = r.issues.filter((i) => !pr.closesIssues.includes(i.number));
+      }, 20_000).unref();
+    },
+    closeIssue: async (fullName, number) => {
+      const r = repos.get(fullName);
+      if (!r?.issues.some((i) => i.number === number)) throw new Error(`Issue #${number} is not open`);
+      closedIssues.add(`${fullName}#${number}`);
+      r.issues = r.issues.filter((i) => i.number !== number);
     },
     updateBranch: async (fullName, number) => {
       const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
