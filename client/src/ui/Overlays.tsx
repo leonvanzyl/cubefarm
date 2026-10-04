@@ -197,7 +197,9 @@ function Help() {
         <h3>Your phone</h3>
         <p>
           Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, see every project at a glance, or play Cubetris, Cable Snake or look after your Desk Pet while the team works. The red badge counts decisions and messages waiting for you. In the chat, and in an agent's
-          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.
+          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line. To talk instead of type, hold the 🎙️ next to Send, or hold <kbd>V</kbd> in the message box, and speak: your
+          words fill the box to edit before you send (a tap of the 🎙️ listens until you stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after
+          the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's speech recognition or ElevenLabs.
         </p>
         <h3>Who's working</h3>
         <p>

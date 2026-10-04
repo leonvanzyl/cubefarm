@@ -261,6 +261,7 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  listen: ListenSettings;
 }
 
 /** Who reads phone messages aloud: nobody, the browser's own voice, or ElevenLabs (with the manager's key). */
@@ -273,6 +274,16 @@ export interface VoiceSettings {
   model: string; // ElevenLabs model id
   speakOffice: boolean; // read the office's own notes too, not just the CEO's messages
   keepDays: number; // saved clips older than this are deleted (1–90; the newest 20 CEO messages' clips always stay)
+}
+
+/** Who turns the manager's speech into text: nobody (no 🎙), the browser's own recognition, or ElevenLabs (with the key). */
+export type ListenProvider = 'off' | 'browser' | 'elevenlabs';
+
+/** Talking instead of typing (docs/voice.md): the 🎙 by every message box, and the phone's hands-free conversation. */
+export interface ListenSettings {
+  provider: ListenProvider;
+  autoSend: boolean; // send once you stop talking (about 1.2 s of quiet), not only when you press Send
+  handsFree: boolean; // after the CEO's spoken reply, the phone listens for up to 8 s and sends what it hears
 }
 
 /** The voice's saved clips: how many and how big, and which phone messages can be replayed from them. */

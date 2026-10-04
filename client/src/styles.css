@@ -1746,10 +1746,22 @@ input.inline:focus {
 }
 
 /* ui/VoiceSettings.tsx: the ElevenLabs voice picker */
-.voice-clips {
+.voice-clips,
+.listen-settings {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px dashed var(--muted);
+}
+.listen-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.listen-settings h4 {
+  margin: 0;
+}
+.listen-settings p {
+  margin: 0;
 }
 .voice-list {
   position: relative; /* rows' offsetTop, for scrolling the chosen one into view */
@@ -2613,6 +2625,85 @@ input.inline:focus {
   gap: 6px;
   padding: 8px 10px 10px;
   background: #fff;
+}
+
+/* ui/MicButton.tsx: the 🎙 by a message box's Send, and what it's doing */
+.mic {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.mic-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.mic-btn:hover:not(:disabled) {
+  background: #ffe9a8;
+}
+.mic-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.mic-btn:disabled,
+.mic-cant {
+  opacity: 0.4;
+}
+.mic-btn:disabled {
+  cursor: not-allowed;
+}
+.mic-btn.mic-on,
+.mic-btn.mic-on:hover {
+  background: #ffd3c2;
+  box-shadow: 0 0 0 0 rgba(255, 138, 91, 0.7);
+  animation: voice-pulse 1.1s ease-out infinite;
+}
+.mic-busy {
+  cursor: progress;
+}
+.mic-status {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.mic-status kbd {
+  color: var(--ink);
+}
+/* the phone's hands-free switch */
+.hands-free {
+  flex: none;
+  padding: 3px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hands-free:hover {
+  background: #ffe9a8;
+}
+.hands-free-on {
+  background: #c9f2d3;
 }
 
 /* resumes */

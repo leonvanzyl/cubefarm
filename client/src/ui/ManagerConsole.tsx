@@ -9,6 +9,7 @@ import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../o
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { LiveTerminal } from './LiveTerminal';
+import { MicButton } from './MicButton';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
@@ -258,6 +259,11 @@ function CeoTab() {
   if (!ceo) return <p className="muted">The corner office is empty.</p>;
   const working = ceo.status === 'working';
   const pending = pendingRequests(requests);
+  const send = (t: string) => {
+    if (!t.trim()) return;
+    setText('');
+    void attempt(() => api.messageCeo(t));
+  };
   const decided = requests.filter((r) => r.status !== 'pending').slice(-6).reverse();
   return (
     <div className="tab-grid">
@@ -303,13 +309,11 @@ function CeoTab() {
             className="row"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!text.trim()) return;
-              const t = text;
-              setText('');
-              void attempt(() => api.messageCeo(t));
+              send(text);
             }}
           >
             <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${ceo.name} (or press P anywhere for your phone)…`} />
+            <MicButton kind="console" value={text} onChange={setText} onSend={send} />
             <button className="btn" disabled={!text.trim()}>
               Send
             </button>
