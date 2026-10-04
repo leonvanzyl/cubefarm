@@ -20,6 +20,7 @@ import { Toys } from './toys';
 
 const ACCENT = '#ff8a5b';
 const CEO_ACCENT = '#9b5de5';
+const CEO_DESK_AT: [number, number, number] = [CEO_DESK.x, 0, CEO_DESK.z]; // one array, so the memoised desk skips re-renders
 
 function useOfficeStats() {
   const repos = useStore((s) => s.repos);
@@ -269,7 +270,7 @@ function CeoOffice() {
         draw={(ctx) => drawSign(ctx, 816, 120, [{ text: `CEO${ceo ? ` · ${ceo.name}` : ''}`, size: 52 }], CEO_ACCENT)}
         deps={[ceo?.name]}
       />
-      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={[CEO_DESK.x, 0, CEO_DESK.z]} />}
+      {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
