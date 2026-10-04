@@ -1,7 +1,7 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { blockers, holdUps, setDependsOn } from '../shared/issues.ts';
-import type { CeoJobKind } from '../shared/types.ts';
+import type { CeoJobKind, QaStatus } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
 
 // The CEO: a Claude Code session in the lobby that runs the company instead of writing code.
@@ -211,7 +211,9 @@ export function ceoSystemPrompt(o: {
     'Your job is to run the company, not to write code:',
     '- Understand each project: what it is, its stack, how far along it is, and what kind of people it needs. Projects differ a lot. A static marketing site, a 3D browser game and a REST API need different specialists and different QA.',
     `- Shape each floor's team. Propose specialists with a specific title and a job description written for this project. Keep teams lean: agents on the same coding agent share one subscription's usage limits${o.sessionLimit ? ` and at most ${o.sessionLimit} sessions run at once` : ''}, so a floor rarely needs more than ${o.teamCap} people. When the manager asks for a bigger team, follow that, up to the floor's free seats (seats in company_status). Propose letting people go when a floor is clearly overstaffed or a specialty is no longer needed.`,
-    "- Plan the work: turn a floor's brief into small, well-specified GitHub issues, one agent-session each, with acceptance criteria. Route each to a specialty. The office hands issues out itself: a free specialist gets first pick of their specialty, and otherwise any free developer takes the next issue that can start, so a specialty is a preference, not a lock.",
+    "- Plan the work: turn a floor's brief into well-specified GitHub issues with acceptance criteria. An issue is a whole feature the manager would recognise (voice messages, a jukebox, the outside world), sized for one agent working for up to a few hours. Agents have large context windows and handle long jobs. Every extra issue costs a fresh exploration, a PR, a CI run, a QA round and often a conflict with its sibling PRs.",
+    '- Split a feature only when its parts are truly independent AND touch different files, or when one risky foundation part should land and be tested first. Never split a feature just to give idle developers something to do: parallel work comes from different features side by side. Unrelated small fixes are still their own issues.',
+    "- Route each issue to a specialty. The office hands issues out itself: a free specialist gets first pick of their specialty, and otherwise any free developer takes the next issue that can start, so a specialty is a preference, not a lock.",
     "- Write each floor's QA brief: what QA testers must check for this kind of project (for a 3D game: the canvas renders, controls respond, frame rate is smooth; for a website: links, phone layout, accessibility; for an API: status codes, validation, error cases).",
     '',
     'How you work:',
@@ -226,7 +228,7 @@ export function ceoSystemPrompt(o: {
     '- Titles are specific ("Three.js graphics engineer", not "Developer"). A specialty is a short lowercase slug ("graphics", "gameplay", "frontend", "backend", "content", "a11y", "devops"). Only route an issue to a specialty that someone on the floor has, or that you are proposing to hire.',
     '- Before proposing a hire, check the floor and the pending proposals for someone who already covers it. If the manager declined a similar proposal (recentDecisions), do not propose it again unless something has changed, and say what.',
     `- ${o.hiring === 'auto' ? 'Hiring is on auto: proposals within the team cap are approved immediately, so be deliberate.' : 'The manager approves every hire, so explain each reason in a sentence or two they can decide on.'}`,
-    '- Issues: plan for parallel work. What keeps a floor busy is the number of issues that can start right now (capacity.issuesReadyToStart in company_status); aim for at least one per developer. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most, keep foundation issues small, and split big pieces into parts that can be built side by side. The office starts the issues that hold up others first. Do not duplicate open issues: fix an existing issue\'s specialty or dependencies with route_issue. File at most 12 issues per job, or per message from the manager.',
+    '- Issues: QA is usually the scarcer resource. When PRs queue for QA (capacity.prsAwaitingQa in company_status), file fewer, bigger issues, not more. Most briefs need 1 to 4 issues. Write "Depends on #N" only when an issue truly cannot start until #N\'s code is merged, because it waits until #N is closed. Keep dependency chains to two steps at most. The office starts the issues that hold up others first. Do not duplicate open issues: fix an existing issue\'s specialty or dependencies with route_issue. File at most 12 issues per job, or per message from the manager.',
     '- Close an issue that is superseded or no longer wanted with close_issue, not by making it wait for another issue.',
     "- When company.usage in company_status says pacing or paused, Claude's usage is running low and the office is finishing open work first: file only what is needed next, not a whole milestone.",
     '- Your final message goes straight to the manager\'s phone. Keep it short and plain: what you found, what you proposed, what you filed, and any question you need answered. No headings, no tables.',
@@ -257,7 +259,7 @@ export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: stri
         '',
         'Plan the next milestone toward it:',
         `- Read the current code and the ${floor.backlog} open issues first, so you build on what exists and do not duplicate anything.`,
-        '- If the repository is empty or nearly empty, the first issue sets up a small project skeleton, and the others depend on it. Everything after that should be able to run side by side.',
+        '- One issue per whole feature. Split a feature only when its parts are independent and touch different files, or a risky foundation part should land first. Only for an empty or nearly empty repository does a skeleton issue come first, with the others depending on it.',
         '- File the issues, each routed to a specialty.',
         '- Make sure the floor has the specialists those issues need; propose hires if not.',
         '- Update the floor profile and QA brief if the brief changes what the project is.',
@@ -266,7 +268,7 @@ export function ceoJobPrompt(job: CeoJob, floor: { floor: number; fullName: stri
       return [
         'Periodic review of the company. For every floor, look at:',
         '- floors without a profile or QA brief: study them and write one',
-        '- backlog against the team (capacity): fewer issues ready to start than free developers, long dependency chains, a specialty with a long queue (fix those with route_issue)',
+        '- backlog against the team (capacity): long dependency chains or a specialty with a long queue (fix those with route_issue), or PRs piling up in QA (then plan fewer, bigger issues). Idle developers are not a reason to slice features: they cover QA.',
         '- pull requests stuck in QA or marked as needing a human',
         '- floors with a brief and an empty backlog: plan the next milestone',
         'Propose hires or let-gos only when clearly justified. If nothing needs doing, reply with one short sentence saying so.',
@@ -383,13 +385,37 @@ export function planRoute(r: RouteRequest): RoutePlan {
     const loop = deps.find((d) => reaches(d, r.number, waits));
     if (loop !== undefined) throw new Error(`#${loop} already waits for #${r.number}, directly or through other issues, so that would be a cycle.`);
     const depth = waitsDepth(r.number, waits) + (holdUps(after).get(r.number)?.chain ?? 0);
-    if (depth > 2) throw new Error(`That makes a dependency chain ${depth} steps deep through #${r.number}. Keep chains to 2 steps at most: split the work so more of it can start side by side.`);
+    if (depth > 2) throw new Error(`That makes a dependency chain ${depth} steps deep through #${r.number}. Keep chains to 2 steps at most: fold the dependent pieces into one issue instead of splitting further.`);
     if (body !== issue.body) plan.body = body;
     done.push(deps.length ? `depends on ${deps.map((d) => `#${d}`).join(', ')}` : 'no dependencies');
   }
 
   plan.summary = `#${r.number} on floor ${r.floor}: ${done.join(', ')}.`;
   return plan;
+}
+
+// ---------- capacity ----------
+
+export interface FloorCapacity {
+  issuesWaitingOnOthers: number; // not started yet and waiting for another open issue
+  longestDependencyChain: number;
+  prsAwaitingQa: number; // open PRs queued for or in QA, re-test rounds included
+}
+
+/** The backlog and QA-queue numbers in company_status, so the CEO can see whether building or testing is the bottleneck. */
+export function floorCapacity(f: {
+  issues: { number: number; body: string }[]; // the floor's open issues
+  inProgress: (n: number) => boolean;
+  openPrs: number[];
+  qa: { prNumber: number; status: QaStatus }[]; // the floor's QA records
+}): FloorCapacity {
+  const open = new Set(f.issues.map((i) => i.number));
+  const prs = new Set(f.openPrs);
+  return {
+    issuesWaitingOnOthers: f.issues.filter((i) => !f.inProgress(i.number) && blockers(i.body, open).length > 0).length,
+    longestDependencyChain: Math.max(0, ...[...holdUps(f.issues).values()].map((w) => w.chain)),
+    prsAwaitingQa: f.qa.filter((q) => prs.has(q.prNumber) && (q.status === 'queued' || q.status === 'testing')).length,
+  };
 }
 
 /**

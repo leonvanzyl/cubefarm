@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { BallCollider, CapsuleCollider, CuboidCollider, interactionGroups, Physics, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
+import { BallCollider, CapsuleCollider, CuboidCollider, interactionGroups, Physics, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierCollider, type RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
-import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
+import { DOOR_PASSABLE, doorOpen } from '../doors';
+import { BALCONY_OUT, BALCONY_TOP, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, sideDoorway, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
@@ -22,7 +23,8 @@ import { HOLD, THROW, holdPoint, hoopShot, throwVelocity, type HoopAim, type Vie
 
 const STEP = 1 / 60;
 
-// Collision groups: the elevator doorway only stops toys, so the player's pusher can follow the player into the cabin.
+// Collision groups: the elevator doorway (and a shut side door) only stops toys, so the player's pusher can follow the
+// player into the cabin (or through a side door that's still sliding open).
 const G = { building: 0, doorway: 1, pusher: 2, toys: 3 };
 const DOORWAY_GROUPS = interactionGroups(G.doorway, [G.toys]);
 const PUSHER_GROUPS = interactionGroups(G.pusher, [G.building, G.toys]);
@@ -36,13 +38,39 @@ const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
 const SEATED_GROUPS = interactionGroups(G.toys, [G.toys]);
 const DOOR = elevatorDoorway();
 
-/** Fixed colliders generated from layout.ts: floor, ceiling, walls, cabin and furniture, each at its own height. */
+/**
+ * Fixed colliders generated from layout.ts: floor, ceiling, walls, cabin and furniture, each at its own height, and the
+ * balconies under the balcony above. A side door stops toys while it's shut; open, they can roll out onto the balcony.
+ */
 function Building({ floor }: { floor: ToyFloor }) {
   const rects = useMemo<Rect[]>(() => (floor === 'office' ? officeColliders() : lobbyColliders()), [floor]);
+  const doors = useMemo(() => SIDES.map((side) => sideDoorway(floor, side)), [floor]);
+  const doorColliders = useRef<(RapierCollider | null)[]>([]);
+  const shut = useRef([true, true]);
+  const swing = useCallback(() => {
+    for (let i = 0; i < SIDES.length; i++) {
+      const c = doorColliders.current[i];
+      const isShut = doorOpen(SIDES[i]) < DOOR_PASSABLE;
+      if (!c || shut.current[i] === isShut) continue;
+      shut.current[i] = isShut;
+      c.setEnabled(isShut);
+    }
+  }, []);
+  useBeforePhysicsStep(swing);
   return (
     <RigidBody type="fixed" colliders={false}>
-      <CuboidCollider args={[HALF_W + 1, 0.5, HALF_D + 4]} position={[0, -0.5, 2]} friction={0.8} restitution={0.5} collisionGroups={BUILDING_GROUPS} />
-      <CuboidCollider args={[HALF_W + 1, 0.5, HALF_D + 4]} position={[0, WALL_H + 0.5, 2]} collisionGroups={BUILDING_GROUPS} />
+      <CuboidCollider args={[BALCONY_OUT + 0.5, 0.5, HALF_D + 4]} position={[0, -0.5, 2]} friction={0.8} restitution={0.5} collisionGroups={BUILDING_GROUPS} />
+      <CuboidCollider args={[HALF_W + 0.4, 0.5, HALF_D + 4]} position={[0, WALL_H + 0.5, 2]} collisionGroups={BUILDING_GROUPS} />
+      <CuboidCollider args={[BALCONY_OUT + 0.5, 0.5, HALF_D]} position={[0, BALCONY_TOP + 0.5, 0]} collisionGroups={BUILDING_GROUPS} />
+      {doors.map((d, i) => (
+        <CuboidCollider
+          key={i}
+          ref={(c) => void (doorColliders.current[i] = c)}
+          args={[(d.maxX - d.minX) / 2, WALL_H / 2, (d.maxZ - d.minZ) / 2]}
+          position={[(d.minX + d.maxX) / 2, WALL_H / 2, (d.minZ + d.maxZ) / 2]}
+          collisionGroups={DOORWAY_GROUPS}
+        />
+      ))}
       <CuboidCollider
         args={[(DOOR.maxX - DOOR.minX) / 2, WALL_H / 2, (DOOR.maxZ - DOOR.minZ) / 2]}
         position={[(DOOR.minX + DOOR.maxX) / 2, WALL_H / 2, (DOOR.minZ + DOOR.maxZ) / 2]}

@@ -4,7 +4,8 @@ import type { AgentStatus } from '../../../shared/types';
 import { useRenderPaused } from '../perf';
 import { useStore, type Agent } from '../store';
 import { ding } from '../ui/sfx';
-import { WALK_SPEED } from './body';
+import { WALK_SPEED, type Gesture } from './body';
+import './coffeeErrand';
 import {
   HURRY_SPEED,
   admit,
@@ -27,12 +28,13 @@ import {
   spotChoices,
   wanted,
   type Errand,
+  type ErrandActor,
   type ErrandPeer,
   type ErrandState,
   type Queued,
 } from './errands';
 import { HALF_D } from './layout';
-import { bodyState, bodyTarget, placeBody, say, seatBody, setBody, setErrand, trackDirector } from './people';
+import { bodyState, bodyTarget, placeBody, say, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
 import { ARRIVE, CABIN, CHAT, CHAT_VENUES, DOORS_SECONDS, LEAVE, arrivalPath, exitPath, floorNews, headingTo, huddle, nearest, pickTopic, planChat } from './socials';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
@@ -67,6 +69,10 @@ interface Person {
   step: number;
   stepLeft: number;
   hurry: boolean;
+  /** Runs an errand with an `act` once there; the spot it last sent them to, and whether they've got there. */
+  actor: ErrandActor | null;
+  walking: string | null;
+  arrived: boolean;
   /** Seconds held up behind another walker, and seconds left walking through them once that lasted too long. */
   waited: number;
   ghost: number;
@@ -79,7 +85,7 @@ interface Person {
 
 const TICK = 0.5; // seconds between "who wants to go?" checks
 const CARROT = 0.8; // how far ahead (m) a steered walker aims
-const GIVE_UP = { leaving: 45, returning: 60 }; // seconds before a walk that got stuck is cut short
+const GIVE_UP = { leaving: 45, returning: 60, acting: 180 }; // seconds before a walk (or an actor) that got stuck is cut short
 const SETTLE = 1.5; // seconds on a floor before someone new counts as a hire walking in, not already there
 const CHAT_WAIT = 10; // seconds the first at a chat waits for the others before starting
 
@@ -177,6 +183,9 @@ export function ErrandDirector({
         step: 0,
         stepLeft: 0,
         hurry: false,
+        actor: null,
+        walking: null,
+        arrived: false,
         waited: 0,
         ghost: 0,
         hold: 0,
@@ -187,8 +196,10 @@ export function ErrandDirector({
       if (out.has(a.id)) depart(np);
       else if (hire) arrive(np);
     }
-    for (const id of people.keys()) {
+    for (const [id, p] of people) {
       if (seen.has(id)) continue;
+      p.actor?.abort();
+      p.actor?.end(false);
       seatBody(id);
       setErrand(id, null);
       say(id, null);
@@ -199,7 +210,8 @@ export function ErrandDirector({
   // Leaving the floor: everyone back in their chair for next time.
   useEffect(
     () => () => {
-      for (const id of people.keys()) {
+      for (const [id, p] of people) {
+        p.actor?.end(false);
         seatBody(id);
         setErrand(id, null);
         say(id, null);
@@ -222,6 +234,7 @@ export function ErrandDirector({
           spot: p.dest?.id ?? null,
           hurry: p.hurry,
           chat: p.chat ? [...p.chat.ids] : null,
+          doing: p.actor && 'stage' in p.actor ? p.actor.stage : null,
           queued: p.queue.map((q) => q.name),
           restlessIn: p.phase === 'seated' ? Math.max(0, Math.round(p.restless - (run.clock - p.seatedAt))) : null,
         })),
@@ -244,24 +257,43 @@ export function ErrandDirector({
     p.errand = null;
     p.dest = null;
     p.hurry = false;
+    p.actor?.end(true);
+    p.actor = null;
     report(p);
   };
 
-  const start = (p: Person, e: Errand, a: Agent, state: ErrandState): boolean => {
+  /**
+   * Sets off from the desk, or from `from` when already up (turned round on the way somewhere else). False when there's
+   * nowhere free to go, null when the errand won't have them yet (its `claim`, asked only once there's a free spot).
+   * An errand with a `place` needs who's going and the floor (`ctx`).
+   */
+  const start = (p: Person, e: Errand, from?: Pt, ctx?: { a: Agent; state: ErrandState }): boolean | null => {
+    if (e.max !== undefined && [...people.values()].filter((o) => o.errand?.name === e.name).length >= e.max) return false;
+    // a spot is someone's while they head there or stand at it, not once they've turned for home
     const taken = new Set<string>();
-    for (const o of people.values()) if (o.dest) taken.add(o.dest.id);
+    // An errand with an actor shares its spots and takes turns there itself (coffee: a line at the machine).
+    if (!e.act) for (const o of people.values()) if (o.dest && (o.phase === 'leaving' || o.phase === 'there')) taken.add(o.dest.id);
+    const origin = from ?? p.home;
     let dest: Spot | null;
     if (e.place) {
-      const s = e.place(a, state);
+      const s = ctx ? e.place(ctx.a, ctx.state) : null;
       dest = s && !taken.has(s.id) && standable(w, s.x, s.z) ? s : null;
     } else {
-      const ids = spotChoices(e.spot, w.spots.map((s) => s.id), taken);
-      dest = pickSpot(ids.map((id) => spotById(w, id)!), p.home, Math.random());
+      const ids = spotChoices(e.where?.(p.id) ?? e.spot, w.spots.map((s) => s.id), taken);
+      dest = pickSpot(ids.map((id) => spotById(w, id)!), origin, Math.random());
     }
-    const path = dest && findPath(w, p.home, dest);
+    const path = dest && findPath(w, origin, dest);
     if (!dest || !path) return false;
+    if (e.claim && !e.claim(p.id)) return null;
+    // turned round from a coffee break: leave it behind
+    if (p.actor) {
+      p.actor.abort();
+      p.actor.end(false);
+      p.actor = null;
+    }
     // Up from the chair to the stand-up spot behind it first, then round the furniture.
-    walk(p, 'leaving', e, dest, [{ x: p.home.x, z: p.home.z }, ...path]);
+    leaveChat(p); // called away from a chat to the board
+    walk(p, 'leaving', e, dest, from ? path : [{ x: p.home.x, z: p.home.z }, ...path]);
     return true;
   };
 
@@ -285,7 +317,8 @@ export function ErrandDirector({
     return true;
   };
 
-  const goHome = (p: Person, hurry: boolean, at: Pt) => {
+  const goHome = (p: Person, hurry: boolean, at: Pt, how: 'done' | 'cut' = 'cut') => {
+    p.errand?.end?.(p.id, how);
     leaveChat(p);
     p.hurry = hurry;
     p.phaseAt = run.clock;
@@ -311,16 +344,22 @@ export function ErrandDirector({
   };
 
   /** One frame along the path; true once at its end (stopped there, for the errand's spot). */
-  const follow = (p: Person, x: number, z: number, speed: number, stop: boolean, dt: number): boolean => {
+  const follow = (p: Person, x: number, z: number, speed: number, stop: boolean, dt: number, hands?: Gesture): boolean => {
     p.wp = nextWaypoint(p.path, p.wp, { x, z });
     const goal = p.path[p.wp];
     const last = p.wp === p.path.length - 1;
     const dx = goal.x - x;
     const dz = goal.z - z;
     const d = Math.hypot(dx, dz);
-    const gesture = (p.phase === 'returning' || p.phase === 'exiting') && !p.hurry ? (p.errand?.carry ?? 'none') : 'none';
+    const gesture =
+      hands ??
+      (p.phase === 'leaving'
+        ? (p.errand?.bring ?? 'none')
+        : (p.phase === 'returning' || p.phase === 'exiting') && !p.hurry
+          ? (p.actor?.carry ?? p.errand?.carry ?? 'none')
+          : 'none');
     if (last && (stop ? d < 0.08 && (bodyState(p.id)?.speed ?? 0) < 0.05 : d < PASS)) return true;
-    const face = last && p.dest && p.phase === 'leaving' ? headingFor(p.dest.facing) : Math.atan2(-dx, -dz);
+    const face = last && p.dest && p.phase !== 'returning' && p.phase !== 'exiting' ? headingFor(p.dest.facing) : Math.atan2(-dx, -dz);
     let tx = goal.x;
     let tz = goal.z;
     let sp = speed;
@@ -376,6 +415,41 @@ export function ErrandDirector({
     return pickTopic(floorNews(repo, qa, working, Date.now()), Math.random());
   };
 
+  /** One frame of an errand's actor: walk where it says, stand how it says, or head home when it's done. */
+  const act = (p: Person, actor: ErrandActor, st: Pt, long: number, dt: number) => {
+    const ask = long > GIVE_UP.acting ? 'done' : actor.step(run.clock, p.arrived);
+    if (ask === 'done') {
+      if (long > GIVE_UP.acting) actor.abort();
+      goHome(p, false, st);
+      return;
+    }
+    if ('walk' in ask && ask.walk !== p.walking) {
+      const to = spotById(w, ask.walk);
+      if (!to) {
+        actor.abort();
+        goHome(p, false, st);
+        return;
+      }
+      p.walking = ask.walk;
+      p.dest = to;
+      p.path = findPath(w, st, to) ?? [{ x: to.x, z: to.z }];
+      p.wp = 0;
+      p.arrived = false;
+      p.waited = p.ghost = 0;
+      report(p);
+    }
+    if ('walk' in ask && !p.arrived) {
+      p.arrived = follow(p, st.x, st.z, WALK_SPEED, true, dt, ask.gesture);
+      return;
+    }
+    const gesture = 'walk' in ask ? ask.gesture : ask.stand;
+    const d = p.dest;
+    const t = bodyTarget(p.id);
+    if (d && (t?.mode !== 'standing' || t.gesture !== gesture || t.x !== d.x || t.z !== d.z)) {
+      setBody(p.id, { mode: 'standing', x: d.x, z: d.z, heading: headingFor(d.facing), gesture });
+    }
+  };
+
   useFrame((_, delta) => {
     const dt = run.fresh ? 0 : Math.min(delta, 0.1);
     run.fresh = false;
@@ -406,7 +480,10 @@ export function ErrandDirector({
       const e = p.errand;
       // Work came in: hurry back and sit down (a new hire just walks on, briskly).
       if (e === ARRIVE && !p.hurry && !isFree(p.status)) p.hurry = true;
-      if (e && a && !p.hurry && (p.phase === 'leaving' || p.phase === 'there') && !mayContinue(a.status, e)) goHome(p, true, st);
+      if (e && a && !p.hurry && (p.phase === 'leaving' || p.phase === 'there') && !mayContinue(a.status, e)) {
+        p.actor?.abort();
+        goHome(p, true, st);
+      }
       // The rest of a chat went back to work: nobody left to talk to.
       if (p.chat && p.phase === 'there' && p.chat.ids.size < 2) goHome(p, false, st);
       const long = run.clock - p.phaseAt;
@@ -417,16 +494,25 @@ export function ErrandDirector({
             break;
           }
           if (long > GIVE_UP.leaving && !leaving) goHome(p, false, st);
-          else if (follow(p, st.x, st.z, p.hurry ? HURRY_SPEED : WALK_SPEED, true, dt) && e && p.dest) {
+          else if (follow(p, st.x, st.z, p.hurry ? HURRY_SPEED : (e?.speed ?? WALK_SPEED), true, dt) && e && p.dest) {
             p.phase = 'there';
             p.phaseAt = run.clock;
             p.step = -1;
             p.stepLeft = 0;
+            if (e.act) {
+              p.actor = e.act(p.id);
+              p.walking = p.dest.id;
+              p.arrived = true;
+            }
             report(p);
           }
           break;
         }
         case 'there': {
+          if (p.actor) {
+            act(p, p.actor, st, long, dt);
+            break;
+          }
           // The first to a chat waits a little for the others.
           if (p.chat && p.step < 0 && long < CHAT_WAIT && [...p.chat.ids].some((id) => people.get(id)?.phase === 'leaving')) break;
           p.stepLeft -= dt;
@@ -436,16 +522,29 @@ export function ErrandDirector({
           if (!s) {
             say(p.id, null);
             if (leaving) exit(p);
-            else goHome(p, false, st);
+            else goHome(p, false, st, 'done');
+            break;
+          }
+          if (s.cue && e.cue && !e.cue(p.id, s.cue)) {
+            goHome(p, false, st);
             break;
           }
           p.stepLeft = s.seconds * (0.8 + Math.random() * 0.45);
           say(p.id, s.say ? topic() : null);
-          setBody(p.id, { mode: 'standing', x: p.dest.x, z: p.dest.z, heading: stepHeading(p, p.dest, s.turn, s.face === 'peer'), gesture: s.gesture });
+          // A few steps to another spot first (along the board): the step lasts at least the walk.
+          const next = s.to ? spotById(w, s.to(p.id) ?? '') : undefined;
+          const speed = e.speed ?? WALK_SPEED;
+          if (next && next !== p.dest) {
+            p.stepLeft = Math.max(p.stepLeft, Math.hypot(next.x - p.dest.x, next.z - p.dest.z) / speed + 0.6);
+            p.dest = next;
+            report(p);
+          }
+          const heading = stepHeading(p, p.dest, s.turn, s.face === 'peer');
+          setBody(p.id, { mode: next ? 'walking' : 'standing', x: p.dest.x, z: p.dest.z, heading, gesture: s.gesture, speed });
           break;
         }
         case 'returning': {
-          if (long > GIVE_UP.returning || follow(p, st.x, st.z, p.hurry ? HURRY_SPEED : WALK_SPEED, false, dt)) {
+          if (long > GIVE_UP.returning || follow(p, st.x, st.z, p.hurry ? HURRY_SPEED : (e?.speed ?? WALK_SPEED), false, dt)) {
             p.phase = 'sitting';
             p.phaseAt = run.clock;
             seatBody(p.id); // the body walks the last step to beside the chair and sits
@@ -480,15 +579,32 @@ export function ErrandDirector({
     const ready: Person[] = [];
     for (const p of people.values()) {
       const a = byId.get(p.id);
-      if (!a || p.phase !== 'seated') continue;
-      if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
+      if (!a) continue;
       const state: ErrandState = { floor, statusFor: run.clock - p.statusAt, seatedFor: run.clock - p.seatedAt, restless: p.restless, home: p.home, others };
+      if (p.phase !== 'seated') {
+        // Off on an idle errand, or on the way back, when board work comes in: straight there instead.
+        const was = p.errand;
+        const st = bodyState(p.id);
+        const idle = !!was && !was.work && (p.phase === 'leaving' || p.phase === 'there');
+        // a coffee carried home goes on the desk first
+        if ((!idle && (p.phase !== 'returning' || p.actor)) || !st) continue;
+        const e = wanted(errands(), a, state).find((x) => x.work);
+        if (e && start(p, e, st) && idle) was?.end?.(p.id, 'cut');
+        continue;
+      }
+      if (bodyTarget(p.id)) continue; // someone's walking them by hand (__swarmPeople)
       states.set(p.id, state);
-      const pick = choose(wanted(errands(), a, state), Math.random());
-      if (pick) p.queue = enqueue(p.queue, pick.name, run.clock);
+      const ask = takeAsk(p.id);
+      if (ask && errandNamed(ask) && mayStart(a.status, errandNamed(ask)!)) p.queue = enqueue(p.queue, ask, run.clock);
+      // every work errand wanted, then one idle errand picked by weight
+      const want = wanted(errands(), a, state);
+      for (const e of want.filter((x) => x.work)) p.queue = enqueue(p.queue, e.name, run.clock, undefined, true);
+      const idle = choose(want.filter((x) => !x.work), Math.random());
+      if (idle) p.queue = enqueue(p.queue, idle.name, run.clock);
       const kept = prune(p.queue, run.clock, (n) => {
         const e = errandNamed(n);
-        return !!e && mayStart(a.status, e);
+        // errands someone claims (the board's) also drop out once they're no longer wanted
+        return !!e && mayStart(a.status, e, state.statusFor) && (!e.claim || e.when(a, state));
       });
       // Waited too long for a slot: skip it, and sit a while before trying again.
       if (kept.length < p.queue.length && p.queue.some((q) => run.clock - q.at >= QUEUE_SECONDS)) {
@@ -511,11 +627,13 @@ export function ErrandDirector({
       away,
     )) {
       const [head, ...rest] = p.queue;
-      p.queue = rest;
       const e = errandNamed(head.name);
       const a = byId.get(p.id);
       const state = states.get(p.id);
-      if (!e || !a || !state || !start(p, e, a, state)) {
+      const went = e ? start(p, e, undefined, a && state ? { a, state } : undefined) : false;
+      if (went === null || (!went && e?.claim)) continue; // not yet, or its spot is in use: it stays queued
+      p.queue = rest;
+      if (!went) {
         // nowhere free to go: sit a while longer
         p.seatedAt = run.clock;
         p.restless = restlessSeconds(Math.random());

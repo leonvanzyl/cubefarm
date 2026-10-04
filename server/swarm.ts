@@ -6,7 +6,7 @@ import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
-import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, floorCapacity, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { depsPromptLine, type DepsOutcome } from './deps.ts';
 import { setUpDesk } from './deskSetup.ts';
 import { fixOutcome } from './fixOutcome.ts';
@@ -3104,8 +3104,12 @@ export class Swarm {
             developers: this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev').length,
             developersFree: this.available(r, 'dev').length,
             issuesReadyToStart: this.readyIssues(r).length,
-            issuesWaitingOnOthers: rt.issues.filter((i) => blockers(i.body, open).length > 0).length,
-            longestDependencyChain: Math.max(0, ...[...holdUps(rt.issues).values()].map((w) => w.chain)),
+            ...floorCapacity({
+              issues: rt.issues,
+              inProgress: (n) => this.issueTaken(r, n),
+              openPrs: rt.pulls.filter((p) => p.state === 'OPEN').map((p) => p.number),
+              qa: this.state.qa.filter((q) => q.repoId === r.id),
+            }),
           },
           team: this.state.agents
             .filter((a) => a.repoId === r.id)

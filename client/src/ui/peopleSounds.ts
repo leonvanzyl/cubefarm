@@ -32,9 +32,9 @@ export function chairCreak(pos: Vec3) {
   noise({ ...o, dur: 0.18, peak: 0.012, filter: 'bandpass', freq: 1300 + r() * 300, q: 6, attack: 0.05 });
 }
 
-/** A sticky coming off the board: a short papery rip. */
-export function stickyPeel(pos: Vec3) {
-  noise({ name: 'sticky:peel', group: 'typing', pos, dur: 0.16, peak: 0.024, filter: 'bandpass', freq: 2600 + r() * 500, to: 5200, q: 1.4, attack: 0.1 });
+/** A sticky coming off the board (`at` seconds from now): a short papery rip. */
+export function stickyPeel(pos: Vec3, at = 0) {
+  noise({ name: 'sticky:peel', group: 'typing', pos, at, dur: 0.16, peak: 0.024, filter: 'bandpass', freq: 2600 + r() * 500, to: 5200, q: 1.4, attack: 0.1 });
 }
 
 /** A sticky pressed back onto the board: a soft papery slap. */

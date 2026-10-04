@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useStore } from '../../store';
 import { drawSign } from '../draw';
 import { useInteractable } from '../interact';
-import { BLASTER_RACK, HALF_D, elevatorDoorway } from '../layout';
+import { BLASTER_RACK, HALF_D, toyOnlyAt } from '../layout';
 import { shade, toon } from '../materials';
 import { WallSign } from '../OfficeFloor';
 import { Box, Cyl } from '../Toon';
@@ -187,7 +187,6 @@ const DART = { r: 0.026, half: 0.064, tip: 0.105, speed: 19, flightGravity: 0.35
 const UP = new THREE.Vector3(0, 1, 0);
 const ONE = new THREE.Vector3(1, 1, 1);
 const ZERO = { x: 0, y: 0, z: 0 };
-const DOOR = elevatorDoorway();
 
 interface Dart {
   id: number;
@@ -231,7 +230,7 @@ function listenForLanding(d: Dart) {
   if (impact) dartSound(impact.sound, at, impact.gain);
 }
 
-function Darts({ groups }: { groups: number }) {
+function Darts({ floor, groups }: { floor: ToyFloor; groups: number }) {
   const { world, rapier } = useRapier();
   const camera = useThree((s) => s.camera);
   const darts = useRef<Dart[]>([]);
@@ -398,14 +397,14 @@ function Darts({ groups }: { groups: number }) {
       d.sincePerson = d.ahead === 'person' ? 0 : d.sincePerson + 1;
       if (!hit || !hit.collider.parent()?.isFixed()) continue;
       p.set(at.x, at.y, at.z).addScaledVector(v, hit.timeOfImpact);
-      const inDoorway = p.x > DOOR.minX && p.x < DOOR.maxX && p.z > DOOR.minZ - 0.05; // the doorway only exists for toys
+      const inDoorway = toyOnlyAt(floor, p.x, p.y, p.z); // doorways and the screen over a balcony's railing only exist for toys
       n.set(hit.normal.x, hit.normal.y, hit.normal.z);
       if (!inDoorway && sticks(lv, n)) stick(d, p, n);
     }
     // Safety net: a dart that somehow left the building is gone.
     if (++tick.current % 15) return;
     for (const d of [...darts.current]) if (d.state !== 'stuck' && escaped(d.body.translation())) remove(d);
-  }, [groups, rapier, ray, remove, spawn, stick, tmp, world]);
+  }, [floor, groups, rapier, ray, remove, spawn, stick, tmp, world]);
   useBeforePhysicsStep(step);
 
   useFrame(() => {
@@ -495,7 +494,7 @@ export function Blasters({ floor, groups }: { floor: ToyFloor; groups: number })
         return s?.where === 'loose' ? <LooseBlaster key={`${b.id}:${s.key}`} def={b} spot={s} groups={groups} onLost={() => backOnRack(b.id)} /> : null;
       })}
       {held && <ViewModel def={held} />}
-      <Darts groups={groups} />
+      <Darts floor={floor} groups={groups} />
     </>
   );
 }
