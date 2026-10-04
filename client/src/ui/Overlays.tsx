@@ -162,8 +162,8 @@ function Help() {
         </p>
         <h3>Sound</h3>
         <p>
-          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
-          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba) and alerts (the phone, the elevator and these cues) up or down on their own. Your
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
+          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba) and alerts (the phone, the elevator, the gong and these cues) up or down on their own. Your
           settings are saved in this browser.
         </p>
         <SoundControls />
