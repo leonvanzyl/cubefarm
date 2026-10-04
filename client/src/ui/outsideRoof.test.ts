@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { HALF_D } from '../world/layout';
+import { roomAt, zoneAt } from './acoustics';
 import { DOOR_LEVEL, outsideHearing, outsideLayers, ROOF_WIND } from './outsideMix';
 
-// The outside ambience up on the roof (outsideMix.ts): all of it, clear, a little windier.
+// What it sounds like up on the roof: the outside ambience (outsideMix.ts) all round, clear and a little windier, and
+// open-air acoustics (acoustics.ts) everywhere but the elevator cabin.
 
 const shut = { west: 0, east: 0 };
 
@@ -30,5 +32,20 @@ describe('the outside on the roof', () => {
       expect(roof.wind).toBeCloseTo(balcony.wind * ROOF_WIND);
       expect({ ...roof, wind: 0 }).toEqual({ ...balcony, wind: 0 });
     }
+  });
+});
+
+describe('the acoustics on the roof', () => {
+  it('are open air on the whole deck, one space, and the cabin is still a metal box', () => {
+    for (const [x, z] of [
+      [0, 0],
+      [-10, -10],
+      [12, 8],
+    ]) {
+      expect(roomAt('roof', x, z)).toBe('outside');
+      expect(zoneAt('roof', x, z)).toBe('floor');
+    }
+    expect(roomAt('roof', 0, HALF_D + 1)).toBe('cabin');
+    expect(zoneAt('roof', 0, HALF_D + 1)).toBe('cabin');
   });
 });

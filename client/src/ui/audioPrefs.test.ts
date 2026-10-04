@@ -5,19 +5,42 @@ describe('parseAudioPrefs', () => {
   it('uses the defaults when nothing is saved', () => {
     expect(parseAudioPrefs(null)).toEqual(DEFAULT_AUDIO_PREFS);
     expect(DEFAULT_AUDIO_PREFS).toMatchObject({ steps: 100, typing: 100, toys: 100, alerts: 100, music: 100, voice: 100, outside: 100 });
+    // the soundtrack is on, but low
+    expect(DEFAULT_AUDIO_PREFS).toMatchObject({ soundtrack: true, score: 30 });
   });
 
   it('keeps old { volume, muted } settings and fills in the groups', () => {
-    expect(parseAudioPrefs('{"volume":40,"muted":true}')).toEqual({ volume: 40, muted: true, steps: 100, typing: 100, toys: 100, alerts: 100, music: 100, voice: 100, outside: 100 });
+    expect(parseAudioPrefs('{"volume":40,"muted":true}')).toEqual({
+      volume: 40,
+      muted: true,
+      soundtrack: true,
+      steps: 100,
+      typing: 100,
+      toys: 100,
+      alerts: 100,
+      music: 100,
+      voice: 100,
+      outside: 100,
+      score: 30,
+    });
   });
 
   it('round-trips saved group levels', () => {
-    const saved = { volume: 55, muted: false, steps: 0, typing: 35, toys: 80, alerts: 100, music: 45, voice: 60, outside: 60 };
+    const saved = { volume: 55, muted: false, soundtrack: false, steps: 0, typing: 35, toys: 80, alerts: 100, music: 45, voice: 60, outside: 60, score: 10 };
     expect(parseAudioPrefs(JSON.stringify(saved))).toEqual(saved);
   });
 
   it('fills in the Outside level for settings saved before it existed', () => {
     expect(parseAudioPrefs('{"volume":55,"muted":false,"steps":0,"typing":35,"toys":80,"alerts":100,"music":45}')).toMatchObject({ music: 45, outside: 100 });
+  });
+
+  it('fills in the Soundtrack, on and low, for settings saved before it existed', () => {
+    expect(parseAudioPrefs('{"volume":55,"muted":false,"music":45,"outside":60}')).toMatchObject({ music: 45, outside: 60, soundtrack: true, score: 30 });
+  });
+
+  it('only turns the Soundtrack off when it was saved off', () => {
+    expect(normalizeAudioPrefs({ soundtrack: false }).soundtrack).toBe(false);
+    for (const v of [true, 'false', 0, null, undefined, {}]) expect(normalizeAudioPrefs({ soundtrack: v }).soundtrack).toBe(true);
   });
 
   it('falls back to the defaults for corrupt JSON or a non-object', () => {

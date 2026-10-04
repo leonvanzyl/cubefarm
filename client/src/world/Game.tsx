@@ -14,6 +14,7 @@ import { DayLights } from './sky/DayLights';
 import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
+import { Soundscape } from './Soundscape';
 import { TypingSounds } from './TypingSounds';
 
 // The roof is its own chunk: fetched as the elevator heads up there, never by a floor that doesn't go.
@@ -78,6 +79,7 @@ export function Game() {
       <Player colliders={colliders} floor={floor} />
       <Travel />
       <SoundListener />
+      <Soundscape kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />
       <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
