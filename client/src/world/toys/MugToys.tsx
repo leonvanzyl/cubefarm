@@ -29,7 +29,10 @@ const STEP = 1 / 60;
 // Contact forces under this (N) aren't reported at all: well above a resting mug's weight (~3 N), well below a clunk.
 const FORCE_EVENTS = 6;
 // A dropped mug leaves your hands tipped and turning, so it lands on its side rather than neatly upright.
+// Both are relative to your facing (turned by your yaw at the drop), so it tips forward, into view, whichever way you face.
 const TUMBLE: [number, number, number] = [4, 1, 3];
+const TILT: [number, number] = [0.5, 0.3];
+const UP = new THREE.Vector3(0, 1, 0);
 // A bare cylinder on its side rolls forever (Rapier has no rolling friction). The handle's collider stops a full
 // roll, so the mug rocks onto rim and handle, and the damping stands in for rolling resistance so it settles quickly.
 const ROLL_DAMPING = 3;
@@ -86,7 +89,9 @@ interface Loose {
   key: number;
   at: [number, number, number];
   vel: [number, number, number];
-  yaw: number;
+  /** Starting rotation (XYZ Euler) and spin, both already turned by the drop yaw. */
+  rot: [number, number, number];
+  spin: [number, number, number];
 }
 
 function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number; bodies: Map<string, RapierRigidBody>; onLost: (id: string) => void }) {
@@ -130,9 +135,9 @@ function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number;
       ref={body}
       colliders={false}
       position={mug.at}
-      rotation={[0.5, mug.yaw, 0.3]}
+      rotation={mug.rot}
       linearVelocity={mug.vel}
-      angularVelocity={TUMBLE}
+      angularVelocity={mug.spin}
       linearDamping={0.3}
       angularDamping={ROLL_DAMPING}
       ccd
@@ -201,6 +206,10 @@ export function Mugs({ groups }: { groups: number }) {
       const hit = world.castRay(ray, 1, true, undefined, groups);
       const ahead = hit ? Math.max(0, Math.min(0.45, hit.timeOfImpact - 0.2)) : 0.45;
       for (const old of mugsToEvict(mugs.current)) remove(old.id);
+      // Tilt in your own frame (yaw first), then express it in the XYZ order <RigidBody rotation> expects.
+      const yaw = camera.rotation.y;
+      const rot = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(TILT[0], yaw, TILT[1], 'YXZ')), 'XYZ');
+      const spin = new THREE.Vector3(...TUMBLE).applyAxisAngle(UP, yaw);
       mugs.current.push({
         id,
         sips,
@@ -208,7 +217,8 @@ export function Mugs({ groups }: { groups: number }) {
         key: ++keys.current,
         at: [camera.position.x + fwd.x * ahead, 1.1, camera.position.z + fwd.z * ahead],
         vel: [walk.x * 0.5, 0, walk.z * 0.5],
-        yaw: camera.rotation.y,
+        rot: [rot.x, rot.y, rot.z],
+        spin: [spin.x, spin.y, spin.z],
       });
       redraw();
     },
