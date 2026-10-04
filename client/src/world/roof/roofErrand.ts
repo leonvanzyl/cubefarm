@@ -7,7 +7,7 @@ import { useStore } from '../../store';
 import { ding } from '../../ui/sfx';
 import { isFree, registerErrand, type Act, type Errand, type ErrandAgent, type ErrandScript, type ErrandState } from '../errands';
 import { DECK_CHAIRS, HALF_D, ROOF } from '../layout';
-import { hideBody } from '../people';
+import { setHidden } from '../people';
 import { CABIN, DOORS_SECONDS } from '../socials';
 import { endVisit, planVisit, ROOF_BREAK, roofVisit, roofVisits, roomFor, startVisit, type VisitKind } from './roofBreaks';
 
@@ -37,7 +37,7 @@ export function rideUp(id: string, kind: VisitKind): ErrandScript {
           const v = roofVisit(id) ?? planVisit(roofVisits(now), id, kind, now, Math.random(), { chairs: DECK_CHAIRS.xs.length, playerChair: null });
           if (!v) return doing('done'); // someone took the last chair meanwhile: back out
           startVisit(v);
-          hideBody(id, true);
+          setHidden(id, true);
           stage = 'away';
           return doing('stand');
         }
@@ -45,7 +45,7 @@ export function rideUp(id: string, kind: VisitKind): ErrandScript {
           const v = roofVisit(id);
           if (v && Date.now() < v.leave + ROOF_BREAK.ride * 1000) return doing('stand');
           endVisit(id);
-          hideBody(id, false);
+          setHidden(id, false);
           ding({ x: 0, y: 2.6, z: HALF_D });
           stage = 'out';
           t = 0;
@@ -59,7 +59,7 @@ export function rideUp(id: string, kind: VisitKind): ErrandScript {
     // However it ends (back down, called back to work, the floor left behind), they're in sight again. The visit itself
     // carries on up top until its time is up: follow them up and they're there.
     end() {
-      hideBody(id, false);
+      setHidden(id, false);
     },
   };
 }

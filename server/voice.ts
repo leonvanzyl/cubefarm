@@ -4,10 +4,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { SAMPLE_LINE, speechText } from '../shared/speech.ts';
+import { SAMPLE_LINE, speechText, standupLine, type DayPart } from '../shared/speech.ts';
 import { clampKeepDays, KEEP_DAYS_DEFAULT } from '../shared/voiceClips.ts';
 import type { PhoneMessage, VoiceCacheView, VoiceOption, VoiceSettings } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
+import { mergeSecrets, readSecrets } from './secrets.ts';
 
 /** ElevenLabs' fastest, cheapest model (~75 ms, half the price per character of Multilingual v2). */
 export const DEFAULT_VOICE_MODEL = 'eleven_flash_v2_5';
@@ -186,7 +187,6 @@ export class Voice {
   private voicesCache: { at: number; list: VoiceOption[] } | null = null;
   private making = new Map<string, Promise<Buffer>>();
   private queue: Promise<unknown> = Promise.resolve();
-  private writing: Promise<unknown> = Promise.resolve(); // secrets-file writes, one after another
   private clips: ClipManifest = {};
   private cacheView: VoiceCacheView = { clips: 0, bytes: 0, saved: [] };
   private cacheWork: Promise<unknown> = Promise.resolve(); // manifest changes, prunes and clears, one after another
@@ -323,6 +323,13 @@ export class Voice {
     return this.audio('sample', voiceId || s.voiceId, s.model, SAMPLE_LINE);
   }
 
+  /** GET /api/voice/standup: the CEO's line at a stand-up in the 3D office, made once per wording and cached. */
+  async standupAudio(count: number, part: DayPart): Promise<Buffer> {
+    const s = this.deps.settings();
+    if (s.provider !== 'elevenlabs') throw new HttpError(404, "The CEO isn't voiced by ElevenLabs right now.");
+    return this.audio('standup', s.voiceId, s.model, standupLine(count, part));
+  }
+
   private async audio(name: string, voiceId: string, model: string, text: string, m?: PhoneMessage): Promise<Buffer> {
     if (!VOICE_ID.test(voiceId)) throw new HttpError(400, 'Pick an ElevenLabs voice first.');
     // The voice, model and words are in the file name, so a new voice or a reused message id never plays stale audio.
@@ -424,29 +431,12 @@ export class Voice {
   }
 
   private async readSecrets(): Promise<Secrets & Record<string, unknown>> {
-    try {
-      const s = JSON.parse(await fs.readFile(this.deps.secretsFile, 'utf8')) as unknown;
-      return s && typeof s === 'object' ? (s as Secrets & Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
+    return readSecrets(this.deps.secretsFile);
   }
 
   /** Merge into the secrets file (other secrets stay), owner-only where the OS has file modes. */
   private writeSecrets(patch: Secrets): Promise<void> {
-    const write = this.writing.then(() => this.mergeSecrets(patch));
-    this.writing = write.catch(() => undefined);
-    return write;
-  }
-
-  private async mergeSecrets(patch: Secrets) {
-    const next: Record<string, unknown> = { ...(await this.readSecrets()), ...patch };
-    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
-    await fs.mkdir(path.dirname(this.deps.secretsFile), { recursive: true });
-    const tmp = `${this.deps.secretsFile}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
-    await fs.rename(tmp, this.deps.secretsFile);
-    await fs.chmod(this.deps.secretsFile, 0o600).catch(() => undefined);
+    return mergeSecrets(this.deps.secretsFile, { ...patch });
   }
 }
 

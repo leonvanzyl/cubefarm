@@ -4,12 +4,12 @@
 // which errand (errands.ts) they're on, for QA and Playwright.
 
 import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gesture } from './body';
+import type { Food } from './ritualSchedule';
 
 const targets = new Map<string, BodyTarget>();
 const live = new Map<string, BodyState>();
 const busy = new Map<string, ErrandInfo>();
 const said = new Map<string, Saying>();
-const hidden = new Set<string>();
 let teleports = 0;
 let director: (() => unknown) | null = null;
 
@@ -56,14 +56,6 @@ export const saying = (id: string) => said.get(id);
 export function* bodies() {
   for (const [id, s] of live) if (!hidden.has(id)) yield s;
 }
-
-/** Someone out of sight: gone up to the roof in the elevator (roof/roofErrand.ts). Character.tsx doesn't draw them. */
-export function hideBody(id: string, on: boolean) {
-  if (on) hidden.add(id);
-  else hidden.delete(id);
-}
-
-export const isHidden = (id: string) => hidden.has(id);
 
 /** Character.tsx registers each person's live state, so the probe can report it. */
 export function trackBody(id: string, s: BodyState) {
@@ -129,7 +121,7 @@ const changed = () => {
   for (const fn of mugListeners) fn();
 };
 
-/** Character.tsx and Desk.tsx redraw when someone's mugs change (rarely: a mug taken, a sip, back at the desk). */
+/** Character.tsx and Desk.tsx redraw when someone's mugs (or food) change (rarely: a mug taken, a sip, back at the desk). */
 export function subscribeMugs(fn: () => void) {
   mugListeners.add(fn);
   return () => void mugListeners.delete(fn);
@@ -154,6 +146,29 @@ export function setDeskMug(id: string, mug: PersonMug, seconds: number) {
   desks.set(id, { ...mug, until: Date.now() + seconds * 1000 });
   changed();
 }
+
+// ---------- food in hand, and out of sight (the rituals) ----------
+
+const food = new Map<string, Food>();
+const hidden = new Set<string>();
+
+/** What someone eats (lunch, a slice of pizza), drawn in their hand; null for nothing. Redraws like the mugs. */
+export function setHandFood(id: string, f: Food | null) {
+  if ((food.get(id) ?? null) === f) return;
+  if (f) food.set(id, f);
+  else food.delete(id);
+  changed();
+}
+
+export const handFood = (id: string) => food.get(id) ?? null;
+
+/** Someone gone home for the night, the CEO off round the floors, or up on the roof: Character.tsx doesn't draw them. */
+export function setHidden(id: string, on: boolean) {
+  if (on) hidden.add(id);
+  else hidden.delete(id);
+}
+
+export const isHidden = (id: string) => hidden.has(id);
 
 // ---------- errands asked for by hand ----------
 
@@ -196,11 +211,12 @@ const probe = {
       heading: round(s.heading),
       speed: round(s.speed),
       errand: busy.get(id) ?? null,
-      hidden: hidden.has(id),
       says: said.get(id)?.text ?? null,
       target: targets.get(id) ?? null,
       mug: hands.get(id) ?? null,
       deskMug: deskMug(id),
+      food: food.get(id) ?? null,
+      hidden: hidden.has(id),
     }));
   },
   /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch', 'roof') as soon as the rules and the cap allow. */
