@@ -42,8 +42,9 @@ interface Walker {
   t: number;
   path: Pt[];
   wp: number;
-  /** The call's pacing: which spot they're heading for, and seconds left there. */
+  /** The call's pacing: which spot they're heading for, and seconds left standing there once they've got to it. */
   leg: number;
+  hold: number;
   hurry: boolean;
   /** Seconds waited for the player in the way; then they walk on through for a moment. */
   waited: number;
@@ -184,7 +185,7 @@ export function RoofPeople() {
       if (walkers.has(v.id) || !s.agents[v.id]) continue;
       const stage = visitStage(v, now);
       if (stage === 'down') continue;
-      const w: Walker = { id: v.id, kind: v.kind, chair: v.chair, stage: 'riding', t: 0, path: [], wp: 0, leg: 0, hurry: false, waited: 0, ghost: 0, quietAt: 0 };
+      const w: Walker = { id: v.id, kind: v.kind, chair: v.chair, stage: 'riding', t: 0, path: [], wp: 0, leg: 0, hold: -1, hurry: false, waited: 0, ghost: 0, quietAt: 0 };
       if (stage === 'up' && (now - v.arrive > ALREADY_UP || now - run.mounted < 1000)) {
         // they were up here before you
         if (v.kind === 'call') {
@@ -262,13 +263,18 @@ export function RoofPeople() {
             w.path = [spot];
             w.wp = 0;
           }
-          if (follow(w, dt, 'call', WEST) && w.t > 5 + (w.leg ? 2 : 0)) {
-            w.leg = 1 - w.leg;
-            w.t = 0;
+          if (!follow(w, dt, 'call', WEST)) break;
+          if (w.hold < 0) {
+            w.hold = 4 + Math.random() * 5; // a while at the railing, looking out
             if (Math.random() < 0.6) {
               say(w.id, Math.random() < 0.5 ? '📞' : '💬');
               w.quietAt = now + 2500;
             }
+          }
+          w.hold -= dt;
+          if (w.hold <= 0) {
+            w.leg = 1 - w.leg;
+            w.hold = -1;
           }
           break;
         }
