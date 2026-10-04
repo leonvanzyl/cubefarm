@@ -220,9 +220,10 @@ function DeskMug({ agentId, color }: { agentId: string; color: string }) {
     return () => clearTimeout(t);
   }, [coffee]);
   const fresh = coffee && coffee.until > Date.now() ? coffee : null;
-  if (!fresh) return <Cyl r={0.045} h={0.1} position={[0.76, 0.82, 0.02]} color={color} outline />;
+  if (!fresh) return <Cyl r={0.045} h={0.1} color={color} outline />;
   return (
-    <group position={[0.76, 0.77 + MUG_SIZE.h / 2, 0.02]} rotation={[0, Math.PI / 2, 0]}>
+    // the parent group sits at the plain mug's centre, 0.82 (desk top 0.77 plus half its height)
+    <group position={[0, MUG_SIZE.h / 2 - 0.05, 0]} rotation={[0, Math.PI / 2, 0]}>
       <MugLook color={mugColor(fresh.id)} sips={fresh.sips} />
     </group>
   );
@@ -265,6 +266,7 @@ export function Desk({
   const top = qa ? LAB_BENCH : WOOD;
   const chair = qa ? QA_ORANGE : accent;
   const chairRef = useRef<THREE.Group>(null);
+  const mugRef = useRef<THREE.Group>(null);
   return (
     <group ref={ref} position={position} rotation={[0, rotationY, 0]}>
       {/* desk */}
@@ -283,7 +285,10 @@ export function Desk({
         <>
           <LiveMonitor agent={agent} accent={accent} />
           <Keyboard />
-          <DeskMug agentId={agent.id} color={mug} />
+          {/* the mug: its owner picks it up for a sip now and then */}
+          <group ref={mugRef} position={[0.76, 0.82, 0.02]}>
+            <DeskMug agentId={agent.id} color={mug} />
+          </group>
         </>
       ) : (
         <VacantMonitor accent={accent} qa={qa} />
@@ -312,7 +317,7 @@ export function Desk({
       </group>
       {agent && (
         <group position={[0, 0, 0.8]}>
-          <Character key={agent.id} agent={agent} chair={chairRef}>
+          <Character key={agent.id} agent={agent} chair={chairRef} mug={mugRef}>
             <NameTag agent={agent} />
           </Character>
         </group>

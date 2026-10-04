@@ -89,6 +89,8 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `httpError.ts`: `HttpError(status, message)`.
 - `officeUpdate.ts`: the office's self-update: the drain decision, the launcher contract (IPC, `last-update.json`).
 - `pacing.ts`: pacing new work after Claude's usage warnings: the start/skip decision and the usage state.
+- `voice.ts`: phone messages read aloud (docs/voice.md): the ElevenLabs key in `secrets.json`, voices, cached clips;
+  `elevenlabs.ts` is its REST client. The words spoken come from `shared/speech.ts`.
 
 The `cubefarm` command (`bin/cubefarm.js`, plain JS): checks Node/git/gh/Claude login, starts `dist-server/index.js`,
 opens the browser; `login` and `doctor` subcommands.

@@ -28,6 +28,8 @@ interface PromptBase {
   port: number;
   cwd: string;
   branch: string;
+  /** What the office did about the desk's dependencies (deps.ts depsPromptLine); empty or absent says nothing. */
+  depsLine?: string;
 }
 
 export interface DevPromptInput extends PromptBase {
@@ -56,7 +58,7 @@ export const PLACEHOLDERS = {
 export const devBranch = (issue: number | string, slug: string) => `swarm/issue-${issue}-${slug}`;
 export const qaBranch = (pr: number | string, slug: string) => `qa/pr-${pr}-${slug}`;
 
-export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fixing }: DevPromptInput) {
+export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fixing, depsLine }: DevPromptInput) {
   const push = fixing ? `git push origin HEAD:${fixing.headRef}` : `git push -u origin ${branch}`;
   const links = linked.map((r) => `- ${r.fullName}: read-only reference clone at ${r.dir}`);
   return [
@@ -68,6 +70,7 @@ export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fix
     repo.summary ? `Project: ${repo.summary}` : '',
     repo.mission ? `What the team is building (the manager's brief): ${repo.mission}` : '',
     `Your worktree: ${cwd}`,
+    depsLine ?? '',
     fixing
       ? `You are fixing pull request #${fixing.pr}. Its code is checked out on local branch ${branch}; push fixes with: ${push}. Do not open a new pull request.`
       : `Your branch: ${branch} (already checked out, created from origin/${repo.defaultBranch})`,
@@ -92,7 +95,7 @@ export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fix
     .join('\n');
 }
 
-export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, testStep }: QaPromptInput) {
+export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, depsLine, testStep }: QaPromptInput) {
   return [
     `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("cubefarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
     ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
@@ -104,6 +107,7 @@ export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, testStep
     ...(repo.qaBrief ? [`What to check on this project (from the CEO):\n${repo.qaBrief}`] : []),
     `Pull request #${pr.number} "${pr.title}" from branch ${pr.headRefName}: ${pr.url}`,
     `Your worktree: ${cwd}. It has the pull request's code checked out on local branch ${branch}.`,
+    ...(depsLine ? [depsLine] : []),
     '',
     'How to test:',
     '1. Read the PR description and the linked issue, and work out the acceptance criteria.',
@@ -113,6 +117,7 @@ export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, testStep
       ? `4. If the project has a UI, start it in the background on port ${port} (reserved for you) and exercise the change in a real browser with the Playwright tools: navigate, click, type, resize to a phone size, try edge cases, and check the console for errors. Take a screenshot with browser_take_screenshot (no filename) of every important state: the screenshots are attached to the PR as evidence. Stop the server afterwards.`
       : '4. Exercise the changed behaviour directly (run the program, call the API, write a quick script).',
     '5. You may write throwaway scripts to probe behaviour, but do not commit them.',
+    "A merge conflict with the default branch is not a fail: judge the change itself (on a throwaway merge if you need newer work) and pass it if it's good. The office sends conflicting PRs back for a merge fix, then you re-test.",
     '',
     'Rules: do not modify the code under test, do not commit, push, comment on, review or merge anything on GitHub. The office posts your report on the pull request. Finish with the structured QA report: verdict, summary, the checks you performed, the commands you ran and one caption per screenshot.',
   ].join('\n');

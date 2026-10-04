@@ -6,6 +6,7 @@ import { Desk } from './Desk';
 import { drawSign } from './draw';
 import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
+import { Gong } from './Gong';
 import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
 import { DESK_RUGS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
@@ -81,6 +82,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <KanbanBoard repo={repo} agents={agents} />
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
+      <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
       <ErrandDirector floor="office" agents={agents} />

@@ -60,6 +60,24 @@ describe('fixOutcome', () => {
     });
   });
 
+  describe('a conflict fix after QA failed the last round', () => {
+    const failedLast = record({ fixReason: 'conflict', round: 3, testedSha: OLD, passedSha: null });
+
+    it('with a new commit goes back to QA for one more round, never straight to merge', () => {
+      expect(fixOutcome(failedLast, NEW, 3)).toEqual({
+        set: { status: 'queued', round: 4, sessionFailures: 0 },
+        log: { kind: 'done', text: '✔ Fix pushed for PR #45 in 3m. Back to QA.' },
+        pushed: true,
+      });
+      expect(fixOutcome(failedLast, null, 3).set.status).toBe('queued');
+    });
+
+    it('without a new commit is a failed session, then the manager\'s', () => {
+      expect(fixOutcome(failedLast, OLD, 3).set).toEqual({ status: 'failed', sessionFailures: 1 });
+      expect(fixOutcome({ ...failedLast, sessionFailures: 1 }, OLD, 3).set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the conflict was never resolved' });
+    });
+  });
+
   it('lets a checks fix push nothing: it may have re-run a flaky check', () => {
     for (const head of [OLD, NEW, null]) {
       const step = fixOutcome(record({ fixReason: 'checks', passedSha: OLD }), head, 3);

@@ -38,6 +38,9 @@ export function trackBody(id: string, s: BodyState) {
   };
 }
 
+/** Everyone drawn on the current floor, by agent id. */
+export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
+
 /** Someone's live body (where they are now), while they're drawn on the current floor. */
 export const bodyState = (id: string) => live.get(id);
 
