@@ -8,6 +8,7 @@ import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type
 import { PARTS } from './characterParts';
 import { PROUD_FOR, blink, expressionFor, isDrowsy, newFace, prFaceOf, stepFace } from './face';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
+import { FaceGlow } from './gfx/ScreenGlow';
 import { HeadParts, INK, Sleeve, TorsoWear, applyFace, torsoWidth } from './Figure';
 import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
@@ -46,6 +47,8 @@ const POSES: Record<PoseName, Pose> = {
 
 const clone = (p: Pose): Pose => ({ ...p, l: { ...p.l }, r: { ...p.r } });
 const lerp = THREE.MathUtils.lerp;
+/** Marks a person's root, so High's contact-shadow bake (gfx/ContactShadows.tsx) can leave people out of it. */
+const PERSON = { person: true };
 // A physics person's ball (chair-space: beside their feet, under the desktop).
 const BALL_AT: [number, number, number] = [-0.5, 0.13, -0.98];
 
@@ -82,10 +85,14 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
-  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up
+  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up; a declined
+  // candidate's polite nod is the same (Candidates.tsx)
   clap: { l: { pitch: 0.05, yaw: 0.62 }, r: { pitch: 0.05, yaw: 0.62 }, head: 0.08 },
   nod: { l: null, r: null, head: -0.05 },
   thumbs: { l: null, r: { pitch: 0.45, yaw: 0.25 }, head: 0.12 },
+  call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
+  // a hired candidate (Candidates.tsx): the right hand out to shake, pumping (below), beaming (joyful, below)
+  shake: { l: null, r: { pitch: -0.12, yaw: 0.15 }, head: 0.08 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -205,6 +212,7 @@ export function Character({
   chair,
   mug,
   carrying,
+  standAt = STAND,
   scale = 1,
   children,
 }: {
@@ -213,6 +221,8 @@ export function Character({
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
   carrying?: ReactNode;
+  /** Where they step out to when they get up, in chair space (default: beside the chair). */
+  standAt?: { x: number; z: number };
   /** Drawn smaller or bigger than life (the rituals' pizza courier). */
   scale?: number;
   children?: ReactNode;
@@ -314,8 +324,8 @@ export function Character({
       st.seatX = te[12];
       st.seatZ = te[14];
       st.seatHeading = Math.atan2(te[8], te[10]);
-      st.standX = te[0] * STAND.x + te[8] * STAND.z + te[12];
-      st.standZ = te[2] * STAND.x + te[10] * STAND.z + te[14];
+      st.standX = te[0] * standAt.x + te[8] * standAt.z + te[12];
+      st.standZ = te[2] * standAt.x + te[10] * standAt.z + te[14];
       stepBody(st, goal ?? null, dt);
       const b = body.current;
       if (b && st.stage === 'seated') {
@@ -336,6 +346,7 @@ export function Character({
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
       if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'shake') move.r.pitch += Math.sin(t * 11) * 0.13;
       if (gesture === 'talk') {
         move.r.pitch += Math.sin(t * 4.3) * 0.18;
         move.r.yaw += Math.sin(t * 2.6) * 0.2;
@@ -443,13 +454,15 @@ export function Character({
     // browsing: lean in closer to the screen, slowly
     life.browse += ((name === 'browsing' ? 1 : 0) - life.browse) * (1 - Math.exp(-dt * 1.2));
     asleep.current = seated && ls.fidget === 'doze' && fw > 0.5;
-    // the face: an expression for their state, eased in, with blinks
+    // the face: an expression for their state, eased in, with blinks; joyful too while shaking hands on a new job or
+    // cheering it (a hired candidate, Candidates.tsx)
+    const greeting = st.stage === 'up' && (goal?.gesture === 'shake' || goal?.gesture === 'cheer');
     const expression =
       forcedExpression(agent.id, now) ??
       expressionFor({
         status: agent.status,
         hit: h.w > 0,
-        cheering,
+        cheering: cheering || greeting,
         asleep: asleep.current,
         drowsy: isDrowsy(ls.mood === 'idle' ? sec - ls.moodSince : 0, !busy && agent.endedAt != null ? (Date.now() - agent.endedAt) / 1000 : 0),
         pr: prMood,
@@ -459,7 +472,7 @@ export function Character({
     faceInfo.expression = expression;
     faceInfo.lid = asleep.current ? 1 : blink(t, face.seed);
     applyFace(faceMesh, face.s, faceInfo.lid);
-    if (phone.current) phone.current.visible = seated && ls.fidget === 'phone' && fw > 0.35;
+    if (phone.current) phone.current.visible = (seated && ls.fidget === 'phone' && fw > 0.35) || (st.stage === 'up' && goal?.gesture === 'call');
     if (seated && body.current) body.current.rotation.y = o.spin * fw;
     if (chair?.current) chair.current.rotation.y = seated ? o.spin * fw : 0;
 
@@ -551,7 +564,7 @@ export function Character({
   const pants = toon('#3d4a6b');
 
   return (
-    <group ref={root}>
+    <group ref={root} userData={PERSON}>
       {look.accessory === 'ball' && chair && (
         // under the desk, where it stays when they get up
         <mesh position={BALL_AT} geometry={PARTS.ball} material={toon('#e76f51')} castShadow>
@@ -630,6 +643,7 @@ export function Character({
 
           <group ref={head} position={[0, 0.66, 0]}>
             <HeadParts agent={agent} look={look} busy={busy} face={faceMesh} />
+            {chair && <FaceGlow id={agent.id} geometry={PARTS.head} />}
           </group>
           {carrying && (
             <group ref={held} visible={false}>

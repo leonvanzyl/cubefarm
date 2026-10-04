@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { TeamStats } from './CareerCard';
 import { api } from '../api';
 import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
@@ -16,6 +17,7 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
+import { TimeLapseTab } from './TimeLapse';
 import { VoiceSettings } from './VoiceSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -372,6 +374,7 @@ function TeamTab() {
   if (repos.length === 0) return <p className="muted">Connect a repo first; agents need a floor to sit on.</p>;
   return (
     <div>
+      <TeamStats />
       {[...repos].sort((a, b) => a.floor - b.floor).map((repo) => {
         const team = agentsOnRepo(agents, repo.id);
         return (
@@ -735,6 +738,7 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
     ['team', '👩‍💻 Team'],
     ['issues', '📝 Issues'],
     ['settings', '⚙️ Settings'],
+    ['timelapse', '📼 Time-lapse'],
   ];
   return (
     <Panel wide title="🧑‍💼 Manager's console">
@@ -752,6 +756,7 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
         {tab === 'team' && <TeamTab />}
         {tab === 'issues' && <IssuesTab initialRepo={initialRepo} />}
         {tab === 'settings' && <SettingsTab />}
+        {tab === 'timelapse' && <TimeLapseTab />}
       </div>
     </Panel>
   );

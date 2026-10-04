@@ -97,6 +97,9 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
   apps' webhooks (secrets in `secrets.json`, push keys and devices in `push.json`), behind `Backend.notify`; `notify.ts`
   is its pure part (formatting, the per-event rate limit, webhook checks), `webPush.ts` VAPID and RFC 8291 encryption,
   `shared/notify.ts` the settings. `pwa.ts`: the installable app's service worker, served at `/sw.js`.
+- `journal.ts`: the time-lapse journal (`<SWARM_HOME>/journal/<day>/`): records what `Swarm.broadcast` sends, a file
+  per 10-minute keyframe, pruning, and the reads behind `/api/journal/*`. The rules (what's kept, secrets, seeking,
+  marks) are in `shared/journal.ts`; `journalSample.ts` is the demo's made-up day.
 
 The `cubefarm` command (`bin/cubefarm.js`, plain JS): checks Node/git/gh/Claude login, starts `dist-server/index.js`,
 opens the browser; `login` and `doctor` subcommands.
@@ -109,6 +112,7 @@ are in `scripts/officeSteps.mjs` (tested in `officeSteps.test.ts`).
 Shared (`shared/`, imported by both sides):
 - `types.ts`: the REST/websocket contract (`WorldSnapshot`, `ServerEvent`, views, settings).
 - `issues.ts`: issue conventions (`swarm:<specialty>` labels, `Depends on #N`, hold-up ranking).
+- `journal.ts`: the time-lapse journal's format and pure rules, for the server and the replay.
 - `looks.ts`: the look editor's options and `cleanStyle` (an agent's `style`, checked on the server).
 
 Client (`client/`, Vite root; React 19, R3F, drei, zustand):
@@ -119,16 +123,23 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
   errands (`toyErrands.ts`: hoops and catch, on `toys/npc.ts`, the toys' hands for people, aimed by `toys/npcAim.ts`),
   comings and goings (`socials.ts`: hires by elevator, leavers with a box, chats, visits, the CEO's stroll),
   the time of day (`sky/time.ts`, `sky/useDayTime.ts`) and the city outside (`outside/`: the seeded layout in
-  `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls).
+  `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls), the camera's other views (`camera/`: the
+  overview, the building view and the follow cam in `rig.ts`, pose maths in `cameraMath.ts`, the cutaway as global
+  clipping planes), the gamepad (`gamepad.ts`) and the graphics tiers (`gfx/`: Low/Medium/High/Auto in `quality.ts`
+  with Auto's governor, post-processing in a lazy chunk (`Effects.tsx`, `pipeline.ts`); a material blooms only if
+  `bloomMarks.ts` marks it).
 - `src/ui/`: HTML overlays: HUD, terminal (`LiveTerminal.tsx`: xterm.js on `/ws/term`), Kanban, manager's console,
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
-  viewer, sounds (`sfx.ts`).
+  viewer, sounds (`sfx.ts`), key bindings (`keymap.ts`, pure; `controls.ts` keeps the player's own, and every
+  shortcut asks it, never a hard-coded key).
 - `src/pocket/`: pocket mode (docs/pocket.md), the 2D office for phones (`mode.ts` picks it; `App.tsx` loads it or the
   3D `Office.tsx` lazily, so a phone never downloads three.js). `src/pwa.ts` registers the service worker and Web Push;
   `src/notifications.ts` shows desktop notifications. `ui/Panel.tsx` is the panel, apart from `Overlays.tsx` (3D).
 - `src/store.ts`: the zustand store; `apply(ServerEvent)` folds websocket events into UI state.
 - `src/api.ts`: REST calls; errors become toasts.
 - `src/net.ts`: the websocket connection with reconnect. `src/perf.tsx`: render pausing, adaptive DPR, `?stats`.
+- `src/replay.ts`: the time-lapse: plays the journal through `store.apply(ev, 'play' | 'seek')` while live events
+  wait; `replayClock.ts` is its pure clock and "since I was last here", `ui/TimeLapse.tsx` its console tab and bar.
 
 ## Conventions
 

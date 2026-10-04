@@ -40,6 +40,7 @@ import {
   type RitualState,
 } from './ritualSchedule';
 import { dayTime } from './sky/useDayTime';
+import { officeNow, replayMoment } from '../officeTime';
 import { CABIN, DOORS_SECONDS, shoulderSpot } from './socials';
 import { Performer, type Cue } from './stage';
 import { holdBackCards, presentSticky, showCards } from './StickyNotes';
@@ -95,7 +96,8 @@ interface Forced extends Override {
 }
 
 function clockWith(o: Override | undefined | null, f: Forced | undefined): OfficeClock {
-  const c = officeClock(Date.now(), dayTime.t, dayTime.mode);
+  // During the time-lapse, the replayed moment's own day and hour.
+  const c = officeClock(officeNow(), dayTime.t, replayMoment() !== null ? 'clock' : dayTime.mode);
   return { ...c, hour: f?.hour ?? o?.hour ?? c.hour, weekday: f?.weekday ?? o?.weekday ?? c.weekday };
 }
 
@@ -275,7 +277,7 @@ export class OfficeRitualRunner {
     const ceo = useStore.getState().agents[CEO_ID];
     const decisions = schedule(this.s, {
       now,
-      wall: Date.now(),
+      wall: officeNow(),
       clock,
       idleFor,
       ceoFree: !!ceo && isFree(ceo.status),

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import type { AgentStatus } from '../../../shared/types';
 import { useRenderPaused } from '../perf';
 import { useStore, type Agent } from '../store';
@@ -7,6 +7,7 @@ import type { ChatTopic } from '../ui/chatterLines';
 import { ding } from '../ui/sfx';
 import { WALK_SPEED, type Gesture } from './body';
 import { chatSay } from './Chatter';
+import { playerAt } from './camera/rig';
 import './coffeeErrand';
 import {
   HURRY_SPEED,
@@ -37,19 +38,24 @@ import {
   type Me,
   type Queued,
 } from './errands';
+import { planTour, stepOut, tourScript, waverFor } from './hiring';
+import { takeWelcome, tourAt, tourEnded, tourStarted } from './hiringState';
 import { HALF_D } from './layout';
 import { bodyState, bodyTarget, isSeated, onClaim, placeBody, say, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
+import { queueFidget } from './reactionFeed';
 import { ARRIVE, CABIN, CHAT, CHAT_VENUES, DOORS_SECONDS, LEAVE, arrivalPath, exitPath, floorNews, headingTo, huddle, nearest, pickTopic, planChat, topicPr } from './socials';
 import { countPoke, npcRoomba } from './toys/npc';
 import { pokeToy } from './toys/poke';
 import './toyErrands';
+import './roof/roofErrand';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
 
 // The errand director: sends the people on the floor you're on out on errands (errands.ts) and back, a few at a
 // time. It runs in the render loop, so it pauses with the render (hidden tab, full-screen panel) and nothing piles
 // up meanwhile, and it starts fresh, everyone at their desk, each time you arrive on a floor. It also runs the
-// comings and goings (socials.ts): hires stepping out of the elevator, `leavers` walking out with a box, and chats.
+// comings and goings (socials.ts): hires stepping out of the elevator for their welcome tour (hiring.ts), `leavers`
+// walking out with a box, and chats.
 
 type Phase = 'seated' | 'leaving' | 'there' | 'returning' | 'sitting' | 'exiting';
 
@@ -105,6 +111,17 @@ const GIVE_UP = { leaving: 45, returning: 60, acting: 180, script: 240 }; // sec
 // Walking past the roomba while it's out cleaning: sometimes they stop and poke it (as E does), at most every `gap` s.
 const POKE = { reach: 1.3, chance: 0.6, seconds: 1.5, at: 0.45, gap: 20 };
 const SETTLE = 1.5; // seconds on a floor before someone new counts as a hire walking in, not already there
+const FOLLOW_HOLD = 2.5; // seconds a hire who rode up just behind you waits in the cabin, so you're out of the doorway
+
+/** A new hire's welcome tour: a scripted errand (hiring.ts) from the elevator round the floor, then their desk. */
+const TOUR: Errand = {
+  name: 'tour',
+  when: () => false, // the director starts it when someone joins the floor
+  spot: [],
+  steps: [],
+  speed: 1.35, // a brisk tour: it crosses the whole floor
+  end: (id, how) => tourEnded(id, how),
+};
 const CHAT_WAIT = 10; // seconds the first at a chat waits for the others before starting
 
 export function ErrandDirector({
@@ -122,7 +139,6 @@ export function ErrandDirector({
   /** The floor's repo, for what chats are about. */
   repoId?: string;
 }) {
-  const camera = useThree((s) => s.camera);
   const paused = useRenderPaused();
   const w = walkways(floor);
   const people = useMemo(() => new Map<string, Person>(), []);
@@ -145,15 +161,40 @@ export function ErrandDirector({
     report(p);
   };
 
-  /** A new hire: stood in the elevator, which dings, then out to their desk (briskly if work is waiting). */
-  const arrive = (p: Person) => {
+  /** A teammate at their desk near `at` waves to the new hire `p` there; where they sit, to wave back at (or null). */
+  const welcomeWave = (p: Person, at: Pt): Pt | null => {
+    const seated: (Pt & { id: string })[] = [];
+    for (const o of people.values()) {
+      const b = o.id !== p.id && !o.gone && o.phase === 'seated' ? bodyState(o.id) : undefined;
+      if (b?.stage === 'seated') seated.push({ id: o.id, x: b.seatX, z: b.seatZ });
+    }
+    const t = waverFor(p.id, at, seated);
+    if (t) queueFidget(t.id, 'wave', at.x, at.z);
+    return t;
+  };
+
+  /**
+   * A new hire: stood in the elevator, which dings, then out on a welcome tour (the whiteboard, the coffee machine and
+   * the gong, a teammate waving at each) and to their desk; straight to it, briskly, if work is already waiting.
+   */
+  const arrive = (p: Person, hold = DOORS_SECONDS) => {
     const lift = spotById(w, 'elevator');
-    const path = lift && arrivalPath(w, lift, p.home);
-    if (!path) return;
-    placeBody(p.id, CABIN.x, CABIN.z, 0);
-    walk(p, 'leaving', ARRIVE, p.home, path);
-    p.hold = DOORS_SECONDS;
-    p.hurry = !isFree(p.status);
+    if (!lift) return;
+    if (isFree(p.status)) {
+      const stops = planTour(w, lift);
+      placeBody(p.id, CABIN.x, CABIN.z, 0);
+      walk(p, 'leaving', TOUR, lift, [{ x: lift.x, z: lift.z }]); // the step out is decided as the doors open
+      p.script = tourScript(stops, { arrive: (_, at) => welcomeWave(p, at), progress: (stop) => tourAt(p.id, stop) });
+      tourStarted(p.id, stops);
+    } else {
+      const path = arrivalPath(w, lift, p.home);
+      if (!path) return;
+      placeBody(p.id, CABIN.x, CABIN.z, 0);
+      walk(p, 'leaving', ARRIVE, p.home, path);
+      p.hurry = true;
+      tourEnded(p.id, 'straight');
+    }
+    p.hold = hold;
     ding({ x: 0, y: 2.6, z: HALF_D });
   };
 
@@ -182,7 +223,9 @@ export function ErrandDirector({
         else if (p.phase === 'seated') p.home = home;
         continue;
       }
-      const hire = run.clock > SETTLE && !out.has(a.id);
+      // Someone new while you're here, or hired a moment ago and you've just come up after them (from the lobby, say).
+      const due = !out.has(a.id) && takeWelcome(a.id);
+      const hire = !out.has(a.id) && (due || run.clock > SETTLE);
       seatBody(a.id); // start fresh: whatever the last visit left behind, they're at their desk
       setErrand(a.id, null);
       say(a.id, null);
@@ -221,10 +264,11 @@ export function ErrandDirector({
       };
       people.set(a.id, np);
       if (out.has(a.id)) depart(np);
-      else if (hire) arrive(np);
+      else if (hire) arrive(np, run.clock > SETTLE ? DOORS_SECONDS : FOLLOW_HOLD);
     }
     for (const [id, p] of people) {
       if (seen.has(id)) continue;
+      if (p.errand === TOUR && p.phase !== 'seated') tourEnded(id, 'cut');
       endScript(p);
       p.actor?.abort();
       p.actor?.end(false);
@@ -239,6 +283,7 @@ export function ErrandDirector({
   useEffect(
     () => () => {
       for (const [id, p] of people) {
+        if (p.errand === TOUR && p.phase !== 'seated') tourEnded(id, 'cut');
         endScript(p);
         p.actor?.end(false);
         seatBody(id);
@@ -438,7 +483,7 @@ export function ErrandDirector({
     if (d > 0.05) {
       const ux = dx / d;
       const uz = dz / d;
-      const player = { x: camera.position.x, z: camera.position.z };
+      const player = { x: playerAt.x, z: playerAt.z };
       const s = steer({ id: p.id, x, z, dx: ux, dz: uz }, p.ghost > 0 ? [] : run.walkers, player, (sx, sz) => standable(w, sx, sz));
       if (s.wait) {
         tx = x;
@@ -471,8 +516,8 @@ export function ErrandDirector({
     me.heading = st.heading;
     me.arrived = p.arrived;
     me.dt = dt;
-    me.player.x = camera.position.x;
-    me.player.z = camera.position.z;
+    me.player.x = playerAt.x;
+    me.player.z = playerAt.z;
     const act = sc.tick(me);
     if (p.script !== sc) return; // it ended meanwhile
     if (act.do === 'done') return goHome(p, false, st, 'done');
@@ -493,7 +538,7 @@ export function ErrandDirector({
     }
     p.walkFace = act.heading;
     if (p.arrived) setBody(p.id, { mode: 'standing', x: p.goal.x, z: p.goal.z, heading: act.heading, gesture: act.gesture });
-    else if (follow(p, st.x, st.z, WALK_SPEED, true, dt, act.gesture)) {
+    else if (follow(p, st.x, st.z, p.errand?.speed ?? WALK_SPEED, true, dt, act.gesture)) {
       p.arrived = true;
       p.pin = p.goal;
     }
@@ -627,6 +672,13 @@ export function ErrandDirector({
         case 'leaving': {
           if (p.hold > 0) {
             p.hold -= dt;
+            // The doors open: out round you if you're in front of them (you may have ridden up together).
+            const lift = p.hold <= 0 && e === TOUR ? spotById(w, 'elevator') : undefined;
+            if (lift) {
+              const out = stepOut(lift, { x: playerAt.x, z: playerAt.z }, planTour(w, lift)[0]?.spot ?? null);
+              p.path = [out];
+              p.dest = { ...lift, ...out, facing: -Math.PI / 2 };
+            }
             break;
           }
           if (long > GIVE_UP.leaving && !leaving) goHome(p, false, st);
@@ -731,7 +783,7 @@ export function ErrandDirector({
         const st = bodyState(p.id);
         const idle = !!was && !was.work && (p.phase === 'leaving' || p.phase === 'there');
         // a coffee carried home goes on the desk first
-        if ((!idle && (p.phase !== 'returning' || p.actor)) || !st) continue;
+        if ((!idle && (p.phase !== 'returning' || p.actor)) || !st || was === TOUR) continue; // a tour cut short goes straight to the desk
         const e = wanted(errands(), a, state).find((x) => x.work);
         if (e && start(p, e, st, { a, state }) && idle) was?.end?.(p.id, 'cut');
         continue;

@@ -1,9 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { CuboidCollider, CylinderCollider, RigidBody, useBeforePhysicsStep, type CollisionEnterPayload, type RapierRigidBody } from '@react-three/rapier';
 import { Outlines } from '../Outlines';
 import * as THREE from 'three';
 import { roombaChirp } from '../../ui/sfx';
+import { playerAt } from '../camera/rig';
 import { useInteractable } from '../interact';
 import { toon } from '../materials';
 import { BALLS, type ToyFloor } from './balls';
@@ -48,7 +49,8 @@ function Look({ brain, light }: { brain: Brain; light: THREE.MeshBasicMaterial }
   });
   const { r } = ROOMBA;
   return (
-    <group>
+    // userData.moving: High's contact-shadow bake (gfx/ContactShadows.tsx) leaves it out, so it leaves no ghost behind
+    <group userData={{ moving: true }}>
       <mesh position={[0, 0.045, 0]} castShadow material={toon('#f1f3f5')}>
         <cylinderGeometry args={[r, r, 0.07, 32]} />
         <Outlines thickness={0.01} color={INK} />
@@ -118,7 +120,6 @@ function DockLook({ dock, led, groups }: { dock: Dock; led: THREE.MeshBasicMater
 
 /** One roomba and its dock, inside the floor's physics world. Remounting (a floor change) starts it fresh on its dock. */
 export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floor: ToyFloor; groups: number; dockGroups: number }) {
-  const camera = useThree((s) => s.camera);
   const dock = useMemo(() => dockFor(floor), [floor]);
   const brain = useMemo(() => createRoomba(dock, (Math.random() * 2 ** 32) >>> 0), [dock]);
   const env = useMemo(() => ({ nav: makeNav(roombaRects(floor)), dock, player: { x: 0, z: 0 } as Pt | null }), [floor, dock]);
@@ -157,8 +158,8 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     const b = body.current;
     if (!b) return;
     const p = env.player!;
-    p.x = camera.position.x;
-    p.z = camera.position.z;
+    p.x = playerAt.x;
+    p.z = playerAt.z;
     stepRoomba(brain, world.timestep, env);
     at.x = brain.x;
     at.z = brain.z;

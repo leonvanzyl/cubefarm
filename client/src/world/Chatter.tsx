@@ -112,14 +112,15 @@ function neighbourSpeaking(id: string, b: BodyState) {
   return false;
 }
 
-/** The nearest other person on the floor to someone, who isn't speaking already. */
+/** The nearest other agent on the floor to someone (not a visitor: a courier or a candidate), who isn't speaking already. */
 function nearestTo(id: string): string | null {
   const b0 = bodyState(id);
   if (!b0) return null;
+  const agents = useStore.getState().agents;
   let best: string | null = null;
   let bd = Infinity;
   for (const [other, b] of liveBodies()) {
-    if (other === id || speakingSlot(other) >= 0) continue;
+    if (other === id || !agents[other] || speakingSlot(other) >= 0) continue;
     const d = Math.hypot(b.x - b0.x, b.z - b0.z);
     if (d < bd) {
       bd = d;
@@ -184,9 +185,12 @@ function queue(s: Said, ttl = LINE_TTL) {
 
 // ---------- what happened ----------
 
-/** The store changed: news from the office and from everyone's new log lines (none until the first snapshot is in). */
+/**
+ * The store changed: news from the office and from everyone's new log lines (none until the first snapshot is in, and
+ * none from a time-lapse replaying a recorded day).
+ */
 function onStore(s: StoreState, prev: StoreState) {
-  const fresh = s.loaded && prev.loaded;
+  const fresh = s.loaded && prev.loaded && !s.replaying && !prev.replaying;
   const on = getAudioPrefs().chatter !== 'off';
   if (s.logs !== prev.logs) {
     for (const [id, lines] of Object.entries(s.logs)) {
@@ -289,7 +293,7 @@ function startLines(st: StoreState, t: number) {
 
 function think(t: number) {
   const prefs = getAudioPrefs();
-  if (prefs.chatter === 'off') {
+  if (prefs.chatter === 'off' || useStore.getState().replaying) {
     pending.length = 0;
     for (let i = 0; i < MAX_SPEAKERS; i++) if (speakers[i]) cut(i);
     return;
@@ -331,10 +335,11 @@ export function chatSay(id: string, topic: ChatTopic, pr: number | null, venue: 
   else speak(id, { kind: 'chat', topic, pr, venue }, 'chat', slot, d, seconds);
 }
 
-/** Someone the player can say hi to: chatter is on and they've nothing to do. */
+/** Someone the player can say hi to: chatter is on, they've nothing to do, and it's the live office (not a replay). */
 export function greetable(id: string) {
-  const a = useStore.getState().agents[id];
-  return !!a && getAudioPrefs().chatter !== 'off' && isFree(a.status) && !!bodyState(id);
+  const st = useStore.getState();
+  const a = st.agents[id];
+  return !!a && getAudioPrefs().chatter !== 'off' && !st.replaying && isFree(a.status) && !!bodyState(id);
 }
 
 /** The player said hi (E on them): a hello or a quip about their work, straight away. False when they can't answer. */

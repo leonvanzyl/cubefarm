@@ -6,8 +6,11 @@ import { loadScreenshot } from '../screenshot';
 import { channelLabel, channelLed, channelPulls, chipRects, prAsPreview, qaShotUrl, stripPulls, type ChipRect } from '../ui/channels';
 import { useChannel } from '../ui/theatre';
 import { drawAppScreen, type ScreenChip } from './draw';
+import { useKeyName } from '../ui/controls';
 import { useCanvasTexture, useInteractable } from './interact';
 import { APP_SCREEN, HALF_D } from './layout';
+import { BLOOM } from './gfx/bloomMarks';
+import { AppScreenGlow } from './gfx/ScreenGlow';
 import { glow, mix } from './materials';
 import { Box } from './Toon';
 
@@ -98,11 +101,12 @@ export function AppMonitor({ repo, agents }: { repo: RepoView; agents: Agent[] }
     return loadScreenshot(id, Number(at), (img) => setShot({ img, caption: `latest from ${by}'s browser` }));
   }, [live, latest, channel, qaShot]);
 
+  const use = useKeyName('interact');
   const tex = useCanvasTexture(
     PX[0],
     PX[1],
-    (ctx) => drawAppScreen(ctx, PX[0], PX[1], { floor: repo.floor, name, color: repo.color, preview: p, shot: shot?.img ?? null, shotCaption: shot?.caption ?? null, channels: chips }),
-    [repo.floor, name, repo.color, p.status, p.url, p.ref, p.commit, p.startedAt, p.error, shot, chipKey],
+    (ctx) => drawAppScreen(ctx, PX[0], PX[1], { floor: repo.floor, name, color: repo.color, preview: p, shot: shot?.img ?? null, shotCaption: shot?.caption ?? null, channels: chips, use }),
+    [repo.floor, name, repo.color, p.status, p.url, p.ref, p.commit, p.startedAt, p.error, shot, chipKey, use],
   );
   const ref = useInteractable<THREE.Group>({ id: `app-${repo.id}`, label: channel == null ? 'Open the app' : `Open PR #${channel}`, action: { kind: 'app', repoId: repo.id, pr: channel } }, 6);
 
@@ -119,8 +123,9 @@ export function AppMonitor({ repo, agents }: { repo: RepoView; agents: Agent[] }
       <Box size={[outerW, outerH, s.depth]} position={[0, 0, s.depth / 2]} color={BEZEL} outline shadow={false} />
       <mesh position={[0, 0, s.depth + 0.002]}>
         <planeGeometry args={[s.w, s.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
+      <AppScreenGlow color={repo.color} height={s.y} />
       <mesh position={[s.w / 2 - 0.04, -s.h / 2 - s.bezel / 2, s.depth + 0.002]} material={glow(LED[p.status] ?? '#6c7086')}>
         <circleGeometry args={[0.022, 12]} />
       </mesh>

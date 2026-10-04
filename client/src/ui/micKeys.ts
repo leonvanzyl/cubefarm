@@ -22,11 +22,14 @@ export type KeyPlace = 'mic-box' | 'field' | 'none';
 
 const plain = (e: KeyLike) => !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !e.isComposing;
 
-/** A plain V (Ctrl+V pastes, Shift+V types a capital) where it may talk: the 🎙's box, or outside any field. */
-export const isTalkKey = (e: KeyLike, place: KeyPlace) => e.code === 'KeyV' && plain(e) && place !== 'field';
+/**
+ * A plain V (Ctrl+V pastes, Shift+V types a capital) where it may talk: the 🎙's box, or outside any field. `talk` is
+ * the talk key's codes (Help → Controls; V by default).
+ */
+export const isTalkKey = (e: KeyLike, place: KeyPlace, talk: readonly string[] = ['KeyV']) => talk.includes(e.code) && plain(e) && place !== 'field';
 
-/** Whether a key closes the listening mic (and goes no further): Esc always, M hands-free or outside a field. */
-export function closesMic(e: KeyLike, handsFree: boolean, place: KeyPlace): boolean {
+/** Whether a key closes the listening mic (and goes no further): Esc always, the mute key (M) hands-free or outside a field. */
+export function closesMic(e: KeyLike, handsFree: boolean, place: KeyPlace, mute: readonly string[] = ['KeyM']): boolean {
   if (e.key === 'Escape') return true;
-  return e.code === 'KeyM' && plain(e) && (handsFree || place === 'none');
+  return mute.includes(e.code) && plain(e) && (handsFree || place === 'none');
 }

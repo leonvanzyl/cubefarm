@@ -22,6 +22,11 @@ export function useChannel(repoId: string): Channel {
 
 /** Put a floor's screen on a channel. A PR with no preview yet gets one; a failed one waits for "Try again". */
 export function tuneChannel(repoId: string, pr: Channel) {
+  // The time-lapse shows a recorded day: the theatre's previews are live, so they're off while it plays.
+  if (useStore.getState().replaying) {
+    useStore.getState().pushToast('info', '▶ Replaying: the PR theatre is live only. Press Esc to go back to the live office.');
+    return;
+  }
   useChannels.setState((s) => ({ channels: { ...s.channels, [repoId]: pr } }));
   if (pr == null || useStore.getState().prPreviews[qaKey(repoId, pr)]) return;
   void api.startPrPreview(repoId, pr).catch(() => undefined);

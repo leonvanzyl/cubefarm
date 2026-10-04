@@ -14,9 +14,19 @@ import type { OpsHistory } from './metrics.ts';
 import type { UsageWarning } from './pacing.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
+/** A made-up candidate the demo CEO proposes: the propose_hire tool's arguments, bar the floor and role. */
+export interface DemoHire {
+  title: string;
+  specialty: string;
+  job_description: string;
+  reason: string;
+}
+
 /** Everything the swarm needs from the outside world. The demo backend fakes all of it. */
 export interface Backend {
   demo: boolean;
+  /** Demo only: a made-up developer for this floor whose specialty isn't in `taken`; null once they've all been used. */
+  demoCandidate?(fullName: string, taken: readonly string[]): DemoHire | null;
   user(): Promise<string>;
   listMyRepos(owner?: string): Promise<GhRepoSummary[]>;
   repoMeta(fullName: string): Promise<github.RepoMeta>;

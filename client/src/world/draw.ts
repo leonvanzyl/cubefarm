@@ -1,6 +1,7 @@
 import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { testingLabel } from '../qaCard';
+import { officeNow } from '../officeTime';
 import { chipRects } from '../ui/channels';
 import { statsChips, type BoardStats } from './boardStats';
 import type { Pair } from './whiteboard';
@@ -157,7 +158,7 @@ export function drawTerminal(
   if (agent.status === 'working' || agent.status === 'preparing') {
     const frame = Math.floor(now / 120) % SPINNER.length;
     const verb = agent.status === 'preparing' ? (agent.currentTool ?? 'Setting up worktree') : toolVerb(agent.currentTool) || VERBS[Math.floor(now / 6000) % VERBS.length];
-    const secs = agent.startedAt ? Math.floor((Date.now() - agent.startedAt) / 1000) : 0;
+    const secs = agent.startedAt ? Math.max(0, Math.floor((officeNow() - agent.startedAt) / 1000)) : 0;
     const mm = Math.floor(secs / 60);
     ctx.fillStyle = '#ff9e64';
     ctx.font = `600 ${fontSize}px ${MONO}`;
@@ -309,7 +310,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   }
 
   const top = NOTE.top;
-  const now = Date.now(); // a testing card's elapsed time: it only moves on when the board repaints anyway
+  const now = officeNow(); // a testing card's elapsed time: it only moves on when the board repaints anyway
   COLS.forEach((c, ci) => {
     const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
@@ -431,7 +432,7 @@ export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, 
     roundRect(ctx, pad + 3, pad + 7, nw + 2, nh + 2, 6);
     ctx.fill();
   }
-  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), Date.now());
+  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), officeNow());
   ctx.restore();
 }
 
@@ -588,10 +589,10 @@ export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: nu
   };
   ctx.fillStyle = '#23263a';
   ctx.font = `700 40px ${SANS}`;
-  ctx.fillText(fit(`${name} · candidate`, w - 100), 80, h * 0.36);
+  ctx.fillText(fit(`Candidate: ${name}`, w - 100), 80, h * 0.36);
   ctx.fillStyle = '#5c6078';
   ctx.font = `600 28px ${SANS}`;
-  ctx.fillText(fit(`${title}${floor ? ` · floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
+  ctx.fillText(fit(`${title}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
 }
 
 export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, lines: { text: string; size: number; color?: string; weight?: number }[], bg: string, fg = '#ffffff') {
@@ -708,6 +709,8 @@ export interface AppScreenInfo {
   shot: HTMLImageElement | null; // shown while the app is live: the latest agent screenshot on the floor, or QA's of the PR
   shotCaption: string | null; // what the screenshot is, e.g. "latest from Ada's browser"
   channels?: ScreenChip[]; // the channel strip, drawn when the floor has open PRs
+  /** The player's interact key (Help → Controls). */
+  use: string;
 }
 
 /** The wall screen at the front of an office floor: the floor's app and how it's doing. */
@@ -778,13 +781,13 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.lineTo(w / 2 + 44, cy);
     ctx.closePath();
     ctx.fill();
-    centred('Press E to open the app', midY + 80, 70, '#ffffff');
+    centred(`Press ${info.use} to open the app`, midY + 80, 70, '#ffffff');
     footer("The app isn't running. Start it from the viewer.");
   } else if (p.status === 'unconfigured') {
     centred('⚙️', midY - 90, 110, '#ffffff', 400);
     centred('No run command yet.', midY + 40, 66, '#ffffff');
     centred("Set one in the manager's console.", midY + 120, 44, '#b8b8cc', 600);
-    footer('Press E to open the app');
+    footer(`Press ${info.use} to open the app`);
   } else if (p.status === 'error') {
     const firstLine = (p.error ?? '').split(/\r?\n/).find((l) => l.trim())?.trim() || 'The app stopped unexpectedly.';
     ctx.fillStyle = '#e63946';
@@ -793,7 +796,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fitText(ctx, `⚠ ${firstLine}`, w - 100), 50, midY - 55);
     centred("The app couldn't start.", midY + 90, 52, '#ffffff');
-    footer('Press E to see the log and try again', '#ffb4ba');
+    footer(`Press ${info.use} to see the log and try again`, '#ffb4ba');
   } else if (p.status !== 'running') {
     const at = Math.max(0, APP_STEPS.findIndex((s) => s.status === p.status));
     centred(`Getting ${ref} ready…`, bodyTop + 80, 46, '#b8b8cc', 600);
@@ -813,7 +816,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillText(`${i < at ? '✓ ' : ''}${s.label}`, x + segW / 2, y + 70);
       ctx.textAlign = 'left';
     });
-    footer(`Step ${at + 1} of ${APP_STEPS.length} · press E to watch`);
+    footer(`Step ${at + 1} of ${APP_STEPS.length} · press ${info.use} to watch`);
   } else {
     // running: where it's served and what's deployed, plus the latest thing an agent on this floor looked at
     const left = 56;
@@ -858,7 +861,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillStyle = '#8d8da8';
       ctx.fillText(fitText(ctx, info.shotCaption ?? 'latest agent screenshot', tw), tx, ty + th + 36);
     }
-    footer('Press E to open the app', TERM.done);
+    footer(`Press ${info.use} to open the app`, TERM.done);
   }
   if (strip) drawChannelStrip(ctx, w, h, strip, info.color);
 }

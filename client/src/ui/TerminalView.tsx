@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CareerCard } from './CareerCard';
 import { api } from '../api';
 import { isBusy, kanbanFor, agentsOnRepo, useStore } from '../store';
 import { AgentSetup } from './AgentSettings';
@@ -11,6 +12,7 @@ import { MicButton } from './MicButton';
 import { closeOverlay, Panel } from './Panel';
 import { loadScreenshot } from '../screenshot';
 import { toolVerb } from '../world/draw';
+import { followAgent } from '../world/camera/rig';
 
 const STATUS_LABEL: Record<string, string> = {
   idle: 'free',
@@ -43,6 +45,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const [issue, setIssue] = useState('');
   const [busy, setBusy] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [showCareer, setShowCareer] = useState(false);
   const [, tick] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -126,6 +129,14 @@ export function TerminalView({ agentId }: { agentId: string }) {
           <StatusPill status={agent.status} />
           {working && agent.currentTool && <span className="muted small">{toolVerb(agent.currentTool)}…</span>}
           <span className="spacer" />
+          <button className="btn btn-small" title={`Trail ${agent.name} with the camera wherever they go (a movement key or Esc gives you the controls back)`} onClick={() => followAgent(agent.id)}>
+            🎥 Follow
+          </button>
+          {agent.career && (
+            <button className={`btn btn-small setup-toggle ${showCareer ? 'setup-toggle-on' : ''}`} aria-expanded={showCareer} title={`${agent.name}'s career on the team`} onClick={() => setShowCareer((v) => !v)}>
+              🏅 Career
+            </button>
+          )}
           <button
             className={`btn btn-small setup-toggle ${showSetup ? 'setup-toggle-on' : ''}`}
             aria-expanded={showSetup}
@@ -181,6 +192,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
         {agent.costUsd > 0 && <span className="muted" title="API-equivalent cost reported by the coding agent; subscription usage is billed by plan">≈${agent.costUsd.toFixed(2)}</span>}
       </div>
       {agent.lastError && agent.status !== 'working' && <div className="term-error">⚠️ {agent.lastError}</div>}
+      {showCareer && <CareerCard agent={agent} />}
       {showSetup && (
         <div id="agent-setup" className="setup-wrap">
           <AgentSetup agent={agent} />
