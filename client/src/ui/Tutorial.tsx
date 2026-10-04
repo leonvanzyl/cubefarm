@@ -74,7 +74,7 @@ const STEPS: Step[] = [
     body: (c) =>
       c.repo ? (
         <>
-          {c.repo} has its own floor. Walk into the elevator in the middle of the south wall, or press <kbd>E</kbd> or click the directory beside it.
+          {c.repo} has its own floor. Walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel, or press <kbd>E</kbd> or click the directory beside it.
         </>
       ) : (
         <>
