@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveModel, isClaudeModel } from './models.ts';
+import { effectiveModel, isClaudeModel, modelSuggestions } from './models.ts';
 
 const claudeOffice = { defaultCli: 'claude' as const, defaultModel: 'claude-sonnet-5' };
 const codexOffice = { defaultCli: 'codex' as const, defaultModel: 'gpt-5.5-codex' };
@@ -26,5 +26,15 @@ describe('effectiveModel', () => {
   it("knows Claude Code's names and aliases", () => {
     expect(['claude-fable-5-1', 'Opus', 'sonnet', 'haiku', 'opusplan'].every(isClaudeModel)).toBe(true);
     expect(['gpt-5.5', 'opencode/big-pickle', 'o3', 'opencode/claude-sonnet-5'].some(isClaudeModel)).toBe(false);
+  });
+});
+
+describe('modelSuggestions', () => {
+  it('only suggests models the chosen coding agent understands', () => {
+    expect(modelSuggestions('claude').every(isClaudeModel)).toBe(true);
+    for (const cli of ['codex', 'opencode'] as const) {
+      expect(modelSuggestions(cli).length).toBeGreaterThan(0);
+      expect(modelSuggestions(cli).some(isClaudeModel)).toBe(false);
+    }
   });
 });
