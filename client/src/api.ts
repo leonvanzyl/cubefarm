@@ -1,5 +1,5 @@
 import { useStore } from './store';
-import type { AgentCli, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
+import type { AgentCli, AgentPromptView, GhRepoSummary, OfficeUpdateView, PreviewView, ProjectFolderView, RepoView, SwarmSettings } from '../../shared/types';
 
 async function call<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -71,6 +71,7 @@ export const api = {
   stop: (id: string) => call('POST', `/api/agents/${id}/stop`),
   reset: (id: string) => call('POST', `/api/agents/${id}/reset`),
   message: (id: string, text: string) => call('POST', `/api/agents/${id}/message`, { text }),
+  agentPrompt: (id: string) => call<AgentPromptView>('GET', `/api/agents/${id}/prompt`),
   updateSettings: (patch: Partial<SwarmSettings>) => call('PATCH', '/api/settings', patch),
   updateOffice: async (action: 'now' | 'later') => {
     const u = await call<OfficeUpdateView>('POST', '/api/office/update', { action });

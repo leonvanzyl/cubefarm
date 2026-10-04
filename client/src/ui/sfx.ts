@@ -411,11 +411,12 @@ export function chirp() {
   [1046.5, 1568].forEach((freq, i) => tone({ name: 'chirp', group: 'alerts', freq, type: 'triangle', at: i * 0.11, dur: 0.18, peak: 0.12 }));
 }
 
-/** The roomba's happy chirp: a quick rising warble and a bright little "boop". */
-export function roombaChirp() {
-  tone({ freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035, group: 'toys' });
-  tone({ freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08, group: 'toys' });
-  tone({ freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07, group: 'toys' });
+/** The roomba's happy chirp, from where it is: a quick rising warble and a bright little "boop". */
+export function roombaChirp(pos: Vec3) {
+  const o = { name: 'roomba:chirp', group: 'toys', pos } as const;
+  tone({ ...o, freq: 660, to: 1320, type: 'square', dur: 0.12, peak: 0.035 });
+  tone({ ...o, freq: 1320, to: 990, type: 'triangle', at: 0.12, dur: 0.1, peak: 0.08 });
+  tone({ ...o, freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07 });
 }
 
 /** The elevator "ding": two soft sine tones. */
@@ -429,23 +430,18 @@ export function whoosh(dur = 0.75) {
   tone({ name: 'whoosh', group: 'alerts', freq: 70, to: 55, dur, peak: 0.05, attack: dur * 0.4 });
 }
 
-/** A foam blaster's "thwip": a puff of air through the barrel with a springy little pop. */
-export function thwip() {
-  noise({ dur: 0.09, peak: 0.1, filter: 'bandpass', freq: 2600, to: 900, q: 1.4, attack: 0.003, group: 'toys' });
-  tone({ freq: 520, to: 190, type: 'triangle', dur: 0.08, peak: 0.07, attack: 0.004, group: 'toys' });
-}
-
-/** Someone hit by a toy: a soft, round "boop". */
-export function boop() {
-  tone({ freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008, group: 'toys' });
-  tone({ freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004, group: 'toys' });
+/** Someone hit by a toy: a soft, round "boop", from where they sit (`pos`). */
+export function boop(pos?: Vec3) {
+  tone({ name: 'boop', group: 'toys', pos, freq: 520, to: 330, dur: 0.16, peak: 0.13, attack: 0.008 });
+  tone({ name: 'boop', group: 'toys', pos, freq: 1040, to: 660, type: 'triangle', dur: 0.07, peak: 0.025, attack: 0.004 });
 }
 
 /** The roomba sucking up a dart: a rising slurp of air with a little pop at the end. */
-export function slurp() {
-  noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05, group: 'toys' });
-  tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03, group: 'toys' });
-  noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002, group: 'toys' });
+export function slurp(pos: Vec3) {
+  const o = { name: 'roomba:slurp', group: 'toys', pos } as const;
+  noise({ ...o, dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05 });
+  tone({ ...o, freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03 });
+  noise({ ...o, at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002 });
 }
 
 /** A basket: the net's swish, then a small cheer. */

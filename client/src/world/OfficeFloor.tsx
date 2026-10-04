@@ -10,6 +10,7 @@ import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
 import { DESK_RUGS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
+import { MergeConfetti } from './MergeConfetti';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { Shell } from './Shell';
 import { Toys } from './toys';
@@ -79,6 +80,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
 
       <KanbanBoard repo={repo} agents={agents} />
       <AppMonitor repo={repo} agents={agents} />
+      <MergeConfetti repo={repo} agents={agents} />
       <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />

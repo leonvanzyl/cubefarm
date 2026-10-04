@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { chirp, cue } from './ui/sfx';
+import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { hitGong } from './world/gongState';
-import { newlyMerged } from './world/gongRules';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -23,7 +23,7 @@ export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -216,11 +216,14 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'repo': {
         const before = get().repos.find((r) => r.id === ev.repo.id);
+        const qaFor = (n: number) => get().qa[qaKey(ev.repo.id, n)] ?? recentQaRecord(qaKey(ev.repo.id, n));
+        const bursts = mergeBursts(live, before, ev.repo, qaFor, Object.values(get().agents));
         // A merge on the player's floor bangs its gong and the floor celebrates; anywhere else it's the chime.
-        if (live && newlyMerged(before, ev.repo).length && hitGong({ repoId: ev.repo.id, celebrate: true }) === 'absent') cue('merged');
+        if (bursts.length && hitGong({ repoId: ev.repo.id, celebrate: true }) === 'absent') cue('merged');
         const repos = get().repos.filter((r) => r.id !== ev.repo.id);
         repos.push(ev.repo);
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
+        for (const b of bursts) emitMerge(b);
         break;
       }
       case 'repoRemoved': {
@@ -264,7 +267,8 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
       case 'qaRemoved': {
-        const { [qaKey(ev.repoId, ev.prNumber)]: _gone, ...qa } = get().qa;
+        const { [qaKey(ev.repoId, ev.prNumber)]: gone, ...qa } = get().qa;
+        if (gone) rememberQa(qaKey(ev.repoId, ev.prNumber), gone);
         set({ qa });
         break;
       }
