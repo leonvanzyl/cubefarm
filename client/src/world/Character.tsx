@@ -8,6 +8,7 @@ import { gait, newBodyState, smooth, stepBody, type Gait, type Gesture } from '.
 import { PARTS } from './characterParts';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, trackBody } from './people';
+import { SpeechBubble } from './SpeechBubble';
 import { useHitReaction } from './useHitReaction';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
@@ -49,9 +50,25 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.5, yaw: 0 }, r: { pitch: 1.5, yaw: 0 }, head: 0.3 }, // both arms up, a look at the ceiling
+  wave: { l: null, r: { pitch: 1.25, yaw: -0.3 }, head: 0.1 }, // a hand up beside the head, waving (below)
+  talk: { l: null, r: { pitch: -0.3, yaw: 0.45 }, head: 0.05 }, // a hand out in front, moving as they talk
 };
 
-export function Character({ agent, chair, children }: { agent: Agent; chair?: RefObject<THREE.Object3D | null>; children?: ReactNode }) {
+/**
+ * `carrying` is drawn in their hands while they hold something (the 'hold' gesture), in the torso's frame, which
+ * faces -Z with the shoulders at y 0.44.
+ */
+export function Character({
+  agent,
+  chair,
+  carrying,
+  children,
+}: {
+  agent: Agent;
+  chair?: RefObject<THREE.Object3D | null>;
+  carrying?: ReactNode;
+  children?: ReactNode;
+}) {
   const torso = useRef<THREE.Group>(null);
   const head = useRef<THREE.Group>(null);
   const armL = useRef<THREE.Group>(null);
@@ -69,6 +86,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
   const kneeL = useRef<THREE.Group>(null);
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
+  const held = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
@@ -111,10 +129,17 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
         b.position.set(te[0] * dx + te[2] * dz, 0, te[8] * dx + te[10] * dz);
         b.rotation.y = st.heading - st.seatHeading;
       }
-      const g = GESTURES[st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none'];
+      const gesture = st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none';
+      const g = GESTURES[gesture];
       const kg = 1 - Math.exp(-dt * 6);
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
+      if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'talk') {
+        move.r.pitch += Math.sin(t * 4.3) * 0.18;
+        move.r.yaw += Math.sin(t * 2.6) * 0.2;
+      }
+      if (held.current) held.current.visible = gesture === 'hold';
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
       move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
       move.gh += (g.head - move.gh) * kg;
@@ -368,7 +393,14 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
             )}
             {busy && phones}
           </group>
+          {carrying && (
+            <group ref={held} visible={false}>
+              {carrying}
+            </group>
+          )}
         </group>
+        {/* just above their name tag */}
+        <SpeechBubble id={agent.id} y={HIP.standY + look.height * 0.86 + 0.4} />
         {children && (
           <group ref={tag} position={TAG_SEATED}>
             {children}

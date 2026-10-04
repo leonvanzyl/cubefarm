@@ -8,6 +8,7 @@ import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
+import { Leaver, useLeavers } from './Leavers';
 import { DESK_RUGS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
@@ -44,6 +45,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
   const agents = useMemo(() => agentsOnRepo(allAgents, repo.id), [allAgents, repo.id]);
   const devBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'dev').map((a) => [a.desk, a])), [agents]);
   const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
+  const { leavers, gone } = useLeavers(agents);
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
   const qaRecords = useStore((s) => s.qa);
   const inQa = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status !== 'passed').length;
@@ -83,7 +85,10 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <MergeConfetti repo={repo} agents={agents} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
-      <ErrandDirector floor="office" agents={agents} />
+      <ErrandDirector floor="office" agents={agents} leavers={leavers} onGone={gone} repoId={repo.id} />
+      {leavers.map((a) => (
+        <Leaver key={a.id} agent={a} />
+      ))}
 
       <WallSign
         position={[-4.6, 1.95, HALF_D - 0.03]}

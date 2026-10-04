@@ -419,9 +419,9 @@ export function roombaChirp(pos: Vec3) {
   tone({ ...o, freq: 1760, type: 'triangle', at: 0.24, dur: 0.18, peak: 0.07 });
 }
 
-/** The elevator "ding": two soft sine tones. */
-export function ding() {
-  [880, 1318.5].forEach((freq, i) => tone({ name: 'ding', group: 'alerts', freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02 }));
+/** The elevator "ding": two soft sine tones (from the doors at `pos`, when someone else arrives). */
+export function ding(pos?: Vec3) {
+  [880, 1318.5].forEach((freq, i) => tone({ name: 'ding', group: 'alerts', pos, freq, at: i * 0.16, dur: 1.1, peak: 0.18, attack: 0.02 }));
 }
 
 /** Air rushing past the elevator car while it travels, rising then settling. */

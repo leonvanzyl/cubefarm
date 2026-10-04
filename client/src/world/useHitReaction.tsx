@@ -24,7 +24,7 @@ export interface HitPose {
 const HEAD_Y = 1.16; // roughly where the head is above the floor, for looking up at the player
 const INK = '#1f1d2b';
 
-function drawBubble(ctx: CanvasRenderingContext2D, w: number, h: number, text: string) {
+export function drawBubble(ctx: CanvasRenderingContext2D, w: number, h: number, text: string) {
   const pad = 8;
   const tail = 34;
   const bottom = h - pad - tail;

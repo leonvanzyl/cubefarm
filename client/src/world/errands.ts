@@ -6,13 +6,18 @@
 import type { AgentStatus } from '../../../shared/types';
 import type { Gesture } from './body';
 import type { Pt } from './toys/roombaBrain';
-import type { FloorKind } from './walkways';
+import type { FloorKind, Spot } from './walkways';
 
 /** What an errand needs to know about someone. */
 export interface ErrandAgent {
   id: string;
   status: AgentStatus;
   role: string;
+}
+
+/** Someone else on the floor, where their desk is. */
+export interface ErrandPeer extends ErrandAgent {
+  home: Spot;
 }
 
 /** What the director knows about someone, for `when`. Seconds are the director's clock (it stops with the render). */
@@ -24,11 +29,20 @@ export interface ErrandState {
   seatedFor: number;
   /** How long they sit before getting restless: drawn afresh each time they sit down. */
   restless: number;
+  /** Their own desk's spot, and everyone else on the floor (for errands to a teammate). */
+  home?: Spot;
+  others?: readonly ErrandPeer[];
 }
 
 export interface ErrandStep {
   gesture: Gesture;
   seconds: number;
+  /** Look this far (radians, + to their left) away from the spot's facing, for a look around. */
+  turn?: number;
+  /** Turn to the nearest teammate instead (a wave hello). */
+  face?: 'peer';
+  /** Say something: a small emoji bubble over their head (chats). */
+  say?: boolean;
 }
 
 export interface Errand {
@@ -39,10 +53,14 @@ export interface Errand {
   when(agent: ErrandAgent, state: ErrandState): boolean;
   /** Where to: spot ids from walkways.ts; `prefix*` matches every spot starting with prefix. Nearer ones win. */
   spot: readonly string[];
+  /** A spot of its own instead of `spot` (beside a teammate, say); null when there's nowhere to go. */
+  place?(agent: ErrandAgent, state: ErrandState): Spot | null;
   /** What they do once there, in order. */
   steps: readonly ErrandStep[];
   /** What their hands do on the walk back (carrying something). */
   carry?: Gesture;
+  /** How likely this one is picked when several idle errands are wanted at once (default 1). */
+  weight?: number;
 }
 
 // ---------- who may go, and how many at once ----------
@@ -79,6 +97,19 @@ export const restlessSeconds = (rand: number, arriving = false) => (arriving ? 6
 /** The errands this person wants to go on now and may, in registry order. */
 export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: ErrandState): Errand[] {
   return registry.filter((e) => mayStart(agent.status, e) && e.when(agent, state));
+}
+
+/** One of the wanted errands: a work errand first, else an idle one at random by weight (`rand` in [0, 1)). */
+export function choose(list: readonly Errand[], rand: number): Errand | null {
+  const work = list.find((e) => e.work);
+  if (work) return work;
+  const total = list.reduce((t, e) => t + (e.weight ?? 1), 0);
+  let r = rand * total;
+  for (const e of list) {
+    r -= e.weight ?? 1;
+    if (r < 0) return e;
+  }
+  return list[list.length - 1] ?? null;
 }
 
 // ---------- the queue ----------
