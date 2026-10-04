@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { CylinderCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
+import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
@@ -14,7 +14,17 @@ import { mugsToEvict, resetMugs, setMugSource, takeDrop, type HeldMug } from './
 
 const TAKE_RANGE = 2.5;
 // A dropped mug leaves your hands tipped and turning, so it lands on its side rather than neatly upright.
+// Both are relative to your facing (turned by your yaw at the drop), so it tips forward, into view, whichever way you face.
 const TUMBLE: [number, number, number] = [4, 1, 3];
+const TILT: [number, number] = [0.5, 0.3];
+const UP = new THREE.Vector3(0, 1, 0);
+// A bare cylinder on its side rolls forever (Rapier has no rolling friction). The handle's collider stops a full
+// roll, so the mug rocks onto rim and handle, and the damping stands in for rolling resistance so it settles quickly.
+const ROLL_DAMPING = 3;
+const HANDLE = {
+  half: [0.02, 0.038, 0.01] as [number, number, number],
+  at: [MUG_SIZE.r + 0.02, 0.004, 0] as [number, number, number],
+};
 
 // Where the held mug sits in view (camera space, metres), tipped a little towards you so the coffee shows.
 const VIEW = { x: 0.16, y: -0.13, z: -0.42, tilt: 0.55, turn: -0.6, scale: 0.75 };
@@ -48,7 +58,9 @@ interface Loose {
   key: number;
   at: [number, number, number];
   vel: [number, number, number];
-  yaw: number;
+  /** Starting rotation (XYZ Euler) and spin, both already turned by the drop yaw. */
+  rot: [number, number, number];
+  spin: [number, number, number];
 }
 
 function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number; bodies: Map<string, RapierRigidBody>; onLost: (id: string) => void }) {
@@ -75,15 +87,16 @@ function LooseMug({ mug, groups, bodies, onLost }: { mug: Loose; groups: number;
       ref={body}
       colliders={false}
       position={mug.at}
-      rotation={[0.5, mug.yaw, 0.3]}
+      rotation={mug.rot}
       linearVelocity={mug.vel}
-      angularVelocity={TUMBLE}
+      angularVelocity={mug.spin}
       linearDamping={0.3}
-      angularDamping={0.5}
+      angularDamping={ROLL_DAMPING}
       ccd
       userData={{ toy: mug.id }}
     >
       <CylinderCollider args={[h / 2, (r + rBase) / 2]} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
+      <CuboidCollider args={HANDLE.half} position={HANDLE.at} density={300} friction={0.7} restitution={0.2} collisionGroups={groups} />
       <group ref={ref}>
         <MugLook color={mugColor(mug.id)} sips={mug.sips} />
         {/* an invisible, roomier target, so a small mug on the floor is easy to aim at */}
@@ -144,6 +157,10 @@ export function Mugs({ groups }: { groups: number }) {
       const hit = world.castRay(ray, 1, true, undefined, groups);
       const ahead = hit ? Math.max(0, Math.min(0.45, hit.timeOfImpact - 0.2)) : 0.45;
       for (const old of mugsToEvict(mugs.current)) remove(old.id);
+      // Tilt in your own frame (yaw first), then express it in the XYZ order <RigidBody rotation> expects.
+      const yaw = camera.rotation.y;
+      const rot = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(TILT[0], yaw, TILT[1], 'YXZ')), 'XYZ');
+      const spin = new THREE.Vector3(...TUMBLE).applyAxisAngle(UP, yaw);
       mugs.current.push({
         id,
         sips,
@@ -151,7 +168,8 @@ export function Mugs({ groups }: { groups: number }) {
         key: ++keys.current,
         at: [camera.position.x + fwd.x * ahead, 1.1, camera.position.z + fwd.z * ahead],
         vel: [walk.x * 0.5, 0, walk.z * 0.5],
-        yaw: camera.rotation.y,
+        rot: [rot.x, rot.y, rot.z],
+        spin: [spin.x, spin.y, spin.z],
       });
       redraw();
     },
