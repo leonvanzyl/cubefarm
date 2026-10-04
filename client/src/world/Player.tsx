@@ -8,6 +8,7 @@ import { interactables } from './interact';
 import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
+import { confirmResume } from '../ui/MissionConsole';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
 import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
@@ -83,6 +84,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'resume') {
+    void confirmResume();
     return;
   }
   if (focus.action.kind === 'hire') {

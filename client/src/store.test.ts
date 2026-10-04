@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentView, PullInfo, QaStatus, QaView, RepoView, WorldSnapshot } from '../../shared/types';
+import type { AgentView, IssueInfo, OpsAlarm, PullInfo, QaStatus, QaView, RepoView, WorldSnapshot } from '../../shared/types';
 
 // The merge trigger, through the store's own apply(): sounds and the gong are mocked (they need a browser).
-vi.mock('./ui/sfx', () => ({ audioUnlocked: () => false, chirp: vi.fn(), cue: vi.fn() }));
+vi.mock('./ui/sfx', () => ({ alarm: vi.fn(), audioUnlocked: () => false, chirp: vi.fn(), cue: vi.fn() }));
 vi.mock('./world/gongRunner', () => ({ gongForMerge: vi.fn(() => 'solo') }));
 
 const { floorPrCounts, kanbanFor, qaKey, useStore } = await import('./store');
-const { cue } = await import('./ui/sfx');
+const { alarm, cue } = await import('./ui/sfx');
+const { EMPTY_OPS } = await import('./ops');
 const { gongForMerge } = await import('./world/gongRunner');
 const { onMerge } = await import('./world/confetti');
 
@@ -102,6 +103,40 @@ describe('floorPrCounts', () => {
     const counts = floorPrCounts(r, qa);
     expect(counts).toEqual({ inQa: 3, ready: 2, needsYou: 1 });
     expect([counts.inQa, counts.ready]).toEqual([cols.qa.length, cols.ready.length]);
+  });
+});
+
+describe('mission control in the store', () => {
+  const alarmFor = (id: string): OpsAlarm => ({ id, kind: 'pr', repoId: 'acme/floor1', floor: 1, prNumber: 7, agentId: null, text: 'PR #7 needs you', since: 1 });
+  const ops = (...ids: string[]) => ({ type: 'ops', ops: { ...EMPTY_OPS, alarms: ids.map(alarmFor) } }) as const;
+
+  beforeEach(() => {
+    useStore.setState({ loaded: false, repos: [], ops: EMPTY_OPS });
+    vi.mocked(alarm).mockClear();
+  });
+
+  it('sounds the alarm when a new alarm arrives, never for the snapshot or one already ringing', () => {
+    const { apply } = useStore.getState();
+    apply({ ...snapshot([]), data: { ...snapshot([]).data, ops: { ...EMPTY_OPS, alarms: [alarmFor('pr:a#1')] } } });
+    expect(alarm).not.toHaveBeenCalled();
+    apply(ops('pr:a#1'));
+    expect(alarm).not.toHaveBeenCalled();
+    apply(ops('pr:a#1', 'agent:x'));
+    expect(alarm).toHaveBeenCalledTimes(1);
+    apply(ops('agent:x')); // handled: the beacon stops, nothing sounds
+    expect(alarm).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().ops.alarms.map((a) => a.id)).toEqual(['agent:x']);
+  });
+
+  it('marks backlog issues auto-assign would start as paced while Claude usage holds them back', () => {
+    const issue = (number: number, body = '', labels: string[] = []) => ({ number, title: `#${number}`, body, url: '', labels, createdAt: '' }) as IssueInfo;
+    const r = { ...repo(1), issues: [issue(1), issue(2, 'Depends on #1'), issue(3, '', ['swarm:frontend'])], autoAssign: true, autoMerge: true } as RepoView;
+    const notes = (usage?: { state: 'normal' | 'pacing' | 'paused' }, autoAssign = true) => kanbanFor({ ...r, autoAssign }, [], {}, usage).backlog.map((c) => c.note);
+    expect(notes()).toEqual([undefined, '⏳ after #1', '🎯 frontend']);
+    expect(notes({ state: 'normal' })).toEqual([undefined, '⏳ after #1', '🎯 frontend']);
+    expect(notes({ state: 'pacing' })).toEqual(['⏸ paced', '⏳ after #1', '⏸ paced · 🎯 frontend']);
+    expect(notes({ state: 'paused' })).toEqual(['⏸ paused', '⏳ after #1', '⏸ paused · 🎯 frontend']);
+    expect(notes({ state: 'pacing' }, false)).toEqual([undefined, '⏳ after #1', '🎯 frontend']); // nothing starts on its own there anyway
   });
 });
 

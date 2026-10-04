@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampPacingSessions, clock, mayStart, pacingMessage, usageLabel, usageView, type WorkKind } from './pacing.ts';
+import { clampPacingSessions, clock, mayStart, pacingMessage, resumeRefusal, usageLabel, usageView, waived, warningView, type WorkKind } from './pacing.ts';
 
 const NOW = new Date(2026, 8, 28, 12, 0).getTime();
 const HOUR = 60 * 60_000;
@@ -36,10 +36,17 @@ describe('mayStart', () => {
 
 describe('usageView and usageLabel', () => {
   it('is normal, pacing or paused, with the pause first', () => {
-    expect(usageView({ now: NOW, pausedUntil: 0, pacingUntil: 0 })).toEqual({ state: 'normal', until: null });
-    expect(usageView({ now: NOW, pausedUntil: 0, pacingUntil: NOW + HOUR })).toEqual({ state: 'pacing', until: NOW + HOUR });
-    expect(usageView({ now: NOW, pausedUntil: NOW + HOUR, pacingUntil: NOW + 2 * HOUR })).toEqual({ state: 'paused', until: NOW + HOUR });
-    expect(usageView({ now: NOW, pausedUntil: NOW, pacingUntil: NOW })).toEqual({ state: 'normal', until: null });
+    expect(usageView({ now: NOW, pausedUntil: 0, pacingUntil: 0 })).toEqual({ state: 'normal', until: null, warning: null });
+    expect(usageView({ now: NOW, pausedUntil: 0, pacingUntil: NOW + HOUR })).toEqual({ state: 'pacing', until: NOW + HOUR, warning: null });
+    expect(usageView({ now: NOW, pausedUntil: NOW + HOUR, pacingUntil: NOW + 2 * HOUR })).toEqual({ state: 'paused', until: NOW + HOUR, warning: null });
+    expect(usageView({ now: NOW, pausedUntil: NOW, pacingUntil: NOW })).toEqual({ state: 'normal', until: null, warning: null });
+  });
+
+  it("carries the last warning's limit, fill and reset for the usage meter", () => {
+    const warning = warningView({ resetsAt: NOW + HOUR, rateLimitType: 'seven_day', utilization: 0.91 }, NOW);
+    expect(warning).toEqual({ limit: 'weekly limit', pct: 91, resetsAt: NOW + HOUR, at: NOW });
+    expect(usageView({ now: NOW, pausedUntil: 0, pacingUntil: NOW + HOUR }, warning)).toEqual({ state: 'pacing', until: NOW + HOUR, warning });
+    expect(warningView({ resetsAt: null, rateLimitType: null, utilization: null }, NOW)).toEqual({ limit: null, pct: null, resetsAt: null, at: NOW });
   });
 
   it('reads as the CEO sees it in company_status', () => {
@@ -75,4 +82,28 @@ it('clamps the pacing cap to 1-32, default 3', () => {
   expect(clampPacingSessions(-4)).toBe(3);
   expect(clampPacingSessions('lots')).toBe(3);
   expect(clampPacingSessions(2.6)).toBe(3);
+});
+
+describe('resume full speed', () => {
+  it('clears pacing, but never a hard pause and never when there is nothing to clear', () => {
+    expect(resumeRefusal({ now: NOW, pausedUntil: 0, pacingUntil: NOW + HOUR })).toBeNull();
+    expect(resumeRefusal({ now: NOW, pausedUntil: NOW + 5 * 60_000, pacingUntil: NOW + HOUR })).toBe(
+      "Claude turned a session away at the usage limit, so nothing new starts until 12:05. That pause can't be lifted early.",
+    );
+    expect(resumeRefusal({ now: NOW, pausedUntil: 0, pacingUntil: 0 })).toBe('The office is already running at full speed.');
+    expect(resumeRefusal({ now: NOW, pausedUntil: NOW - 1, pacingUntil: NOW })).toBe('The office is already running at full speed.');
+  });
+
+  it("ignores later warnings about the window the manager waived, but not another limit's or a new window's", () => {
+    const waiver = { until: NOW + 2 * HOUR, limit: 'five_hour' };
+    const warn = (rateLimitType: string | null, resetsAt: number | null) => ({ rateLimitType, resetsAt, utilization: 0.85 });
+    expect(waived(warn('five_hour', NOW + 2 * HOUR), waiver, NOW)).toBe(true);
+    expect(waived(warn('five_hour', NOW + 2 * HOUR + 30_000), waiver, NOW)).toBe(true); // the same reset, reported a little differently
+    expect(waived(warn('five_hour', null), waiver, NOW)).toBe(true);
+    expect(waived(warn(null, NOW + HOUR), waiver, NOW)).toBe(true);
+    expect(waived(warn('seven_day', NOW + 30 * HOUR), waiver, NOW)).toBe(false);
+    expect(waived(warn('five_hour', NOW + 7 * HOUR), waiver, NOW)).toBe(false); // the usage was reset: a new window
+    expect(waived(warn('five_hour', NOW + 2 * HOUR), waiver, NOW + 2 * HOUR)).toBe(false); // the waived window is over
+    expect(waived(warn('five_hour', NOW + 2 * HOUR), null, NOW)).toBe(false);
+  });
 });
