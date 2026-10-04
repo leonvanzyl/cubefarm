@@ -72,7 +72,7 @@ function ViewModel({ mug }: { mug: HeldMug }) {
       </group>
       {mug.sips > 0 && (
         <group ref={steam} position={[VIEW.x, VIEW.y + MUG_SIZE.h * VIEW.scale * 0.45, VIEW.z - 0.02]} scale={VIEW.scale}>
-          <Steam y={0} />
+          <Steam y={0} sips={mug.sips} />
         </group>
       )}
     </group>

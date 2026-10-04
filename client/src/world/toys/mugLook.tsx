@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useInteractable } from '../interact';
 import { shade, toon } from '../materials';
 import { Box, Cyl } from '../Toon';
-import { DISPENSER_ID, fillLevel } from './mugs';
+import { DISPENSER_ID, fillLevel, steamStrength } from './mugs';
 
 // What a coffee mug looks like, its steam, and the kitchenette's mug dispenser. No physics here, so the
 // kitchenette (Props.tsx) can draw the dispenser without loading the toy chunk.
@@ -68,16 +68,17 @@ export function MugLook({ color, sips, shadow = true, steam = sips > 0 }: { colo
         <torusGeometry args={[0.032, 0.01, 6, 14, Math.PI]} />
         <Outlines thickness={0.006} color={INK} />
       </mesh>
-      {steam && level > 0 && <Steam y={h / 2} />}
+      {steam && level > 0 && <Steam y={h / 2} sips={sips} />}
     </group>
   );
 }
 
 const WISPS = [0, 1, 2];
 
-/** Soft steam rising from y: a few fading puffs, cheap like the kitchenette's. */
-export function Steam({ y }: { y: number }) {
+/** Soft steam rising from y: a few fading puffs, cheap like the kitchenette's. Fainter, smaller and lower as `sips` run out. */
+export function Steam({ y, sips }: { y: number; sips: number }) {
   const g = useRef<THREE.Group>(null);
+  const strength = steamStrength(sips);
   useFrame(() => {
     const group = g.current;
     if (!group) return;
@@ -85,9 +86,9 @@ export function Steam({ y }: { y: number }) {
     for (let i = 0; i < group.children.length; i++) {
       const c = group.children[i] as THREE.Mesh;
       const k = (t * 0.45 + i / 3) % 1;
-      c.position.set(Math.sin(t * 1.3 + i * 2.1) * 0.012, k * 0.14, 0);
-      c.scale.setScalar(0.6 + k * 1.2);
-      (c.material as THREE.MeshBasicMaterial).opacity = 0.45 * (1 - k);
+      c.position.set(Math.sin(t * 1.3 + i * 2.1) * 0.012, k * 0.14 * (0.5 + 0.5 * strength), 0);
+      c.scale.setScalar((0.6 + k * 1.2) * (0.6 + 0.4 * strength));
+      (c.material as THREE.MeshBasicMaterial).opacity = 0.45 * (1 - k) * strength;
     }
   });
   return (

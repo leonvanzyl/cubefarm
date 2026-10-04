@@ -7,7 +7,7 @@ import { BREW, BREW_CUES, EMPTY, canPlace, cuesPassed, level, placeMug, pouring,
 import { useInteractable } from './interact';
 import { glow, toon } from './materials';
 import { MUG_SIZE, MugLook, Steam, mugColor } from './toys/mugLook';
-import { stowMug } from './toys/mugs';
+import { MUG, stowMug } from './toys/mugs';
 import { Box, Cyl } from './Toon';
 
 // The kitchenette's coffee machine: put a mug under the spout, press the button, and it grinds, hisses and pours
@@ -273,7 +273,7 @@ export function CoffeeMachine({ position }: { position: [number, number, number]
         {view.kind !== 'empty' && (
           <group position={[SLOT.x, SLOT.tray + MUG_SIZE.h / 2, 0]} rotation={ROT_HANDLE}>
             <MugLook color={mugColor(view.mug.id)} sips={0} steam={false} />
-            {view.kind === 'ready' && <Steam y={MUG_SIZE.h / 2} />}
+            {view.kind === 'ready' && <Steam y={MUG_SIZE.h / 2} sips={MUG.maxSips} />}
           </group>
         )}
         <mesh visible={false} position={[SLOT.x, 0.09, 0]}>
