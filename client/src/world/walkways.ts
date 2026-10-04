@@ -1,5 +1,5 @@
 import { kanbanColumnSpan, KANBAN_KEYS } from './draw';
-import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
+import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
 import { hoopRim } from './toys/hoopScore';
 import { clear, makeNav, planPath, roombaRects, type Nav, type Pt } from './toys/roombaBrain';
 
@@ -72,6 +72,9 @@ const ballsSpot = (floor: FloorKind): Spot => ({ id: 'balls', ...BALL_AREA[floor
 
 const elevatorSpot = (): Spot => ({ id: 'elevator', x: 0, z: HALF_D - 1, facing: SOUTH });
 
+// In front of the jukebox, picking a song.
+const jukeboxSpot = (x: number): Spot => ({ id: 'jukebox', x, z: HALF_D - JUKEBOX.d - 0.8, facing: SOUTH });
+
 function officeSpots(): Spot[] {
   return [
     ...boardSpots(),
@@ -85,6 +88,7 @@ function officeSpots(): Spot[] {
     { id: 'couch', x: -HALF_W + 1.9, z: 7.7, facing: WEST, sit: { x: -HALF_W + 1.0, z: 7.3, facing: EAST } },
     hoopSpot('office'),
     ballsSpot('office'),
+    jukeboxSpot(JUKEBOX.officeX),
     elevatorSpot(),
   ];
 }
@@ -102,6 +106,7 @@ function lobbySpots(): Spot[] {
     { id: 'mugs', x: COFFEE_CORNER.x - 0.4, z: HALF_D - COFFEE_CORNER.d - 0.4, facing: SOUTH },
     hoopSpot('lobby'),
     ballsSpot('lobby'),
+    jukeboxSpot(JUKEBOX.lobbyX),
     elevatorSpot(),
   ];
 }

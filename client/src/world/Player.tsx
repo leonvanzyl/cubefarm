@@ -17,6 +17,7 @@ import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
+import { jukeboxAction } from './Jukebox';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 
@@ -72,6 +73,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'coffee') {
     coffeeAction(focus.action.op);
+    return;
+  }
+  if (focus.action.kind === 'jukebox') {
+    jukeboxAction(focus.action.op);
     return;
   }
   if (focus.action.kind === 'poke') {
