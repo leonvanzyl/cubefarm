@@ -6,13 +6,17 @@ import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { HALF_D, HALF_W, PLAYER_RADIUS, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, type Rect } from '../layout';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
+import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
+import { hoopRim, hoopSquare } from './hoopScore';
+import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
+import { HOLD, THROW, holdPoint, hoopShot, throwVelocity, type HoopAim, type View } from './throwing';
 
 // Loaded lazily by ./index.tsx, so Rapier stays out of the main bundle.
 
@@ -139,10 +143,7 @@ function respawn(b: RapierRigidBody, def: BallDef) {
 }
 
 // Carrying: the held ball stays a dynamic body (so walls and desks still stop it) with gravity off, steered
-// towards a spot in front of and below the view, low enough to keep the crosshair clear. Looking up or
-// down only counts partly, so the ball doesn't swing up into your face or down onto the floor. Speeds in m/s, distances in metres.
-const HOLD = { ahead: 1.0, drop: 0.5, dropPerR: 0.9, pitch: 0.55, minPitch: -0.7, maxPitch: 0.4, follow: 14, maxSpeed: 18, lost: 2.2, lostFor: 0.35, windUp: 0.25 };
-const THROW = { lob: 3.2, hard: 14, lift: 1.6, hardLift: 0.9, aim: 12, flightDamping: 0.05, walk: 1 };
+// towards its hold point (throwing.ts).
 // A ball you've let go of passes through you until it's clear of you (or this long, in ms), so it can't be kicked on release.
 const GRACE_MS = 1500;
 const PICKUP_RANGE = 2.5;
@@ -192,11 +193,15 @@ function Balls({ floor }: { floor: ToyFloor }) {
   // Safety net: a ball that somehow got out of the building comes back to where it started. Asleep means it
   // hasn't moved, so only awake balls are checked, a few times a second.
   const tick = useRef(0);
+  const respawned = useRef<boolean[]>([]); // its sudden stop isn't a bounce: listen() skips it once
   const check = useCallback(() => {
     if (++tick.current % 15) return;
     for (let i = 0; i < defs.length; i++) {
       const b = bodies.current[i];
-      if (b && !b.isSleeping() && escaped(b.translation())) respawn(b, defs[i]);
+      if (b && !b.isSleeping() && escaped(b.translation())) {
+        respawn(b, defs[i]);
+        respawned.current[i] = true;
+      }
     }
   }, [defs]);
   useAfterPhysicsStep(check);
@@ -207,6 +212,9 @@ function Balls({ floor }: { floor: ToyFloor }) {
   const grace = useRef<number[]>([]); // performance.now() until which a released ball ignores the player; 0 when it doesn't
   const flying = useRef<boolean[]>([]); // thrown and not yet touched anything: fly with almost no drag
   const v = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
+  const at = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
+  const view = useMemo<View>(() => ({ eye: camera.position, pitch: 0, yaw: 0 }), [camera]);
+  const hoop = useMemo<HoopAim>(() => ({ rim: hoopRim(floor), square: hoopSquare(floor) }), [floor]);
 
   const grab = useCallback((b: RapierRigidBody) => {
     b.setGravityScale(0, true);
@@ -232,22 +240,17 @@ function Balls({ floor }: { floor: ToyFloor }) {
         b.setLinvel(v, true);
         return;
       }
-      // Aim from the ball through a point far along the crosshair, so it leaves along it despite being held low.
-      camera.getWorldDirection(tmp);
-      const p = b.translation();
-      v.x = camera.position.x + tmp.x * THROW.aim - p.x;
-      v.y = camera.position.y + tmp.y * THROW.aim - p.y;
-      v.z = camera.position.z + tmp.z * THROW.aim - p.z;
-      const len = Math.hypot(v.x, v.y, v.z) || 1;
-      const speed = THROW.lob + ((d.throwSpeed ?? THROW.hard) - THROW.lob) * power;
-      v.x = (v.x / len) * speed + walk.x * THROW.walk;
-      v.y = (v.y / len) * speed + THROW.lift + (THROW.hardLift - THROW.lift) * power;
-      v.z = (v.z / len) * speed + walk.z * THROW.walk;
+      view.pitch = camera.rotation.x;
+      view.yaw = camera.rotation.y;
+      const top = d.throwSpeed ?? THROW.hard;
+      const from = b.translation();
+      // the basketball thrown at its hoop is an arcade shot; anything else flies along the crosshair
+      if (d.kind !== 'basketball' || !hoopShot(view, from, power, top, hoop, v)) throwVelocity(view, from, power, top, walk, v);
       b.setLinearDamping(THROW.flightDamping);
       b.setLinvel(v, true);
       flying.current[i] = true;
     },
-    [camera, defs, v],
+    [camera, defs, hoop, v, view],
   );
 
   const landed = useMemo(
@@ -262,18 +265,15 @@ function Balls({ floor }: { floor: ToyFloor }) {
 
   const steer = useCallback(
     (b: RapierRigidBody, r: number, chargeAt: number | null) => {
-      const pitch = Math.min(HOLD.maxPitch, Math.max(HOLD.minPitch, camera.rotation.x * HOLD.pitch));
-      const yaw = camera.rotation.y;
+      view.pitch = camera.rotation.x;
+      view.yaw = camera.rotation.y;
       // winding up a throw pulls the ball back towards you
       const pull = chargeAt === null ? 0 : chargePower(performance.now() - chargeAt) * HOLD.windUp;
-      const ahead = HOLD.ahead + r - pull;
-      // along the (tamed) view direction, then straight down
-      const y = ahead * Math.sin(pitch) - HOLD.drop - r * HOLD.dropPerR - pull * 0.4;
-      const z = -ahead * Math.cos(pitch);
+      holdPoint(view, r, pull, at);
       const p = b.translation();
-      const dx = camera.position.x + z * Math.sin(yaw) - p.x;
-      const dy = camera.position.y + y - p.y;
-      const dz = camera.position.z + z * Math.cos(yaw) - p.z;
+      const dx = at.x - p.x;
+      const dy = at.y - p.y;
+      const dz = at.z - p.z;
       const d = Math.hypot(dx, dy, dz);
       const k = d > 0 ? Math.min(HOLD.follow, HOLD.maxSpeed / d) : 0;
       v.x = dx * k;
@@ -282,7 +282,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       b.setLinvel(v, true);
       return d;
     },
-    [camera, v],
+    [at, camera, v, view],
   );
 
   const hands = useCallback(() => {
@@ -295,6 +295,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       const b = want >= 0 ? bodies.current[want] : null;
       if (b) {
         grab(b);
+        grabSound(defs[want].kind, b.translation());
         flying.current[want] = false;
         grace.current[want] = 0;
       }
@@ -325,6 +326,55 @@ function Balls({ floor }: { floor: ToyFloor }) {
     }
   }, [camera, defs, grab, letGo, steer]);
   useBeforePhysicsStep(hands);
+
+  // ---------- bounce sounds ----------
+  // A hit shows as a sudden change in a ball's velocity over one step (less gravity's share): whatever it hit, a
+  // wall, a desk, another ball, the roomba or someone. Velocities are read after hands() has steered or thrown, so
+  // only the physics' own changes count, and the ball in your hands is left out.
+  const before = useMemo(() => defs.map(() => ({ x: 0, y: 0, z: 0 })), [defs]);
+  const lastSound = useRef<number[]>([]);
+  // Balls start just above the floor and drop onto it: a floor arriving shouldn't clatter.
+  const settling = useRef(30);
+  useEffect(() => void (settling.current = 30), [defs]);
+  const rim = useMemo(() => hoopRim(floor), [floor]);
+  const snapVelocities = useCallback(() => {
+    for (let i = 0; i < defs.length; i++) {
+      const b = bodies.current[i];
+      if (!b) continue;
+      const lv = b.linvel();
+      before[i].x = lv.x;
+      before[i].y = lv.y;
+      before[i].z = lv.z;
+    }
+  }, [before, defs]);
+  useBeforePhysicsStep(snapVelocities);
+  const listen = useCallback(
+    (w: typeof world) => {
+      if (settling.current > 0 && settling.current--) return;
+      const now = performance.now();
+      const g = w.gravity.y * STEP;
+      for (let i = 0; i < defs.length; i++) {
+        const b = bodies.current[i];
+        if (respawned.current[i]) {
+          respawned.current[i] = false;
+          continue;
+        }
+        if (!b || i === holding.current || b.isSleeping()) continue;
+        const lv = b.linvel();
+        const p0 = before[i];
+        const level = impactLevel(Math.hypot(lv.x - p0.x, lv.y - p0.y - g * b.gravityScale(), lv.z - p0.z));
+        if (!level || !offCooldown(lastSound.current[i] ?? -Infinity, now)) continue;
+        lastSound.current[i] = now;
+        const p = b.translation();
+        const part = hoopPart(p, defs[i].r, rim, Math.hypot(lv.x, lv.y, lv.z) * STEP);
+        if (part === 'rim') rimClank({ x: rim.x, y: rim.y, z: rim.z }, level);
+        else if (part === 'board') boardThud(p, level);
+        else bounce(defs[i].kind, p, level);
+      }
+    },
+    [before, defs, rim],
+  );
+  useAfterPhysicsStep(listen);
 
   return defs.map((d, i) => (
     <RigidBody

@@ -99,10 +99,11 @@ export function useHitReaction(id: string, root: RefObject<THREE.Object3D | null
       onAgentHit(id, () => {
         const now = performance.now();
         at.current = now;
-        boop();
+        const p = root.current?.getWorldPosition(new THREE.Vector3());
+        boop(p && { x: p.x, y: p.y + HEAD_Y, z: p.z });
         setBubble({ text: Math.random() < 0.65 ? 'hey!' : '!', since: now });
       }),
-    [id],
+    [id, root],
   );
 
   useEffect(() => {

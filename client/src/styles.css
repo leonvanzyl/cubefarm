@@ -1945,6 +1945,37 @@ input.inline:focus {
 .agent-setup textarea {
   min-height: 140px;
 }
+.prompt-preview {
+  margin: 8px 0 4px;
+}
+.prompt-preview summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.prompt-preview p {
+  margin: 4px 0;
+}
+.prompt-text {
+  max-height: 320px;
+  overflow: auto;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(31, 29, 43, 0.15);
+  border-radius: 8px;
+  background: #f6f4ec;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-variant-ligatures: none; /* the prompt verbatim: no "-<" or "->" turned into arrows */
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.prompt-preview mark {
+  background: #ffe08a;
+  color: inherit;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px #ffe08a;
+}
 
 /* ---------- confirmation box ---------- */
 

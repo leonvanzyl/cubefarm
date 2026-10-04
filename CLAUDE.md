@@ -45,8 +45,9 @@ It ships on npm as `cubefarm` (`npx cubefarm`); it used to be called Office Swar
 | `node scripts/smoke-package.mjs` | after a build: packs the npm package, installs it into a temp folder and boots its demo |
 | `node --import tsx server/index.ts --demo` | a demo office (see SAFETY for the env it needs) |
 
-CI (`.github/workflows/ci.yml`): Node 24 on `ubuntu-latest` and `windows-latest`, `npm ci` → `typecheck` → `test` →
-`build` → package smoke test, for every PR and push to `main`, with a throwaway `SWARM_HOME` and `SWARM_PORT=0`; a separate `e2e`
+CI (`.github/workflows/ci.yml`): Node 24, `npm ci` → `typecheck` → `test` → `build` → package smoke test, for every PR
+and push to `main`, with a throwaway `SWARM_HOME` and `SWARM_PORT=0`, on `ubuntu-latest` always and on `windows-latest`
+and `macos-latest` unless a PR touches nothing OS-sensitive (only `client/`, `e2e/`, docs: they show as skipped); a separate `e2e`
 job on `ubuntu-latest` runs `npm run test:e2e` and is the e2e gate. Locally, `typecheck`, `test` and `build` must
 pass before you open a PR; run `test:e2e` only when you changed `e2e/`, `playwright.config.ts` or how the office boots
 (`server/index.ts`, StartScreen, SetupWizard), or to fix a failing e2e job. `.github/workflows/release.yml` publishes to npm when the manager runs it from GitHub's Actions tab or pushes a

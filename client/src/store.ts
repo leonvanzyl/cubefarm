@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { chirp, cue } from './ui/sfx';
+import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -214,11 +215,13 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'repo': {
         const before = get().repos.find((r) => r.id === ev.repo.id);
-        const wasOpen = new Set(before?.pulls.filter((p) => p.state === 'OPEN').map((p) => p.number));
-        if (live && ev.repo.pulls.some((p) => p.state === 'MERGED' && wasOpen.has(p.number))) cue('merged');
+        const qaFor = (n: number) => get().qa[qaKey(ev.repo.id, n)] ?? recentQaRecord(qaKey(ev.repo.id, n));
+        const bursts = mergeBursts(live, before, ev.repo, qaFor, Object.values(get().agents));
+        if (bursts.length) cue('merged');
         const repos = get().repos.filter((r) => r.id !== ev.repo.id);
         repos.push(ev.repo);
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
+        for (const b of bursts) emitMerge(b);
         break;
       }
       case 'repoRemoved': {
@@ -262,7 +265,8 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
       case 'qaRemoved': {
-        const { [qaKey(ev.repoId, ev.prNumber)]: _gone, ...qa } = get().qa;
+        const { [qaKey(ev.repoId, ev.prNumber)]: gone, ...qa } = get().qa;
+        if (gone) rememberQa(qaKey(ev.repoId, ev.prNumber), gone);
         set({ qa });
         break;
       }

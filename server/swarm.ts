@@ -5,7 +5,7 @@ import type { WebSocket } from 'ws';
 import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
 import type { PrDetails } from './github.ts';
-import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
+import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, WORKSPACE_ROOT } from './config.ts';
 import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
@@ -15,6 +15,8 @@ import { orphanedQa } from './qaOrphans.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
+import { PREVIEW_SLUG } from './previewRunner.ts';
+import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
 import { isCli } from './clis.ts';
@@ -25,6 +27,7 @@ import { CEO_ID } from '../shared/types.ts';
 import type {
   AgentCli,
   AgentLook,
+  AgentPromptView,
   AgentRole,
   AgentStatus,
   AgentTask,
@@ -570,6 +573,7 @@ export class Swarm {
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
     setInterval(() => void this.saveTerminals(), TERMINAL_SAVE_MS);
+    setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
     void this.backend
       .detectClis()
       .then((clis) => {
@@ -1137,6 +1141,32 @@ export class Swarm {
     return { folderSync: await this.syncFolder(this.repo(repoId)) };
   }
 
+  /** Remove the floor's desks, desk folders and swarm/qa branches nobody uses any more; say so when something went. */
+  private async sweepFloor(repoId: string) {
+    const repo = this.state.repos.find((r) => r.id === repoId);
+    const rt = this.repoRt.get(repoId);
+    if (!repo || !rt || rt.cloneStatus !== 'ready') return;
+    try {
+      const pulls = rt.lastSync ? rt.pulls : await this.backend.listPulls(repo.fullName);
+      const agents = this.state.agents.filter((a) => a.repoId === repo.id);
+      const keep = {
+        desks: [...agents.map((a) => this.agentSlug(a)), PREVIEW_SLUG],
+        branches: [...agents.flatMap((a) => (a.branch ? [a.branch] : [])), ...pulls.filter((p) => p.state === 'OPEN').map((p) => p.headRefName)],
+      };
+      const r = await this.backend.sweepDesks(repo.fullName, keep);
+      const desks = r.desks + r.folders;
+      const saved = r.patches.length ? ` (${r.patches.length} patch${r.patches.length === 1 ? '' : 'es'} saved to ${path.dirname(r.patches[0])})` : '';
+      console.log(`desk sweep ${repo.fullName}: ${desks} desks, ${r.branches} branches removed${saved}${r.skipped.length ? `, ${r.skipped.length} still in use` : ''}`);
+      if (!desks && !r.branches) return;
+      const removed = [desks && `${desks} old desk${desks === 1 ? '' : 's'}`, r.branches && `${r.branches} finished branch${r.branches === 1 ? '' : 'es'}`].filter(Boolean).join(' and ');
+      const text = `🧹 ${repo.fullName.split('/')[1]}: removed ${removed}${saved}`;
+      this.toast('info', text);
+      this.postMessage('office', text);
+    } catch (err) {
+      console.warn(`desk sweep ${repo.fullName} failed: ${oneLine(err)}`);
+    }
+  }
+
   // ---------- the floor's app (preview monitor) ----------
 
   /** Run the floor's app from its preview worktree: the default branch, or an open PR. Replaces what it is running now. */
@@ -1171,6 +1201,7 @@ export class Swarm {
       await this.backend.ensureClone(repo.fullName);
       rt.cloneStatus = 'ready';
       void this.previews.refreshDefault(repo);
+      void this.sweepFloor(id);
     } catch (err) {
       rt.cloneStatus = 'error';
       rt.cloneError = (err as Error).message;
@@ -1401,10 +1432,12 @@ export class Swarm {
     const repo = this.state.repos.find((r) => r.id === a.repoId);
     if (repo) {
       const slug = this.agentSlug(a);
+      const main = this.backend.mainDir(repo.fullName); // now: a disconnect points the floor elsewhere before this runs
       void this.backend
         .releaseDesk(repo.fullName, slug, this.port(a))
-        .then(() => this.backend.removeDesk(repo.fullName, slug))
-        .catch(() => undefined);
+        .then(() => this.backend.removeDesk(repo.fullName, slug, main))
+        .catch(() => undefined)
+        .then(() => this.sweepFloor(repo.id));
     }
     this.state.agents = this.state.agents.filter((x) => x.id !== id);
     this.agentRt.delete(id);
@@ -1551,39 +1584,20 @@ export class Swarm {
   }
 
   private buildSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, fixing?: { pr: number; headRef: string }) {
-    const linked = this.linkedRepos(repo).map((r) => `- ${r.fullName}: read-only reference clone at ${this.backend.mainDir(r.fullName)}`);
-    const push = fixing ? `git push origin HEAD:${fixing.headRef}` : `git push -u origin ${branch}`;
-    return [
-      `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a software engineer'} on an autonomous agent team ("cubefarm"). Several teammates work in parallel on other issues of the same repository, each in their own git worktree. Nobody is watching live to answer questions, so make sensible decisions yourself and record assumptions in the PR description. The manager may occasionally send you messages; follow their instructions.`,
-      `Every pull request is reviewed and tested by a QA teammate. ${repo.autoMerge ? "Once they sign off and GitHub's checks pass, the office merges it by itself" : 'Once they sign off, the manager merges it'}. If they find problems, or checks fail, or it conflicts with the default branch, you will get the details; fix them on the same branch.`,
-      a.brief ? `\nYour job description:\n${a.brief}` : '',
-      '',
-      `Repository: ${repo.fullName} (default branch: ${repo.defaultBranch})`,
-      repo.summary ? `Project: ${repo.summary}` : '',
-      repo.mission ? `What the team is building (the manager's brief): ${repo.mission}` : '',
-      `Your worktree: ${cwd}`,
-      fixing
-        ? `You are fixing pull request #${fixing.pr}. Its code is checked out on local branch ${branch}; push fixes with: ${push}. Do not open a new pull request.`
-        : `Your branch: ${branch} (already checked out, created from origin/${repo.defaultBranch})`,
-      linked.length ? `Related repositories you may read for context (do not modify them):\n${linked.join('\n')}` : '',
-      '',
-      'Workflow:',
-      '1. Read the issue and explore the relevant code before changing anything.',
-      '2. Implement the change with focused commits and clear messages.',
-      "3. Run the project's existing tests, linters and build (if any) and fix what you broke. Install dependencies first if needed.",
-      repo.browserTesting
-        ? `4. If the project has a web UI, start its dev server in the background on port ${this.port(a)} (reserved for you, so you don't collide with teammates), then check your change with the Playwright browser tools (mcp__playwright__browser_navigate, browser_snapshot, browser_click, browser_take_screenshot). Stop the dev server when you're done.`
-        : '4. Verify the behaviour you changed as directly as you can.',
-      `5. Push: ${push}`,
-      fixing
-        ? '6. Reply with a short summary of what you fixed.'
-        : `6. Open a pull request with the GitHub CLI: gh pr create --base ${repo.defaultBranch} --head ${branch} --title "<concise title>" --body "<what changed, how you verified it, assumptions>". The body must contain "Closes #<issue number>".`,
-      fixing ? '' : '7. End your final message with the pull request URL on its own line.',
-      '',
-      'Rules: never push to the default branch, never force-push, never merge pull requests yourself (the office merges them once QA and the checks pass), and never edit files outside your worktree. If you cannot finish, open a draft PR (gh pr create --draft) explaining what is left and why.',
-    ]
-      .filter((l) => l !== '')
-      .join('\n');
+    return devSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, linked: this.linkedDirs(repo), fixing });
+  }
+
+  private linkedDirs(repo: PersistedRepo) {
+    return this.linkedRepos(repo).map((r) => ({ fullName: r.fullName, dir: this.backend.mainDir(r.fullName) }));
+  }
+
+  /** What an agent is told on a task, previewed with placeholders for the task's details. */
+  agentPrompt(id: string): AgentPromptView {
+    const a = this.agent(id);
+    if (a.role === 'ceo') return ceoPromptPreview(ceoSystemPrompt(this.ceoPromptInput(a)));
+    const repo = this.repo(a.repoId);
+    const base = { agent: a, repo, port: this.port(a), slug: slugify(a.name) };
+    return a.role === 'qa' ? qaPromptPreview(base) : devPromptPreview({ ...base, linked: this.linkedDirs(repo) });
   }
 
   private beginTask(a: PersistedAgent, patch: Partial<PersistedAgent>, banner: string, preparing: string) {
@@ -1629,7 +1643,7 @@ export class Swarm {
   }
 
   private async runTask(a: PersistedAgent, repo: PersistedRepo, issue: IssueInfo, note?: string) {
-    const branch = `swarm/issue-${issue.number}-${slugify(a.name)}`;
+    const branch = devBranch(issue.number, slugify(a.name));
     this.beginTask(
       a,
       { task: 'issue', issueNumber: issue.number, issueTitle: issue.title, branch, prNumber: null, prUrl: null, sessionId: null },
@@ -1863,33 +1877,11 @@ export class Swarm {
   }
 
   private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string) {
-    return [
-      `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("cubefarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
-      ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
-      ...(a.role === 'dev' ? ['', "You're a developer covering for the QA lab while its testers are busy. You didn't write this pull request: test it as an independent QA engineer would."] : []),
-      '',
-      `Repository: ${repo.fullName} (default branch: ${repo.defaultBranch})`,
-      ...(repo.summary ? [`Project: ${repo.summary}`] : []),
-      ...(repo.mission ? [`What the team is building (the manager's brief): ${repo.mission}`] : []),
-      ...(repo.qaBrief ? [`What to check on this project (from the CEO):\n${repo.qaBrief}`] : []),
-      `Pull request #${pr.number} "${pr.title}" from branch ${pr.headRefName}: ${pr.url}`,
-      `Your worktree: ${cwd}. It has the pull request's code checked out on local branch ${branch}.`,
-      '',
-      'How to test:',
-      '1. Read the PR description and the linked issue, and work out the acceptance criteria.',
-      `2. Review the code as a careful reviewer would: git diff origin/${repo.defaultBranch}...HEAD. Look for bugs, unhandled errors and edge cases, security problems, leftover debug code, and new logic without tests.`,
-      testStep,
-      repo.browserTesting
-        ? `4. If the project has a UI, start it in the background on port ${this.port(a)} (reserved for you) and exercise the change in a real browser with the Playwright tools: navigate, click, type, resize to a phone size, try edge cases, and check the console for errors. Take a screenshot with browser_take_screenshot (no filename) of every important state: the screenshots are attached to the PR as evidence. Stop the server afterwards.`
-        : '4. Exercise the changed behaviour directly (run the program, call the API, write a quick script).',
-      '5. You may write throwaway scripts to probe behaviour, but do not commit them.',
-      '',
-      'Rules: do not modify the code under test, do not commit, push, comment on, review or merge anything on GitHub. The office posts your report on the pull request. Finish with the structured QA report: verdict, summary, the checks you performed, the commands you ran and one caption per screenshot.',
-    ].join('\n');
+    return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr, testStep });
   }
 
   private async runQa(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord) {
-    const branch = `qa/pr-${rec.prNumber}-${slugify(a.name)}`;
+    const branch = qaBranch(rec.prNumber, slugify(a.name));
     this.setQa(rec, { status: 'testing', qaAgentId: a.id });
     this.beginTask(
       a,
@@ -2688,6 +2680,11 @@ export class Swarm {
     void this.runCeoJob(a, job);
   }
 
+  private ceoPromptInput(a: PersistedAgent): Parameters<typeof ceoSystemPrompt>[0] {
+    const s = this.state.settings;
+    return { name: a.name, company: s.companyName, manager: s.managerName, notesFile: path.join(CEO_DIR, 'NOTES.md'), sessionLimit: s.sessionLimit, teamCap: s.teamCap, hiring: s.hiring };
+  }
+
   private async runCeoJob(a: PersistedAgent, job: CeoJob) {
     const rt = this.agentRt.get(a.id)!;
     const floor = this.ceoFloor(job.repoId);
@@ -2714,22 +2711,13 @@ export class Swarm {
       this.emitCeo();
       return;
     }
-    const s = this.state.settings;
     // A chat carries on from the CEO's last session, so "why did you propose that?" has an answer.
     const how = this.sessionRuntime(a, job.kind === 'chat' ? (a.sessionId ?? undefined) : undefined);
     rt.session = this.backend.startSession(
       {
         cwd: CEO_DIR,
         prompt: ceoJobPrompt(job, floor),
-        systemAppend: ceoSystemPrompt({
-          name: a.name,
-          company: s.companyName,
-          manager: s.managerName,
-          notesFile: path.join(CEO_DIR, 'NOTES.md'),
-          sessionLimit: s.sessionLimit,
-          teamCap: s.teamCap,
-          hiring: s.hiring,
-        }),
+        systemAppend: ceoSystemPrompt(this.ceoPromptInput(a)),
         model: a.model || CEO_MODEL,
         effort: a.effort || CEO_EFFORT,
         browserTesting: false,
