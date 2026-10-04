@@ -89,6 +89,8 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `httpError.ts`: `HttpError(status, message)`.
 - `officeUpdate.ts`: the office's self-update: the drain decision, the launcher contract (IPC, `last-update.json`).
 - `pacing.ts`: pacing new work after Claude's usage warnings: the start/skip decision and the usage state.
+- `voice.ts`: phone messages read aloud (docs/voice.md): the ElevenLabs key in `secrets.json`, voices, cached clips;
+  `elevenlabs.ts` is its REST client. The words spoken come from `shared/speech.ts`.
 
 The `cubefarm` command (`bin/cubefarm.js`, plain JS): checks Node/git/gh/Claude login, starts `dist-server/index.js`,
 opens the browser; `login` and `doctor` subcommands.
@@ -105,7 +107,10 @@ Shared (`shared/`, imported by both sides):
 Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`), elevator,
   whiteboard, player movement and collisions (`layout.ts`), canvas textures (`draw.ts`), `toys/` (Rapier physics),
-  where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid).
+  where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid),
+  errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them),
+  the time of day (`sky/time.ts`, `sky/useDayTime.ts`) and the city outside (`outside/`: the seeded layout in
+  `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls).
 - `src/ui/`: HTML overlays: HUD, terminal (`LiveTerminal.tsx`: xterm.js on `/ws/term`), Kanban, manager's console,
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
   viewer, sounds (`sfx.ts`).
@@ -143,6 +148,7 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - Test pure functions directly; extract logic into pure helpers rather than mocking. No network, no `gh`, no Claude
   sessions, no real `~/.cubefarm`: `npm test` already points `SWARM_HOME` at a temp folder and `SWARM_PORT` at 0.
 - Must pass on both CI runners (ubuntu + windows): don't hardcode `/` or `\` in expected paths.
+- E2E: one spec file per feature, setup from `e2e/helpers.ts`; new e2e tests go in their feature's spec file or a new one, never appended to `smoke.spec.ts`.
 
 ## Pull requests
 

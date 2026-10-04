@@ -24,7 +24,7 @@ export type ManagerTab = 'floors' | 'ceo' | 'team' | 'issues' | 'settings';
 export interface Focus {
   id: string;
   label: string;
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'vol+' | 'vol-' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -63,6 +63,8 @@ interface State {
   officeCommit?: string | null; // undefined: the server can't update itself
   officeUpdate?: OfficeUpdateView;
   usage: UsageView; // Claude's subscription usage: normal, pacing after a warning, or paused at the limit
+  voiceKeySet: boolean; // an ElevenLabs key is saved on the server
+  voiceKeyHint: string; // its last 4 characters
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -147,6 +149,7 @@ export const useStore = create<State>((set, get) => ({
     tutorialStep: -1,
     pacingSessions: 3,
     trimIdleDesksMin: 120,
+    voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false },
   },
   clis: [],
   repos: [],
@@ -159,6 +162,8 @@ export const useStore = create<State>((set, get) => ({
   messages: [],
   phoneReadAt: 0,
   usage: { state: 'normal', until: null },
+  voiceKeySet: false,
+  voiceKeyHint: '',
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -211,6 +216,8 @@ export const useStore = create<State>((set, get) => ({
           officeUpdate: d.officeUpdate,
           usage: d.usage,
           clis: d.clis ?? [],
+          voiceKeySet: d.voiceKeySet ?? false,
+          voiceKeyHint: d.voiceKeyHint ?? '',
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -314,6 +321,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'usage':
         set({ usage: ev.usage });
+        break;
+      case 'voiceKey':
+        set({ voiceKeySet: ev.voiceKeySet, voiceKeyHint: ev.voiceKeyHint });
         break;
     }
   },
@@ -459,4 +469,29 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
     .map((p) => ({ key: `m-${p.number}`, number: p.number, prNumber: p.number, title: p.title, url: p.url, agent: authorOf(p.number, p.headRefName) }));
 
   return { backlog, progress, qa, ready, merged };
+}
+
+export interface FloorPrCounts {
+  /** Open PRs in the Kanban's In QA column: queued, testing, failed, fixing, needs-human and untested ones. */
+  inQa: number;
+  /** Open PRs that passed QA (the Ready to merge column). */
+  ready: number;
+  /** Open PRs waiting on the manager (needs-human); also counted in inQa. */
+  needsYou: number;
+}
+
+/**
+ * A floor's PR counts, matching kanbanFor's columns. Only open PRs count: QA records outlive their PR's merge or
+ * close, so counting records instead drifts further from the board with every merge.
+ */
+export function floorPrCounts(repo: RepoView, qaRecords: Record<string, QaView>): FloorPrCounts {
+  const counts: FloorPrCounts = { inQa: 0, ready: 0, needsYou: 0 };
+  for (const p of repo.pulls) {
+    if (p.state !== 'OPEN') continue;
+    const status = qaRecords[qaKey(repo.id, p.number)]?.status;
+    if (status === 'passed') counts.ready++;
+    else counts.inQa++;
+    if (status === 'needs-human') counts.needsYou++;
+  }
+  return counts;
 }

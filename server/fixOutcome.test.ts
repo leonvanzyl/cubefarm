@@ -4,7 +4,7 @@ import { fixOutcome, type FixRecord } from './fixOutcome.ts';
 const OLD = 'a'.repeat(40);
 const NEW = 'b'.repeat(40);
 
-const record = (r: Partial<FixRecord> = {}): FixRecord => ({ prNumber: 45, round: 2, sessionFailures: 0, testedSha: OLD, passedSha: null, fixReason: 'qa', ...r });
+const record = (r: Partial<FixRecord> = {}): FixRecord => ({ prNumber: 45, round: 2, sessionFailures: 0, testedSha: OLD, passedSha: null, fixReason: 'qa', retests: 0, qaChecks: null, ...r });
 
 describe('fixOutcome', () => {
   for (const fixReason of ['qa', null] as const) {
@@ -84,6 +84,43 @@ describe('fixOutcome', () => {
       expect(step.pushed).toBe(true);
       expect(step.set).toEqual({ status: 'passed', sessionFailures: 0, mergeNote: 'waiting for fresh checks' });
     }
+  });
+
+  describe('a QA fix that re-ran a red check instead of pushing', () => {
+    const red = record({ qaChecks: 'failing', retests: 1 });
+
+    for (const now of ['passing', 'pending'] as const) {
+      it(`goes back to QA as a re-test when the checks went from failing to ${now}`, () => {
+        expect(fixOutcome(red, OLD, 3, true, now)).toEqual({
+          set: { status: 'queued', round: 3, retests: 2, sessionFailures: 0 },
+          log: { kind: 'done', text: "✔ PR #45's failed checks were re-run in 3m. Back to QA." },
+          pushed: true,
+        });
+        expect(fixOutcome({ ...red, fixReason: null, sessionFailures: 1 }, OLD, 3, true, now).set).toMatchObject({ status: 'queued', sessionFailures: 0 });
+      });
+    }
+
+    it('counts as an unpushed fix as today while the checks still fail', () => {
+      expect(fixOutcome(red, OLD, 3, true, 'failing').set).toEqual({ status: 'failed', sessionFailures: 1 });
+      expect(fixOutcome({ ...red, sessionFailures: 1 }, OLD, 3, true, 'failing').set).toEqual({ status: 'needs-human', sessionFailures: 2, mergeNote: 'the fix was never pushed' });
+      expect(fixOutcome(red, OLD, 3, true, null).pushed).toBe(false);
+    });
+
+    it("counts as an unpushed fix when QA's checks weren't failing", () => {
+      for (const qaChecks of ['passing', 'pending', 'none', null] as const) {
+        expect(fixOutcome(record({ qaChecks }), OLD, 3, true, 'passing').pushed).toBe(false);
+      }
+    });
+
+    it('leaves conflict fixes as they were', () => {
+      const conflict = record({ fixReason: 'conflict', passedSha: OLD, qaChecks: 'failing' });
+      expect(fixOutcome(conflict, OLD, 3, true, 'passing').set).toEqual({ status: 'failed', sessionFailures: 1 });
+      expect(fixOutcome(conflict, NEW, 3, true, 'passing').set).toEqual({ status: 'passed', sessionFailures: 0, mergeNote: 'waiting for fresh checks' });
+    });
+
+    it('is an ordinary QA fix when a commit was pushed too', () => {
+      expect(fixOutcome(red, NEW, 3, true, 'passing').set).toEqual({ status: 'queued', round: 3, sessionFailures: 0 });
+    });
   });
 
   it("takes the session at its word when the head couldn't be read or nothing was recorded to compare", () => {
