@@ -1,28 +1,116 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { ELEVATOR, HALF_D, HALF_W, WALL_H } from './layout';
-import { drawSky } from './draw';
-import { useCanvasTexture } from './interact';
+import { Outlines } from '@react-three/drei';
+import { ELEVATOR, HALF_D, HALF_W, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, sideSign, type Side } from './layout';
+import { drawGlass } from './draw';
 import { glow, shade, toon } from './materials';
+import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { Box } from './Toon';
 
 const WALL = '#fbf3e4';
+const INK = '#1f1d2b';
 
-function Window({ position, rotationY, width, seed }: { position: [number, number, number]; rotationY: number; width: number; seed: number }) {
-  const tex = useCanvasTexture(512, 256, (ctx) => drawSky(ctx, 512, 256, seed), [seed]);
-  const h = 1.8;
+type FloorKind = 'office' | 'lobby';
+
+let pane: THREE.MeshBasicMaterial | null = null;
+
+/** See-through window glass (also the side doors'): lightly tinted, with a glint, no refraction. */
+export function paneMaterial() {
+  if (pane) return pane;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  drawGlass(c.getContext('2d')!, 256, 128);
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  pane = new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  return pane;
+}
+
+interface Opening {
+  z0: number;
+  z1: number;
+  y0: number;
+  y1: number;
+}
+
+/** A side wall's door and windows, south-going (by z). */
+function openings(kind: FloorKind, side: Side): Opening[] {
+  const { door, windows } = SIDE_OPENINGS[kind][side];
+  const { w, h, y } = WINDOW;
+  return [
+    { z0: door - SIDE_DOOR.half, z1: door + SIDE_DOOR.half, y0: 0, y1: SIDE_DOOR.h },
+    ...windows.map((z) => ({ z0: z - w / 2, z1: z + w / 2, y0: y - h / 2, y1: y + h / 2 })),
+  ].sort((a, b) => a.z0 - b.z0);
+}
+
+/** Both side walls in pieces round their openings: full height between them, a strip under each window and over each one. */
+function sideWalls(kind: FloorKind) {
+  const t = WALL_T;
+  const out: BoxSpec[] = [];
+  for (const side of SIDES) {
+    const x = sideSign(side) * (HALF_W + t / 2);
+    let z = -HALF_D;
+    for (const o of openings(kind, side)) {
+      const mid = (o.z0 + o.z1) / 2;
+      if (o.z0 > z) out.push({ size: [t, WALL_H, o.z0 - z], at: [x, WALL_H / 2, (z + o.z0) / 2] });
+      if (o.y0 > 0) out.push({ size: [t, o.y0, o.z1 - o.z0], at: [x, o.y0 / 2, mid] });
+      out.push({ size: [t, WALL_H - o.y1, o.z1 - o.z0], at: [x, (o.y1 + WALL_H) / 2, mid] });
+      z = o.z1;
+    }
+    out.push({ size: [t, WALL_H, HALF_D - z], at: [x, WALL_H / 2, (z + HALF_D) / 2] });
+  }
+  return boxesGeometry(out);
+}
+
+/** The windows' frames, sills and middle mullions, and the door frames, through the wall so they show on both faces. */
+function frames(kind: FloorKind) {
+  const d = WALL_T + 0.06;
+  const out: BoxSpec[] = [];
+  for (const side of SIDES) {
+    const x = sideSign(side) * (HALF_W + WALL_T / 2);
+    for (const o of openings(kind, side)) {
+      const z = (o.z0 + o.z1) / 2;
+      const w = o.z1 - o.z0;
+      const h = o.y1 - o.y0;
+      if (o.y0 === 0) {
+        // the door: a frame round the opening, set into the wall so it doesn't narrow the doorway
+        out.push({ size: [d, 0.12, w + 0.24], at: [x, o.y1 + 0.06, z] });
+        for (const zz of [o.z0 - 0.06, o.z1 + 0.06]) out.push({ size: [d, o.y1, 0.12], at: [x, o.y1 / 2, zz] });
+        continue;
+      }
+      out.push({ size: [d, 0.1, w], at: [x, o.y1 - 0.05, z] });
+      out.push({ size: [WALL_T + 0.22, 0.08, w + 0.2], at: [x, o.y0 + 0.02, z] });
+      for (const zz of [o.z0 + 0.04, o.z1 - 0.04]) out.push({ size: [d, h, 0.08], at: [x, (o.y0 + o.y1) / 2, zz] });
+      out.push({ size: [0.12, h, 0.07], at: [x, (o.y0 + o.y1) / 2, z] });
+    }
+  }
+  return boxesGeometry(out);
+}
+
+/** One pane in the middle of each window. */
+function panes(kind: FloorKind) {
+  const { w, h, y } = WINDOW;
+  return merged(
+    SIDES.flatMap((side) =>
+      SIDE_OPENINGS[kind][side].windows.map((z) => new THREE.PlaneGeometry(w, h).rotateY(Math.PI / 2).translate(sideSign(side) * (HALF_W + WALL_T / 2), y, z)),
+    ),
+  );
+}
+
+/** The real windows in the side walls, with the walls round them and the side doors' frames. */
+function SideWalls({ kind }: { kind: FloorKind }) {
+  const walls = useMemo(() => sideWalls(kind), [kind]);
+  const frame = useMemo(() => frames(kind), [kind]);
+  const glass = useMemo(() => panes(kind), [kind]);
+  useEffect(() => () => [walls, frame, glass].forEach((g) => g.dispose()), [walls, frame, glass]);
   return (
-    <group position={position} rotation={[0, rotationY, 0]}>
-      <mesh position={[0, 0, 0.01]}>
-        <planeGeometry args={[width, h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+    <group>
+      <mesh geometry={walls} material={toon(WALL)} receiveShadow />
+      <mesh geometry={frame} material={toon('#ffffff')}>
+        <Outlines thickness={0.018} color={INK} />
       </mesh>
-      {/* frame + mullions */}
-      <Box size={[width + 0.16, 0.1, 0.1]} position={[0, h / 2, 0.04]} color="#ffffff" outline shadow={false} />
-      <Box size={[width + 0.16, 0.14, 0.18]} position={[0, -h / 2, 0.06]} color="#ffffff" outline shadow={false} />
-      {[-width / 2, 0, width / 2].map((x) => (
-        <Box key={x} size={[0.08, h, 0.1]} position={[x, 0, 0.04]} color="#ffffff" shadow={false} />
-      ))}
+      <mesh geometry={glass} material={paneMaterial()} renderOrder={1} />
     </group>
   );
 }
@@ -38,19 +126,7 @@ function CeilingLight({ position }: { position: [number, number, number] }) {
   );
 }
 
-export function Shell({
-  accent,
-  floorColor,
-  westWindows = [-8, 0, 8],
-  eastWindows = [-8, 0],
-  seed = 1,
-}: {
-  accent: string;
-  floorColor: string;
-  westWindows?: number[];
-  eastWindows?: number[];
-  seed?: number;
-}) {
+export function Shell({ kind, accent, floorColor }: { kind: FloorKind; accent: string; floorColor: string }) {
   const wall = toon(WALL);
   const t = 0.3;
   const { doorHalf, doorHeight } = ELEVATOR;
@@ -88,6 +164,15 @@ export function Shell({
   }, [floorColor]);
 
   const southSeg = HALF_W - doorHalf;
+  // the side walls' skirting and stripe stop at their doors
+  const sideTrim = SIDES.flatMap((side) => {
+    const s = sideSign(side);
+    const door = SIDE_OPENINGS[kind][side].door;
+    return [
+      [-HALF_D, door - SIDE_DOOR.half - 0.12],
+      [door + SIDE_DOOR.half + 0.12, HALF_D],
+    ].map(([z0, z1]) => ({ p: [s * (HALF_W - 0.02), 0, (z0 + z1) / 2] as const, r: (-s * Math.PI) / 2, w: z1 - z0 }));
+  });
   return (
     <group>
       {/* floor + ceiling */}
@@ -106,12 +191,7 @@ export function Shell({
       <mesh position={[0, WALL_H / 2, -HALF_D - t / 2]} material={wall} receiveShadow>
         <boxGeometry args={[HALF_W * 2 + t * 2, WALL_H, t]} />
       </mesh>
-      <mesh position={[-HALF_W - t / 2, WALL_H / 2, 0]} material={wall} receiveShadow>
-        <boxGeometry args={[t, WALL_H, HALF_D * 2]} />
-      </mesh>
-      <mesh position={[HALF_W + t / 2, WALL_H / 2, 0]} material={wall} receiveShadow>
-        <boxGeometry args={[t, WALL_H, HALF_D * 2]} />
-      </mesh>
+      <SideWalls kind={kind} />
       {[-1, 1].map((s) => (
         <mesh key={s} position={[s * (doorHalf + southSeg / 2), WALL_H / 2, HALF_D + t / 2]} material={wall} receiveShadow>
           <boxGeometry args={[southSeg, WALL_H, t]} />
@@ -124,8 +204,7 @@ export function Shell({
       {/* skirting + accent stripe */}
       {[
         { p: [0, 0, -HALF_D + 0.02] as const, r: 0, w: HALF_W * 2 },
-        { p: [-HALF_W + 0.02, 0, 0] as const, r: Math.PI / 2, w: HALF_D * 2 },
-        { p: [HALF_W - 0.02, 0, 0] as const, r: -Math.PI / 2, w: HALF_D * 2 },
+        ...sideTrim,
         { p: [-(doorHalf + southSeg / 2), 0, HALF_D - 0.02] as const, r: Math.PI, w: southSeg },
         { p: [doorHalf + southSeg / 2, 0, HALF_D - 0.02] as const, r: Math.PI, w: southSeg },
       ].map(({ p, r, w }, i) => (
@@ -137,13 +216,6 @@ export function Shell({
             <boxGeometry args={[w, 0.12, 0.03]} />
           </mesh>
         </group>
-      ))}
-
-      {westWindows.map((z, i) => (
-        <Window key={`w${z}`} position={[-HALF_W + 0.02, 1.95, z]} rotationY={Math.PI / 2} width={5.5} seed={seed * 3 + i} />
-      ))}
-      {eastWindows.map((z, i) => (
-        <Window key={`e${z}`} position={[HALF_W - 0.02, 1.95, z]} rotationY={-Math.PI / 2} width={5.5} seed={seed * 5 + i + 7} />
       ))}
     </group>
   );

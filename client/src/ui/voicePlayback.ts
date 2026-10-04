@@ -1,4 +1,6 @@
 // The voice settings' previews and tests: one at a time, at the master volume, and following M (mute) while they play.
+// The jukebox ducks while a voice speaks.
+import { holdMusicDuck } from './music';
 import { getAudioPrefs, subscribeAudio } from './sfx';
 import { playbackVolume } from './voicePicker';
 
@@ -19,12 +21,14 @@ export function playClip(src: string | Blob): Promise<boolean> {
   };
   level();
   const unsubscribe = subscribeAudio(level);
+  const unduck = holdMusicDuck();
   return new Promise((resolve) => {
     let over = false;
     const done = (ok: boolean) => {
       if (over) return;
       over = true;
       unsubscribe();
+      unduck();
       el.pause();
       if (typeof src !== 'string') URL.revokeObjectURL(url);
       if (stopCurrent === stop) stopCurrent = null;
@@ -52,12 +56,14 @@ export function speakLine(text: string, voiceName: string): Promise<boolean> {
   u.volume = playbackVolume(getAudioPrefs());
   // An utterance's volume is fixed once it starts, so muting mid-sentence stops it instead.
   const unsubscribe = subscribeAudio(() => getAudioPrefs().muted && stopVoice());
+  const unduck = holdMusicDuck();
   return new Promise((resolve) => {
     let over = false;
     const done = (ok: boolean) => {
       if (over) return;
       over = true;
       unsubscribe();
+      unduck();
       if (stopCurrent === stop) stopCurrent = null;
       resolve(ok);
     };

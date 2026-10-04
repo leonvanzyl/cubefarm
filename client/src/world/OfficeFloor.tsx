@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
-import { agentsOnRepo, useStore } from '../store';
+import { agentsOnRepo, floorPrCounts, useStore } from '../store';
 import { AppMonitor } from './AppMonitor';
 import { Desk } from './Desk';
 import { drawSign } from './draw';
@@ -52,14 +52,13 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
   const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
   const qaRecords = useStore((s) => s.qa);
-  const inQa = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status !== 'passed').length;
-  const ready = Object.values(qaRecords).filter((q) => q.repoId === repo.id && q.status === 'passed').length;
+  const { inQa, ready } = useMemo(() => floorPrCounts(repo, qaRecords), [repo, qaRecords]);
   const name = repo.fullName.split('/')[1] ?? repo.fullName;
   const rugColor = shade(repo.color, 0.24);
 
   return (
     <group>
-      <Shell accent={repo.color} floorColor="#d9b48a" seed={repo.floor} />
+      <Shell kind="office" accent={repo.color} floorColor="#d9b48a" />
       {DESK_RUGS.map((r) => (
         <Rug key={r.minZ} position={[(r.minX + r.maxX) / 2, 0.004, (r.minZ + r.maxZ) / 2]} size={[r.maxX - r.minX, r.maxZ - r.minZ]} color={rugColor} />
       ))}

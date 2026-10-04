@@ -3,11 +3,13 @@
 // stumble), and doesn't depend on the frame loop, which stops while a panel pauses the 3D view. The song's clock is
 // performance.now(), so the jukebox keeps dancing, and moves on to the next song, when audio is locked or
 // unavailable. Out of earshot, with the tab hidden, or while it's quiet (a panel, the phone, the elevator ride),
-// nothing is scheduled and it fades out, but the song runs on.
+// nothing is scheduled and it fades out, but the song runs on. Its volume level (musicMix.ts) sets how loud it is and
+// how far it carries, and it ducks under the office's alerts and spoken messages so it never hides them.
 
 import { midiHz, passMix, stepAt, stepTime, type Track } from '../world/jukeboxSongs';
-import { createPanner, groupOutput, listenerAt, recordSfx, type Vec3 } from './sfx';
-import { audible, distance, MAX_DISTANCE } from './sfxMix';
+import { DEFAULT_MUSIC_LEVEL, DUCK_ATTACK, DUCK_GAIN, DUCK_RELEASE, clampMusicLevel, duckHold, musicEdge, musicFalloff, musicLevel } from './musicMix';
+import { createPanner, groupOutput, listenerAt, onAlertSound, recordSfx, type Vec3 } from './sfx';
+import { distance } from './sfxMix';
 
 const TICK_MS = 50;
 /** Seconds of notes scheduled ahead of the clock. */
@@ -16,15 +18,17 @@ const LOOKAHEAD = 0.2;
 const LEAD_IN = 0.1;
 /** A gap between the last bar and the next song. */
 const TAIL = 1.2;
-/** The whole band's level before the Music slider: background music, so it stays under the merge cue even up close. */
+/** The whole band's level at volume level gain 1 (the old fixed level), before the Music slider. */
 const LEVEL = 0.16;
-/** Its loudest moments before distance, for __swarmSfx (measured offline: about half the merge cue's peak). */
+/** Its loudest moments at gain 1 before distance, for __swarmSfx (measured offline: about half the merge cue's peak). */
 const PEAK = 0.075;
 /** Square and saw waves sound much louder than sines at the same gain. */
 const WAVE: Record<OscillatorType, number> = { sine: 1, triangle: 0.9, square: 0.4, sawtooth: 0.45, custom: 0.5 };
 
 interface Chain {
   bus: GainNode;
+  /** Dips under alerts and speech. */
+  duck: GainNode;
   /** Fades the music out over the last few metres before it's too far away to hear. */
   edge: GainNode;
   panner: PannerNode;
@@ -42,6 +46,13 @@ let noiseBuf: AudioBuffer | null = null;
 let quiet = false;
 /** Whether __swarmSfx has this song as heard (true), as asked for but silent (false), or not at all yet (null). */
 let heard: boolean | null = null;
+let level = DEFAULT_MUSIC_LEVEL;
+/** The level and duck state __swarmSfx last saw, so a change gets an entry of its own. */
+let recorded = { level: 0, ducked: false };
+// Ducking: the context time the last alert lets go of the music, and how many spoken messages hold it down.
+let duckCtx: BaseAudioContext | null = null;
+let duckEnd = 0;
+let duckHolds = 0;
 
 /** Starts `t` from the top at `pos` (stopping whatever played); `ended` runs when it finishes by itself. */
 export function playTrack(t: Track, pos: Vec3, ended: () => void) {
@@ -63,6 +74,57 @@ export function setMusicQuiet(q: boolean) {
   if (q === quiet) return;
   quiet = q;
   tick();
+}
+
+/** The volume level (1-6): how loud the music is and how far across the floor it carries. */
+export function setMusicLevel(n: number) {
+  const lv = clampMusicLevel(n);
+  if (lv === level) return;
+  level = lv;
+  if (chain) {
+    glide(chain.bus, LEVEL * musicLevel(lv).gain);
+    fitPanner(chain.panner);
+  }
+  tick();
+}
+
+/** Whether the music is ducked right now (an alert ringing or a message being spoken). */
+export const musicDucked = () => duckHolds > 0 || (duckCtx !== null && duckCtx.currentTime < duckEnd);
+
+/** Ducks the music until the returned function is called: for spoken messages and voice clips. */
+export function holdMusicDuck(): () => void {
+  duckHolds++;
+  scheduleDuck(0);
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    duckHolds--;
+    if (duckCtx) duckEnd = Math.max(duckEnd, duckCtx.currentTime);
+    scheduleDuck(0);
+  };
+}
+
+// Every alert (the gong, cues, chimes) ducks the music while it rings, up to a few seconds.
+onAlertSound((c, start, end) => {
+  duckCtx = c;
+  duckEnd = Math.max(duckEnd, start + duckHold(end - start));
+  scheduleDuck(start);
+});
+
+/** Points the duck's gain at where it should be from context time `from`: down while ducked, then back up smoothly. */
+function scheduleDuck(from: number) {
+  if (!chain) return;
+  const g = chain.duck.gain;
+  const c = chain.duck.context;
+  try {
+    const s = Math.max(c.currentTime, from);
+    g.cancelScheduledValues(s);
+    if (duckHolds > 0 || (duckCtx === c && duckEnd > s)) g.setTargetAtTime(DUCK_GAIN, s, DUCK_ATTACK);
+    if (duckHolds === 0) g.setTargetAtTime(1, duckCtx === c ? Math.max(s, duckEnd) : s, DUCK_RELEASE);
+  } catch {
+    // audio is optional
+  }
 }
 
 /** Stops the music with a quick fade. */
@@ -95,18 +157,21 @@ function tick() {
     return;
   }
   const d = distance(listenerAt(), at);
-  const out = !quiet && !document.hidden && audible(d) ? groupOutput('music') : null;
+  const out = !quiet && !document.hidden && musicEdge(level, d) > 0 ? groupOutput('music') : null;
   if (!out) {
     // Nobody to hear it: let the song run on silently.
     next = Math.max(next, stepAt(t, sec));
     if (chain) glide(chain.edge, 0);
-    if (heard !== false) record(t, false);
+    if (heard !== false || recorded.level !== level) record(t, false);
     return;
   }
   try {
     const c = out.context;
-    if (!chain || chain.bus.context !== c) chain = build(c, out);
-    glide(chain.edge, Math.min(1, (MAX_DISTANCE - d) / 3));
+    if (!chain || chain.bus.context !== c) {
+      chain = build(c, out);
+      scheduleDuck(0);
+    }
+    glide(chain.edge, musicEdge(level, d));
     // Line the audio clock up with the song's the first time, and again if it slipped (a suspended context).
     if (offset === null || Math.abs(c.currentTime - sec - offset) > 0.1) {
       offset = c.currentTime - sec;
@@ -114,32 +179,56 @@ function tick() {
     }
     const from = next;
     for (; next < t.totalSteps && stepTime(t, next) <= sec + LOOKAHEAD; next++) playStep(c, chain.bus, t, next, stepTime(t, next) + offset);
-    if (next > from && heard !== true) record(t, true);
+    if ((next > from && heard !== true) || (heard && (recorded.level !== level || recorded.ducked !== musicDucked()))) record(t, true);
   } catch {
     // audio is optional
   }
 }
 
-/** One __swarmSfx entry when the song goes silent and one each time notes start reaching the listener, not per note. */
+/**
+ * One __swarmSfx entry when the song goes silent, each time notes start reaching the listener, and when the level or
+ * the ducking changes; not per note.
+ */
 function record(t: Track, played: boolean) {
   heard = played;
-  recordSfx(`jukebox:${t.song.id}`, { group: 'music', pos: at, peak: PEAK, played });
+  const ducked = musicDucked();
+  recorded = { level, ducked };
+  const lv = level;
+  const rec = recordSfx(`jukebox:${t.song.id}`, {
+    group: 'music',
+    pos: at,
+    peak: PEAK * musicLevel(lv).gain * (ducked ? DUCK_GAIN : 1),
+    played,
+    falloff: (d) => musicFalloff(lv, d) * musicEdge(lv, d),
+  });
+  rec.level = lv;
+  rec.ducked = ducked;
+}
+
+/** The level's distance model on the music's panner. */
+function fitPanner(p: PannerNode) {
+  const { ref, rolloff, reach } = musicLevel(level);
+  p.refDistance = ref;
+  p.rolloffFactor = rolloff;
+  p.maxDistance = reach;
 }
 
 function build(c: BaseAudioContext, out: AudioNode): Chain {
   release(chain);
   const bus = c.createGain();
-  bus.gain.value = LEVEL;
+  bus.gain.value = LEVEL * musicLevel(level).gain;
   // Takes the fizz off the square waves: a little jukebox speaker.
   const tone = c.createBiquadFilter();
   tone.type = 'lowpass';
   tone.frequency.value = 5200;
   tone.Q.value = 0.5;
+  const duck = c.createGain();
   const edge = c.createGain();
   edge.gain.value = 0;
   const panner = createPanner(c, at);
-  bus.connect(tone).connect(edge).connect(panner).connect(out);
-  return { bus, edge, panner };
+  fitPanner(panner);
+  bus.connect(tone).connect(duck).connect(edge).connect(panner).connect(out);
+  return { bus, duck, edge, panner };
 }
 
 function release(ch: Chain | null) {
