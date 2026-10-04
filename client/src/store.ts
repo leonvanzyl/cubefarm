@@ -394,6 +394,8 @@ export interface KanbanCard {
   tone?: 'warn' | 'bad' | 'good';
   prNumber?: number;
   qa?: QaView;
+  /** The 3D board draws it as an outline: its sticky is off the board, with a QA tester (StickyNotes.tsx). */
+  ghost?: boolean;
 }
 
 export interface KanbanColumns {

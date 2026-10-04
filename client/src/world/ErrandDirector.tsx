@@ -168,7 +168,7 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
   const start = (p: Person, e: Errand): boolean => {
     const taken = new Set<string>();
     for (const o of people.values()) if (o.dest) taken.add(o.dest.id);
-    const ids = spotChoices(e.spot, w.spots.map((s) => s.id), taken);
+    const ids = spotChoices(e.where?.(p.id) ?? e.spot, w.spots.map((s) => s.id), taken);
     const dest = pickSpot(ids.map((id) => spotById(w, id)!), p.home, Math.random());
     const path = dest && findPath(w, p.home, dest);
     if (!dest || !path) return false;
@@ -178,7 +178,8 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     return true;
   };
 
-  const goHome = (p: Person, hurry: boolean, at: Pt) => {
+  const goHome = (p: Person, hurry: boolean, at: Pt, how: 'done' | 'cut' = 'cut') => {
+    p.errand?.end?.(p.id, how);
     p.hurry = hurry;
     p.phaseAt = run.clock;
     // Barely left the desk: just sit back down.
@@ -203,7 +204,7 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     const dx = goal.x - x;
     const dz = goal.z - z;
     const d = Math.hypot(dx, dz);
-    const gesture = p.phase === 'returning' && !p.hurry ? (p.errand?.carry ?? 'none') : 'none';
+    const gesture = p.phase === 'leaving' ? (p.errand?.bring ?? 'none') : p.phase === 'returning' && !p.hurry ? (p.errand?.carry ?? 'none') : 'none';
     if (last && (stop ? d < 0.08 && (bodyState(p.id)?.speed ?? 0) < 0.05 : d < PASS)) return true;
     const face = last && p.dest && p.phase === 'leaving' ? headingFor(p.dest.facing) : Math.atan2(-dx, -dz);
     let tx = goal.x;
@@ -270,7 +271,7 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
       switch (p.phase) {
         case 'leaving': {
           if (long > GIVE_UP.leaving) goHome(p, false, st);
-          else if (follow(p, st.x, st.z, WALK_SPEED, true, dt) && e && p.dest) {
+          else if (follow(p, st.x, st.z, e?.speed ?? WALK_SPEED, true, dt) && e && p.dest) {
             p.phase = 'there';
             p.phaseAt = run.clock;
             p.step = -1;
@@ -285,15 +286,27 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
           p.step++;
           const s = e.steps[p.step];
           if (!s) {
+            goHome(p, false, st, 'done');
+            break;
+          }
+          if (s.cue && e.cue && !e.cue(p.id, s.cue)) {
             goHome(p, false, st);
             break;
           }
           p.stepLeft = s.seconds * (0.8 + Math.random() * 0.45);
-          setBody(p.id, { mode: 'standing', x: p.dest.x, z: p.dest.z, heading: headingFor(p.dest.facing), gesture: s.gesture });
+          // A few steps to another spot first (along the board): the step lasts at least the walk.
+          const next = s.to ? spotById(w, s.to(p.id) ?? '') : undefined;
+          const speed = e.speed ?? WALK_SPEED;
+          if (next && next !== p.dest) {
+            p.stepLeft = Math.max(p.stepLeft, Math.hypot(next.x - p.dest.x, next.z - p.dest.z) / speed + 0.6);
+            p.dest = next;
+            report(p);
+          }
+          setBody(p.id, { mode: next ? 'walking' : 'standing', x: p.dest.x, z: p.dest.z, heading: headingFor(p.dest.facing), gesture: s.gesture, speed });
           break;
         }
         case 'returning': {
-          if (long > GIVE_UP.returning || follow(p, st.x, st.z, p.hurry ? HURRY_SPEED : WALK_SPEED, false, dt)) {
+          if (long > GIVE_UP.returning || follow(p, st.x, st.z, p.hurry ? HURRY_SPEED : (e?.speed ?? WALK_SPEED), false, dt)) {
             p.phase = 'sitting';
             p.phaseAt = run.clock;
             seatBody(p.id); // the body walks the last step to beside the chair and sits
@@ -320,7 +333,8 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
       for (const e of wanted(errands(), a, state)) p.queue = enqueue(p.queue, e.name, run.clock);
       const kept = prune(p.queue, run.clock, (n) => {
         const e = errandNamed(n);
-        return !!e && mayStart(a.status, e);
+        // errands someone claims (the board's) also drop out once they're no longer wanted
+        return !!e && mayStart(a.status, e, state.statusFor) && (!e.claim || e.when(a, state));
       });
       // Waited too long for a slot: skip it, and sit a while before trying again.
       if (kept.length < p.queue.length && p.queue.some((q) => run.clock - q.at >= QUEUE_SECONDS)) {
@@ -332,9 +346,11 @@ export function ErrandDirector({ floor, agents }: { floor: FloorKind; agents: Ag
     }
     for (const p of admit(ready, away)) {
       const [head, ...rest] = p.queue;
-      p.queue = rest;
       const e = errandNamed(head.name);
+      if (e?.claim && !e.claim(p.id)) continue; // not yet: it stays queued
+      p.queue = rest;
       if (!e || !start(p, e)) {
+        e?.end?.(p.id, 'cut');
         // nowhere free to go: sit a while longer
         p.seatedAt = run.clock;
         p.restless = restlessSeconds(Math.random());

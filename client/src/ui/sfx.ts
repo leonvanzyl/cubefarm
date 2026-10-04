@@ -451,6 +451,22 @@ export function swish() {
   [784, 988, 1318.5].forEach((freq, i) => tone({ freq, type: 'triangle', at: 0.2 + i * 0.08, dur: 0.3, peak: 0.06, group: 'toys' }));
 }
 
+/** A sticky note peeled off the whiteboard (or a monitor), from where it was, `at` seconds from now: a short papery rip. */
+export function stickyPeel(pos: Vec3, at = 0) {
+  const v = 0.85 + Math.random() * 0.3;
+  const o = { name: 'sticky:peel', group: 'typing', pos } as const;
+  noise({ ...o, at, dur: 0.15 * v, peak: 0.045, filter: 'bandpass', freq: 2400 * v, to: 5200 * v, q: 1.6, attack: 0.04 });
+  noise({ ...o, at: at + 0.1 * v, dur: 0.04, peak: 0.025, filter: 'highpass', freq: 3800 * v, attack: 0.002 });
+}
+
+/** A sticky note slapped onto the whiteboard, from where it lands: a soft papery pat over a little thump. */
+export function stickySlap(pos: Vec3) {
+  const v = 0.88 + Math.random() * 0.24;
+  const o = { name: 'sticky:slap', group: 'typing', pos } as const;
+  noise({ ...o, dur: 0.07 * v, peak: 0.07, filter: 'lowpass', freq: 2000 * v, to: 700, attack: 0.002 });
+  tone({ ...o, freq: 160 * v, to: 95 * v, dur: 0.09, peak: 0.045, attack: 0.003 });
+}
+
 // ---------- event cues ----------
 
 export type Cue = 'error' | 'qaFailed' | 'ready' | 'merged' | 'welcome';

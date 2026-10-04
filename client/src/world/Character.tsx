@@ -49,6 +49,7 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
   stretch: { l: { pitch: 1.5, yaw: 0 }, r: { pitch: 1.5, yaw: 0 }, head: 0.3 }, // both arms up, a look at the ceiling
+  cheer: { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch }, // the seated cheer's arms up in a V
 };
 
 export function Character({ agent, chair, children }: { agent: Agent; chair?: RefObject<THREE.Object3D | null>; children?: ReactNode }) {

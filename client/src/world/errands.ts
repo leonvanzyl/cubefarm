@@ -29,6 +29,10 @@ export interface ErrandState {
 export interface ErrandStep {
   gesture: Gesture;
   seconds: number;
+  /** Walk to this spot first (a few steps, say along the board); the step lasts at least as long as the walk. */
+  to?: (agentId: string) => string | null;
+  /** Passed to the errand's `cue` as the step starts. */
+  cue?: string;
 }
 
 export interface Errand {
@@ -43,6 +47,20 @@ export interface Errand {
   steps: readonly ErrandStep[];
   /** What their hands do on the walk back (carrying something). */
   carry?: Gesture;
+  /** ...and on the walk there. */
+  bring?: Gesture;
+  /** Walking speed (m/s) there and back, when it's brisker than a stroll. */
+  speed?: number;
+  /** Work errands that may still start this many seconds into 'working' (a tester fetching the PR they were just given). */
+  grace?: number;
+  /** Where to for this person, overriding `spot` (an errand to one particular board column). */
+  where?(agentId: string): readonly string[];
+  /** Asked just before they set off: false leaves it queued for now (only so many at the board at once). */
+  claim?(agentId: string): boolean;
+  /** A step with a `cue` is starting; false cuts the errand short and sends them back. */
+  cue?(agentId: string, cue: string): boolean;
+  /** They're done with it and heading back ('done' after every step), or it was cut short or never got going ('cut'). */
+  end?(agentId: string, how: 'done' | 'cut'): void;
 }
 
 // ---------- who may go, and how many at once ----------
@@ -57,8 +75,9 @@ const FREE: readonly AgentStatus[] = ['idle', 'done', 'stopped'];
 /** Free to wander: nothing to work on. ('error' stays slumped at the desk, where the manager will see it.) */
 export const isFree = (status: AgentStatus) => FREE.includes(status);
 
-/** May someone with this status set off on this errand? Work errands also while preparing. */
-export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work'>) => isFree(status) || (!!errand.work && status === 'preparing');
+/** May someone with this status set off on this errand? Work errands also while preparing (or within their `grace`). */
+export const mayStart = (status: AgentStatus, errand: Pick<Errand, 'work' | 'grace'>, statusFor = Infinity) =>
+  isFree(status) || (!!errand.work && (status === 'preparing' || (status === 'working' && statusFor < (errand.grace ?? 0))));
 
 /** May they carry on with it, or must they hurry back to their desk? Work errands may finish once the work starts. */
 export const mayContinue = (status: AgentStatus, errand: Pick<Errand, 'work'>) =>
@@ -78,7 +97,7 @@ export const restlessSeconds = (rand: number, arriving = false) => (arriving ? 6
 
 /** The errands this person wants to go on now and may, in registry order. */
 export function wanted(registry: readonly Errand[], agent: ErrandAgent, state: ErrandState): Errand[] {
-  return registry.filter((e) => mayStart(agent.status, e) && e.when(agent, state));
+  return registry.filter((e) => mayStart(agent.status, e, state.statusFor) && e.when(agent, state));
 }
 
 // ---------- the queue ----------
