@@ -205,7 +205,10 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         const act = eAction(s.held, s.focus?.action.kind ?? null);
         if (act === 'sip') sipCoffee();
         else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
-        else if (s.focus) runFocusAction(s.focus);
+        else if (s.focus) {
+          if (s.focus.action.kind === 'phone') e.preventDefault(); // don't type the "e" into the phone's message box
+          runFocusAction(s.focus);
+        }
       }
       // − and + turn the jukebox down and up while you look at it.
       if (s.focus?.action.kind === 'jukebox') {

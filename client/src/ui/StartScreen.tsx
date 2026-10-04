@@ -1,5 +1,6 @@
 import { usePhoneBadge, useStore } from '../store';
 import { requestLook } from '../world/Player';
+import { setMode } from '../pocket/mode';
 import { CEO_ID } from '../../../shared/types';
 import { SetupWizard } from './SetupWizard';
 import { unlockAudio } from './sfx';
@@ -43,7 +44,12 @@ export function StartScreen() {
         <button className="btn btn-big" onClick={enter} disabled={!loaded}>
           {loaded ? 'Enter the office' : connected ? 'Loading…' : 'Connecting to the swarm server…'}
         </button>
-        <div className="start-meta">{demo && <span className="pill pill-demo">DEMO MODE: fake repos, fake agents</span>}</div>
+        <div className="start-meta">
+          <button className="linkish start-pocket" onClick={() => setMode('pocket')} title="The office without the 3D building: tabs for the company, the CEO chat, the board, the team and approvals">
+            📱 Pocket mode, for phones and touch screens
+          </button>
+          {demo && <span className="pill pill-demo">DEMO MODE: fake repos, fake agents</span>}
+        </div>
       </div>
     </div>
   );

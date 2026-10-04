@@ -569,8 +569,8 @@ function DogBody({ floor, level, groups }: { floor: ToyFloor; level: number; gro
 // ---------- the floor ----------
 
 /**
- * QA's throw (__swarmDog.fetch): a loose ball straight into your hands, then thrown along your view as charged to
- * `power`, exactly as a real throw goes. Works on any floor with toys, dog or no dog.
+ * QA's throw (__swarmDog.fetch): a loose ball (nobody's holding it) straight into your hands, then thrown along your
+ * view as charged to `power`, exactly as a real throw goes. Works on any floor with toys, dog or no dog.
  */
 function useQaThrow() {
   const { world } = useRapier();
@@ -579,7 +579,7 @@ function useQaThrow() {
     setDogThrow((id, power) => {
       const st = useStore.getState();
       if (st.travel || st.overlay) return null;
-      const loose = npcBalls().filter((b) => (id ? b.id === id : true) && ballHolder(b.id) !== 'player');
+      const loose = npcBalls().filter((b) => (id ? b.id === id : true) && ballHolder(b.id) === null);
       loose.sort((a, b) => Math.hypot(a.x - camera.position.x, a.z - camera.position.z) - Math.hypot(b.x - camera.position.x, b.z - camera.position.z));
       const pick = loose[0];
       if (!pick) return null;

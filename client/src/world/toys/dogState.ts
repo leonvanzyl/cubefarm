@@ -181,8 +181,8 @@ function snapshot() {
   return {
     name: dogName(),
     floor: where?.floor ?? null,
-    /** Drawn on your floor right now. */
-    here: !!l,
+    /** Drawn on your floor right now (not while it rides the elevator with you). */
+    here: !!l && where?.floor === playerFloor(),
     x: l ? Math.round(l.x * 100) / 100 : null,
     z: l ? Math.round(l.z * 100) / 100 : null,
     y: l ? Math.round(l.y * 100) / 100 : null,
@@ -199,7 +199,7 @@ function snapshot() {
     ...dogStats,
     /** Calls it to you (by elevator from another floor). */
     come,
-    /** Puts a loose ball (that one, or the nearest) in your hands and throws it along your view with power 0-1, as a real throw. */
+    /** Puts a loose ball (that one, or the nearest nobody holds) in your hands and throws it along your view with power 0-1, as a real throw. */
     fetch: (ballId?: string, power = 0.5) => thrower?.(ballId ?? null, power) ?? null,
     pet: () => hooks?.pet(),
     nap: () => hooks?.nap(),

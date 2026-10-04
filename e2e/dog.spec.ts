@@ -17,8 +17,9 @@ test('the dog comes when called and fetches a thrown ball back to your feet', as
   await expect.poll(() => page.evaluate(() => (window as unknown as { __swarmToys: { balls: unknown[] } }).__swarmToys.balls.length), { timeout: 90_000 }).toBeGreaterThan(0);
   await page.evaluate(() => (window as unknown as { __swarmDog: { come(): void } }).__swarmDog.come());
   await expect.poll(async () => (await dog(page)).state, { timeout: 60_000 }).toBe('follow');
-  const thrown = await page.evaluate(() => (window as unknown as { __swarmDog: { fetch(id: string, power: number): string | null } }).__swarmDog.fetch('basketball', 0.4));
-  expect(thrown).toBe('basketball');
+  // the yarn ball: nobody else plays with it (people shoot hoops and toss the beach ball)
+  const thrown = await page.evaluate(() => (window as unknown as { __swarmDog: { fetch(id: string, power: number): string | null } }).__swarmDog.fetch('yarn-ball', 0.4));
+  expect(thrown).toBe('yarn-ball');
   await expect.poll(async () => (await dog(page)).returned, { timeout: 90_000, message: 'the ball back at your feet' }).toBe(1);
   const d = await dog(page);
   expect(d.fetches).toBe(1);
