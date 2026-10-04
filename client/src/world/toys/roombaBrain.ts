@@ -299,7 +299,7 @@ export interface Roomba {
   /** How fast it moved in the last step (m/s), for the brush and wheels. */
   speed: number;
   seed: number;
-  /** ROOMBA_EVENT bits since the reader last cleared them. Only ever set here, never read. */
+  /** ROOMBA_EVENT bits since the reader (RoombaSounds.tsx) last cleared them. Never read here, so they can't change how it drives. */
   events: number;
 }
 
