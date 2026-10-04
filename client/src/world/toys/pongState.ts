@@ -36,7 +36,6 @@ export interface Match {
 
 let match: Match | null = null;
 let seq = 1;
-let version = 0;
 const listeners = new Set<() => void>();
 
 /** The match on this floor, or null. Mutated in place by the toy world; call `pongChanged` after a change the HUD shows. */
@@ -44,7 +43,6 @@ export const pongMatch = () => match;
 
 /** Something the HUD or the scoreboard shows changed (a point, a seat, the phase). */
 export function pongChanged() {
-  version++;
   cached = null;
   for (const fn of listeners) fn();
 }
@@ -97,6 +95,7 @@ export function joinPong(end: End): End | null {
   else if (isPlayer(there)) return otherEnd(end); // already playing at the other end
   if (m.seats[mine]?.kind === 'agent' || m.phase !== 'waiting') reset(m);
   m.seats[mine] = { kind: 'player' };
+  centrePaddle();
   pongChanged();
   useStore.getState().setHeld({ kind: 'paddle', id: mine });
   return mine;
@@ -239,7 +238,7 @@ export function paddleTaken(end: End): boolean {
  * (`back`, negative over the table), its height, and its velocity (m/s, smoothed), which shapes the shot.
  */
 export const paddle = { lat: 0, back: 0.25, y: TABLE.top + 0.2, vLat: 0, vBack: 0, lastLat: 0, lastBack: 0.25 };
-export const PADDLE_RANGE = { lat: 1.0, backMin: -0.45, backMax: 0.95 };
+const PADDLE_RANGE = { lat: 1.0, backMin: -0.45, backMax: 0.95 };
 /** Metres the paddle moves per pixel of mouse movement. */
 const PER_PX = 0.0024;
 
@@ -344,9 +343,6 @@ export function pongView(): PongView | null {
   };
   return cached;
 }
-
-/** A change counter, for useSyncExternalStore and the probe. */
-export const pongVersion = () => version;
 
 // ---------- the toy world's side, for the probe ----------
 

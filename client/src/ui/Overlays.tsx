@@ -175,6 +175,12 @@ function Help() {
           Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
           arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <kbd>E</kbd> for a happy spin.
         </p>
+        <h3>Ping-pong</h3>
+        <p>
+          Every office floor has a ping-pong table south of the desks. Press <kbd>E</kbd> at either end to pick up a paddle: the view moves behind your end, and someone free on the floor comes over to play you.
+          The mouse moves the paddle (up is towards the net); swing it through the ball for pace, forwards for topspin, back for backspin, sideways to curve it. Click to toss and serve. Games go to 11, won by 2, and
+          land on the floor's leaderboard on the wall. <kbd>G</kbd> or <kbd>Esc</kbd> puts the paddle down at any time. Now and then two idle teammates play each other: press <kbd>E</kbd> at an end to step in.
+        </p>
         <h3>Foam blasters</h3>
         <p>
           Every floor has a rack of foam blasters by the south wall: aim at it and press <kbd>E</kbd> to take one. <b>Fire</b>: click or <kbd>F</kbd> (12 darts, up to four a second). <b>Reload</b>: <kbd>R</kbd>. <b>Drop</b>: <kbd>G</kbd>, then <kbd>E</kbd> picks it up again.

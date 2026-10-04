@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KANBAN_KEYS } from './draw';
-import { BOARD, PLAYER_RADIUS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders } from './layout';
+import { BOARD, PLAYER_RADIUS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders, pongTableRect } from './layout';
 import { BALCONY, BALCONY_OUT, HALF_W, SIDE_OPENINGS, SIDES, sideSign } from './layout';
 import { segmentClear, type Pt } from './toys/roombaBrain';
 import { WALK_R, WALK_SPEED, findPath, spot, standable, steer, walkways, type Body, type FloorKind, type Mover, type Walkways } from './walkways';
@@ -34,7 +34,7 @@ describe('named spots', () => {
   it('office floors have every desk, QA station, board column and break-area spot', () => {
     const w = walkways('office');
     expect(w.homes.map((s) => s.id)).toEqual([...Array.from({ length: 12 }, (_, i) => `desk-${i}`), 'qa-0', 'qa-1', 'qa-2']);
-    for (const id of ['coffee', 'mugs', 'cooler', 'gong', 'couch', 'hoop', 'balls', 'jukebox', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
+    for (const id of ['coffee', 'mugs', 'cooler', 'gong', 'couch', 'hoop', 'balls', 'pong-west', 'pong-east', 'jukebox', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
     expect(spot(w, 'couch')!.sit).toBeDefined();
   });
 
@@ -75,6 +75,24 @@ describe('named spots', () => {
         }
       }
     }
+  });
+});
+
+describe('the ping-pong table', () => {
+  it('stands clear of every walkway, with a spot for a player behind each end, facing down it', () => {
+    const w = walkways('office');
+    const table = pongTableRect();
+    for (const end of ['west', 'east'] as const) {
+      const s = spot(w, `pong-${end}`)!;
+      expect(standable(w, s.x, s.z), end).toBe(true);
+      expect(s.z).toBeCloseTo((table.minZ + table.maxZ) / 2);
+      expect(Math.min(Math.abs(s.x - table.minX), Math.abs(s.x - table.maxX)), end).toBeLessThan(0.8);
+      expect(Math.cos(s.facing) * (end === 'west' ? 1 : -1), end).toBeCloseTo(1); // facing the other end
+    }
+    expect(officeColliders()).toContainEqual(table);
+    // nobody can stand on it, and the elevator's walkway past it stays open
+    expect(standable(w, (table.minX + table.maxX) / 2, (table.minZ + table.maxZ) / 2)).toBe(false);
+    expect(findPath(w, spot(w, 'elevator')!, spot(w, 'desk-1')!)).not.toBeNull();
   });
 });
 

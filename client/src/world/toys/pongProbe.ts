@@ -8,7 +8,7 @@ import { repoOnFloor, useStore } from '../../store';
 import { isFree } from '../errands';
 import { invitePong } from '../pongErrands';
 import type { Swing } from './pongPhysics';
-import { autopilot, joinPong, leavePong, paddle, pongMatch, pongRunner, pongView, type PongRunnerProbe } from './pongState';
+import { autopilot, joinPong, leavePong, paddle, pongClick, pongMatch, pongRunner, pongView, type PongRunnerProbe } from './pongState';
 
 type DrillBall = Parameters<PongRunnerProbe['drill']>[0][number];
 
@@ -53,6 +53,8 @@ const probe = {
   join: (end: 'west' | 'east' = 'east') => joinPong(end),
   /** Put it down (as G or Esc does). */
   leave: () => leavePong(),
+  /** A click while playing: the toss for the player's serve, or a rematch after a game. */
+  click: () => pongClick(),
   /** Serve now: the player's serve (toss and hit), or hurry the agent's. */
   serve: () => pongRunner()?.serveNow() ?? false,
   /** Play the player's side: meet every ball with this swing (forward m/s towards the net, right m/s). */

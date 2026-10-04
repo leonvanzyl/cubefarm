@@ -2,7 +2,7 @@
 // up), where to stand and hold the paddle, whether they miss this one, and where they put the return, with an aim
 // error that shrinks as the skill grows. The toy world (PingPong.tsx) runs it for every agent at the table.
 
-import { bouncesOf, forecast, halfAt, otherEnd, ownFrame, fromOwn, onHalf, PONG, TABLE, topspinOf, type BallState, type End, type Shot, type V3 } from './pongPhysics';
+import { bouncesOf, forecast, fromOwn, onHalf, otherEnd, ownFrame, PONG, TABLE, topspinOf, type BallState, type End, type Shot, type V3 } from './pongPhysics';
 
 const TOP = TABLE.top;
 const HALF_WID = TABLE.wid / 2;
@@ -174,9 +174,6 @@ export function swingPaddle(end: End, contact: V3, t: number, hitAt: number): V3
   const k = to((t - hitAt) / 0.25);
   return { ...fromOwn(end, o.back - 0.38 * k, o.lat - 0.25 * k), y: contact.y + 0.3 * k };
 }
-
-/** The half a ball at `p` is over, from a player's point of view: theirs or the other's. */
-export const sideOf = (end: End, p: V3) => (halfAt(p.x) === end ? 'mine' : 'theirs');
 
 /** Whether a serve or return from `b` lands on the far half for the player at `by` (a forecast, for tests and the probe). */
 export function landsIn(b: BallState, by: End, serve = false): boolean {

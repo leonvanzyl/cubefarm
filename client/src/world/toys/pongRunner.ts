@@ -4,8 +4,7 @@
 // stepped before and after every physics step: PingPong.tsx runs it on the toy world's Rapier ball, and pongSim.ts on
 // a bare Rapier world in the tests.
 
-import type { PongResult } from '../../../../shared/pong';
-import { PONG_PLAYER } from '../../../../shared/pong';
+import { PONG_PLAYER, type PongResult } from '../../../../shared/pong';
 import type { Gesture } from '../body';
 import { aiServe, aiShot, atContact, contactFor, missChance, REACH, reachTo, READY, readyPaddle, skillFor, ratingOf, standFor, swingPaddle, type Contact, type Skill, type Wobble } from './pongAi';
 import {
@@ -27,7 +26,6 @@ import {
   type BallState,
   type End,
   type Shot,
-  type Swing,
   type V3,
 } from './pongPhysics';
 import { newRally, rallyStep, scorePoint, serverOf, toHit, newGame, type Call, type Rally, type RallyEvent } from './pongRules';
@@ -266,7 +264,7 @@ export class PongRunner {
     if (onTable) {
       if (this.io.sounds) tablePock(p, Math.min(1, -v.y / 5));
       this.event(m, { kind: 'bounce', on: halfAt(p.x) });
-      if (m.phase !== 'rally') return this.endStep();
+      if (m.phase !== 'rally') return void (this.padBackPrev = paddle.back);
     }
     const nearNet = Math.abs(p.x - TABLE.x) < R + PONG.net.t / 2 + 0.02 && p.y < NET_TOP + R && p.y > TOP && Math.abs(p.z - TABLE.z) < HALF_WID + PONG.net.overhang + R;
     if (nearNet && !this.inNet) {
@@ -280,10 +278,6 @@ export class PongRunner {
       const turn = toHit(this.rally);
       if (turn) this.contact(m, turn, this.body.translation(), this.body.linvel());
     }
-    this.endStep();
-  }
-
-  private endStep() {
     this.padBackPrev = paddle.back;
   }
 
@@ -489,8 +483,10 @@ export class PongRunner {
   }
 
   private bounced(m: Match, on: End) {
-    // the ball reached someone's half: an agent there reads it properly now, and decides
     if (toHit(this.rally) !== on) return;
+    // a return of the player's that made it onto the far half
+    if (m.seats[this.rally.striker]?.kind === 'player' && this.rally.hits > 0) this.returns.landed++;
+    // the ball reached someone's half: an agent there reads it properly now, and decides
     if (m.seats[on]?.kind === 'agent' && !this.drillState) this.decide(on, true);
     if (m.seats[on]?.kind === 'player' && autopilot.on) this.playerPlan = this.read(on, true);
   }
@@ -593,8 +589,7 @@ export class PongRunner {
   private strike(m: Match, end: End, p: V3, shot: Shot, smash: boolean, wobble: Wobble | null = null) {
     const sol = solveShot(p, end, shot);
     this.launch(wobble ? offLine(sol.v, wobble) : sol.v, sol.w);
-    this.returns.tried++;
-    if (sol.land) this.returns.landed++;
+    if (m.seats[end]?.kind === 'player') this.returns.tried++;
     this.lastShot = { by: end, speed: shot.speed, top: shot.top, side: shot.side, landsAt: sol.land, smash };
     if (this.io.sounds) {
       paddlePock(p, Math.min(1, shot.speed / 12));
@@ -753,5 +748,3 @@ export class PongRunner {
     this.park();
   }
 }
-
-export type { Swing };
