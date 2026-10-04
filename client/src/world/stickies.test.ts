@@ -146,7 +146,8 @@ describe('the queue', () => {
 
   it(`lets at most ${BOARD_MAX} people head for the board at once, however many moves come in`, () => {
     let jobs: Job[] = [];
-    for (let i = 0; i < 8; i++) jobs = addMove(jobs, move(`p${i}`, `pr-${i}`), 0, i).jobs;
+    const cols = ['backlog', 'progress', 'ready', 'merged'] as const; // different columns, so only the cap holds them back
+    for (let i = 0; i < 8; i++) jobs = addMove(jobs, { ...move(`p${i}`, `pr-${i}`), from: { col: cols[i % 4], index: 0, card: { ...working(), key: `a-p${i}` } } }, 0, i).jobs;
     let away = 0;
     for (const j of jobs) {
       if (!mayGo(jobs, j.move.agentId, 1)) continue;
@@ -158,6 +159,19 @@ describe('the queue', () => {
     jobs[0].stage = 'held'; // carrying it home, away from the board: someone else may go
     expect(mayGo(jobs, jobs[BOARD_MAX].move.agentId, 1)).toBe(true);
     expect(mayGo(jobs, 'p0', START_BY + 1)).toBe(false); // too late anyway
+  });
+
+  it('sends one person at a time to each column', () => {
+    const take = (agentId: string, key: string): Move => ({ kind: 'take', agentId, from: { col: 'qa', index: 0, card: pr(Number(key.slice(3)), 'queued') }, to: 'monitor', key });
+    const jobs: Job[] = [
+      { id: 1, move: take('a', 'pr-1'), at: 0, stage: 'going' },
+      { id: 2, move: take('b', 'pr-2'), at: 0, stage: 'waiting' },
+      { id: 3, move: move('c', 'pr-3'), at: 0, stage: 'waiting' }, // In progress to In QA: also at In QA
+      { id: 4, move: { ...move('d', 'm-4', 'merge'), from: { col: 'ready', index: 0, card: pr(4, 'passed') }, to: 'merged' }, at: 0, stage: 'waiting' },
+    ];
+    expect(mayGo(jobs, 'b', 1)).toBe(false);
+    expect(mayGo(jobs, 'c', 1)).toBe(true); // starts at In progress; In QA is only where it ends up
+    expect(mayGo(jobs, 'd', 1)).toBe(true);
   });
 
   it('board errands may start while preparing, or within their grace once work starts', () => {

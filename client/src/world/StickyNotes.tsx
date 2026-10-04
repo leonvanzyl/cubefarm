@@ -18,6 +18,7 @@ import {
   boardPose,
   displayColumns,
   findCard,
+  firstColumn,
   holdFor,
   mayGo,
   monitorPose,
@@ -233,7 +234,7 @@ function makeBoard(c: Ctrl): Board {
     where(id) {
       const j = jobOf(c, id, ['waiting', 'going']);
       if (!j) return [];
-      return [`board-${j.move.kind === 'pass' || j.move.kind === 'fail' ? j.move.to : j.move.from.col}`];
+      return [`board-${firstColumn(j.move)}`];
     },
     target(id) {
       const j = jobOf(c, id, ['going', 'held']);

@@ -149,11 +149,16 @@ export function addMove(jobs: readonly Job[], move: Move, at: number, id: number
 export const overdue = (j: Job, now: number) =>
   now - j.at > (j.stage === 'waiting' ? START_BY : j.stage === 'held' && j.move.kind === 'take' ? CARRY_MAX : HOLD_MAX);
 
-/** May this person set off on their job now? Only so many at the board at once. */
+/** The column someone walks up to first: where the sticky is, or where a tester brings it back to. */
+export const firstColumn = (m: Move): Col => (m.kind === 'pass' || m.kind === 'fail' ? (m.to as Col) : m.from.col);
+
+/** May this person set off on their job now? Only so many at the board at once, and one at each column. */
 export function mayGo(jobs: readonly Job[], agentId: string, now: number): boolean {
   const mine = jobs.find((j) => j.move.agentId === agentId && j.stage === 'waiting');
   const atBoard = jobs.filter((j) => j.stage !== 'waiting' && !(j.stage === 'held' && j.move.kind === 'take')); // not those carrying one home
-  return !!mine && !overdue(mine, now) && atBoard.length < BOARD_MAX;
+  if (!mine || overdue(mine, now) || atBoard.length >= BOARD_MAX) return false;
+  const col = firstColumn(mine.move);
+  return !atBoard.some((j) => firstColumn(j.move) === col || j.move.to === col);
 }
 
 // ---------- where things are ----------
