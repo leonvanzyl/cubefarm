@@ -8,7 +8,9 @@ import { CLIS } from './clis.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR } from './config.ts';
+import { DAY_MS, emptyHistory, HOUR_MS, prune, startOfDay, type OpsHistory } from './metrics.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
+import type { UsageWarning } from './pacing.ts';
 import { VoiceApiError, type VoiceApi } from './voice.ts';
 import type { NotifyTransport } from './notifier.ts';
 
@@ -38,14 +40,18 @@ const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
 let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
-/** Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. */
+/**
+ * Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. They say they
+ * took a few minutes, like real CI, though the demo doesn't make you wait that long.
+ */
 function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
-  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [] });
+  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [], checkRun: null });
   setTimeout(() => {
     Object.assign(pr, {
       checks: fail ? 'failing' : 'passing',
       pendingChecks: [],
       failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${++runSeq}/job/1` }] : [],
+      checkRun: { ms: Math.round((2.5 + Math.random() * 5) * 60_000), doneAt: Date.now() },
     });
   }, 12_000 + Math.random() * 10_000);
 }
@@ -115,12 +121,14 @@ function devScript(opts: SessionOptions, cb: SessionCallbacks, issueNumber: numb
       { kind: 'result', text: '  ⎿ ✓ src/__tests__/feature.test.ts (4 tests) 38ms' },
       { kind: 'result', text: '    Test Files  7 passed (7)' },
     ],
+    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run typecheck' }, { kind: 'result', text: '  ⎿ (no output)' }],
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ npm run dev -- --port ${port} &` }, { kind: 'result', text: '  ⎿ VITE ready in 412 ms' }],
     () => cb.browserUrl(`http://localhost:${port}/`),
     [{ kind: 'tool', tool: 'mcp__playwright__browser_navigate', text: `⏺ 🌐 navigate http://localhost:${port}/` }, { kind: 'result', text: `  ⎿ Page URL: http://localhost:${port}/` }],
     () => cb.screenshot(Buffer.from(screenshotSvg(issueTitle, `localhost:${port}`, hue)), 'image/svg+xml'),
     [{ kind: 'tool', tool: 'mcp__playwright__browser_take_screenshot', text: '⏺ 🌐 take_screenshot' }, { kind: 'result', text: '  ⎿ Took a screenshot of the current page' }],
-    [{ kind: 'text', text: '● Looks right in the browser. Committing and opening a PR.' }],
+    [{ kind: 'text', text: '● Looks right in the browser. A production build, then the PR.' }],
+    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.62s' }],
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ git commit -am "feat: ${issueTitle.toLowerCase()}"` }, { kind: 'result', text: `  ⎿ [${branch} 3f2a91c] feat: ${issueTitle.toLowerCase()}` }],
     [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git push -u origin HEAD' }, { kind: 'result', text: '  ⎿ branch set up to track origin' }],
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ gh pr create --title "${issueTitle}" --body "Closes #${issueNumber}"` }],
@@ -179,6 +187,7 @@ function fixScript(pr: number, pushes: boolean, nudged: boolean): Step[] {
     pushes
       ? [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git commit -am "fix: wrap toolbar on narrow screens" && git push origin HEAD' }, { kind: 'result', text: '  ⎿ pushed' }]
       : [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git status --short' }, { kind: 'result', text: '  ⎿  M src/styles.css' }],
+    ...(pushes ? [[{ kind: 'tool', tool: 'Bash', text: `⏺ $ gh pr checks ${pr} --watch` }, { kind: 'result', text: '  ⎿ All checks were successful' }] as LogEntry[]] : []),
   ];
 }
 
@@ -401,6 +410,51 @@ function inTerminal(opts: SessionOptions, cb: SessionCallbacks, start: (cb: Sess
   return handle;
 }
 
+/**
+ * Claude's usage on demand (the manager's console → Mission control, in the demo): a weekly-limit warning at 91% that
+ * resets at midnight, or the 5-hour limit reached for 3 minutes.
+ */
+export function demoUsage(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number } {
+  if (kind === 'limit') return { limitResetsAt: now + 3 * 60_000 };
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  return { resetsAt: midnight.getTime(), rateLimitType: 'seven_day', utilization: 0.91 };
+}
+
+/**
+ * A believable past week for mission control: each floor merged a few PRs every working day (the first floor more),
+ * most QA rounds and check runs passed, and sessions cost around a dollar. `rand` is there for the tests.
+ */
+export function demoPastWeek(repos: string[], now: number, rand: () => number = Math.random): OpsHistory {
+  const h = emptyHistory();
+  const min = 60_000;
+  let n = 0;
+  repos.forEach((repo, floor) => {
+    const pace = floor === 0 ? 1 : 0.6;
+    for (let day = 6; day >= 0; day--) {
+      const midnight = startOfDay(now) - day * DAY_MS;
+      const merges = Math.round((3 + rand() * 4) * pace);
+      for (let k = 0; k < merges; k++) {
+        const at = midnight + (9 + rand() * 9) * HOUR_MS; // working hours
+        const rounds = rand() < 0.3 ? 2 : 1; // now and then QA failed it once first
+        h.merges.push([at, repo, 0, Math.round((25 + rand() * 200) * min)]);
+        for (let r = 0; r < rounds; r++) {
+          const before = (rounds - r) * 20 * min;
+          h.qa.push([at - before, repo, r === rounds - 1, Math.round((1 + rand() * 14) * min)]);
+          h.checks.push([at - before - 6 * min, repo, `past${String(n++).padStart(4, '0')}`, rand() > 0.12, Math.round((2.5 + rand() * 5) * min)]);
+          h.cost.push([at - before, repo, Math.round((0.3 + rand()) * 100) / 100], [at - before - 40 * min, repo, Math.round((0.4 + rand() * 1.2) * 100) / 100]);
+        }
+      }
+      for (const hour of [10, 15]) h.cost.push([midnight + hour * HOUR_MS, '', Math.round((0.5 + rand() * 0.8) * 100) / 100]); // the CEO's reviews
+    }
+  });
+  for (const list of [h.merges, h.qa, h.checks, h.cost] as [number, ...unknown[]][][]) {
+    for (let i = list.length - 1; i >= 0; i--) if (list[i][0] > now) list.splice(i, 1); // nothing from later today
+  }
+  prune(h, now);
+  return h;
+}
+
 // Claude's usage warning, faked once so the office can be seen pacing new work: the 4th session gets it, and the
 // window "resets" 5 minutes later.
 const USAGE_WARNING_AT = 4;
@@ -619,6 +673,8 @@ export function createDemoBackend(): Backend {
     office: demoOffice,
     voice: demoVoice,
     notify: demoNotify,
+    seedOps: (ids, at) => demoPastWeek(ids, at),
+    simulateUsage: demoUsage,
   };
 }
 
@@ -650,24 +706,40 @@ const demoOffice: OfficeHost = {
 
 // ---------- the demo preview ----------
 
-function placeholderPage(title: string, hue: number) {
-  const safe = title.replace(/[<>&"]/g, '');
+/**
+ * The demo's stand-in for a floor's app: a page per path (Home and About link to each other), long enough to scroll.
+ * A PR's build says so and shows its change, so main and the PR look different side by side.
+ */
+function placeholderPage(title: string, hue: number, at: string, pr: { number: number; title: string } | null) {
+  const safe = (s: string) => s.replace(/[<>&"]/g, '');
+  const rows = Array.from({ length: 24 }, (_, i) => `<li>Todo ${i + 1}: ${['water the plants', 'reply to Sam', 'book the dentist', 'buy coffee', 'fix the bike', 'plan the trip'][i % 6]}</li>`);
+  if (pr) rows.splice(2, 0, `<li class="new">✨ New in PR #${pr.number}: ${safe(pr.title)}</li>`);
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe}</title><link rel="icon" href="data:,">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe(title)}</title><link rel="icon" href="data:,">
 <style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
-  main { text-align: center; padding: 32px 40px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
+  body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
+  nav { position: sticky; top: 0; display: flex; gap: 18px; align-items: center; padding: 12px 24px; background: hsl(${hue},70%,55%); color: #fff; }
+  nav a { color: #fff; font-weight: 600; }
+  nav .at { margin-left: auto; font-family: Consolas, monospace; font-size: 14px; opacity: .9; }
+  .pr { margin: 18px auto 0; max-width: 560px; padding: 10px 16px; border-radius: 12px; background: #fff3c4; border: 2px dashed hsl(${hue},60%,45%); font-weight: 600; }
+  main { margin: 22px auto; max-width: 560px; padding: 28px 36px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
   h1 { margin: 0 0 6px; font-size: 26px; color: hsl(${hue},60%,38%); }
-  p { margin: 0 0 22px; color: #666; }
+  p { margin: 0 0 18px; color: #666; }
   button { font: inherit; font-size: 18px; padding: 10px 26px; border: 0; border-radius: 999px; background: hsl(${hue},70%,55%); color: #fff; cursor: pointer; }
   button:active { transform: scale(.97); }
   #count { display: block; margin-top: 16px; font-size: 15px; color: #444; }
+  ol { margin: 22px 0 0; padding-left: 22px; line-height: 2.2; }
+  li.new { font-weight: 700; color: hsl(${hue},60%,32%); background: #fff3c4; border-radius: 6px; padding: 0 6px; }
 </style></head>
-<body><main>
-  <h1>${safe}</h1>
-  <p>A placeholder app served by the demo office.</p>
+<body>
+<nav><a href="/">Home</a><a href="/about">About</a><span class="at">${safe(at)}</span></nav>
+${pr ? `<div class="pr">🧪 This is PR #${pr.number}'s build: ${safe(pr.title)}</div>` : ''}
+<main>
+  <h1>${safe(title)}</h1>
+  <p>${at === '/about' ? 'About this app: a placeholder served by the demo office.' : 'A placeholder app served by the demo office.'}</p>
   <button id="btn" type="button">Click me</button>
   <span id="count">Clicked 0 times</span>
+  <ol>${rows.join('')}</ol>
 </main>
 <script>
   let n = 0;
@@ -694,8 +766,9 @@ const demoPreviews: PreviewBackend = {
     let server: http.Server | null = null;
     const timers: NodeJS.Timeout[] = [];
     const later = (ms: number, fn: () => void) => timers.push(setTimeout(() => !stopped && fn(), ms));
-    const hue = [...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-    const sha = (job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr)?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
+    const pull = job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr) : undefined;
+    const hue = ([...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7) + (job.pr ? 150 : 0)) % 360;
+    const sha = (job.pr ? pull?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
       .split('')
       .reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381)
       .toString(16)
@@ -727,9 +800,10 @@ const demoPreviews: PreviewBackend = {
         return;
       }
       server = http.createServer((req, res) => {
-        if (req.url !== '/' && !req.url?.startsWith('/?')) return void res.writeHead(404).end('Not found');
+        const at = new URL(req.url ?? '/', 'http://localhost').pathname;
+        if (at.includes('.')) return void res.writeHead(404).end('Not found');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(placeholderPage(job.title, hue));
+        res.end(placeholderPage(job.title, hue, at, job.pr ? { number: job.pr, title: pull?.title ?? `PR #${job.pr}` } : null));
       });
       server.once('error', (err) => {
         if (stopped) return;

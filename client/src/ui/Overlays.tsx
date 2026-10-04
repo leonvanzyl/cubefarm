@@ -167,6 +167,10 @@ function Help() {
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
           floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
         </p>
+        <h3>Mission control</h3>
+        <p>
+          The curved bank of screens behind reception shows the whole company at a glance: the pipeline (issues ready, being built, in QA, being fixed, ready to merge, needing you), merges today and over the last 24 hours, lead time, QA wait and CI, who's busy, and an estimate of today's cost. Each floor's team sign has a short line of its own numbers. The bottom middle screen is Claude's usage meter: while the office paces itself after a usage warning, press <kbd>E</kbd> on it to resume full speed (if you've topped up or your usage was reset). When a PR needs you, or someone has been stuck on an error for 10 minutes, the beacon on top spins (and the one on that floor's sign) with a calm chime: press <kbd>E</kbd> on it to open the console at that card. The manager's console has it all too, under Mission control.
+        </p>
         <h3>Your phone</h3>
         <p>
           Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, see every project at a glance, or play Cubetris, Cable Snake or look after your Desk Pet while the team works. The red badge counts decisions and messages waiting for you. In the chat, and in an agent's
@@ -206,7 +210,9 @@ function Help() {
           depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue and anything that needs you.
         </p>
         <p>
-          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
+          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app. With PRs open, its bottom row
+          has a channel for each: aim at one and press <kbd>E</kbd> to run that PR beside the main app (at most two PR previews run at once). In the viewer, <b>Compare with main</b> puts
+          them side by side, and the PR's checks and QA report sit beside it.
         </p>
       </div>
     </Panel>
@@ -226,11 +232,11 @@ export function Overlays() {
     case 'card':
       return <CardView repoId={overlay.repoId} cardKey={overlay.key} number={overlay.number} pr={overlay.pr} />;
     case 'app':
-      return <AppViewer repoId={overlay.repoId} />;
+      return <AppViewer repoId={overlay.repoId} pr={overlay.pr} />;
     case 'elevator':
       return <ElevatorPanel />;
     case 'manager':
-      return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} />;
+      return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
     case 'help':
       return <Help />;
   }

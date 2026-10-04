@@ -14,7 +14,8 @@ import { BOARD_TEX, dependencyPairs } from './whiteboard';
 
 export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const qa = useStore((s) => s.qa);
-  const real = useMemo(() => kanbanFor(repo, agents, qa), [repo, agents, qa]);
+  const usageState = useStore((s) => s.usage.state);
+  const real = useMemo(() => kanbanFor(repo, agents, qa, { state: usageState }), [repo, agents, qa, usageState]);
   // what the 3D board shows: the real board, with moves held back until whoever makes them has placed the sticky
   const { shown: cols, ctrl } = useStickyBoard(real, agents);
   const strings = useMemo(() => dependencyPairs(repo.issues, repo.pulls, cols), [repo.issues, repo.pulls, cols]);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fixPromptPull } from './demo.ts';
+import { demoPastWeek, demoUsage, fixPromptPull } from './demo.ts';
+import { KEEP_MS, opsView, startOfDay } from './metrics.ts';
 
 describe('fixPromptPull', () => {
   it('reads the PR from a pre-QA conflict prompt, which starts with a capital P', () => {
@@ -16,5 +17,39 @@ describe('fixPromptPull', () => {
 
   it('falls back to 0 when no PR is named', () => {
     expect(fixPromptPull('Work on issue #4: Add socks').number).toBe(0);
+  });
+});
+
+describe("the demo's mission control", () => {
+  const NOW = new Date(2026, 8, 30, 15, 20).getTime();
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+
+  it('makes up a past week with sensible numbers, nothing from later today', () => {
+    const h = demoPastWeek(['demo-co/a', 'demo-co/b'], NOW, rand);
+    for (const list of [h.merges, h.qa, h.checks, h.cost]) {
+      expect(list.length).toBeGreaterThan(0);
+      for (const e of list) expect(e[0] <= NOW && NOW - e[0] <= KEEP_MS).toBe(true);
+    }
+    expect(h.merges.every((m) => m[2] === 0)).toBe(true); // never mistaken for a real PR the demo merges later
+    const v = opsView(
+      [
+        { repoId: 'demo-co/a', floor: 1, ready: 0, agents: [], prs: [] },
+        { repoId: 'demo-co/b', floor: 2, ready: 0, agents: [], prs: [] },
+      ],
+      h,
+      NOW,
+    );
+    expect(v.floors[0].ciPass).toBeGreaterThan(0.6);
+    expect(v.floors[0].ciMs).toBeGreaterThan(2 * 60_000);
+    expect(v.total.leadMs).toBeGreaterThan(20 * 60_000);
+    expect(v.ceoCostToday).toBeGreaterThan(0);
+    expect(v.total.spark.some((n) => n > 0)).toBe(true);
+    expect(h.merges.filter((m) => m[1] === 'demo-co/a').length).toBeGreaterThan(h.merges.filter((m) => m[1] === 'demo-co/b').length);
+  });
+
+  it('warns about the weekly limit until midnight, or reaches the limit for 3 minutes', () => {
+    expect(demoUsage('warning', NOW)).toEqual({ resetsAt: startOfDay(NOW) + 24 * 3_600_000, rateLimitType: 'seven_day', utilization: 0.91 });
+    expect(demoUsage('limit', NOW)).toEqual({ limitResetsAt: NOW + 3 * 60_000 });
   });
 });

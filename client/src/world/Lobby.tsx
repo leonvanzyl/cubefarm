@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Billboard } from '@react-three/drei';
 import { floorPrCounts, pendingRequests, useStore, type Agent } from '../store';
 import { CEO_ID, type HireRequestView } from '../../../shared/types';
+import { ActivityIcon } from './ActivityIcon';
 import { Character } from './Character';
 import { Desk } from './Desk';
 import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
@@ -10,6 +11,7 @@ import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
 import { Jukebox } from './Jukebox';
+import { MissionControl } from './MissionControl';
 import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
@@ -273,6 +275,7 @@ function CeoOffice() {
         deps={[ceo?.name]}
       />
       {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
+      {ceo && <ActivityIcon agent={ceo} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
@@ -459,6 +462,7 @@ export function Lobby() {
         deps={[company]}
       />
 
+      <MissionControl />
       <CeoOffice />
       <WaitingRoom />
       <Elevator floorLabel="▲ G · Lobby" accent={ACCENT} />

@@ -597,6 +597,23 @@ export function gong() {
   noise({ ...o, at: 0.05, dur: 4.5, peak: 0.028, filter: 'bandpass', freq: 1800, to: 3200, q: 1.5, attack: 1.2 });
 }
 
+let lastAlarm = -Infinity;
+const ALARM_GAP_MS = 30_000;
+
+/**
+ * Mission control's alarm, when something new needs the manager: a calm, low two-note chime, twice, more paging
+ * system than siren. At most one every 30 seconds, however many alarms arrive.
+ */
+export function alarm() {
+  if (performance.now() - lastAlarm < ALARM_GAP_MS) return;
+  lastAlarm = performance.now();
+  const o = { name: 'alarm', group: 'alerts', type: 'triangle', dur: 0.7, peak: 0.1, attack: 0.03 } as const;
+  for (const at of [0, 1.1]) {
+    tone({ ...o, freq: 659.3, at });
+    tone({ ...o, freq: 523.3, at: at + 0.38, dur: 0.9 });
+  }
+}
+
 // ---------- event cues ----------
 
 export type Cue = 'error' | 'qaFailed' | 'ready' | 'merged' | 'welcome';
