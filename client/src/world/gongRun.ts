@@ -24,10 +24,24 @@ export type GongPlan = 'run' | 'solo' | 'absent';
  * drawn on this floor and the view is showing (a hidden tab or a covering panel stops the frame loop, so a run would
  * freeze); otherwise the gong strikes by itself, so a merge is never silent.
  */
-export function planGong(o: { repoId: string | null; here: string | null; agentId: string | null; present: boolean; covered: boolean }): GongPlan {
+export function planGong(o: { repoId: string | null; here: string | null; agentId: string | null; present: boolean; covered: boolean; elsewhere?: boolean }): GongPlan {
   if (!o.repoId || o.repoId !== o.here) return 'absent';
-  return o.agentId && o.present && !o.covered ? 'run' : 'solo';
+  return o.agentId && o.present && !o.covered && !o.elsewhere ? 'run' : 'solo';
 }
+
+/**
+ * Whether someone else is moving this person (an errand, __swarmPeople.walkTo): they're up with a body target
+ * (people.ts) that isn't the one a run of ours (`mine`) last set. Their merge then strikes the gong by itself, and a
+ * run whose runner is taken over this way lets them go, so it never drags them off what they were doing or sits them
+ * back down afterwards.
+ */
+export const elsewhere = (target: object | undefined, mine: object | undefined) => !!target && target !== mine;
+
+/** Whether a run has lost its runner to someone else: their body target is no longer the one it last set (or gone). */
+export const takenOver = (r: GongRun, target: object | undefined) => target !== r.mine;
+
+/** The run moving this person, to the gong or back from it, if any. */
+export const runOf = (q: GongRuns, agentId: string) => (q.run?.agentId === agentId ? q.run : q.home.find((h) => h.agentId === agentId));
 
 /** One merge waiting for the gong: `agentId` runs over and strikes it, or null strikes it by itself. */
 export interface GongJob {
@@ -47,6 +61,8 @@ export interface GongRun {
   /** The waypoints of the current walk (to the gong, or back to their desk) and the one they're heading for. */
   legs: Pt[];
   leg: number;
+  /** The body target (people.ts) this run last gave them; undefined once it has sat them down. */
+  mine?: object;
 }
 
 export interface GongRuns {

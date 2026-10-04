@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PullInfo, QaView } from '../../../shared/types';
 import { mergeAuthor } from './confetti';
 import { SIT_SECONDS } from './body';
-import { BEATS, REACH_MS, RUN_SPEED, createRuns, nextBeat, nextJob, planGong, startRun, timedOut, type GongJob, type GongRuns } from './gongRun';
+import { BEATS, REACH_MS, RUN_SPEED, createRuns, elsewhere, nextBeat, nextJob, planGong, runOf, startRun, takenOver, timedOut, type GongJob, type GongRuns } from './gongRun';
 import { GONG_GAP_MS } from './gongRules';
 import { GONG_SPOT, MAX_DESKS, deskPosition } from './layout';
 import { findPath, walkways } from './walkways';
@@ -32,6 +32,37 @@ describe('who runs to the gong', () => {
     expect(planGong({ ...here, agentId: 'a1', covered: true })).toBe('solo');
     expect(planGong({ ...here, agentId: 'a1', here: 'o/other' })).toBe('absent');
     expect(planGong({ ...here, agentId: null, here: null })).toBe('absent');
+  });
+
+  it('strikes by itself when someone else is walking the author (an errand, __swarmPeople.walkTo)', () => {
+    const q = createRuns();
+    const theirs = { mode: 'walking' };
+    const taken = elsewhere(theirs, runOf(q, 'a1')?.mine);
+    expect(taken).toBe(true);
+    expect(planGong({ ...here, agentId: 'a1', elsewhere: taken })).toBe('solo');
+    expect(elsewhere(undefined, undefined)).toBe(false); // seated: free to run
+  });
+
+  it('a runner on the way back from the last strike may turn round for the next', () => {
+    const q = createRuns();
+    const r = startRun({ agentId: 'a1', celebrate: true }, 0, []);
+    r.mine = { mode: 'walking' };
+    q.home.push(r);
+    expect(elsewhere(r.mine, runOf(q, 'a1')?.mine)).toBe(false);
+    expect(elsewhere({ mode: 'walking' }, runOf(q, 'a1')?.mine)).toBe(true);
+  });
+});
+
+describe('someone else taking the runner over', () => {
+  it('lets them go once their body target is no longer the run’s own, or is cleared', () => {
+    const r = startRun({ agentId: 'a1', celebrate: true }, 0, []);
+    const mine = { mode: 'walking' };
+    r.mine = mine;
+    expect(takenOver(r, mine)).toBe(false);
+    expect(takenOver(r, { ...mine })).toBe(true); // walkTo / an errand set a new target
+    expect(takenOver(r, undefined)).toBe(true); // someone sat them down
+    r.mine = undefined; // the run sat them down itself
+    expect(takenOver(r, undefined)).toBe(false);
   });
 });
 

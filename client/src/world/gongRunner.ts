@@ -1,9 +1,9 @@
 import type { MergeBurst } from './confetti';
-import { HURRY_SPEED, RUN_SPEED, busy, createRuns, headingTo, holdsMallet, nextBeat, nextJob, planGong, startRun, timedOut, type GongJob, type GongPlan, type GongRun } from './gongRun';
+import { HURRY_SPEED, RUN_SPEED, busy, createRuns, elsewhere, headingTo, holdsMallet, nextBeat, nextJob, planGong, runOf, startRun, takenOver, timedOut, type GongJob, type GongPlan, type GongRun } from './gongRun';
 import { gongState, hitGong } from './gongState';
 import { GONG, GONG_SPOT } from './layout';
-import { bodyState, seatBody, setBody } from './people';
-import type { BodyState } from './body';
+import { bodyState, bodyTarget, seatBody, setBody } from './people';
+import type { BodyState, BodyTarget } from './body';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, walkways } from './walkways';
 
@@ -33,7 +33,7 @@ export function gongForMerge(b: MergeBurst, covered: boolean): GongPlan {
 
 function plan(repoId: string | null, agentId: string | null, celebrate: boolean, covered: boolean): GongPlan {
   const hidden = typeof document !== 'undefined' && document.hidden;
-  const p = planGong({ repoId, here: gongState.here, agentId, present: !!agentId && !!bodyState(agentId), covered: covered || hidden });
+  const p = planGong({ repoId, here: gongState.here, agentId, present: !!agentId && !!bodyState(agentId), covered: covered || hidden, elsewhere: !!agentId && othersMove(agentId) });
   if (p === 'absent') return p;
   runs.queue.push({ agentId: p === 'run' ? agentId : null, celebrate });
   pumpGongRuns(performance.now());
@@ -43,8 +43,8 @@ function plan(repoId: string | null, agentId: string | null, celebrate: boolean,
 
 /** Drops every queued and running trip, sending the runners back to their seats (the gong's floor went away). */
 export function resetGongRuns() {
-  if (runs.run) seatBody(runs.run.agentId);
-  for (const r of runs.home) seatBody(r.agentId);
+  if (runs.run) release(runs.run);
+  for (const r of runs.home) release(r);
   runs.queue.length = 0;
   runs.home.length = 0;
   runs.run = null;
@@ -56,13 +56,30 @@ function stopTimer() {
   timer = null;
 }
 
+// ---------- whose body it is ----------
+
+/** Whether someone other than the gong run is moving them right now. */
+const othersMove = (agentId: string) => elsewhere(bodyTarget(agentId), runOf(runs, agentId)?.mine);
+
+/** Moves the runner, remembering the target so a takeover by someone else shows (gongRun.ts takenOver). */
+function move(r: GongRun, patch: Partial<Omit<BodyTarget, 'teleport'>>) {
+  setBody(r.agentId, patch);
+  r.mine = bodyTarget(r.agentId);
+}
+
+/** Back to their chair, unless someone else has them now. */
+function release(r: GongRun) {
+  if (!takenOver(r, bodyTarget(r.agentId))) seatBody(r.agentId);
+  r.mine = undefined;
+}
+
 // ---------- walking the legs ----------
 
 /** Sends the runner towards their current waypoint: along the leg, or turning to `end` at the last one. */
 function aim(r: GongRun, speed: number, end: number) {
   const p = r.legs[r.leg];
   const heading = r.leg === r.legs.length - 1 ? end : headingTo(r.legs[r.leg - 1], p);
-  setBody(r.agentId, { mode: 'walking', x: p.x, z: p.z, speed, heading, gesture: 'none' });
+  move(r, { mode: 'walking', x: p.x, z: p.z, speed, heading, gesture: 'none' });
 }
 
 /** Moves on to the next waypoint when they're near this one; true once they've reached the last. */
@@ -85,17 +102,19 @@ function route(from: Pt, to: Pt): Pt[] | null {
 // ---------- the trip ----------
 
 function start(job: GongJob & { agentId: string }, now: number) {
-  const s = bodyState(job.agentId);
+  const s = othersMove(job.agentId) ? undefined : bodyState(job.agentId);
   // Seated, they get up to the spot beside their chair first; plan from there.
   const from = s && (s.stage === 'seated' || s.stage === 'rising' ? { x: s.standX, z: s.standZ } : { x: s.x, z: s.z });
   const legs = from && route(from, GONG_SPOT);
   if (!legs) {
-    runs.queue.unshift({ agentId: null, celebrate: job.celebrate }); // they left, or no way through: it strikes by itself
+    // they left, someone else has them now, or no way through: it strikes by itself
+    runs.queue.unshift({ agentId: null, celebrate: job.celebrate });
     return;
   }
   const i = runs.home.findIndex((h) => h.agentId === job.agentId);
   if (i >= 0) runs.home.splice(i, 1); // turned round on the way back from the last one
   const r = startRun(job, now, legs);
+  r.mine = bodyTarget(job.agentId);
   r.leg = 1;
   runs.run = r;
   aim(r, RUN_SPEED, NORTH);
@@ -112,7 +131,7 @@ function goHome(r: GongRun, s: Readonly<BodyState>, now: number) {
   } else {
     r.legs = [];
     r.leg = 0;
-    seatBody(r.agentId); // straight back to their chair
+    release(r); // straight back to their chair
   }
   runs.home.push(r);
 }
@@ -120,30 +139,32 @@ function goHome(r: GongRun, s: Readonly<BodyState>, now: number) {
 function step(r: GongRun, now: number) {
   const s = bodyState(r.agentId);
   const struck = r.beat === 'strike' || r.beat === 'pose';
-  if (!s || (!struck && timedOut(r, now))) {
-    // gone from the floor, or not there in time: the gong strikes by itself, and they head back
+  const taken = takenOver(r, bodyTarget(r.agentId));
+  if (!s || taken || (!struck && timedOut(r, now))) {
+    // gone from the floor, taken over (an errand) or not there in time: the gong strikes by itself, and they head
+    // back unless someone else has them now
     runs.run = null;
     if (!struck) runs.queue.unshift({ agentId: null, celebrate: r.celebrate });
-    if (s) goHome(r, s, now);
-    else seatBody(r.agentId);
+    if (s && !taken) goHome(r, s, now);
+    else release(r);
     return;
   }
   if (r.beat === 'run') {
     if (!follow(r, s, RUN_SPEED, NORTH)) return;
     r.beat = 'take';
     r.since = now;
-    setBody(r.agentId, { mode: 'standing', x: STRIKE.x, z: STRIKE.z, heading: NORTH, speed: 1, gesture: 'reach' });
+    move(r, { mode: 'standing', x: STRIKE.x, z: STRIKE.z, heading: NORTH, speed: 1, gesture: 'take' });
     return;
   }
   const next = nextBeat(r, now, gongState.hitAt);
   if (!next) return;
   r.beat = next;
   r.since = now;
-  if (next === 'windup') setBody(r.agentId, { gesture: 'windup' });
+  if (next === 'windup') move(r, { gesture: 'windup' });
   else if (next === 'strike') {
-    setBody(r.agentId, { gesture: 'strike' });
+    move(r, { gesture: 'strike' });
     hitGong({ celebrate: r.celebrate }); // the mallet lands
-  } else if (next === 'pose') setBody(r.agentId, { gesture: 'cheer' });
+  } else if (next === 'pose') move(r, { gesture: 'cheer' });
   else if (next === 'back') {
     runs.run = null;
     goHome(r, s, now);
@@ -156,13 +177,13 @@ export function pumpGongRuns(now: number) {
   for (let i = runs.home.length - 1; i >= 0; i--) {
     const r = runs.home[i];
     const s = bodyState(r.agentId);
-    if (!s) {
-      seatBody(r.agentId);
+    if (!s || takenOver(r, bodyTarget(r.agentId))) {
+      release(r); // gone from the floor, or someone else has them now: theirs to finish
       runs.home.splice(i, 1);
     } else if (r.leg >= r.legs.length) {
       if (s.stage === 'seated') runs.home.splice(i, 1);
     } else if (follow(r, s, HURRY_SPEED, s.seatHeading)) {
-      seatBody(r.agentId); // the last step: to the spot beside the chair, and sit
+      release(r); // the last step: to the spot beside the chair, and sit
       r.leg = r.legs.length;
     }
   }

@@ -52,7 +52,9 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   reach: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // touch the board
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
-  // the gong (gongRunner.ts): the mallet raised back over the shoulder, then brought down onto the disc, then a V
+  // the gong (gongRunner.ts): a hand out for the mallet on its hook, raised back over the shoulder, then brought down
+  // onto the disc, then a V
+  take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
   cheer: { l: { pitch: 1.45, yaw: -0.35 }, r: { pitch: 1.45, yaw: -0.35 }, head: 0.2 },
