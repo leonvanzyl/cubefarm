@@ -35,7 +35,7 @@ const FACE = '#ffb347';
 function pumpkinBody(r: number) {
   const lobes = Array.from({ length: 8 }, (_, i) => {
     const a = (i / 8) * Math.PI * 2;
-    return part(sphere(r * 0.62, 14, 10), i % 2 ? '#f77f00' : '#fb8500', [Math.sin(a) * r * 0.42, r * 0.78, Math.cos(a) * r * 0.42], [0, a, 0], [0.8, 1.25, 1]);
+    return part(sphere(r * 0.62, 9, 6), i % 2 ? '#f77f00' : '#fb8500', [Math.sin(a) * r * 0.42, r * 0.78, Math.cos(a) * r * 0.42], [0, a, 0], [0.8, 1.25, 1]);
   });
   return mergeParts([...lobes, part(cyl(r * 0.1, r * 0.14, r * 0.4, 8), '#386641', [0, r * 1.55, 0], [0.15, 0, 0.2])]);
 }
@@ -95,7 +95,8 @@ function JackOLanterns({ at }: { at: Spot[] }) {
   });
   return (
     <group>
-      <Placed geometry={body} at={at} scale={sizeOf} />
+      {/* small, and many of them: no shadows, to keep the shadow pass as it was */}
+      <Placed geometry={body} at={at} scale={sizeOf} shadow={false} />
       <InstancedRef at={at} geometry={face} material={faceMat} innerRef={ref} />
       <points geometry={halos} material={haloMat} />
     </group>

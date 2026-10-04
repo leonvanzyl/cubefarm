@@ -112,7 +112,9 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
   errands (`toyErrands.ts`: hoops and catch, on `toys/npc.ts`, the toys' hands for people, aimed by `toys/npcAim.ts`),
   comings and goings (`socials.ts`: hires by elevator, leavers with a box, chats, visits, the CEO's stroll),
   the time of day (`sky/time.ts`, `sky/useDayTime.ts`) and the city outside (`outside/`: the seeded layout in
-  `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls).
+  `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls),
+  holiday themes (`themes/`: which one is on from `shared/themes.ts`, their data and decoration slots in `themes.ts`
+  and `layout.ts`, each theme's scene in one lazy chunk loaded only while a theme is on; `?theme=` and `?date=` for QA).
 - `src/ui/`: HTML overlays: HUD, terminal (`LiveTerminal.tsx`: xterm.js on `/ws/term`), Kanban, manager's console,
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
   viewer, sounds (`sfx.ts`).

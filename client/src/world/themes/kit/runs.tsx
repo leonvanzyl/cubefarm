@@ -41,7 +41,7 @@ export function StringLights({ kind, colors }: { kind: FloorKind; colors: string
     }
     return new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   }, [kind]);
-  const geo = useMemo(() => new THREE.SphereGeometry(0.04, 8, 6).scale(1, 1.3, 1), []);
+  const geo = useMemo(() => new THREE.SphereGeometry(0.04, 6, 4).scale(1, 1.3, 1), []);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ toneMapped: false }), []);
   const wireMat = useMemo(() => new THREE.LineBasicMaterial({ color: '#2b2d42' }), []);
   useEffect(
@@ -91,9 +91,9 @@ export function Garland({ kind }: { kind: FloorKind }) {
     const parts: THREE.BufferGeometry[] = [];
     for (const r of decorRuns(kind)) {
       const pts = sagPoints(r, 0.15, 0.32).map((p) => new THREE.Vector3(p.x, p.y - 0.06, p.z));
-      parts.push(part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 2, 0.07, 6), '#2d6a4f'));
+      parts.push(part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length, 0.07, 5), '#2d6a4f'));
       // little tufts so it reads as tinsel, not a hose
-      pts.forEach((p, i) => i % 2 === 0 && parts.push(part(sphere(0.085, 6, 5), i % 4 === 0 ? '#40916c' : '#1b4332', [p.x, p.y, p.z])));
+      pts.forEach((p, i) => i % 3 === 0 && parts.push(part(sphere(0.085, 5, 4), i % 6 === 0 ? '#40916c' : '#1b4332', [p.x, p.y, p.z])));
       for (const h of sagPoints(r, 1.6, 0)) {
         parts.push(part(sphere(0.07, 8, 6), '#d00000', [h.x, h.y - 0.06, h.z]));
         parts.push(part(cone(0.06, 0.16, 6), '#e5383b', [h.x - 0.09, h.y - 0.09, h.z], [0, 0, 1.1]));

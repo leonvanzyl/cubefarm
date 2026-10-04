@@ -39,7 +39,7 @@ function headGeometry(c: Costume, y: number, v: number): THREE.BufferGeometry | 
     case 'pumpkinHead': {
       const lobes = Array.from({ length: 8 }, (_, i) => {
         const a = (i / 8) * Math.PI * 2;
-        return part(sphere(0.19, 14, 10), i % 2 ? '#f77f00' : '#fb8500', [Math.sin(a) * 0.09, 0.03, Math.cos(a) * 0.09], [0, a, 0], [0.75, 1.15, 1]);
+        return part(sphere(0.19, 10, 8), i % 2 ? '#f77f00' : '#fb8500', [Math.sin(a) * 0.09, 0.03, Math.cos(a) * 0.09], [0, a, 0], [0.75, 1.15, 1]);
       });
       return mergeParts([
         ...lobes,
