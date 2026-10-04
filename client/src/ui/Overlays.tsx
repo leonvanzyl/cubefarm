@@ -132,13 +132,18 @@ function Help() {
           <kbd>W</kbd>
           <kbd>A</kbd>
           <kbd>S</kbd>
-          <kbd>D</kbd> walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse. Closing a panel or changing floor grabs it again.
+          <kbd>D</kbd> (or the arrow keys) walk · <kbd>Shift</kbd> run · mouse to look · <kbd>E</kbd> or left click interacts with whatever the crosshair is on (the first click only grabs the mouse) · <kbd>Esc</kbd> frees the mouse and
+          drops whatever you're holding. Closing a panel or changing floor grabs it again.
         </p>
         <MouseSettings />
         <h3>Balls</h3>
         <p>
           Walk into a ball to push it, or aim at one and press <kbd>E</kbd> (or click) to pick it up. Click or press <kbd>F</kbd> to throw: a tap lobs it, holding charges a harder throw. <kbd>G</kbd> drops it at your feet.
           With a ball in hand, <kbd>E</kbd> still works on desks, boards and the elevator (the ball drops when a panel opens), and <kbd>E</kbd> on another ball swaps them.
+        </p>
+        <p>
+          Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
+          arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <kbd>E</kbd> for a happy spin.
         </p>
         <h3>Foam blasters</h3>
         <p>
@@ -147,21 +152,25 @@ function Help() {
         </p>
         <h3>Coffee</h3>
         <p>
-          Every office floor's kitchenette has a coffee machine and a stack of mugs. Take a mug (<kbd>E</kbd>), aim at the machine's drip tray and press <kbd>E</kbd> to put it under the spout, then press the
-          machine's round button. After a few seconds of grinding and gurgling it beeps: aim at the mug and press <kbd>E</kbd> to take your coffee. You can take the mug out early (it keeps what it has), and a dropped mug can go back in for a refill.
+          Every office floor's kitchenette has a coffee machine with a mug dispenser beside it. Aim at the dispenser and press <kbd>E</kbd> to take a mug, aim at the machine's drip tray and press <kbd>E</kbd> to
+          put it under the spout, then press <kbd>E</kbd> on the machine's round button. After a few seconds of grinding and gurgling it beeps: aim at the mug and press <kbd>E</kbd> to take your coffee. You can
+          take the mug out early (it keeps what it has).
         </p>
         <p>
-          With coffee in hand, <kbd>E</kbd> takes a sip wherever you're looking (except at the machine). A full mug is three sips: the last is one big gulp, and then you drop the empty mug. Pick it up and refill it, or take a fresh one.
+          With coffee in hand, <kbd>E</kbd> takes a sip wherever you're looking (except at the machine). A full mug is three sips: the last is one big gulp, and then you drop the empty mug. <kbd>G</kbd> drops
+          your mug at any time, and mugs can't be thrown. Aim at a dropped mug and press <kbd>E</kbd> to pick it up again, coffee and all. Any mug that isn't full can go back under the machine for a refill.
         </p>
         <h3>Sound</h3>
         <p>
-          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys and alerts (the phone, the elevator, the gong and these cues) up or down on their own.
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the master volume, turn
+          footsteps (yours and everyone's), typing (and the team's chatter), toys (balls, blasters, coffee and the roomba) and alerts (the phone, the elevator, the gong and these cues) up or down on their own. Your
+          settings are saved in this browser.
         </p>
         <SoundControls />
         <h3>The building</h3>
         <p>
           The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
-          floor. Walk into the elevator in the middle of the south wall to travel.
+          floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
         </p>
         <h3>Your phone</h3>
         <p>
@@ -182,6 +191,10 @@ function Help() {
         <p>
           Each agent is a real coding agent running in its own terminal, working in its own git worktree. Walk up behind them to read their laptop, or press <kbd>E</kbd> (or click) on a desk to open their terminal: watch it live, type into it, send them instructions, stop them or hand them another issue. Aim at an empty desk and press <kbd>E</kbd> to hire, or click it and confirm.
         </p>
+        <p>
+          <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model, effort, title, specialty and job description. Changes apply from their next task, so nothing is interrupted.
+          Open <b>What they're told</b> there to read the full prompt the office gives them, with their job description highlighted. The CEO's model, effort and prompt are in the console's CEO tab.
+        </p>
         <h3>The QA lab</h3>
         <p>
           The testers in lab coats along the east wall check every pull request before it can be merged. They run the tests, click through the change in a real browser, and post a report with screenshots on the PR. If a PR
@@ -190,7 +203,10 @@ function Help() {
         <h3>The whiteboard</h3>
         <p>
           <b>Backlog</b>: open issues nobody has picked up. <b>In progress</b>: developers at work. <b>In QA</b>: being tested or fixed. <b>Ready to merge</b>: QA passed, waiting for you. Press <kbd>E</kbd> or click the board to
-          assign, send to QA, merge and file new issues.
+          assign, send to QA, merge and file new issues. When a PR merges, confetti bursts over the desk of the developer who wrote it.
+        </p>
+        <p>
+          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
         </p>
       </div>
     </Panel>
