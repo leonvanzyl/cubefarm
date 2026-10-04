@@ -396,6 +396,8 @@ export function createDemoBackend(): Backend {
   const deskRepo = new Map<string, string>();
   // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
   const installedDesks = new Set<string>();
+  // The branch each desk has checked out (null: detached), so a PR branch another desk holds plays out as for real (#199).
+  const deskBranches = new Map<string, string | null>();
   // A pretend projects folder: the demo repos, one git folder that isn't on GitHub yet, and one plain folder.
   const folders = new Map<string, LocalFolder>();
   const addFolder = (name: string, github: string | null, git = true) =>
@@ -531,9 +533,16 @@ export function createDemoBackend(): Backend {
     },
     mainDir: (fullName) => `/demo/${fullName}/main`,
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
-    prepareDesk: async (fullName, _base, slug) => {
+    prepareDesk: async (fullName, base, slug, branch, note) => {
       await new Promise((r) => setTimeout(r, 900));
       const dir = `/demo/${fullName}/desks/${slug}`;
+      // SWARM_DEMO_HELD_BRANCH=1: your folder has every PR's branch checked out, and a fix's desk fails the way #198's did.
+      if (process.env.SWARM_DEMO_HELD_BRANCH === '1' && base.pr && !branch.startsWith('qa/')) {
+        throw new Error(`git worktree add -B failed: fatal: '${branch}' is already used by worktree at '/demo/${fullName}/main'`);
+      }
+      const holder = [...deskBranches].find(([d, b]) => b === branch && d !== dir && deskRepo.get(d) === fullName)?.[0];
+      if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at origin/pr/${base.pr}; push with git push origin HEAD:${branch}.`);
+      deskBranches.set(dir, holder ? null : branch);
       deskRepo.set(dir, fullName);
       return dir;
     },
