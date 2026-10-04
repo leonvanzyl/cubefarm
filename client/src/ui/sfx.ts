@@ -166,6 +166,9 @@ export function setListener(px: number, py: number, pz: number, fx: number, fy: 
   if (ctx?.state === 'running') writeListener();
 }
 
+/** Where the listener is now (updated in place every frame). */
+export const listenerAt = (): Readonly<Vec3> => ear;
+
 // ---------- the probe (window.__swarmSfx) ----------
 
 /** One sound that was asked for, as recorded for QA and e2e. */
@@ -262,14 +265,16 @@ export interface PlaceOpts {
   pos?: Vec3;
   /** A fixed stereo position, -1 (left) to 1 (right), for sounds without `pos` (the player's own feet). */
   pan?: number;
+  /** Part of a sound already in __swarmSfx (recordSfx): one entry for a sound made of several parts. */
+  into?: SfxRecord;
 }
 
 /**
  * Records a sound for the probe and decides whether it plays. Returns where to connect it (a panner, its group or
  * the master) and its loudness for the voice cap, or null to skip it.
  */
-function place(kind: string, { name, group, pos, pan }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
-  const rec = recordSfx(name ?? kind, { group, pos, pan, peak });
+function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: number): { a: { ctx: AudioContext; out: GainNode }; dest: AudioNode; loud: number } | null {
+  const rec = into ?? recordSfx(name ?? kind, { group, pos, pan, peak });
   const d = pos ? distance(ear, pos) : 0;
   if (pos && !audible(d)) return null;
   const loud = peak * (pos ? distanceGain(d) : 1);
