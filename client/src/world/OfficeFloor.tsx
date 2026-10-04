@@ -82,7 +82,6 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
       <Gong repoId={repo.id} />
-
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
 

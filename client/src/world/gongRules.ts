@@ -1,18 +1,10 @@
-import type { RepoView } from '../../../shared/types';
-
-// The merge gong's rules, free of three.js and WebAudio so they can be tested: which repo updates bang it, how often
-// it can be struck, who celebrates and for how long, and how the disc swings after a strike.
+// The merge gong's rules, free of three.js and WebAudio so they can be tested: how often it can be struck, who
+// celebrates and for how long, and how the disc swings after a strike. Which repo updates are merges is confetti.ts's.
 
 /** At most one strike this often (ms). The boom rings for ~6 s; spamming E in between does nothing. */
 export const GONG_GAP_MS = 1500;
 /** How long everyone on the floor cheers after a merge (ms). */
 export const CELEBRATE_MS = 6000;
-
-/** The PRs that went from open to merged between two versions of a repo (none without an earlier version). */
-export function newlyMerged(before: RepoView | undefined, after: RepoView): number[] {
-  const wasOpen = new Set(before?.pulls.filter((p) => p.state === 'OPEN').map((p) => p.number));
-  return after.pulls.filter((p) => p.state === 'MERGED' && wasOpen.has(p.number)).map((p) => p.number);
-}
 
 export interface GongState {
   /** The repo whose floor's gong is on screen (only the player's floor is drawn), or null. */
@@ -22,11 +14,9 @@ export interface GongState {
   hits: number;
   celebrateRepo: string | null;
   celebrateUntil: number;
-  /** performance.now() of the last celebration's confetti burst. */
-  burstAt: number;
 }
 
-export const createGong = (): GongState => ({ here: null, hitAt: -Infinity, hits: 0, celebrateRepo: null, celebrateUntil: -Infinity, burstAt: -Infinity });
+export const createGong = (): GongState => ({ here: null, hitAt: -Infinity, hits: 0, celebrateRepo: null, celebrateUntil: -Infinity });
 
 /** What a strike did: boomed, nothing because the gong is still ringing from the last one, or no gong on that floor. */
 export type Strike = 'boom' | 'ringing' | 'absent';
@@ -41,7 +31,6 @@ export function strike(g: GongState, now: number, { repoId = g.here, celebrate =
   if (celebrate) {
     g.celebrateRepo = repoId;
     g.celebrateUntil = now + CELEBRATE_MS;
-    g.burstAt = now;
   }
   if (now - g.hitAt < GONG_GAP_MS) return 'ringing';
   g.hitAt = now;

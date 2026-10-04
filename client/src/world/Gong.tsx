@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
@@ -12,8 +12,8 @@ import { Ball, Box, Cyl } from './Toon';
 import { onPoke } from './toys/poke';
 
 // The merge gong on every office floor: a big bronze disc hanging in a wooden frame, with a padded mallet on a hook.
-// A merge on this floor (store.ts) or E at the gong strikes it (gongState.ts); this draws the swing, the flash on the disc
-// and, for a merge, a burst of confetti, all read from gongState.ts each frame without allocating.
+// A merge on this floor (store.ts) or E at the gong strikes it (gongState.ts); this draws the swing and the flash on the
+// disc, read from gongState.ts each frame without allocating. A merge's confetti over the gong is MergeConfetti.tsx's.
 
 const INK = '#1f1d2b';
 const WOOD = '#a0522d';
@@ -37,10 +37,6 @@ const grooveGeo = new THREE.TorusGeometry(r * 0.55, 0.014, 6, 40);
 const bossGeo = new THREE.SphereGeometry(r * 0.24, 20, 12);
 const glowGeo = new THREE.CircleGeometry(r * 0.9, 40);
 const ringGeo = new THREE.RingGeometry(0.88, 1, 48);
-
-const CONFETTI = 48;
-const CONFETTI_S = 2.6;
-const CONFETTI_COLORS = ['#ef476f', '#ffd166', '#06d6a0', '#118ab2', '#ff9f1c', '#9b5de5'];
 
 /** The disc, its ropes and the flash, on a pivot under the crossbar. */
 function Disc() {
@@ -94,57 +90,6 @@ function Disc() {
   );
 }
 
-/** Paper bits bursting from the top of the gong when a PR merges. */
-function Confetti() {
-  const mesh = useRef<THREE.InstancedMesh>(null);
-  const bits = useMemo(() => Array.from({ length: CONFETTI }, () => ({ v: new THREE.Vector3(), spin: new THREE.Vector3() })), []);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const started = useRef(NaN); // the burst the bits were thrown for (NaN: none yet)
-  useLayoutEffect(() => {
-    const m = mesh.current;
-    if (!m) return;
-    const c = new THREE.Color();
-    for (let i = 0; i < CONFETTI; i++) m.setColorAt(i, c.set(CONFETTI_COLORS[i % CONFETTI_COLORS.length]));
-    if (m.instanceColor) m.instanceColor.needsUpdate = true;
-  }, []);
-  useFrame(() => {
-    const m = mesh.current;
-    if (!m) return;
-    const t = (performance.now() - gongState.burstAt) / 1000;
-    if (t > CONFETTI_S) {
-      if (m.visible) m.visible = false;
-      return;
-    }
-    if (started.current !== gongState.burstAt) {
-      started.current = gongState.burstAt;
-      for (const b of bits) {
-        const a = Math.random() * Math.PI * 2;
-        const out = 0.3 + Math.random() * 0.8;
-        b.v.set(Math.cos(a) * out, 1.4 + Math.random() * 1.8, Math.abs(Math.sin(a)) * out * 0.7 + 0.15);
-        b.spin.set(Math.random() * 12, Math.random() * 12, Math.random() * 12);
-      }
-    }
-    m.visible = true;
-    const fade = Math.min(1, (CONFETTI_S - t) / 0.5);
-    for (let i = 0; i < CONFETTI; i++) {
-      const b = bits[i];
-      // paper drifts: a light gravity, and it settles on the floor
-      dummy.position.set(b.v.x * t, Math.max(0.02 - h, b.v.y * t - 2.2 * t * t), b.v.z * t);
-      dummy.rotation.set(b.spin.x * t, b.spin.y * t, b.spin.z * t);
-      dummy.scale.setScalar(fade);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
-    }
-    m.instanceMatrix.needsUpdate = true;
-  });
-  return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, CONFETTI]} position={[0, h, 0.2]} visible={false} frustumCulled={false}>
-      <planeGeometry args={[0.07, 0.04]} />
-      <meshBasicMaterial side={THREE.DoubleSide} toneMapped={false} />
-    </instancedMesh>
-  );
-}
-
 export function Gong({ repoId }: { repoId: string }) {
   const ref = useInteractable<THREE.Group>({ id: 'gong', label: 'Bang the gong', action: { kind: 'poke', toyId: 'gong' } }, 3.4);
   const mallet = useRef<THREE.Group>(null);
@@ -186,7 +131,6 @@ export function Gong({ repoId }: { repoId: string }) {
         <Ball r={0.13} position={[0, -0.78, 0.03]} color="#e76f51" outline />
         <Cyl r={0.135} h={0.05} position={[0, -0.78, 0.03]} color="#f4a261" shadow={false} />
       </group>
-      <Confetti />
     </group>
   );
 }

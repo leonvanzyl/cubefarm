@@ -8,6 +8,7 @@ vi.mock('./world/gongRunner', () => ({ gongForMerge: vi.fn(() => 'solo') }));
 const { useStore } = await import('./store');
 const { cue } = await import('./ui/sfx');
 const { gongForMerge } = await import('./world/gongRunner');
+const { onMerge } = await import('./world/confetti');
 
 const pr = (number: number, state: PullInfo['state'], headRefName = `feature/${number}`) => ({ number, state, headRefName }) as PullInfo;
 const repo = (floor: number, ...pulls: PullInfo[]) => ({ id: `acme/floor${floor}`, floor, pulls }) as RepoView;
@@ -38,6 +39,17 @@ describe('the merge gong trigger', () => {
     expect(gongForMerge).toHaveBeenCalledTimes(1);
     expect(gongForMerge).toHaveBeenCalledWith({ repoId: 'acme/floor1', prNumber: 2, agentId: null }, false);
     expect(cue).not.toHaveBeenCalledWith('merged'); // the gong is the merge cue now
+  });
+
+  it('still sends the merge confetti (confetti.ts) along with the gong', () => {
+    const bursts: unknown[] = [];
+    const off = onMerge((b) => bursts.push(b));
+    const { apply } = useStore.getState();
+    apply(snapshot([repo(1, pr(5, 'OPEN'))]));
+    apply({ type: 'repo', repo: repo(1, pr(5, 'MERGED')) });
+    off();
+    expect(gongForMerge).toHaveBeenCalledTimes(1);
+    expect(bursts).toEqual([{ repoId: 'acme/floor1', prNumber: 5, agentId: null }]);
   });
 
   it('sends the PR’s author, one call per merge in order', () => {

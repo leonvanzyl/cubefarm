@@ -1,26 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PullInfo, RepoView } from '../../../shared/types';
-import { CELEBRATE_MS, GONG_GAP_MS, SWING, celebrating, createGong, flashLevel, newlyMerged, strike, swingAngle, twistAngle } from './gongRules';
-
-const pr = (number: number, state: PullInfo['state']) => ({ number, state }) as PullInfo;
-const repo = (...pulls: PullInfo[]) => ({ id: 'acme/app', pulls }) as RepoView;
-
-describe('newlyMerged', () => {
-  it('finds the PRs that went from open to merged', () => {
-    expect(newlyMerged(repo(pr(1, 'OPEN'), pr(2, 'OPEN'), pr(3, 'OPEN')), repo(pr(1, 'MERGED'), pr(2, 'OPEN'), pr(3, 'MERGED')))).toEqual([1, 3]);
-  });
-
-  it('ignores merges it never saw open: already merged, closed first, or new to it', () => {
-    expect(newlyMerged(repo(pr(1, 'MERGED')), repo(pr(1, 'MERGED')))).toEqual([]);
-    expect(newlyMerged(repo(pr(1, 'CLOSED')), repo(pr(1, 'MERGED')))).toEqual([]);
-    expect(newlyMerged(repo(), repo(pr(4, 'MERGED')))).toEqual([]);
-    expect(newlyMerged(undefined, repo(pr(1, 'MERGED')))).toEqual([]);
-  });
-
-  it('ignores PRs that were closed without merging', () => {
-    expect(newlyMerged(repo(pr(1, 'OPEN')), repo(pr(1, 'CLOSED')))).toEqual([]);
-  });
-});
+import { CELEBRATE_MS, GONG_GAP_MS, SWING, celebrating, createGong, flashLevel, strike, swingAngle, twistAngle } from './gongRules';
 
 describe('strike', () => {
   it('booms only on the floor whose gong is on screen', () => {
@@ -62,7 +41,7 @@ describe('strike', () => {
     expect(strike(g, 1500, { celebrate: true })).toBe('ringing');
     expect(g.hits).toBe(1);
     expect(celebrating(g, 'acme/app', 1600)).toBe(true);
-    expect(g.burstAt).toBe(1500);
+    expect(celebrating(g, 'acme/app', 1500 + CELEBRATE_MS - 1)).toBe(true);
   });
 });
 

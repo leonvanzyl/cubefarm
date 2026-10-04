@@ -12,6 +12,7 @@ import { HttpError } from './httpError.ts';
 import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
+import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
@@ -1875,8 +1876,8 @@ export class Swarm {
     this.toast('info', `PR #${prNumber} is queued for QA`);
   }
 
-  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails) {
-    return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr });
+  private buildQaSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, pr: PrDetails, testStep: string) {
+    return qaSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, pr, testStep });
   }
 
   private async runQa(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord) {
@@ -1891,6 +1892,7 @@ export class Swarm {
 
     let pr: PrDetails;
     let issue: { title: string; body: string } | null = null;
+    const lastTestedSha = rec.testedSha;
     try {
       pr = await this.backend.prDetails(repo.fullName, rec.prNumber);
       const issueNumber = rec.issueNumber ?? pr.closesIssues[0] ?? null;
@@ -1922,17 +1924,21 @@ export class Swarm {
     }
 
     const dev = rec.devAgentId ? this.state.agents.find((x) => x.id === rec.devAgentId) : null;
+    const qa = qaInstructions({
+      ...pr,
+      round: rec.round,
+      fixReason: rec.fixReason,
+      lastTestedSha,
+      summary: rec.summary,
+      fixInstructions: rec.fixInstructions,
+      defaultBranch: repo.defaultBranch,
+    });
     const prompt = [
       `Please QA pull request #${pr.number}: ${pr.title}`,
       `URL: ${pr.url}`,
       `Author: ${dev ? `${dev.name} (developer agent)` : 'a teammate'} · QA round ${rec.round}`,
-      rec.fixReason === 'conflict'
-        ? `\nQA passed it before, but since then the branch was updated with ${repo.defaultBranch} to resolve merge conflicts. Re-check everything, especially where this change meets the newly merged work.`
-        : rec.fixReason === 'checks'
-          ? '\nQA passed it before, but since then the developer changed the code to fix failing GitHub checks. Re-check everything.'
-          : rec.round > 1 && rec.summary
-            ? `\nThis is a re-test after fixes. Last round's findings:\n${rec.summary}\n${rec.fixInstructions ?? ''}\nCheck those first, then re-check everything else.`
-            : '',
+      qa.checks,
+      qa.retest,
       '',
       'PR description:',
       pr.body.trim() || '(empty)',
@@ -1941,7 +1947,7 @@ export class Swarm {
       .filter((l) => l !== '')
       .join('\n');
 
-    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr), undefined, QA_SCHEMA);
+    this.startAgentSession(a, repo, cwd, prompt, this.buildQaSystemAppend(a, repo, cwd, branch, pr, qa.testStep), undefined, QA_SCHEMA);
   }
 
   private async onQaFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
