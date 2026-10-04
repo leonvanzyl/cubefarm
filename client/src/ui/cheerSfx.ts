@@ -9,7 +9,7 @@ import { useStore } from '../store';
 import { CELEBRATE_MS } from '../world/gongRules';
 import { gongState } from '../world/gongState';
 import { CHEER_LEAD, CHEER_VOICES, crowdLevel, mayCheer, planCheer, stagger, type CheerVoice, type CheerWord } from './cheerRules';
-import { audio, createPanner, groupOutput, listenerAt, recordSfx, setPannerPosition, type Vec3 } from './sfx';
+import { audio, createPanner, groupOutput, listenerAt, occlusionAt, recordSfx, setPannerPosition, type SfxRecord, type Vec3 } from './sfx';
 import { distance } from './sfxMix';
 
 /** One voice's peak, before distance: well under the gong (its whole boom peaks around 0.5). */
@@ -54,6 +54,22 @@ function channels(): Channels | null {
 }
 
 const pannerAt = (p: PannerNode): Vec3 | null => (p.positionX ? { x: p.positionX.value, y: p.positionY.value, z: p.positionZ.value } : null);
+
+/** Heard through a wall (from the elevator or a balcony): a lowpass and a turn down in front of the panner, or the panner itself. */
+function through(c: Channels | null, p: PannerNode | undefined, at: Vec3, rec: SfxRecord): AudioNode | undefined {
+  const occ = occlusionAt(at);
+  if (!occ) return p;
+  rec.occluded = true;
+  rec.gain *= occ.gain;
+  if (!c || !p) return p;
+  const f = c.ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = occ.cutoff;
+  const g = c.ctx.createGain();
+  g.gain.value = occ.gain;
+  f.connect(g).connect(p);
+  return f;
+}
 
 // ---------- the voice ----------
 
@@ -242,7 +258,8 @@ function play() {
     if (p) setPannerPosition(p, pos.x, pos.y, pos.z);
     const rec = recordSfx(`cheer:${who.voice!.word}`, { group: 'typing', pos, peak: VOICE_PEAK, played: !!p });
     rec.from = p ? pannerAt(p) : null;
-    if (c && p) cheer(c, p, t0 + stagger(Math.random()), who.voice!);
+    const dest = through(c, p, pos, rec);
+    if (c && dest) cheer(c, dest, t0 + stagger(Math.random()), who.voice!);
   });
   if (!plan.crowd.length) return;
   const mid = { x: 0, y: 0, z: 0 };
@@ -255,5 +272,6 @@ function play() {
   if (c) setPannerPosition(c.crowd, mid.x, mid.y, mid.z);
   const rec = recordSfx('cheer:crowd', { group: 'typing', pos: mid, peak, played: !!c });
   rec.from = c ? pannerAt(c.crowd) : null;
-  if (c) crowd(c, c.crowd, t0 + 0.05, peak);
+  const dest = through(c, c?.crowd, mid, rec);
+  if (c && dest) crowd(c, dest, t0 + 0.05, peak);
 }
