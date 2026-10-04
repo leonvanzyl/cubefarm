@@ -7,7 +7,7 @@ import { drawSign } from './draw';
 import { Elevator } from './Elevator';
 import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
-import { DESK_ROWS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, deskPosition, qaDeskPosition } from './layout';
+import { DESK_RUGS, HALF_D, HALF_W, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { Shell } from './Shell';
@@ -52,8 +52,8 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
   return (
     <group>
       <Shell accent={repo.color} floorColor="#d9b48a" seed={repo.floor} />
-      {DESK_ROWS.map((z) => (
-        <Rug key={z} position={[0, 0.004, z + 0.35]} size={[24.4, 2.9]} color={rugColor} />
+      {DESK_RUGS.map((r) => (
+        <Rug key={r.minZ} position={[(r.minX + r.maxX) / 2, 0.004, (r.minZ + r.maxZ) / 2]} size={[r.maxX - r.minX, r.maxZ - r.minZ]} color={rugColor} />
       ))}
 
       {Array.from({ length: MAX_DESKS }, (_, slot) => {
@@ -62,7 +62,7 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       })}
 
       {/* QA lab */}
-      <Rug position={[QA_LAB.x - 0.4, 0.005, -2]} size={[3.4, 10.4]} color="#ffd8bf" />
+      <Rug position={[(QA_RUG.minX + QA_RUG.maxX) / 2, 0.005, (QA_RUG.minZ + QA_RUG.maxZ) / 2]} size={[QA_RUG.maxX - QA_RUG.minX, QA_RUG.maxZ - QA_RUG.minZ]} color="#ffd8bf" />
       {QA_LAB.stations.map((_, slot) => {
         const { x, z } = qaDeskPosition(slot);
         return <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={[x, 0, z]} />;

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Request, Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { browserProblem, playwrightMcp } from './browser.ts';
 import { HOME_DIR } from './config.ts';
 import { cliLabel, CODEX_HOOK_SOURCE, codexThread, commandFor, hookReviewKey, interruptions, isCli, launchArgs, NOTIFY_SOURCE, OPENCODE_PLUGIN_SOURCE, STATUSLINE_SOURCE, trustKey } from './clis.ts';
 import { adoptPty, discardPty, hooksReady, keeperHookUrl, keeperPid, leaveKeeper, spawnPty, startKeeper, terminalsAvailable, type Pty } from './ptyClient.ts';
@@ -115,12 +116,6 @@ const shellArg = (p: string) => `"${p.replaceAll('\\', '/')}"`;
 // ---------- plumbing ----------
 
 const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification'];
-
-/** The browser for a session. Its snapshots and unnamed screenshots go to the session's folder, not the worktree. */
-function playwrightServer(outputDir: string) {
-  const args = ['-y', '@playwright/mcp@latest', '--headless', '--isolated', '--output-dir', outputDir, '--init-script', path.join(import.meta.dirname, 'browser-init.js')];
-  return process.platform === 'win32' ? { command: 'cmd', args: ['/c', 'npx', ...args] } : { command: 'npx', args };
-}
 
 /** What a tool call returned, as text, and any images in it (Playwright screenshots). */
 function toolOutput(response: unknown): { text: string; images: { data: string; mime: string }[] } {
@@ -632,7 +627,10 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
   // Through the keeper, a hook waits while the office restarts instead of failing: the CLIs allow it longer.
   const keeper = keeperHookUrl();
   const hookUrl = `${keeper ?? officeUrl}/api/hooks/${token}`;
-  const browser = opts.browserTesting ? playwrightServer(path.join(dir, 'browser')) : null;
+  // The browser for a session. Its snapshots and unnamed screenshots go to the session's folder, not the worktree.
+  const browser = opts.browserTesting ? playwrightMcp(path.join(dir, 'browser')) : null;
+  const browserIssue = opts.browserTesting ? browserProblem(browser) : null;
+  if (browserIssue) log([{ kind: 'error', text: browserIssue }]);
   let prompt = opts.prompt;
   if (opts.outputSchema) {
     prompt += `\n\nWhen you are done, end your final message with your report as one JSON object in a \`\`\`json block, matching this JSON schema:\n${JSON.stringify(opts.outputSchema)}`;

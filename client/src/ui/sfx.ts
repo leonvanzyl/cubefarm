@@ -115,13 +115,21 @@ export interface ToneOpts {
   peak: number; // 0-1, before the master volume
   attack?: number;
   group?: SoundGroup; // mixed under that group's level as well as the master volume
+  pan?: number; // -1 (left) to 1 (right)
 }
 
-/** Where a sound plugs in: its group's gain, or straight into the master. */
-const outFor = (out: GainNode, group?: SoundGroup) => (group && groupGains[group]) || out;
+/** Route a voice to its group's gain (or straight to the master), through a stereo panner when it has a pan. */
+function output(a: { ctx: AudioContext; out: GainNode }, pan?: number, group?: SoundGroup): AudioNode {
+  const out = (group && groupGains[group]) || a.out;
+  if (!pan || !a.ctx.createStereoPanner) return out;
+  const p = a.ctx.createStereoPanner();
+  p.pan.value = pan;
+  p.connect(out);
+  return p;
+}
 
 /** One enveloped oscillator note. */
-export function tone({ freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, group }: ToneOpts) {
+export function tone({ freq, to, type = 'sine', at = 0, dur, peak, attack = 0.015, group, pan }: ToneOpts) {
   const a = audio();
   if (!a) return;
   try {
@@ -134,7 +142,7 @@ export function tone({ freq, to, type = 'sine', at = 0, dur, peak, attack = 0.01
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain).connect(outFor(a.out, group));
+    osc.connect(gain).connect(output(a, pan, group));
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
   } catch {
@@ -152,12 +160,13 @@ export interface NoiseOpts {
   q?: number;
   attack?: number;
   group?: SoundGroup;
+  pan?: number;
 }
 
 let noiseBuf: AudioBuffer | null = null;
 
 /** A burst of filtered white noise: footsteps, whooshes, pops. */
-export function noise({ at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005, group }: NoiseOpts) {
+export function noise({ at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, attack = 0.005, group, pan }: NoiseOpts) {
   const a = audio();
   if (!a) return;
   try {
@@ -178,7 +187,7 @@ export function noise({ at = 0, dur, peak, filter = 'lowpass', freq, to, q = 1, 
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(bq).connect(gain).connect(outFor(a.out, group));
+    src.connect(bq).connect(gain).connect(output(a, pan, group));
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.05);
   } catch {
@@ -232,23 +241,6 @@ export function slurp() {
   noise({ dur: 0.28, peak: 0.07, filter: 'bandpass', freq: 350, to: 2400, q: 2.2, attack: 0.05, group: 'toys' });
   tone({ freq: 220, to: 660, type: 'triangle', dur: 0.24, peak: 0.035, attack: 0.03, group: 'toys' });
   noise({ at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002, group: 'toys' });
-}
-
-/** One soft footstep: a muffled thud. */
-export function footstep(running = false) {
-  noise({ dur: running ? 0.09 : 0.12, peak: running ? 0.07 : 0.045, freq: (running ? 700 : 480) * (0.9 + Math.random() * 0.2), q: 0.7, group: 'steps' });
-}
-
-let stepCount = 0;
-
-/**
- * Called every frame with the head-bob phase: one step each half bob cycle (so the step rate follows
- * the bob and speeds up when running), and none while standing still.
- */
-export function footstepsFollow(bobPhase: number, moving: boolean, running: boolean) {
-  const n = Math.floor(bobPhase / Math.PI);
-  if (moving && n !== stepCount) footstep(running);
-  stepCount = n;
 }
 
 /** A basket: the net's swish, then a small cheer. */
