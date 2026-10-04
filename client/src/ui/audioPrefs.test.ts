@@ -4,15 +4,15 @@ import { DEFAULT_AUDIO_PREFS, normalizeAudioPrefs, parseAudioPrefs, sliderGain }
 describe('parseAudioPrefs', () => {
   it('uses the defaults when nothing is saved', () => {
     expect(parseAudioPrefs(null)).toEqual(DEFAULT_AUDIO_PREFS);
-    expect(DEFAULT_AUDIO_PREFS).toMatchObject({ steps: 100, typing: 100, toys: 100, alerts: 100 });
+    expect(DEFAULT_AUDIO_PREFS).toMatchObject({ steps: 100, typing: 100, toys: 100, alerts: 100, music: 100 });
   });
 
   it('keeps old { volume, muted } settings and fills in the groups', () => {
-    expect(parseAudioPrefs('{"volume":40,"muted":true}')).toEqual({ volume: 40, muted: true, steps: 100, typing: 100, toys: 100, alerts: 100 });
+    expect(parseAudioPrefs('{"volume":40,"muted":true}')).toEqual({ volume: 40, muted: true, steps: 100, typing: 100, toys: 100, alerts: 100, music: 100 });
   });
 
   it('round-trips saved group levels', () => {
-    const saved = { volume: 55, muted: false, steps: 0, typing: 35, toys: 80, alerts: 100 };
+    const saved = { volume: 55, muted: false, steps: 0, typing: 35, toys: 80, alerts: 100, music: 45 };
     expect(parseAudioPrefs(JSON.stringify(saved))).toEqual(saved);
   });
 
@@ -32,7 +32,7 @@ describe('normalizeAudioPrefs', () => {
   });
 
   it('ignores unknown keys', () => {
-    expect(normalizeAudioPrefs({ volume: 10, music: 50 })).toEqual({ ...DEFAULT_AUDIO_PREFS, volume: 10 });
+    expect(normalizeAudioPrefs({ volume: 10, radio: 50 })).toEqual({ ...DEFAULT_AUDIO_PREFS, volume: 10 });
   });
 });
 

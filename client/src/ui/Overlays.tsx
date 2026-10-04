@@ -58,7 +58,7 @@ export function Panel({
   );
 }
 
-const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts' };
+const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music' };
 
 /** Office volume, mute and a level per kind of sound; saved in this browser. */
 export function SoundControls() {
@@ -78,7 +78,7 @@ export function SoundControls() {
       </div>
       <div className="sound-groups" role="group" aria-label="Volume for each kind of sound">
         {SOUND_GROUPS.map((g) => (
-          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : undefined}>
+          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : g === 'music' ? "Each floor's jukebox" : undefined}>
             <span className="muted small sound-group-name">{SOUND_GROUP_LABELS[g]}</span>
             <input
               type="range"
