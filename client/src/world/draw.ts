@@ -151,7 +151,7 @@ export function drawTerminal(
 
   if (agent.status === 'working' || agent.status === 'preparing') {
     const frame = Math.floor(now / 120) % SPINNER.length;
-    const verb = agent.status === 'preparing' ? 'Setting up worktree' : toolVerb(agent.currentTool) || VERBS[Math.floor(now / 6000) % VERBS.length];
+    const verb = agent.status === 'preparing' ? (agent.currentTool ?? 'Setting up worktree') : toolVerb(agent.currentTool) || VERBS[Math.floor(now / 6000) % VERBS.length];
     const secs = agent.startedAt ? Math.floor((Date.now() - agent.startedAt) / 1000) : 0;
     const mm = Math.floor(secs / 60);
     ctx.fillStyle = '#ff9e64';
