@@ -5,6 +5,7 @@ import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders } from './layout';
+import { decorRects } from './decor/decor';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
 import { Outside } from './Outside';
@@ -43,7 +44,8 @@ export function Game() {
   const repo = floor === 0 ? null : repoOnFloor(repos, floor);
   const isOffice = !!repo;
   const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
-  const colliders = useMemo(() => (isOffice ? officeColliders() : lobbyColliders()), [isOffice]);
+  const placed = useStore((s) => (repo ? s.progress.floors[repo.id]?.placed : undefined));
+  const colliders = useMemo(() => (isOffice ? [...officeColliders(), ...decorRects(placed ?? {})] : lobbyColliders()), [isOffice, placed]);
   // Stop drawing while nobody can see the office; switching back to 'always' draws a fresh frame at once.
   const paused = useRenderPaused();
   const [maxDpr, setMaxDpr] = useState(MAX_DPR);
