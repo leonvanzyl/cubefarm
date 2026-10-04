@@ -186,6 +186,16 @@ export function setNpcRoomba(fn: (() => NpcRoomba) | null) {
   roomba = fn;
 }
 
+let round: (() => boolean) | null = null;
+
+/** The roomba registers how to send it out on a round (the rituals' wind-down). */
+export function setRoombaRound(fn: (() => boolean) | null) {
+  round = fn;
+}
+
+/** Sends the floor's roomba off its dock for a clean now; false when it's already out (or there's none). */
+export const roombaRound = () => round?.() ?? false;
+
 /** For window.__swarmToys: who holds what, and what the people on toy errands have done this session. */
 export function npcSnapshot() {
   return { holding: [...grips].map(([who, g]) => ({ who, ball: g.ball, pose: g.pose })), ...stats };

@@ -7,10 +7,10 @@ import { roombaChirp } from '../../ui/sfx';
 import { useInteractable } from '../interact';
 import { toon } from '../materials';
 import { BALLS, type ToyFloor } from './balls';
-import { setNpcRoomba } from './npc';
+import { setNpcRoomba, setRoombaRound } from './npc';
 import { onPoke } from './poke';
 import { setRoombaSource } from './probe';
-import { DOCK_SIZE, FULL, ROOMBA, ROOMBA_EVENT, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
+import { DOCK_SIZE, FULL, ROOMBA, ROOMBA_EVENT, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, sendOut, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
 import { RoombaSounds } from './RoombaSounds';
 import { Vacuum } from './RoombaVacuum';
 
@@ -139,6 +139,7 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     let spins = 0;
     setRoombaSource(() => ({ x: brain.x, z: brain.z, state: brain.state, battery: Math.round(brain.battery * 100), spinning: brain.move === 'spin', spins }));
     setNpcRoomba(() => brain);
+    setRoombaRound(() => sendOut(brain));
     const off = onPoke('roomba', () => {
       if (brain.move !== 'spin') spins++;
       spinRoomba(brain);
@@ -147,6 +148,7 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     return () => {
       setRoombaSource(null);
       setNpcRoomba(null);
+      setRoombaRound(null);
       off();
     };
   }, [brain]);
