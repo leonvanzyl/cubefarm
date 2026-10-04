@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
@@ -9,6 +9,8 @@ import { Character } from './Character';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { glow, shade, toon } from './materials';
+import { deskMug, subscribeMugs } from './people';
+import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
 
 const SCREEN = { w: 1.0, h: 0.6, px: 896, py: 538 };
 const WOOD = '#f1d19b';
@@ -204,6 +206,25 @@ function Keyboard() {
   );
 }
 
+/** The mug on the desk; for a while after a coffee break, the coffee they brought back, full and steaming. */
+function DeskMug({ agentId, color }: { agentId: string; color: string }) {
+  const coffee = useSyncExternalStore(subscribeMugs, () => deskMug(agentId));
+  const [, expire] = useState(0);
+  useEffect(() => {
+    if (!coffee) return;
+    const t = setTimeout(() => expire((n) => n + 1), Math.max(0, coffee.until - Date.now()) + 50);
+    return () => clearTimeout(t);
+  }, [coffee]);
+  const fresh = coffee && coffee.until > Date.now() ? coffee : null;
+  if (!fresh) return <Cyl r={0.045} h={0.1} color={color} outline />;
+  return (
+    // the parent group sits at the plain mug's centre, 0.82 (desk top 0.77 plus half its height)
+    <group position={[0, MUG_SIZE.h / 2 - 0.05, 0]} rotation={[0, Math.PI / 2, 0]}>
+      <MugLook color={mugColor(fresh.id)} sips={fresh.sips} />
+    </group>
+  );
+}
+
 const LAB_BENCH = '#dfe7ef';
 const QA_ORANGE = '#ff9f68';
 
@@ -266,7 +287,7 @@ export const Desk = memo(function Desk({
           <Keyboard />
           {/* the mug: its owner picks it up for a sip now and then */}
           <group ref={mugRef} position={[0.76, 0.82, 0.02]}>
-            <Cyl r={0.045} h={0.1} color={mug} outline />
+            <DeskMug agentId={agent.id} color={mug} />
           </group>
         </>
       ) : (

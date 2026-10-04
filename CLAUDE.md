@@ -108,7 +108,9 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - `src/world/`: the 3D building: floors, desks, characters (`appearance.ts`, `characterParts.ts`), elevator,
   whiteboard, player movement and collisions (`layout.ts`), canvas textures (`draw.ts`), `toys/` (Rapier physics),
   where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid),
-  errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them).
+  errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them),
+  the time of day (`sky/time.ts`, `sky/useDayTime.ts`) and the city outside (`outside/`: the seeded layout in
+  `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls).
 - `src/ui/`: HTML overlays: HUD, terminal (`LiveTerminal.tsx`: xterm.js on `/ws/term`), Kanban, manager's console,
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
   viewer, sounds (`sfx.ts`).
