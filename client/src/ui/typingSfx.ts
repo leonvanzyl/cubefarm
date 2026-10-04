@@ -1,7 +1,8 @@
 // Typing from working agents' desks. A few fixed channels (one per heard typist, each its own panner at
 // their keyboard) feed the 'typing' group, under its slider and the master volume. Keystrokes are pre-rendered samples
 // started a little ahead on the AudioContext clock, so each one costs a buffer source and a gain.
-// Every sound asked for is logged to window.__swarmSfx, even while audio is locked or unavailable.
+// Every sound asked for is logged to window.__swarmSfx, even while audio is locked or unavailable, with where its
+// panner really was (`from`) next to where it was meant to come from (`at`).
 
 import { audio, groupOutput } from './sfx';
 import { KEYBOARDS, MOUSE_CLICK, WHEEL_NOTCH, renderKey, type KeySound } from './keyboards';
@@ -32,14 +33,16 @@ interface SfxEntry {
   at: Vec3 | null;
   gain: number;
   played: boolean;
+  from: Vec3 | null; // the channel panner's position when it played (null when it didn't, or can't be read)
   t: number;
 }
 
 const probe = window as unknown as { __swarmSfx?: SfxEntry[] };
 
-function record(name: string, at: Vec3, gain: number, played: boolean) {
+function record(name: string, at: Vec3, gain: number, played: boolean, panner?: PannerNode) {
   const log = (probe.__swarmSfx ??= []);
-  log.push({ name, group: 'typing', at: { x: at.x, y: at.y, z: at.z }, gain, played, t: performance.now() });
+  const from = played && panner?.positionX ? { x: panner.positionX.value, y: panner.positionY.value, z: panner.positionZ.value } : null;
+  log.push({ name, group: 'typing', at: { x: at.x, y: at.y, z: at.z }, gain, played, from, t: performance.now() });
   if (log.length > 50) log.splice(0, log.length - 50);
 }
 
@@ -55,6 +58,7 @@ interface Chain {
 }
 
 let chain: Chain | null = null;
+let generation = 0; // bumped whenever the channels are rebuilt (a new AudioContext)
 
 function toBuffer(ctx: AudioContext, sound: KeySound, seed: number, detune = 1) {
   const data = renderKey(sound, ctx.sampleRate, seed, detune);
@@ -96,6 +100,7 @@ function getChain(): Chain | null {
       click: toBuffer(ctx, MOUSE_CLICK, 2000),
       wheel: toBuffer(ctx, WHEEL_NOTCH, 3000),
     };
+    generation++;
     return chain;
   } catch {
     return null;
@@ -104,14 +109,23 @@ function getChain(): Chain | null {
 
 // ---------- the API the desks use ----------
 
-/** Move a channel to its typist's keyboard (or mouse). */
-export function placeTypingChannel(channel: number, at: Vec3) {
+/**
+ * Builds the channels once audio is ready and says which set is live: a number that changes whenever they're
+ * rebuilt, since new channels all sit at the origin until placed again. 0 while audio is locked or unavailable.
+ */
+export function typingGeneration(): number {
+  return getChain() ? generation : 0;
+}
+
+/** Move a channel to its typist's keyboard (or mouse). False when it couldn't (audio still locked or unavailable). */
+export function placeTypingChannel(channel: number, at: Vec3): boolean {
   const c = getChain();
-  if (!c) return;
+  if (!c) return false;
   try {
     setPos(c.channels[channel], at);
+    return true;
   } catch {
-    // audio is optional
+    return false; // audio is optional
   }
 }
 
@@ -123,7 +137,7 @@ export function typingSound(channel: number, name: TypingSound, keyboard: number
   const kb = KEYBOARDS[keyboard];
   const gain = KEY_GAIN * GAIN[name] * (name === 'click' || name === 'scroll' ? 1 : kb.level) * (0.8 + variation * 0.35);
   const c = getChain();
-  record(name, at, gain, !!c);
+  record(name, at, gain, !!c, c?.channels[channel]);
   if (!c) return;
   try {
     const src = c.ctx.createBufferSource();

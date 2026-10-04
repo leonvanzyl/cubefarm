@@ -183,15 +183,20 @@ test("working agents type at their desks, and stop while a panel covers the view
   const spot: SavedView = { floor: 1, x: 0, z: -7, yaw: 0, pitch: 0.15 };
   await page.addInitScript(([key, view]) => localStorage.setItem(key, view), [VIEW_KEY, JSON.stringify(spot)] as const);
   await enterOffice(page);
-  type Entry = { name: string; group: string; at: { x: number; y: number; z: number } | null; t: number };
+  const entered = await page.evaluate(() => performance.now());
+  type Vec = { x: number; y: number; z: number };
+  type Entry = { name: string; group: string; at: Vec | null; played: boolean; from: Vec | null; t: number };
   const typing = () => page.evaluate(() => ((window as unknown as { __swarmSfx?: Entry[] }).__swarmSfx ?? []).filter((e) => e.group === 'typing'));
-  await expect.poll(async () => (await typing()).length, { message: 'typing sounds', timeout: 60_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await typing()).filter((e) => e.t > entered).length, { message: 'typing sounds', timeout: 60_000 }).toBeGreaterThan(0);
   // Every keystroke comes from someone's keyboard or mouse on this floor.
   const desks = [
     ...Array.from({ length: MAX_DESKS }, (_, slot) => ({ role: 'dev' as const, slot })),
     ...QA_LAB.stations.map((_, slot) => ({ role: 'qa' as const, slot })),
   ].flatMap(({ role, slot }) => [false, true].map((mouse) => keyboardSpot(role, slot, mouse, { x: 0, y: 0, z: 0 })));
   for (const e of await typing()) expect(desks.some((d) => Math.hypot(d.x - e.at!.x, d.y - e.at!.y, d.z - e.at!.z) < 1e-6)).toBe(true);
+  // Right after Enter (typists picked behind the start screen), each sound that plays comes from its keyboard,
+  // not a panner left at the origin. Headless audio may be unavailable: then nothing plays and `from` stays null.
+  for (const e of await typing()) if (e.played && e.from) expect(Math.hypot(e.from.x - e.at!.x, e.from.y - e.at!.y, e.from.z - e.at!.z)).toBeLessThan(1e-3);
   await expect(page.getByText('Open the Kanban board')).toBeVisible(); // the crosshair hint
   await page.keyboard.press('e'); // the Kanban board covers the view
   await expect(page.getByText(/In progress/).first()).toBeVisible();

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useStore } from '../store';
 import { keyboardFor } from '../ui/keyboards';
-import { TYPING_CHANNELS, TYPING_RANGE, moveListener, placeTypingChannel, typingSound } from '../ui/typingSfx';
+import { TYPING_CHANNELS, TYPING_RANGE, moveListener, placeTypingChannel, typingGeneration, typingSound } from '../ui/typingSfx';
 import {
   TAP_PHASE,
   assignSlots,
@@ -51,6 +51,7 @@ export function TypingSounds() {
       slots: new Array<string | null>(TYPING_CHANNELS).fill(null),
       placed: new Array<string>(TYPING_CHANNELS).fill(''), // who (and where) each channel was last moved to
       placedMouse: new Array<boolean>(TYPING_CHANNELS).fill(false),
+      generation: 0, // typingGeneration() when the channels were placed
     }),
     [],
   );
@@ -91,6 +92,12 @@ export function TypingSounds() {
     const k = nearestK(st.dist, n, TYPING_CHANNELS, st.pick);
     for (let i = 0; i < k; i++) st.chosen[i] = st.ids[st.pick[i]];
     assignSlots(st.slots, st.chosen, k);
+    // New channels (audio just unlocked, or a new AudioContext) start at the origin: place them all again.
+    const generation = typingGeneration();
+    if (st.generation !== generation) {
+      st.generation = generation;
+      st.placed.fill('');
+    }
 
     for (let ch = 0; ch < TYPING_CHANNELS; ch++) {
       const id = st.slots[ch];
@@ -98,8 +105,7 @@ export function TypingSounds() {
       const a = id === null ? undefined : s.agents[id];
       if (!p || !a || id === null) continue;
       const mouse = p.pose === 'browsing';
-      if (st.placed[ch] !== id || st.placedMouse[ch] !== mouse) {
-        placeTypingChannel(ch, p.spot);
+      if ((st.placed[ch] !== id || st.placedMouse[ch] !== mouse) && placeTypingChannel(ch, p.spot)) {
         st.placed[ch] = id;
         st.placedMouse[ch] = mouse;
       }
