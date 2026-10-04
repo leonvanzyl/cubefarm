@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
+import { qaCardNote, type CardTone } from './qaCard';
 import { chirp, cue } from './ui/sfx';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { hitGong } from './world/gongState';
@@ -393,7 +394,7 @@ export interface KanbanCard {
   url?: string;
   agent?: Agent;
   note?: string;
-  tone?: 'warn' | 'bad' | 'good';
+  tone?: CardTone;
   prNumber?: number;
   qa?: QaView;
 }
@@ -436,43 +437,9 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
     const dev = (rec?.devAgentId ? byId.get(rec.devAgentId) : undefined) ?? authorOf(p.number, p.headRefName);
     const tester = rec?.qaAgentId ? byId.get(rec.qaAgentId) : undefined;
     const base = { key: `pr-${p.number}`, number: p.number, prNumber: p.number, title: p.title, url: p.url, qa: rec };
-    if (rec?.status === 'passed') {
-      ready.push({
-        ...base,
-        agent: dev,
-        note: rec.mergeNote
-          ? `QA ✓ · ${rec.mergeNote}`
-          : p.mergeable === 'CONFLICTING'
-            ? 'QA ✓ · conflicts'
-            : p.checks === 'failing'
-              ? 'QA ✓ · CI failing'
-              : repo.autoMerge && p.checks === 'pending'
-                ? 'QA ✓ · waiting for checks'
-                : '✅ QA passed',
-        tone: p.mergeable === 'CONFLICTING' || p.checks === 'failing' ? 'warn' : 'good',
-      });
-      continue;
-    }
-    const status = rec?.status;
-    qa.push({
-      ...base,
-      agent: status === 'testing' ? tester : dev,
-      note:
-        status === 'queued'
-          ? `waiting for QA${rec && rec.round > 1 ? ` · round ${rec.round}` : ''}`
-          : status === 'testing'
-            ? `🔍 testing · round ${rec!.round}`
-            : status === 'failed'
-              ? '❌ failed · back to dev'
-              : status === 'fixing'
-                ? `🔧 fixing · round ${rec!.round}`
-                : status === 'needs-human'
-                  ? `⚠️ needs you${rec!.mergeNote ? ` · ${rec!.mergeNote}` : ''}`
-                  : p.isDraft
-                    ? 'draft'
-                    : 'not tested yet',
-      tone: status === 'failed' || status === 'needs-human' ? 'bad' : status === 'fixing' || !status ? 'warn' : undefined,
-    });
+    const card = { ...base, ...qaCardNote(rec, p, repo.autoMerge) };
+    if (rec?.status === 'passed') ready.push({ ...card, agent: dev });
+    else qa.push({ ...card, agent: rec?.status === 'testing' ? tester : dev });
   }
 
   const claimed = new Set<number>([...progress.map((c) => c.number), ...openPulls.flatMap((p) => p.closesIssues)]);
