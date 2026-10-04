@@ -7,7 +7,7 @@ import { setOutsideQuiet, startOutside, stopOutside } from '../ui/outsideSfx';
 // behind a panel or the phone and while the elevator travels, like the other loops. Set here rather than in the frame
 // loop, which stops while the view is paused.
 
-export function OutsideSounds({ kind }: { kind: 'office' | 'lobby' }) {
+export function OutsideSounds({ kind }: { kind: 'office' | 'lobby' | 'roof' }) {
   const paused = useRenderPaused();
   const away = useStore((s) => s.travel !== null || s.overlay !== null);
   useEffect(() => setOutsideQuiet(paused || away), [paused, away]);

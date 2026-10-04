@@ -234,6 +234,22 @@ function Facade({ floor, top }: { floor: number; top: number }) {
   return <mesh geometry={geo} material={toonMap('facade', facadeTexture())} />;
 }
 
+/** The building under the roof (roof/Roof.tsx): every floor's balconies and the outer walls, down to the ground. */
+export function BuildingBelow({ top }: { top: number }) {
+  const floor = top + 1; // the roof, as the storey above the top floor
+  const shell = useMemo(() => balconyGeometry(floor, top), [floor, top]);
+  useEffect(() => () => Object.values(shell).forEach((g) => g.dispose()), [shell]);
+  return (
+    <group>
+      <mesh geometry={shell.slabs} material={toon('#d6d0c4')} />
+      <mesh geometry={shell.patio} material={toon('#e3b98f')} />
+      <mesh geometry={shell.rails} material={toon('#5c677d')} />
+      <mesh geometry={shell.glass} material={paneMaterial()} renderOrder={1} />
+      <Facade floor={floor} top={top} />
+    </group>
+  );
+}
+
 /** Everything outside the side walls, for floor `floor` of a building whose top floor is `top`. */
 export function Outside({ kind, floor, top }: { kind: FloorKind; floor: number; top: number }) {
   return (

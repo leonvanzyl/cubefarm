@@ -8,6 +8,7 @@ import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type
 import { PARTS } from './characterParts';
 import { PROUD_FOR, blink, expressionFor, isDrowsy, newFace, prFaceOf, stepFace } from './face';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
+import { FaceGlow } from './gfx/ScreenGlow';
 import { HeadParts, INK, Sleeve, TorsoWear, applyFace, torsoWidth } from './Figure';
 import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
@@ -48,6 +49,8 @@ const POSES: Record<PoseName, Pose> = {
 
 const clone = (p: Pose): Pose => ({ ...p, l: { ...p.l }, r: { ...p.r } });
 const lerp = THREE.MathUtils.lerp;
+/** Marks a person's root, so High's contact-shadow bake (gfx/ContactShadows.tsx) can leave people out of it. */
+const PERSON = { person: true };
 // A physics person's ball (chair-space: beside their feet, under the desktop).
 const BALL_AT: [number, number, number] = [-0.5, 0.13, -0.98];
 
@@ -88,6 +91,7 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   clap: { l: { pitch: 0.05, yaw: 0.62 }, r: { pitch: 0.05, yaw: 0.62 }, head: 0.08 },
   nod: { l: null, r: null, head: -0.05 },
   thumbs: { l: null, r: { pitch: 0.45, yaw: 0.25 }, head: 0.12 },
+  call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
   // ping-pong: the free hand out for balance; the bat arm reaches for wherever the match puts the paddle (below)
   paddle: { l: { pitch: -0.5, yaw: 0.5 }, r: { pitch: -0.35, yaw: -0.25 }, head: 0.05 },
 };
@@ -489,7 +493,7 @@ export function Character({
     faceInfo.expression = expression;
     faceInfo.lid = asleep.current ? 1 : blink(t, face.seed);
     applyFace(faceMesh, face.s, faceInfo.lid);
-    if (phone.current) phone.current.visible = seated && ls.fidget === 'phone' && fw > 0.35;
+    if (phone.current) phone.current.visible = (seated && ls.fidget === 'phone' && fw > 0.35) || (st.stage === 'up' && goal?.gesture === 'call');
     if (seated && body.current) body.current.rotation.y = o.spin * fw;
     if (chair?.current) chair.current.rotation.y = seated ? o.spin * fw : 0;
 
@@ -583,7 +587,7 @@ export function Character({
   const pants = toon('#3d4a6b');
 
   return (
-    <group ref={root}>
+    <group ref={root} userData={PERSON}>
       {look.accessory === 'ball' && chair && (
         // under the desk, where it stays when they get up
         <mesh position={BALL_AT} geometry={PARTS.ball} material={toon('#e76f51')} castShadow>
@@ -669,6 +673,7 @@ export function Character({
 
           <group ref={head} position={[0, 0.66, 0]}>
             <HeadParts agent={agent} look={look} busy={busy} face={faceMesh} />
+            {chair && <FaceGlow id={agent.id} geometry={PARTS.head} />}
           </group>
           {carrying && (
             <group ref={held} visible={false}>

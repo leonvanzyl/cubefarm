@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { RepoView } from '../../../shared/types';
 import { coversView, useStore, type Agent } from '../store';
 import { canBurst, onMerge } from './confetti';
+import { markBloom } from './gfx/bloomMarks';
 import { onGongParty } from './gongState';
 import { BOARD, GONG, deskPosition } from './layout';
 import { PIZZA_CONFETTI, ritualLook } from './ritualLook';
@@ -60,7 +61,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       colors: [...PALETTE, repo.color].map((c) => new THREE.Color(c)),
       pizza: PIZZA_CONFETTI.map((c) => new THREE.Color(c)),
       geometry: new THREE.PlaneGeometry(0.1, 0.06),
-      material: new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false }),
+      material: markBloom(new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false })),
     };
   }, [repo.color]);
 

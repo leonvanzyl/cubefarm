@@ -191,7 +191,8 @@ function DogLook({ brain, gait, carrying }: { brain: Brain; gait: { phase: numbe
   });
 
   return (
-    <group ref={root}>
+    // userData.moving: High's contact-shadow bake (gfx/ContactShadows.tsx) leaves it out, so it leaves no ghost behind
+    <group ref={root} userData={{ moving: true }}>
       <Leg legRef={rl} at={[-0.18, 0.3, -0.085]} />
       <Leg legRef={rr} at={[-0.18, 0.3, 0.085]} />
       <group ref={hips} position={[-0.18, 0.3, 0]}>

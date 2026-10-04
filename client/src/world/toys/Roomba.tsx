@@ -48,7 +48,8 @@ function Look({ brain, light }: { brain: Brain; light: THREE.MeshBasicMaterial }
   });
   const { r } = ROOMBA;
   return (
-    <group>
+    // userData.moving: High's contact-shadow bake (gfx/ContactShadows.tsx) leaves it out, so it leaves no ghost behind
+    <group userData={{ moving: true }}>
       <mesh position={[0, 0.045, 0]} castShadow material={toon('#f1f3f5')}>
         <cylinderGeometry args={[r, r, 0.07, 32]} />
         <Outlines thickness={0.01} color={INK} />

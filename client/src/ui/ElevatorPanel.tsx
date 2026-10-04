@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from '../store';
+import { ROOF } from '../world/layout';
 import { Panel } from './Overlays';
 
 export function ElevatorPanel() {
@@ -11,6 +12,7 @@ export function ElevatorPanel() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'g' || e.key === '0') goToFloor(0);
+      else if (e.key.toLowerCase() === 'r') goToFloor(ROOF);
       else if (/^[1-9]$/.test(e.key) && repos.some((r) => r.floor === Number(e.key))) goToFloor(Number(e.key));
     };
     window.addEventListener('keydown', onKey);
@@ -21,6 +23,12 @@ export function ElevatorPanel() {
   return (
     <Panel title="🛗 Elevator">
       <div className="elevator">
+        {/* the roof: always the top stop, however many floors there are */}
+        <button className={`floor-btn ${floor === ROOF ? 'floor-btn-here' : ''}`} style={{ ['--accent' as string]: '#7cc6fe' }} onClick={() => goToFloor(ROOF)}>
+          <span className="floor-btn-num">R</span>
+          <span className="floor-btn-name">Roof terrace</span>
+          <span className="floor-btn-meta">garden · deck chairs · telescope · barbecue</span>
+        </button>
         {floors.map((r) => {
           const team = Object.values(agents).filter((a) => a.repoId === r.id);
           const busy = team.filter((a) => a.status === 'working' || a.status === 'preparing').length;
@@ -41,7 +49,7 @@ export function ElevatorPanel() {
           <span className="floor-btn-meta">connect repos · hire · file issues</span>
         </button>
         {repos.length === 0 && <p className="muted">No floors yet. Head to the manager's office to connect a GitHub repo or start a new project.</p>}
-        <p className="muted small">Tip: press a floor number (or G) while this panel is open.</p>
+        <p className="muted small">Tip: press a floor number (or G, or R for the roof) while this panel is open.</p>
       </div>
     </Panel>
   );

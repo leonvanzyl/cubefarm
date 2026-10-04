@@ -2,10 +2,11 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { PerformanceMonitor, type PerformanceMonitorApi } from '@react-three/drei';
 import { coversView, useStore } from './store';
+import { gfxLabel } from './world/gfx/useGraphics';
 
 // Keeping the office cheap to leave open all day: the 3D view stops drawing while a panel hides it or
-// the tab is in the background, the resolution steps down when frames get slow, and `?stats` shows
-// what the canvas costs.
+// the tab is in the background, the resolution steps down when frames get slow (and Auto graphics, world/gfx,
+// drops its effects first, from the same frame-rate samples), and `?stats` shows what the canvas costs.
 
 /** Highest device pixel ratio the canvas renders at (the adaptive resolution never goes below 1). */
 export const MAX_DPR = 1.75;
@@ -71,6 +72,36 @@ export function AdaptiveResolution({ onChange }: { onChange: (maxDpr: number) =>
   return <PerformanceMonitor factor={1} step={0.25} bounds={fpsBounds} onIncline={apply} onDecline={apply} />;
 }
 
+/**
+ * Lives inside the Canvas while something needs the frame rate (Auto graphics, world/gfx): every half second of
+ * drawing, `onSample` gets the average fps over it. A pause (panel open, tab hidden) calls `onPause` and starts a fresh
+ * window, so time the view wasn't drawing never counts as slow frames; a genuinely slow frame (software WebGL) does.
+ */
+export function FrameRateSampler({ paused, onSample, onPause }: { paused: boolean; onSample: (fps: number, ms: number) => void; onPause?: () => void }) {
+  const acc = useRef({ start: 0, frames: 0 });
+  useEffect(() => {
+    acc.current.start = 0;
+    if (paused) onPause?.();
+  }, [paused, onPause]);
+  useFrame(() => {
+    if (paused) return; // FrameWhilePaused's one-off frames
+    const now = performance.now();
+    const a = acc.current;
+    if (!a.start) {
+      a.start = now;
+      a.frames = 0;
+      return;
+    }
+    a.frames++;
+    const elapsed = now - a.start;
+    if (elapsed < 500) return;
+    onSample((a.frames * 1000) / elapsed, elapsed);
+    a.start = now;
+    a.frames = 0;
+  });
+  return null;
+}
+
 // The probe inside the Canvas writes straight into this element, so the readout never re-renders React.
 let readoutEl: HTMLSpanElement | null = null;
 
@@ -98,7 +129,7 @@ export function StatsProbe({ paused }: { paused: boolean }) {
     // gl.info holds the previous frame's totals (shadow passes included) until this frame renders.
     const { calls, triangles } = gl.info.render;
     const fps = (a.frames * 1000) / elapsed;
-    readoutEl.textContent = `${Math.round(fps)} fps · ${(elapsed / a.frames).toFixed(1)} ms · ${calls} calls · ${fmt(triangles)} tris · dpr ${gl.getPixelRatio().toFixed(2)}`;
+    readoutEl.textContent = `${Math.round(fps)} fps · ${(elapsed / a.frames).toFixed(1)} ms · ${calls} calls · ${fmt(triangles)} tris · dpr ${gl.getPixelRatio().toFixed(2)} · gfx ${gfxLabel()}`;
     a.start = now;
     a.frames = 0;
   });
