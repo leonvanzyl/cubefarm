@@ -195,6 +195,25 @@ export interface AgentView {
   screenshotAt: number | null;
   lastError: string | null;
   log: LogLine[]; // tail of the terminal log (full buffer on snapshot)
+  activity?: AgentActivity | null; // what they're doing right now, safe to show anyone (null: nothing, e.g. idle)
+}
+
+/** The kinds of work the icon over a busy agent shows (shared/activity.ts maps tools and status to them). */
+export type ActivityKind = 'read' | 'edit' | 'test' | 'build' | 'browse' | 'git' | 'ci' | 'qa' | 'fix' | 'talk' | 'run';
+
+/** An agent's current activity: a kind and a short, redacted detail ("store.ts", "npm test"; '' for none). */
+export interface AgentActivity {
+  kind: ActivityKind;
+  detail: string;
+}
+
+/** One line on a floor's activity ticker ("Ken opened PR #212"), worked out by the server from what changed. */
+export interface TickerItem {
+  id: number;
+  repoId: string;
+  at: number;
+  text: string;
+  tone: 'good' | 'bad' | 'info';
 }
 
 /** One piece of an agent's prompt; the parts' texts concatenated are the whole prompt. */
@@ -378,6 +397,7 @@ export interface WorldSnapshot {
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
 }
 
 export type ServerEvent =
@@ -400,6 +420,7 @@ export type ServerEvent =
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'ticker'; item: TickerItem }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
 
 export interface GhRepoSummary {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
 import { audioUnlocked, chirp, cue } from './ui/sfx';
@@ -69,6 +69,7 @@ interface State {
   voiceKeyHint: string; // its last 4 characters
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
   voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
+  ticker: TickerItem[]; // the floors' recent activity lines, oldest first (world/ActivityTicker.tsx)
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -128,6 +129,7 @@ export function saveView(v: SavedView) {
   }
 }
 const LOG_KEEP = 600;
+const TICKER_KEEP = 120; // ticker lines kept across every floor
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
@@ -170,6 +172,7 @@ export const useStore = create<State>((set, get) => ({
   voiceKeyHint: '',
   voiceCache: { clips: 0, bytes: 0, saved: [] },
   voiceSpeaking: null,
+  ticker: [],
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -225,6 +228,7 @@ export const useStore = create<State>((set, get) => ({
           voiceKeySet: d.voiceKeySet ?? false,
           voiceKeyHint: d.voiceKeyHint ?? '',
           voiceCache: d.voiceCache ?? { clips: 0, bytes: 0, saved: [] },
+          ticker: d.ticker ?? [],
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -343,6 +347,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'voiceCache':
         set({ voiceCache: ev.voiceCache });
+        break;
+      case 'ticker':
+        set({ ticker: [...get().ticker.slice(-(TICKER_KEEP - 1)), ev.item] });
         break;
     }
   },
