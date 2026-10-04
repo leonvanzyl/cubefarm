@@ -32,6 +32,18 @@ npm run test:e2e     # browser smoke tests (Playwright): builds, boots a demo of
 - `npm run test:e2e` runs `e2e/*.spec.ts` in headless Chromium with software WebGL against a demo office on port 4399 (`E2E_PORT` changes it) with a temp `SWARM_HOME`. The first time, get the browser with `npx playwright install chromium`. Wait on what the page shows rather than sleeping, and don't rely on pointer lock, which a headless browser may not grant.
 - GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test` and `npm run build` on Ubuntu and Windows for every pull request and every push to `main`, then packs the npm package, installs it into an empty folder and boots it in demo mode (`scripts/smoke-package.mjs`). A separate `e2e` job on Ubuntu runs `npm run test:e2e` and uploads the Playwright report when it fails. It needs no secrets.
 
+### The agents' browser tool
+
+Agents test in a browser through the Playwright MCP server, a pinned dependency (`@playwright/mcp` at an exact version in `package.json`) started as `node <its cli.js>` from the installed package (`server/browser.ts`), so a session never runs npx or touches the npm registry. It drives the installed Google Chrome. To bump it:
+
+```bash
+npm install --save-exact @playwright/mcp@<version>
+node node_modules/@playwright/mcp/cli.js --help   # the flags in server/browser.ts still exist
+npm test && npm run build && node scripts/smoke-package.mjs
+```
+
+Read its release notes first: a release that moves to a new Playwright may change which Chrome versions it supports.
+
 ## Architecture
 
 ```

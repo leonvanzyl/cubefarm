@@ -2,6 +2,7 @@
 // and boots the office in demo mode (no GitHub, no Claude). Run `npm run build` first.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -23,6 +24,11 @@ try {
   fs.rmSync(tarball);
   const version = sh('npx --no-install cubefarm --version', tmp);
   console.log(`cubefarm --version: ${version}`);
+  // The agents' pinned browser tool resolves from the installed server, the way server/browser.ts finds it.
+  const mcpPkg = createRequire(path.join(tmp, 'node_modules', 'cubefarm', 'dist-server', 'index.js')).resolve('@playwright/mcp/package.json');
+  const mcp = spawnSync(process.execPath, [path.join(path.dirname(mcpPkg), 'cli.js'), '--version'], { encoding: 'utf8' });
+  if (mcp.status !== 0) throw new Error(`the pinned @playwright/mcp does not run:\n${mcp.stdout}\n${mcp.stderr}`);
+  console.log(`@playwright/mcp --version: ${mcp.stdout.trim()}`);
 
   const bin = path.join(tmp, 'node_modules', 'cubefarm', 'bin', 'cubefarm.js');
   server = spawn(process.execPath, [bin, '--demo', '--no-open', '--port', String(PORT)], {
