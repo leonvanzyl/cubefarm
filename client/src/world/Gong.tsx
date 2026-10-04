@@ -118,8 +118,8 @@ function Confetti() {
       started.current = gongState.burstAt;
       for (const b of bits) {
         const a = Math.random() * Math.PI * 2;
-        const out = 0.5 + Math.random() * 1.4;
-        b.v.set(Math.cos(a) * out, 1.6 + Math.random() * 2.2, Math.abs(Math.sin(a)) * out * 0.9 + 0.2);
+        const out = 0.3 + Math.random() * 0.8;
+        b.v.set(Math.cos(a) * out, 1.4 + Math.random() * 1.8, Math.abs(Math.sin(a)) * out * 0.7 + 0.15);
         b.spin.set(Math.random() * 12, Math.random() * 12, Math.random() * 12);
       }
     }
