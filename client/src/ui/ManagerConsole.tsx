@@ -2,8 +2,9 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { api } from '../api';
 import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
-import { CEO_ID, type AgentCli, type CliView, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
-import { effectiveModel } from '../../../shared/models';
+import { CEO_ID, type AgentCli, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
+import { CLAUDE_MODELS } from '../../../shared/models';
+import { BriefEditor, CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, LookSelect, ModelInput, NameInput, SpecialtyInput, TitleInput } from './AgentSettings';
 import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../officeUpdate';
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
@@ -12,25 +13,6 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
-
-const MODELS = ['claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1', 'claude-sonnet-5', 'claude-haiku-4-5'];
-const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-
-const cliName = (clis: CliView[], id: AgentCli) => clis.find((c) => c.id === id)?.label ?? id;
-
-/** The coding agents to pick from, installed ones first, each saying if it's missing on this machine. */
-function CliOptions({ clis }: { clis: CliView[] }) {
-  return (
-    <>
-      {[...clis].sort((a, b) => Number(b.installed) - Number(a.installed)).map((c) => (
-        <option key={c.id} value={c.id} disabled={!c.installed}>
-          {c.label}
-          {c.installed ? '' : ' (not installed)'}
-        </option>
-      ))}
-    </>
-  );
-}
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
   try {
@@ -284,35 +266,12 @@ function CeoTab() {
             <span className="avatar" style={{ background: ceo.color }}>
               {ceo.name[0]}
             </span>
-            <input
-              className="inline"
-              defaultValue={ceo.name}
-              style={{ maxWidth: 140, fontWeight: 700 }}
-              onBlur={(e) => e.target.value.trim() && e.target.value !== ceo.name && void attempt(() => api.updateAgent(ceo.id, { name: e.target.value }))}
-            />
+            <NameInput agent={ceo} style={{ maxWidth: 140, fontWeight: 700 }} />
             <span className="muted small">CEO</span>
             <StatusPill status={ceo.status} />
             <span className="spacer" />
-            <input
-              className="inline"
-              list="models-ceo"
-              defaultValue={ceo.model}
-              title="The CEO's model"
-              style={{ maxWidth: 150 }}
-              onBlur={(e) => e.target.value !== ceo.model && void attempt(() => api.updateAgent(ceo.id, { model: e.target.value }))}
-            />
-            <datalist id="models-ceo">
-              {MODELS.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-            <select value={ceo.effort} title="The CEO's effort" onChange={(e) => void attempt(() => api.updateAgent(ceo.id, { effort: e.target.value }))} style={{ width: 'auto' }}>
-              {EFFORTS.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
+            <ModelInput agent={ceo} style={{ maxWidth: 150 }} />
+            <EffortSelect agent={ceo} style={{ width: 'auto' }} />
           </div>
           <div className="small">
             <b>Now:</b> {working ? info.job?.label : 'free'}
@@ -398,21 +357,13 @@ function TeamTab() {
   const repos = useStore((s) => s.repos);
   const agents = useStore((s) => s.agents);
   const settings = useStore((s) => s.settings);
-  const clis = useStore((s) => s.clis);
   const openOverlay = useStore((s) => s.openOverlay);
   const terminal = settings.runtime === 'terminal';
-  // The Agent SDK runtime is Claude Code for everyone.
-  const workerCli = (a: { cli: AgentCli | '' }): AgentCli => (terminal ? a.cli || settings.defaultCli : 'claude');
   const [names, setNames] = useState<Record<string, string>>({});
   const [openBrief, setOpenBrief] = useState<string | null>(null);
   if (repos.length === 0) return <p className="muted">Connect a repo first; agents need a floor to sit on.</p>;
   return (
     <div>
-      <datalist id="models">
-        {MODELS.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
       {[...repos].sort((a, b) => a.floor - b.floor).map((repo) => {
         const team = agentsOnRepo(agents, repo.id);
         return (
@@ -450,11 +401,7 @@ function TeamTab() {
                       <span className="dot" style={{ background: a.color }} />
                     </td>
                     <td>
-                      <input
-                        className="inline"
-                        defaultValue={a.name}
-                        onBlur={(e) => e.target.value.trim() && e.target.value !== a.name && void attempt(() => api.updateAgent(a.id, { name: e.target.value }))}
-                      />
+                      <NameInput agent={a} />
                     </td>
                     <td className="nowrap">
                       <span className="chip" title={a.hiredBy === 'ceo' ? 'Hired on the CEO\'s proposal' : undefined}>
@@ -463,25 +410,10 @@ function TeamTab() {
                       </span>
                     </td>
                     <td>
-                      <input
-                        key={`t-${a.title}`}
-                        className="inline"
-                        defaultValue={a.title}
-                        placeholder={a.role === 'qa' ? 'QA tester' : 'Developer'}
-                        title="Job title"
-                        onBlur={(e) => e.target.value !== a.title && void attempt(() => api.updateAgent(a.id, { title: e.target.value }))}
-                      />
+                      <TitleInput agent={a} />
                     </td>
                     <td>
-                      <input
-                        key={`s-${a.specialty}`}
-                        className="inline"
-                        style={{ width: 96 }}
-                        defaultValue={a.specialty}
-                        placeholder="specialty"
-                        title="Issues labelled swarm:<specialty> go to this agent first"
-                        onBlur={(e) => e.target.value !== a.specialty && void attempt(() => api.updateAgent(a.id, { specialty: e.target.value }))}
-                      />
+                      <SpecialtyInput agent={a} style={{ width: 96 }} />
                     </td>
                     <td>
                       <button className="btn btn-small btn-ghost" title="Job description and look" onClick={() => setOpenBrief(openBrief === a.id ? null : a.id)}>
@@ -494,38 +426,14 @@ function TeamTab() {
                     <td className="small">{a.status === 'idle' ? <span className="muted">—</span> : a.task === 'qa' ? `testing PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : `#${a.issueNumber ?? ''} ${a.issueTitle ?? ''}`.slice(0, 40)}</td>
                     {terminal && (
                       <td>
-                        <select
-                          value={a.cli}
-                          title="Their coding agent"
-                          style={{ width: 112 }}
-                          onChange={(e) => void attempt(() => api.updateAgent(a.id, { cli: e.target.value as AgentCli | '' }))}
-                        >
-                          <option value="">{cliName(clis, settings.defaultCli)} (default)</option>
-                          <CliOptions clis={clis} />
-                        </select>
+                        <CliSelect agent={a} style={{ width: 112 }} />
                       </td>
                     )}
                     <td>
-                      <input
-                        key={`m-${a.model}-${workerCli(a)}`}
-                        className="inline"
-                        style={{ minWidth: 110 }}
-                        list={workerCli(a) === 'claude' ? 'models' : undefined}
-                        defaultValue={a.model}
-                        placeholder={effectiveModel('', workerCli(a), settings, MODELS[0]) || 'agent default'}
-                        title="Their model ('' = the default for their coding agent)"
-                        onBlur={(e) => e.target.value !== a.model && void attempt(() => api.updateAgent(a.id, { model: e.target.value }))}
-                      />
+                      <ModelInput agent={a} style={{ minWidth: 110 }} />
                     </td>
                     <td>
-                      <select value={a.effort} title="Their effort" style={{ width: 124 }} onChange={(e) => void attempt(() => api.updateAgent(a.id, { effort: e.target.value }))}>
-                        <option value="">default ({settings.defaultEffort})</option>
-                        {EFFORTS.map((x) => (
-                          <option key={x} value={x}>
-                            {x}
-                          </option>
-                        ))}
-                      </select>
+                      <EffortSelect agent={a} style={{ width: 124 }} />
                     </td>
                     <td className="nowrap">
                       <button className="btn btn-small" onClick={() => openOverlay({ kind: 'terminal', agentId: a.id })}>
@@ -549,23 +457,9 @@ function TeamTab() {
                       <td colSpan={terminal ? 11 : 10}>
                         <label className="row small">
                           <span>Drawn as</span>
-                          <select
-                            value={a.look}
-                            title="Character look"
-                            style={{ width: 'auto' }}
-                            onChange={(e) => void attempt(() => api.updateAgent(a.id, { look: e.target.value as 'feminine' | 'masculine' }))}
-                          >
-                            <option value="feminine">👩 She</option>
-                            <option value="masculine">👨 He</option>
-                          </select>
+                          <LookSelect agent={a} />
                         </label>
-                        <textarea
-                          key={`b-${a.brief}`}
-                          rows={3}
-                          defaultValue={a.brief}
-                          placeholder={`What ${a.name} owns on this project and how they should work. It's added to their instructions.`}
-                          onBlur={(e) => e.target.value !== a.brief && void attempt(() => api.updateAgent(a.id, { brief: e.target.value }))}
-                        />
+                        <BriefEditor agent={a} compact />
                       </td>
                     </tr>
                   )}
@@ -676,7 +570,7 @@ function SettingsTab() {
             onBlur={(e) => e.target.value !== settings.defaultModel && set({ defaultModel: e.target.value })}
           />
           <datalist id="models-s">
-            {MODELS.map((m) => (
+            {CLAUDE_MODELS.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>

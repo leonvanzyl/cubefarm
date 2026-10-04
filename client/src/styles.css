@@ -1920,6 +1920,32 @@ input.inline:focus {
   line-height: 1.45;
 }
 
+/* ui/AgentSettings.tsx: the ⚙️ Setup section of an agent's panel */
+.setup-toggle {
+  flex: none;
+}
+.setup-toggle-on {
+  background: var(--ink);
+  color: #fff;
+}
+.setup-wrap {
+  flex: none;
+}
+.setup-wrap + .term-split {
+  min-height: 260px;
+}
+.agent-setup h3 {
+  margin: 0;
+}
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0 14px;
+}
+.agent-setup textarea {
+  min-height: 140px;
+}
+
 /* ---------- confirmation box ---------- */
 
 .confirm-overlay {

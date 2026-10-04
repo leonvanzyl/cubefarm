@@ -16,3 +16,13 @@ export function effectiveModel(own: string, cli: AgentCli, office: { defaultCli:
   if (cli === office.defaultCli && suits(office.defaultModel)) return office.defaultModel.trim();
   return cli === 'claude' ? claudeDefault : '';
 }
+
+/** Claude Code models offered as suggestions in the office's model fields. */
+export const CLAUDE_MODELS = ['claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1', 'claude-sonnet-5', 'claude-haiku-4-5'];
+
+/** Model suggestions for a coding agent; any other name can still be typed. OpenCode names are `provider/model`. */
+export function modelSuggestions(cli: AgentCli): string[] {
+  if (cli === 'claude') return CLAUDE_MODELS;
+  if (cli === 'codex') return ['gpt-5.5-codex', 'gpt-5.5'];
+  return CLAUDE_MODELS.map((m) => `anthropic/${m}`);
+}

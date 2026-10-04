@@ -144,6 +144,11 @@ export async function issueState(fullName: string, number: number): Promise<'OPE
   }
 }
 
+/** Close an issue as completed, with a comment saying why. */
+export async function closeIssue(fullName: string, number: number, comment: string): Promise<void> {
+  await gh(['issue', 'close', String(number), '-R', fullName, '--reason', 'completed', '--comment', comment]);
+}
+
 /** Replace an issue's body and/or add and remove labels. */
 export async function editIssue(fullName: string, number: number, edit: { body?: string; addLabels?: string[]; removeLabels?: string[] }): Promise<void> {
   const args = ['issue', 'edit', String(number), '-R', fullName];
