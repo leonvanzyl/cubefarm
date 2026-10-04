@@ -47,7 +47,7 @@ export function pullTrigger() {
   const next = fire(h, kick.at, now);
   if (!next) {
     const m = settle(h, now);
-    if (m.reloadAt === null && m.ammo === 0) tone({ freq: 1400, to: 900, type: 'square', dur: 0.03, peak: 0.03, attack: 0.002 }); // dry click
+    if (m.reloadAt === null && m.ammo === 0) tone({ freq: 1400, to: 900, type: 'square', dur: 0.03, peak: 0.03, attack: 0.002, group: 'toys' }); // dry click
     return;
   }
   kick.at = now;
@@ -63,8 +63,8 @@ export function reloadHeld() {
   const next = reload(h, performance.now());
   if (!next) return;
   useStore.getState().setHeld({ ...h, ...next });
-  noise({ dur: 0.08, peak: 0.06, filter: 'bandpass', freq: 900, q: 2 });
-  noise({ at: 0.75, dur: 0.07, peak: 0.08, filter: 'bandpass', freq: 1500, q: 2 });
+  noise({ dur: 0.08, peak: 0.06, filter: 'bandpass', freq: 900, q: 2, group: 'toys' });
+  noise({ at: 0.75, dur: 0.07, peak: 0.08, filter: 'bandpass', freq: 1500, q: 2, group: 'toys' });
   // Settle the store when the reload is done, so the HUD and __swarmToys show the full magazine.
   setTimeout(() => {
     const cur = heldBlaster();

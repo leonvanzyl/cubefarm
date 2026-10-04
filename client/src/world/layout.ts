@@ -54,6 +54,9 @@ export const MAX_DESKS = DESK_COLS.length * DESK_ROWS.length;
 
 export const DESK = { w: 1.9, d: 0.95, h: 0.74 };
 
+/** One long rug under each row of desks (and their chairs). */
+export const DESK_RUGS: Rect[] = DESK_ROWS.map((z) => rect(0, z + 0.35, 24.4, 2.9));
+
 /** Desks fill from the row nearest the elevator, so a new team is visible as soon as you arrive. */
 export function deskPosition(slot: number) {
   const row = DESK_ROWS.length - 1 - (Math.floor(slot / DESK_COLS.length) % DESK_ROWS.length);
@@ -78,6 +81,7 @@ export const blasterRack = (x: number): Rect => rect(x, HALF_D - BLASTER_RACK.d 
 export const QA_LAB = { x: HALF_W - 2.0, stations: [-5.2, -2.0, 1.2] };
 export const QA_ROTATION = -Math.PI / 2;
 export const qaDeskPosition = (slot: number) => ({ x: QA_LAB.x, z: QA_LAB.stations[slot % QA_LAB.stations.length] });
+export const QA_RUG = rect(QA_LAB.x - 0.4, -2, 3.4, 10.4);
 
 export function officeColliders(): Rect[] {
   const out = shellColliders();
@@ -112,6 +116,8 @@ export const CEO_DESK = { x: 12, z: -7.4 };
 // Candidates the CEO wants to hire wait on a row of chairs along the east wall, facing into the lobby.
 export const WAITING = { x: HALF_W - 1.4, seats: [6.6, 7.9, 9.2, 10.4] };
 export const WAITING_ROTATION = Math.PI / 2;
+// The big rug in front of reception; the manager's and CEO's offices are carpeted wall to wall.
+export const LOBBY_RUG = rect(3, 3, 14, 9);
 
 export function lobbyColliders(): Rect[] {
   const out = shellColliders();
@@ -136,6 +142,22 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(11.5, 6.2, 1.6, 0.9, SOLID_H.coffeeTable)); // table
   out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1, SOLID_H.cabinet)); // trophy cabinet
   return out;
+}
+
+// ---------- what's underfoot ----------
+
+export type Surface = 'wood' | 'rug' | 'lobby' | 'cabin';
+
+const OFFICE_RUGS: Rect[] = [...DESK_RUGS, QA_RUG];
+const LOBBY_RUGS: Rect[] = [LOBBY_RUG, MANAGER_ROOM, CEO_ROOM];
+
+/** The floor under (x, z), for footsteps. A rug's edge counts as rug; past the doorway is the elevator cabin. */
+export function surfaceAt(floor: 'office' | 'lobby', x: number, z: number): Surface {
+  if (z > HALF_D && Math.abs(x) <= ELEVATOR.cabinHalf) return 'cabin';
+  for (const r of floor === 'lobby' ? LOBBY_RUGS : OFFICE_RUGS) {
+    if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) return 'rug';
+  }
+  return floor === 'lobby' ? 'lobby' : 'wood';
 }
 
 /** Push a circle out of any rects it overlaps (cheap, axis-separated). */

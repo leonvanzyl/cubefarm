@@ -9,6 +9,7 @@ import { ManagerConsole } from './ManagerConsole';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
+import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
 
 // Closing a panel grabs the mouse again right away (world/lookLock.ts; "Grab the mouse when panels
 // close" in help turns that off), and mouse presses are swallowed for a moment so a double click on
@@ -57,19 +58,43 @@ export function Panel({
   );
 }
 
-/** Office volume and mute; saved in this browser. */
+const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts' };
+
+/** Office volume, mute and a level per kind of sound; saved in this browser. */
 export function SoundControls() {
-  const { volume, muted } = useSyncExternalStore(subscribeAudio, getAudioPrefs);
+  const prefs = useSyncExternalStore(subscribeAudio, getAudioPrefs);
+  const { volume, muted } = prefs;
   return (
-    <div className="row wrap sound">
-      <label className="toggle">
-        <input type="checkbox" checked={!muted} onChange={(e) => setAudioPrefs({ muted: !e.target.checked })} /> {muted ? '🔇' : '🔊'} Sound
-      </label>
-      <label className="sound-volume">
-        <span className="muted small">Volume</span>
-        <input type="range" min={0} max={100} step={5} value={volume} disabled={muted} aria-label="Volume" onChange={(e) => setAudioPrefs({ volume: Number(e.target.value) })} />
-        <span className="small sound-pct">{volume}%</span>
-      </label>
+    <div className="sound-controls">
+      <div className="row wrap sound">
+        <label className="toggle">
+          <input type="checkbox" checked={!muted} onChange={(e) => setAudioPrefs({ muted: !e.target.checked })} /> {muted ? '🔇' : '🔊'} Sound
+        </label>
+        <label className="sound-volume">
+          <span className="muted small">Volume</span>
+          <input type="range" min={0} max={100} step={5} value={volume} disabled={muted} aria-label="Volume" onChange={(e) => setAudioPrefs({ volume: Number(e.target.value) })} />
+          <span className="small sound-pct">{volume}%</span>
+        </label>
+      </div>
+      <div className="sound-groups" role="group" aria-label="Volume for each kind of sound">
+        {SOUND_GROUPS.map((g) => (
+          <label key={g} className="sound-volume" title={g === 'alerts' ? 'The phone, the elevator and work cues' : undefined}>
+            <span className="muted small sound-group-name">{SOUND_GROUP_LABELS[g]}</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={prefs[g]}
+              disabled={muted}
+              aria-label={`${SOUND_GROUP_LABELS[g]} volume`}
+              aria-valuetext={`${prefs[g]}%`}
+              onChange={(e) => setAudioPrefs({ [g]: Number(e.target.value) })}
+            />
+            <span className="small sound-pct">{prefs[g]}%</span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }
@@ -122,7 +147,7 @@ function Help() {
         </p>
         <h3>Sound</h3>
         <p>
-          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. <kbd>M</kbd> mutes or unmutes anywhere.
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys and alerts (the phone, the elevator and these cues) up or down on their own.
         </p>
         <SoundControls />
         <h3>The building</h3>
