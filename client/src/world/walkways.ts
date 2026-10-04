@@ -88,8 +88,14 @@ function officeSpots(): Spot[] {
     ...boardSpots(),
     // the kitchenette counter (OfficeFloor.tsx, Props.tsx): the coffee machine sits 1.1 m north of its middle
     { id: 'coffee', x: HALF_W - 1.45, z: 5.9, facing: EAST },
-    // TODO(#68): line this up with the mug dispenser once it lands; for now, the counter beside the machine
-    { id: 'mugs', x: HALF_W - 1.45, z: 6.7, facing: EAST },
+    // the mug dispenser, 0.45 m south of the machine
+    { id: 'mugs', x: HALF_W - 1.45, z: 6.55, facing: EAST },
+    // a step back from the machine and one more behind that, waiting a turn; and two places by the counter for a sip
+    // and a chat, face to face
+    { id: 'coffee-line', x: HALF_W - 2.35, z: 5.9, facing: EAST },
+    { id: 'coffee-line-1', x: HALF_W - 3.25, z: 5.9, facing: EAST },
+    { id: 'coffee-sip-0', x: HALF_W - 1.45, z: 7.9, facing: WEST },
+    { id: 'coffee-sip-1', x: HALF_W - 2.5, z: 7.9, facing: EAST },
     { id: 'cooler', x: HALF_W - 1.5, z: -9.5, facing: EAST },
     { id: 'gong', ...GONG_SPOT, facing: NORTH },
     // the couch's seat faces east; you walk up past the south end of the coffee table
