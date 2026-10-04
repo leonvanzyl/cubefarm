@@ -38,7 +38,7 @@ describe('qaOutcome', () => {
   it("passes a PR while it conflicts, leaving the conflict to the merge gate's existing path", () => {
     expect(qaOutcome(true, last(), CONFLICTING)).toBe('passed');
     expect(qaOutcome(true, last({ mergeFixes: MAX_MERGE_FIXES }), CONFLICTING)).toBe('passed');
-    const rec = { passedSha: 'a'.repeat(40), mergeFixes: 0, pendingSince: null, mergeRetryAt: null, alerted: false };
+    const rec = { passedSha: 'a'.repeat(40), mergeFixes: 0, pendingSince: null, mergeRetryAt: null, alerted: false, rerunSha: null, rerunAt: null };
     const pr = { ...CONFLICTING, isDraft: false, headSha: rec.passedSha, checks: 'passing' as const, failedChecks: [], pendingChecks: [] };
     expect(mergeStep(pr, rec, 0, { base: 'main' })).toMatchObject({ do: 'send-back', reason: 'conflict', needsHuman: false });
   });
