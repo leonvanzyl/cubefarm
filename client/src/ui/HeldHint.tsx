@@ -33,6 +33,13 @@ export function HeldHint() {
   const chargeAt = useStore((s) => s.chargeAt);
   if (!held) return null;
   if (held.kind === 'blaster') return <BlasterHud held={held} />;
+  if (held.kind === 'sausage') {
+    return (
+      <div className="hud-hint hud-held">
+        🌭 {held.bites} {held.bites === 1 ? 'bite' : 'bites'} left{held.charred ? ' (a bit charred)' : ''} · <kbd>E</kbd> eat · <kbd>G</kbd> drop
+      </div>
+    );
+  }
   if (held.kind === 'decor') {
     return (
       <div className="hud-hint hud-held">

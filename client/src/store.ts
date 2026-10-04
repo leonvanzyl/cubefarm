@@ -11,6 +11,7 @@ import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { gongForMerge } from './world/gongRunner';
+import { ROOF } from './world/layout';
 import { emitReward } from './world/decor/rewards';
 
 export type Agent = Omit<AgentView, 'log'>;
@@ -36,7 +37,7 @@ export interface Focus {
   id: string;
   label: string;
   // resume: the usage meter while pacing, resume full speed (asks first)
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' } | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string } | { kind: 'trophy'; id: string } | { kind: 'theme'; id: string };
+  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' } | { kind: 'roof'; op: string } | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string } | { kind: 'trophy'; id: string } | { kind: 'theme'; id: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -48,6 +49,8 @@ export type Held =
   | { kind: 'mug'; id: string; sips: number }
   /** A sticky peeled off the whiteboard (boardHands.ts): an issue for a developer's desk, or a PR for the QA lab. */
   | { kind: 'sticky'; id: string; repoId: string; key: string; number: number; pr: boolean }
+  /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
+  | { kind: 'sausage'; id: string; bites: number; charred: boolean }
   /** A decoration on its way to a slot (#210): from the floor's decor box (from null) or from the slot it stood in. */
   | { kind: 'decor'; id: string; item: DecorItem; from: string | null };
 
@@ -230,8 +233,8 @@ export const useStore = create<State>((set, get) => ({
         for (const q of d.qa) qa[qaKey(q.repoId, q.prNumber)] = q;
         const prPreviews: Record<string, PrPreviewView> = {};
         for (const p of d.prPreviews ?? []) prPreviews[qaKey(p.repoId, p.pr)] = p;
-        // Stay on the current (or remembered) floor if it still exists; otherwise go to the lobby.
-        const floorExists = d.repos.some((r) => r.floor === get().floor);
+        // Stay on the current (or remembered) floor if it still exists (the roof always does); otherwise go to the lobby.
+        const floorExists = get().floor === ROOF || d.repos.some((r) => r.floor === get().floor);
         set({
           loaded: true,
           user: d.user,

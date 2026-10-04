@@ -54,8 +54,10 @@ export function say(id: string, text: string | null) {
 
 export const saying = (id: string) => said.get(id);
 
-/** Everyone drawn on the current floor, as they are now (the elevator opens for anyone near its doors). */
-export const bodies = () => live.values();
+/** Everyone you can see on the current floor, as they are now (the elevator opens for anyone near its doors). */
+export function* bodies() {
+  for (const [id, s] of live) if (!hidden.has(id)) yield s;
+}
 
 /** Character.tsx registers each person's live state, so the probe can report it. */
 export function trackBody(id: string, s: BodyState) {
@@ -189,7 +191,7 @@ export function setHandFood(id: string, f: Food | null) {
 
 export const handFood = (id: string) => food.get(id) ?? null;
 
-/** Someone gone home for the night, or the CEO off round the floors: Character.tsx doesn't draw them. */
+/** Someone gone home for the night, the CEO off round the floors, or up on the roof: Character.tsx doesn't draw them. */
 export function setHidden(id: string, on: boolean) {
   if (on) hidden.add(id);
   else hidden.delete(id);
@@ -254,7 +256,7 @@ const probe = {
     if (!EXPRESSIONS.includes(expression)) throw new Error(`no expression "${expression}": try ${EXPRESSIONS.join(', ')}`);
     forced.set(id, { expression, until: performance.now() + seconds * 1000 });
   },
-  /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch') as soon as the rules and the cap allow. */
+  /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch', 'roof') as soon as the rules and the cap allow. */
   send(id: string, errand: string) {
     asks.set(id, errand);
   },

@@ -10,7 +10,7 @@ import { SIDES, type Side } from '../world/layout';
 import { FADE, ROOM_SENDS, ROOM_SOUND, fillImpulse, newRoomTracker, occlusion, roomAt, trackRoom, zoneAt, type Room, type Zone } from './acoustics';
 import { listenerAt, recordSfx, roomBus, setOccluder, type Vec3 } from './sfx';
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 const TICK_MS = 100;
 /** How long after a cross-fade the old room's convolver is cut off: its gain is 0 by then and its tail gone. */
