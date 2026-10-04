@@ -14,6 +14,8 @@ import { takeReaction, trackLife } from './reactionFeed';
 import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
 import { useHitReaction } from './useHitReaction';
 import { Zzz } from './Zzz';
+import { cheerVoice } from '../ui/cheerRules';
+import { cheerFrom } from '../ui/cheerSfx';
 import { hearBody, hearing } from '../ui/peopleSounds';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
@@ -201,6 +203,8 @@ export function Character({
     () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
     [],
   );
+  // Their merge cheer (cheerSfx.ts): their own voice, whether they were cheering last frame and where their head is.
+  const voice = useMemo(() => ({ v: cheerVoice(agent.id, agent.look), party: false, head: new THREE.Vector3() }), [agent.id, agent.look]);
   // Fidgets: the schedule, the pose it writes, the stretch's body target, who they wave to and the mug's rest spot.
   const life = useMemo(
     () => ({
@@ -238,6 +242,12 @@ export function Character({
     const now = performance.now();
     const t = now / 1000 + seed;
     const party = isCelebrating(agent.repoId, now); // a PR on this floor just merged: everyone cheers, busy or not
+    if (party && !voice.party && head.current) {
+      // the arms go up: a "woo!" from their head
+      head.current.getWorldPosition(voice.head);
+      cheerFrom(voice.v, voice.head.x, voice.head.y, voice.head.z);
+    }
+    voice.party = party;
 
     // ---------- where the body is ----------
     const st = move.s;
