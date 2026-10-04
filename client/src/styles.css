@@ -1720,6 +1720,12 @@ input.inline:focus {
 .repo-row select {
   width: auto;
 }
+.repo-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .links {
   font-size: 0.85rem;
 }

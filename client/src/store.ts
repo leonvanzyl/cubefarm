@@ -449,7 +449,8 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
   const progress: KanbanCard[] = [];
   for (const a of devs) {
     if (a.issueNumber == null || a.task !== 'issue' || a.status === 'idle') continue;
-    if (a.prNumber != null && openPulls.some((p) => p.number === a.prNumber)) continue;
+    // Their PR's card is the work now; once it's closed or merged there is no card ("finished · no PR" was wrong).
+    if (a.prNumber != null) continue;
     const note =
       a.status === 'preparing' ? 'setting up' : a.status === 'working' ? 'working' : a.status === 'error' ? 'needs help' : a.status === 'stopped' ? 'stopped' : 'finished · no PR';
     progress.push({
@@ -476,12 +477,16 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
 
   const claimed = new Set<number>([...progress.map((c) => c.number), ...openPulls.flatMap((p) => p.closesIssues)]);
   const open = new Set(repo.issues.map((i) => i.number));
+  const held = new Map((repo.held ?? []).map((h) => [h.issue, h.pr]));
   const backlog: KanbanCard[] = repo.issues
     .filter((i) => !claimed.has(i.number))
     .map((i) => {
       const waits = blockers(i.body, open);
       const labels = i.labels.map((l) => l.replace(/^swarm:/i, '🎯 ')).slice(0, 2).join(', ');
-      return { key: `i-${i.number}`, number: i.number, title: i.title, url: i.url, note: waits.length ? `⏳ after #${waits.join(', #')}` : labels || undefined };
+      const card = { key: `i-${i.number}`, number: i.number, title: i.title, url: i.url };
+      // Its PR was closed: it waits for the manager rather than going back to auto-assign.
+      if (held.has(i.number)) return { ...card, note: `⏸ PR #${held.get(i.number)} closed · assign by hand`, tone: 'warn' as const };
+      return { ...card, note: waits.length ? `⏳ after #${waits.join(', #')}` : labels || undefined };
     });
 
   const merged: KanbanCard[] = repo.pulls
