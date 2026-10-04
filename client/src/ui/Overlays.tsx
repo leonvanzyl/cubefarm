@@ -155,7 +155,7 @@ function Help() {
         </p>
         <h3>Sound</h3>
         <p>
-          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys and alerts (the phone, the elevator, the gong and these cues) up or down on their own.
+          The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the whole floor cheers; press <kbd>E</kbd> at the gong to bang it yourself. Every floor's jukebox plays quietly in its corner: <kbd>E</kbd> on it skips to the next song, and its red button stops or starts the music. It goes quiet while a panel or the phone is open and in the elevator. <kbd>M</kbd> mutes or unmutes anywhere. Under the volume, turn footsteps, typing, toys, alerts (the phone, the elevator, the gong and these cues) and music (the jukebox) up or down on their own.
         </p>
         <SoundControls />
         <h3>The building</h3>

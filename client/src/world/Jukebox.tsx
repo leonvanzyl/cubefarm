@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
-import { musicTime, nowPlaying, playTrack, stopMusic } from '../ui/music';
+import { useRenderPaused } from '../perf';
+import { useStore } from '../store';
+import { musicTime, nowPlaying, playTrack, setMusicQuiet, stopMusic } from '../ui/music';
 import { noise, tone, type Vec3 } from '../ui/sfx';
 import { roundRect, SANS } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
@@ -173,6 +175,12 @@ function useJukeboxView() {
 
 /** The jukebox against the south wall at `x`, facing into the room. `floor` picks its first song (lobby: 0). */
 export function Jukebox({ x, floor }: { x: number; floor: number }) {
+  // Quiet behind a panel or the phone and while the elevator travels, like the other loops. Set before the music
+  // starts, and not from the frame loop, which stops while the view is paused.
+  const paused = useRenderPaused();
+  const away = useStore((s) => s.travel !== null || s.overlay !== null);
+  useEffect(() => setMusicQuiet(paused || away), [paused, away]);
+
   // Start (and stop) the music with the floor.
   useEffect(() => {
     floorNow = floor;
