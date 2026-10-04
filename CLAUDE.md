@@ -48,7 +48,7 @@ It ships on npm as `cubefarm` (`npx cubefarm`); it used to be called Office Swar
 CI (`.github/workflows/ci.yml`): Node 24, `npm ci` → `typecheck` → `test` → `build` → package smoke test, for every PR
 and push to `main`, with a throwaway `SWARM_HOME` and `SWARM_PORT=0`, on `ubuntu-latest` always and on `windows-latest`
 and `macos-latest` unless a PR touches nothing OS-sensitive (only `client/`, `e2e/`, docs: they show as skipped); a separate `e2e`
-job on `ubuntu-latest` runs `npm run test:e2e` and is the e2e gate. Locally, `typecheck`, `test` and `build` must
+job on `ubuntu-latest` is the e2e gate: green once its three parallel `e2e (shard i/3)` jobs are (`npm run test:e2e -- --shard=i/3`, each its own demo office; on CI a failed test is retried once and shows as flaky). Locally, `typecheck`, `test` and `build` must
 pass before you open a PR; run `test:e2e` only when you changed `e2e/`, `playwright.config.ts` or how the office boots
 (`server/index.ts`, StartScreen, SetupWizard), or to fix a failing e2e job. `.github/workflows/release.yml` publishes to npm when the manager runs it from GitHub's Actions tab or pushes a
 `v*` tag (npm trusted publishing, tied to that file name); never publish or tag releases yourself.

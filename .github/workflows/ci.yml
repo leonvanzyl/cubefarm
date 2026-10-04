@@ -85,10 +85,17 @@ jobs:
     env: *check-env
     steps: *check-steps
 
-  # The built app in a real browser: a demo office boots, renders, and its panels open (e2e/, Playwright).
-  e2e:
+  # The built app in a real browser: a demo office boots, renders, and its panels open (e2e/, Playwright). Split over
+  # parallel shards, each building (seconds) and booting its own demo office with a temp SWARM_HOME; every shard runs
+  # the smoke tests first, since the other specs depend on them.
+  e2e-shard:
+    name: e2e (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
 
@@ -109,13 +116,26 @@ jobs:
       - run: npx playwright install --with-deps chromium
 
       # playwright.config.ts builds the app and boots a demo office on a test port with a temp SWARM_HOME.
-      - run: npm run test:e2e
+      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
 
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
           retention-days: 14
+
+  # One `e2e` check for the shards together, green only when every shard passed.
+  e2e:
+    needs: e2e-shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "e2e shards: $RESULT"
+          [ "$RESULT" = success ]

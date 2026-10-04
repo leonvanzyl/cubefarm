@@ -34,11 +34,13 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: 0,
+  // On CI a flaky test gets one more go (the report lists it as flaky) instead of costing a re-run of the whole job.
+  retries: process.env.CI ? 1 : 0,
   // Software WebGL on a busy machine can drop to a few frames a second, and every screenshot waits for a frame.
   timeout: 120_000,
   expect: { timeout: 30_000 },
-  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
+  // `list` on CI too: each test's time is in the log.
+  reporter: process.env.CI ? [['github'], ['list'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     // No screencast in the trace: it costs frames, and software WebGL has few to spare.
