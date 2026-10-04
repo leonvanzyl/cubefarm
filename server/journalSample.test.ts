@@ -20,6 +20,7 @@ const person = (id: string, role: JournalAgent['role'], repoId: string, desk: nu
   color: '#123456',
   hair: '#000000',
   skin: '#ffddcc',
+  style: null,
   model: '',
   effort: '',
   cli: '',

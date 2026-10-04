@@ -96,6 +96,7 @@ function agent(patch: Partial<JournalAgent> = {}): JournalAgent {
     color: '#123456',
     hair: '#000000',
     skin: '#ffddcc',
+    style: null,
     model: '',
     effort: '',
     cli: '',

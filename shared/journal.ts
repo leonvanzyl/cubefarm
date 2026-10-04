@@ -227,6 +227,7 @@ export function compactAgent(a: JournalAgent, secrets: readonly string[] = []): 
     color: a.color,
     hair: a.hair,
     skin: a.skin,
+    style: a.style ? { ...a.style } : null,
     model: clip(a.model, 60),
     effort: a.effort,
     cli: a.cli,

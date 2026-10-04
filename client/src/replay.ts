@@ -77,7 +77,7 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
     voiceCache: s.voiceCache,
     notifyChannels: s.notifyChannels,
     ticker: f.ticker ?? [],
-    prPreviews: Object.values(s.prPreviews), // the PR theatre runs live
+    prPreviews: [], // the PR theatre is live-only: off while replaying
     ops: f.ops ?? EMPTY_OPS, // a day from before mission control (or the demo's sample day) shows its screens empty
   };
 }

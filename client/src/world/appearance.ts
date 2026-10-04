@@ -1,13 +1,31 @@
 import type { AgentLook, AgentRole } from '../../../shared/types';
+import {
+  ACCENT_COLORS,
+  BUILDS,
+  FACIAL_HAIR,
+  GLASSES,
+  HAIR_COLORS,
+  HAIR_STYLES,
+  HEADWEAR,
+  OUTFITS,
+  SKIN_TONES,
+  type AgentStyle,
+  type Build,
+  type FacialHair,
+  type Glasses,
+  type HairStyle,
+  type Headwear,
+  type Outfit,
+} from '../../../shared/looks';
 
 // Everything that makes one cartoon person look different from the next, picked from a hash of the agent's id
-// so the same person looks the same after a reload and in every client. Pure: no three.js, easy to test.
+// so the same person looks the same after a reload and in every client, with the manager's picks from the look
+// editor (agent.style, shared/looks.ts) laid over it. Pure: no three.js, easy to test.
 
-export type HairStyle = 'crop' | 'long' | 'ponytail' | 'bun' | 'quiff' | 'afro' | 'sidePart' | 'buzz' | 'bald' | 'curls';
-export type FacialHair = 'none' | 'stubble' | 'beard' | 'moustache';
-export type Glasses = 'none' | 'round' | 'square';
-export type Headwear = 'none' | 'beanie' | 'cap';
-export type Outfit = 'tee' | 'hoodie' | 'stripe' | 'sweater';
+export type { Build, FacialHair, Glasses, HairStyle, Headwear, Outfit };
+
+/** A developer's little nod to their specialty (accessoryFor). */
+export type Accessory = 'neckphones' | 'ball' | 'wrench' | 'pencil' | 'padlock';
 
 export interface Appearance {
   hair: HairStyle;
@@ -16,18 +34,29 @@ export interface Appearance {
   headphones: boolean;
   headwear: Headwear;
   outfit: Outfit;
-  /** Upper-body scale, about ±6%. */
+  /** Upper-body scale, about ±10%. */
   height: number;
-  /** Shoulder width scale, about ±8%. */
+  /** A little shoulder-width variation on top of the build, about ±5%. */
   shoulders: number;
+  build: Build;
   /** Index into a small accent palette (glasses frames, beanie/cap, stripe). */
   accent: number;
+  accessory: Accessory | null;
+  hairColor: string;
+  skin: string;
 }
 
-export const ACCENTS = ['#ffffff', '#ffd166', '#ef476f', '#06d6a0', '#118ab2', '#2b2d42'] as const;
+export const ACCENTS = ACCENT_COLORS;
+
+/** How each build scales the torso: width (with the shoulders) and depth. */
+export const BUILD_SHAPE: Record<Build, { width: number; depth: number }> = {
+  slim: { width: 0.88, depth: 0.92 },
+  average: { width: 1, depth: 1 },
+  broad: { width: 1.15, depth: 1.1 },
+};
 
 /** Styles that sit on top of or bulge out from the head and would poke through a beanie or cap. */
-const TALL_HAIR: HairStyle[] = ['quiff', 'afro', 'bun', 'curls'];
+export const TALL_HAIR: readonly HairStyle[] = ['quiff', 'afro', 'bun', 'curls', 'mohawk'];
 
 type Weighted<T> = [T, number][];
 
@@ -54,6 +83,21 @@ const HAIR: Record<AgentLook, Weighted<HairStyle>> = {
     ['bun', 1],
   ],
 };
+/** The styles added later, drawn by a separate number so everyone who had a style before keeps it (most do). */
+const NEW_HAIR: Record<AgentLook, Weighted<HairStyle>> = {
+  feminine: [
+    ['bob', 3],
+    ['locs', 2],
+    ['mohawk', 1],
+  ],
+  masculine: [
+    ['locs', 2],
+    ['mohawk', 2],
+    ['bob', 1],
+  ],
+};
+const NEW_HAIR_SHARE = 0.22;
+const NEW_OUTFIT_SHARE = 0.3;
 
 /** FNV-1a: a small, stable 32-bit string hash. */
 export function hashId(id: string) {
@@ -83,14 +127,39 @@ function pick<T>(r: number, options: Weighted<T>): T {
   return options[options.length - 1][0];
 }
 
-export function appearanceFor(agent: { id: string; look: AgentLook; role: AgentRole }): Appearance {
+const ACCESSORIES: [RegExp, Accessory][] = [
+  [/audio|sound|music|voice|sfx/, 'neckphones'],
+  [/physic|rapier|game|simulat/, 'ball'],
+  [/devex|\bdx\b|tooling|infra|devops|platform|\bci\b|\bbuild|deploy/, 'wrench'],
+  [/secur|\bauth\b|authn|authz|authenticat|privacy|crypt/, 'padlock'],
+  [/\bui\b|\bux\b|design|css|front ?end|styling|\bart\b|artist/, 'pencil'],
+];
+
+/** A developer's accessory from their specialty (or job title): headphones round the neck for audio, and so on. */
+export function accessoryFor(agent: { role: AgentRole; specialty?: string; title?: string }): Accessory | null {
+  if (agent.role !== 'dev') return null;
+  for (const text of [agent.specialty, agent.title]) {
+    const t = (text ?? '').toLowerCase().replace(/[-_]/g, ' ');
+    if (!t.trim()) continue;
+    const hit = ACCESSORIES.find(([re]) => re.test(t));
+    if (hit) return hit[1];
+  }
+  return null;
+}
+
+type Who = { id: string; look: AgentLook; role: AgentRole; specialty?: string; title?: string; hair?: string; skin?: string; style?: AgentStyle | null };
+
+/** The look picked from their id alone (the look editor's "Back to their seeded look"). */
+export function seededAppearance(agent: Who): Appearance {
   const next = rng(hashId(agent.id));
-  // Always draw every number in the same order, so tweaking one rule doesn't reshuffle everything else.
-  const [rHair, rFacial, rGlasses, rPhones, rHat, rOutfit, rHeight, rShoulders, rAccent] = Array.from({ length: 9 }, next);
+  // Always draw every number in the same order, so tweaking one rule doesn't reshuffle everything else; new draws
+  // go on the end.
+  const [rHair, rFacial, rGlasses, rPhones, rHat, rOutfit, rHeight, rShoulders, rAccent, rBuild, rNewHair, rNewOutfit] = Array.from({ length: 12 }, next);
   const dev = agent.role === 'dev';
   const masculine = agent.look === 'masculine';
 
-  const hair = pick(rHair, HAIR[agent.look]);
+  // (the CEO's id is the same in every office: they keep the hair everyone knows them by)
+  const hair = agent.role !== 'ceo' && rNewHair < NEW_HAIR_SHARE ? pick(rHair, NEW_HAIR[agent.look]) : pick(rHair, HAIR[agent.look]);
   const facialHair = masculine
     ? pick<FacialHair>(rFacial, [
         ['none', 5],
@@ -106,7 +175,7 @@ export function appearanceFor(agent: { id: string; look: AgentLook; role: AgentR
     ['square', 2],
   ]);
   // Headphones and hats are for developers; both sit on the head, so a person gets at most one of them.
-  const headphones = dev && hair !== 'afro' && rPhones < 0.3;
+  const headphones = dev && hair !== 'afro' && hair !== 'mohawk' && rPhones < 0.3;
   const headwear =
     dev && !headphones && !TALL_HAIR.includes(hair)
       ? pick<Headwear>(rHat, [
@@ -115,14 +184,19 @@ export function appearanceFor(agent: { id: string; look: AgentLook; role: AgentR
           ['cap', 1],
         ])
       : 'none';
-  const outfit = dev
-    ? pick<Outfit>(rOutfit, [
-        ['tee', 1],
-        ['hoodie', 1],
-        ['stripe', 1],
-        ['sweater', 1],
-      ])
-    : 'tee';
+  const outfit = !dev
+    ? 'tee'
+    : rNewOutfit < NEW_OUTFIT_SHARE
+      ? pick<Outfit>(rOutfit, [
+          ['cardigan', 1],
+          ['turtleneck', 1],
+        ])
+      : pick<Outfit>(rOutfit, [
+          ['tee', 1],
+          ['hoodie', 1],
+          ['stripe', 1],
+          ['sweater', 1],
+        ]);
 
   return {
     hair,
@@ -131,8 +205,59 @@ export function appearanceFor(agent: { id: string; look: AgentLook; role: AgentR
     headphones,
     headwear,
     outfit,
-    height: +(0.94 + rHeight * 0.12).toFixed(3),
-    shoulders: +(0.92 + rShoulders * 0.16).toFixed(3),
+    height: +(0.9 + rHeight * 0.2).toFixed(3),
+    shoulders: +(0.95 + rShoulders * 0.1).toFixed(3),
+    build: pick<Build>(rBuild, [
+      ['slim', 1],
+      ['average', 2],
+      ['broad', 1],
+    ]),
     accent: Math.floor(rAccent * ACCENTS.length),
+    accessory: accessoryFor(agent),
+    hairColor: agent.hair ?? '#2b2118',
+    skin: agent.skin ?? '#f1c27d',
+  };
+}
+
+/** A whole new look for the editor's "Shuffle", from `rand` (0 to 1). Plain more often than not, like the seeded ones. */
+export function randomStyle(agent: { look: AgentLook; role: AgentRole }, rand: () => number = Math.random): AgentStyle {
+  const one = <T>(list: readonly T[]) => list[Math.floor(rand() * list.length)];
+  const hair = one(HAIR_STYLES);
+  return {
+    hair,
+    hairColor: one(HAIR_COLORS),
+    skin: one(SKIN_TONES),
+    facialHair: agent.look === 'masculine' && rand() < 0.5 ? one(FACIAL_HAIR) : 'none',
+    glasses: agent.role !== 'qa' && rand() < 0.4 ? one(GLASSES) : 'none',
+    headwear: !TALL_HAIR.includes(hair) && rand() < 0.3 ? one(HEADWEAR) : 'none',
+    ...(agent.role === 'dev' ? { outfit: one(OUTFITS) } : {}),
+    accent: Math.floor(rand() * ACCENTS.length),
+    build: one(BUILDS),
+  };
+}
+
+/**
+ * How they're drawn: the seeded look with the manager's picks (agent.style) over it. The picks still never stack
+ * things that would clip: a hat only goes on hair that fits under it, headphones only where there's room. QA keep
+ * their inspector glasses and lab coat, the CEO their blazer.
+ */
+export function appearanceFor(agent: Who): Appearance {
+  const seeded = seededAppearance(agent);
+  const s = agent.style;
+  if (!s) return seeded;
+  const hair = s.hair ?? seeded.hair;
+  const headwear = TALL_HAIR.includes(hair) ? 'none' : (s.headwear ?? seeded.headwear);
+  return {
+    ...seeded,
+    hair,
+    facialHair: s.facialHair ?? seeded.facialHair,
+    glasses: agent.role === 'qa' ? 'none' : (s.glasses ?? seeded.glasses),
+    headphones: seeded.headphones && headwear === 'none' && hair !== 'afro' && hair !== 'mohawk',
+    headwear,
+    outfit: agent.role === 'dev' ? (s.outfit ?? seeded.outfit) : 'tee',
+    build: s.build ?? seeded.build,
+    accent: s.accent ?? seeded.accent,
+    hairColor: s.hairColor ?? seeded.hairColor,
+    skin: s.skin ?? seeded.skin,
   };
 }

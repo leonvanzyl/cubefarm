@@ -37,15 +37,16 @@ import { envSecrets, Journal } from './journal.ts';
 import { sampleDay, seeded } from './journalSample.ts';
 import { AgentTerminal } from './terminal.ts';
 import { Ticker } from './ticker.ts';
-import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
+import { DEFAULT_LISTEN, DEFAULT_VOICE, listenSettings, speaks, Voice, voiceSettings } from './voice.ts';
 import { Notifier } from './notifier.ts';
 import { clip, plainText, stuckAgents } from './notify.ts';
 import { DEFAULT_NOTIFY, notifySettings, officeUrl } from '../shared/notify.ts';
 import { agentActivity, lineActivity, sameActivity, type SeenActivity } from '../shared/activity.ts';
 import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issues.ts';
 import { dayKey, journalFrame } from '../shared/journal.ts';
+import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
 import { effectiveModel } from '../shared/models.ts';
-import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
+import { CEO_ID, DEFAULT_DOG_NAME, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentActivity,
   AgentCli,
@@ -117,6 +118,7 @@ interface PersistedAgent {
   color: string;
   hair: string;
   skin: string;
+  style: AgentStyle | null; // the look editor's picks (null: seeded from the id)
   model: string;
   effort: EffortLevel | '';
   cli: AgentCli | ''; // '' = the office's default CLI
@@ -247,8 +249,8 @@ interface QaReport {
 
 const FLOOR_COLORS = ['#ff8a5b', '#4fb3e8', '#8fd14f', '#c77dff', '#ffc93c', '#ff6fb5', '#2ec4b6', '#f25f5c'];
 const SHIRTS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#f15bb5', '#00bbf9', '#06d6a0', '#ffbe0b', '#8338ec', '#fb5607', '#3a86ff'];
-const HAIR = ['#2b2118', '#6b4226', '#c68642', '#f2d16b', '#d94f30', '#1c1c1c', '#8e8e8e', '#5b3cc4', '#e76f51'];
-const SKIN = ['#ffdbac', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffe0bd'];
+const HAIR = HAIR_COLORS;
+const SKIN = SKIN_TONES;
 const DEV_NAMES = [
   'Ada', 'Linus', 'Grace', 'Alan', 'Margaret', 'Dennis', 'Barbara', 'Ken', 'Radia', 'Guido', 'Hedy', 'Tim', 'Katherine',
   'Bjarne', 'Frances', 'Edsger', 'Anita', 'Donald', 'Sophie', 'Yukihiro', 'Jean', 'Niklaus', 'Karen', 'Brendan',
@@ -434,6 +436,7 @@ export class Swarm {
       ceoHeartbeatMin: 60,
       managerName: '',
       companyName: '',
+      dogName: DEFAULT_DOG_NAME,
       projectsDir: DEFAULT_PROJECTS_DIR,
       setupDone: false,
       tutorialStep: 0,
@@ -441,6 +444,7 @@ export class Swarm {
       pacingSessions: DEFAULT_PACING_SESSIONS,
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
+      listen: { ...DEFAULT_LISTEN },
       notify: notifySettings(DEFAULT_NOTIFY, {}),
     },
     repos: [],
@@ -526,6 +530,7 @@ export class Swarm {
       secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
       cacheDir: path.join(HOME_DIR, backend.demo ? 'demo-voice' : 'voice'),
       settings: () => this.state.settings.voice,
+      listen: () => this.state.settings.listen,
       messages: () => this.state.messages,
       officeNote: (text) => this.postMessage('office', text),
       keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
@@ -585,6 +590,7 @@ export class Swarm {
           brief: a.brief ?? '',
           hiredBy: a.hiredBy ?? 'manager',
           look: a.look ?? lookFor(a.name),
+          style: cleanStyle(a.style),
           task: a.task ?? (a.issueNumber ? 'issue' : null),
           cli: isCli(a.cli) ? a.cli : '',
           sessionCli: a.sessionCli ?? (a.sessionId ? 'claude' : null),
@@ -631,6 +637,7 @@ export class Swarm {
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
+      this.state.settings.listen = listenSettings(DEFAULT_LISTEN, loaded.settings?.listen);
       this.state.settings.notify = notifySettings(DEFAULT_NOTIFY, loaded.settings?.notify);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
@@ -832,6 +839,7 @@ export class Swarm {
       color: a.color,
       hair: a.hair,
       skin: a.skin,
+      style: a.style,
       model: a.model,
       effort: a.effort,
       cli: a.cli,
@@ -1802,6 +1810,7 @@ export class Swarm {
       color: opts.appearance?.color ?? pick(SHIRTS),
       hair: opts.appearance?.hair ?? pick(HAIR),
       skin: opts.appearance?.skin ?? pick(SKIN),
+      style: null,
       model: opts.model ?? '',
       effort: EFFORTS.includes(opts.effort as EffortLevel) ? (opts.effort as EffortLevel) : '',
       cli: isCli(opts.cli) ? opts.cli : '',
@@ -1847,7 +1856,7 @@ export class Swarm {
 
   updateAgent(
     id: string,
-    patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; title?: string; specialty?: string; brief?: string; color?: string; hair?: string },
+    patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; title?: string; specialty?: string; brief?: string; color?: string; hair?: string; style?: unknown },
   ) {
     const a = this.agent(id);
     if (patch.cli !== undefined && a.role !== 'ceo') a.cli = isCli(patch.cli) ? patch.cli : '';
@@ -1858,6 +1867,7 @@ export class Swarm {
     if (LOOKS.includes(patch.look as AgentLook)) a.look = patch.look as AgentLook;
     if (patch.color && /^#[0-9a-f]{6}$/i.test(patch.color)) a.color = patch.color;
     if (patch.hair && /^#[0-9a-f]{6}$/i.test(patch.hair)) a.hair = patch.hair;
+    if (patch.style !== undefined) a.style = cleanStyle(patch.style); // null: back to the seeded look
     if (patch.model !== undefined) a.model = String(patch.model).trim();
     if (patch.effort !== undefined) a.effort = EFFORTS.includes(patch.effort as EffortLevel) ? (patch.effort as EffortLevel) : '';
     if (a.role !== 'ceo') {
@@ -2928,6 +2938,7 @@ export class Swarm {
     if (patch.ceoHeartbeatMin !== undefined) s.ceoHeartbeatMin = Math.max(0, Math.min(1440, Math.round(Number(patch.ceoHeartbeatMin)) || 0));
     if (typeof patch.managerName === 'string') s.managerName = patch.managerName.trim().slice(0, 40);
     if (typeof patch.companyName === 'string') s.companyName = patch.companyName.trim().slice(0, 60);
+    if (typeof patch.dogName === 'string') s.dogName = patch.dogName.trim().slice(0, 24) || DEFAULT_DOG_NAME;
     if (typeof patch.projectsDir === 'string' && patch.projectsDir.trim()) s.projectsDir = path.resolve(patch.projectsDir.trim());
     if (typeof patch.setupDone === 'boolean') s.setupDone = patch.setupDone;
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
@@ -2942,6 +2953,7 @@ export class Swarm {
       s.voice = voiceSettings(s.voice, patch.voice);
       if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
     }
+    if (patch.listen !== undefined) s.listen = listenSettings(s.listen, patch.listen);
     if (patch.notify !== undefined) {
       const url = (patch.notify as { officeUrl?: unknown } | null)?.officeUrl;
       if (url !== undefined && officeUrl(url) === null) throw new HttpError(400, 'The office URL must be an http(s) address, e.g. https://office.your-tailnet.ts.net');
@@ -3427,6 +3439,7 @@ export class Swarm {
         color: '#e63946',
         hair: '#2b2118',
         skin: pick(SKIN),
+        style: null,
         model: CEO_MODEL,
         effort: CEO_EFFORT,
         cli: 'claude',

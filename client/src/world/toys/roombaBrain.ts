@@ -68,7 +68,7 @@ const DOCK_X: Record<ToyFloor, number> = { office: 12.8, lobby: -3.5 };
 
 // Plants aren't colliders (you brush past the leaves), but the roomba shouldn't drive through the pots.
 // [x, z, scale], matching OfficeFloor.tsx and Lobby.tsx.
-const PLANTS: Record<ToyFloor, [number, number, number][]> = {
+export const PLANTS: Record<ToyFloor, [number, number, number][]> = {
   office: [[-7.1, -HALF_D + 0.7, 1], [7.1, -HALF_D + 0.7, 1], [-HALF_W + 0.7, HALF_D - 0.8, 1.2], [-11, -HALF_D + 0.7, 1.1], [HALF_W - 0.7, HALF_D - 0.7, 0.9]],
   lobby: [
     [-7.1, -HALF_D + 0.6, 1.1], [-HALF_W + 0.6, -4.1, 0.9], [HALF_W - 0.7, -4.2, 1.1], [7.1, -4.1, 0.9],

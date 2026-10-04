@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { DEFAULT_NOTIFY } from '../../shared/notify';
 import { showDesktopNote } from './notifications';
@@ -167,12 +167,14 @@ export const useStore = create<State>((set, get) => ({
     ceoHeartbeatMin: 60,
     managerName: '',
     companyName: '',
+    dogName: DEFAULT_DOG_NAME,
     projectsDir: '',
     setupDone: true,
     tutorialStep: -1,
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    listen: { provider: 'off', autoSend: false, handsFree: false },
     notify: DEFAULT_NOTIFY,
   },
   clis: [],
