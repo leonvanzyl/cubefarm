@@ -84,7 +84,9 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `workspace.ts`: floor checkouts, per-agent worktrees (`<SWARM_HOME>/workspaces/<owner>__<repo>/desks/<agent>`),
   fast-forwarding main, per-repo git lock, stopping processes an agent left running.
 - `exec.ts`: `run` / `git` / `gh`: `execFile` without a shell, prompts disabled, `CommandError` with stderr.
-- `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation.
+- `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation; and the PR theatre's PR
+  previews (`prTheatre.ts`: their slots, ports, eviction and idle stop, pure; `syncProxy.ts`: compare mode's synced scrolling).
+- `qaShots.ts`: QA's screenshots of each PR's latest round, kept for the app viewer's QA panel.
 - `previewRunner.ts`: checks out, installs and runs a floor's app in its preview worktree; kills the process tree.
 - `httpError.ts`: `HttpError(status, message)`.
 - `officeUpdate.ts`: the office's self-update: the drain decision, the launcher contract (IPC, `last-update.json`).

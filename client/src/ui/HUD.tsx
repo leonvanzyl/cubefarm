@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { AgentCard } from './AgentCard';
 import { floorPrCounts, repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { HeldHint } from './HeldHint';
@@ -131,6 +132,7 @@ export function HUD() {
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
       {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      <AgentCard />
       {started && !overlay && (focus || sip) && (
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}

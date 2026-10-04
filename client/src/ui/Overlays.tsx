@@ -204,7 +204,9 @@ function Help() {
           depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue and anything that needs you.
         </p>
         <p>
-          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
+          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app. With PRs open, its bottom row
+          has a channel for each: aim at one and press <kbd>E</kbd> to run that PR beside the main app (at most two PR previews run at once). In the viewer, <b>Compare with main</b> puts
+          them side by side, and the PR's checks and QA report sit beside it.
         </p>
       </div>
     </Panel>
@@ -224,7 +226,7 @@ export function Overlays() {
     case 'card':
       return <CardView repoId={overlay.repoId} cardKey={overlay.key} number={overlay.number} pr={overlay.pr} />;
     case 'app':
-      return <AppViewer repoId={overlay.repoId} />;
+      return <AppViewer repoId={overlay.repoId} pr={overlay.pr} />;
     case 'elevator':
       return <ElevatorPanel />;
     case 'manager':
