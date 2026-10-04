@@ -1,9 +1,11 @@
 // window.__swarmToys: a read-only peek at the toys, for QA and Playwright (pointer lock doesn't work headless).
 // Each read returns a fresh snapshot. Later toys (hoop score, darts, roomba) add fields here.
+// window.__swarmGiveMug(sips): put a mug with that much coffee (0-3) in your hands, to test without brewing.
 
 import { useStore, type Held } from '../../store';
 import { dartCount, stuckDartCount } from './darts';
 import { reactionCount } from './hits';
+import { looseMugs, takeNewMug, type LooseMug } from './mugs';
 import { vacuumedCount } from './vacuum';
 
 export interface ToyBallState {
@@ -32,6 +34,8 @@ export interface ToysSnapshot {
   /** Times a seated person reacted to being hit by a ball or dart, and darts the roomba vacuumed, this session. */
   reactions: number;
   vacuumed: number;
+  /** Coffee mugs lying loose on this floor, with the sips (0-3) left in each. A mug in hand shows in `held`. */
+  mugs: LooseMug[];
 }
 
 export interface HoopScore {
@@ -50,7 +54,7 @@ export interface ToyRoombaState {
   spins: number;
 }
 
-type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop' | 'roomba' | 'darts' | 'dartsStuck' | 'reactions' | 'vacuumed'>;
+type Source = () => Omit<ToysSnapshot, 'held' | 'charging' | 'hoop' | 'roomba' | 'darts' | 'dartsStuck' | 'reactions' | 'vacuumed' | 'mugs'>;
 
 let source: Source | null = null;
 let hoop: (() => HoopScore) | null = null;
@@ -71,6 +75,14 @@ export function setRoombaSource(s: (() => ToyRoombaState) | null) {
   roombaSource = s;
 }
 
+function safeMugs(): LooseMug[] {
+  try {
+    return looseMugs();
+  } catch {
+    return []; // being torn down
+  }
+}
+
 function snapshot(): ToysSnapshot {
   const { held, chargeAt } = useStore.getState();
   let roomba: ToyRoombaState | null = null;
@@ -79,7 +91,7 @@ function snapshot(): ToysSnapshot {
   } catch {
     // being torn down
   }
-  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null, roomba, darts: dartCount(), dartsStuck: stuckDartCount(), reactions: reactionCount(), vacuumed: vacuumedCount() };
+  const hands = { held, charging: chargeAt !== null, hoop: hoop ? hoop() : null, roomba, darts: dartCount(), dartsStuck: stuckDartCount(), reactions: reactionCount(), vacuumed: vacuumedCount(), mugs: safeMugs() };
   try {
     if (source) return { ...source(), ...hands };
   } catch {
@@ -90,4 +102,5 @@ function snapshot(): ToysSnapshot {
 
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmToys')) {
   Object.defineProperty(window, '__swarmToys', { get: snapshot, enumerable: false, configurable: false });
+  Object.defineProperty(window, '__swarmGiveMug', { value: (sips = 0) => takeNewMug(sips), enumerable: false, configurable: false });
 }
