@@ -1740,6 +1740,252 @@ input.inline:focus {
 .preview-details .status {
   font-size: 0.68rem;
 }
+/* the PR theatre: a channel per open PR, compare with main, and the PR's checks and QA beside the app */
+.channels {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scrollbar-width: thin;
+}
+.channel {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 4px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.channel-on {
+  background: var(--accent);
+  box-shadow: 0 2px 0 var(--ink);
+}
+.channel:focus-visible {
+  outline: 3px solid #3a56d4;
+  outline-offset: 1px;
+}
+.channels-empty {
+  align-self: center;
+  white-space: nowrap;
+}
+.led {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: #dee2e6;
+}
+.led-live {
+  background: #2dc653;
+}
+.led-busy {
+  background: #ffd166;
+}
+.led-bad {
+  background: #ef476f;
+}
+.btn.btn-on {
+  background: var(--accent);
+}
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-state-compact {
+  padding: 16px 10px;
+}
+.app-state-compact h3 {
+  font-size: 1rem;
+}
+.compare {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.compare-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.compare-path {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 220px;
+  max-width: 420px;
+}
+.compare-path input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+}
+.compare-sides {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.compare-side {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.compare-side .app-stage,
+.compare-side .app-state {
+  flex: 1;
+}
+.compare-label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.compare-synced {
+  margin-left: auto;
+  color: #1b873a;
+  font-weight: 600;
+}
+.qa-side {
+  flex: 0 0 300px;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+}
+.qa-side-title {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+.qa-side-meta,
+.qa-side-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+.qa-failed {
+  margin: 0;
+  padding-left: 4px;
+  list-style: none;
+}
+.qa-badge {
+  padding: 1px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #e9ecef;
+}
+.qa-badge-passed {
+  background: #8ce99a;
+}
+.qa-badge-failed,
+.qa-badge-needs-human {
+  background: #ffa8a8;
+}
+.qa-badge-testing,
+.qa-badge-fixing {
+  background: #ffe066;
+}
+.qa-summary {
+  font-size: 0.88rem;
+}
+.qa-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.86rem;
+}
+.qa-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.35;
+}
+.qa-check-fail b {
+  color: #c92a2a;
+}
+.qa-shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.qa-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ink);
+  text-decoration: none;
+  min-width: 0;
+}
+.qa-shot img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top left;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #f1f3f5;
+}
+.qa-shot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .app-body {
+    flex-direction: column;
+  }
+  .qa-side {
+    flex: 0 0 auto;
+    max-height: 40%;
+  }
+  .compare-sides {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+}
 @media (max-width: 520px) {
   .panel-app .panel-body {
     padding: 10px;

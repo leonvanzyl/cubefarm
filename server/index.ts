@@ -117,6 +117,34 @@ app.post(
   }),
 );
 app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(req))));
+// The PR theatre: open PRs running beside the floor's app, and what the app viewer has on screen
+app.post('/api/repos/:repo/pr-previews/:n', route((req) => swarm.startPrPreview(repoId(req), num(req.params.n), req.body?.restart === true)));
+app.delete('/api/repos/:repo/pr-previews/:n', route((req) => swarm.stopPrPreview(repoId(req), num(req.params.n))));
+app.post(
+  '/api/previews/watch',
+  route((req) => {
+    const viewer = str(req.body?.viewer);
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(viewer)) throw new HttpError(400, 'viewer must be an id of 8-64 letters, digits or dashes');
+    const repo = req.body?.repoId == null ? null : str(req.body.repoId);
+    const pr = req.body?.pr == null ? null : num(req.body.pr);
+    return swarm.watchPreview(viewer, repo || null, repo ? pr : null);
+  }),
+);
+app.post('/api/repos/:repo/preview/sync', route((req) => swarm.previewSyncUrl(repoId(req), req.body?.pr == null ? null : num(req.body.pr))));
+app.get('/api/repos/:repo/pulls/:n/qa-shots/:i', async (req, res, next) => {
+  try {
+    const index = Number(req.params.i);
+    const shot = Number.isInteger(index) && index >= 0 ? await swarm.qaShot(repoId(req), num(req.params.n), index) : null;
+    res.setHeader('Cache-Control', 'no-store');
+    if (!shot) return void res.status(404).end();
+    res.setHeader('Content-Type', shot.mime);
+    // Screenshots can be SVG: never let one run script as a page of the office.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+    res.end(shot.data);
+  } catch (err) {
+    next(err);
+  }
+});
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
