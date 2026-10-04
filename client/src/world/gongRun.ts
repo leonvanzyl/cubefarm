@@ -1,0 +1,109 @@
+import { GONG_GAP_MS } from './gongRules';
+import type { Pt } from './toys/roombaBrain';
+
+// The gong run's rules, free of three.js and the frame loop so they can be tested: whether a merge sends its author
+// running to the gong or the gong strikes by itself, the queue (one person at the gong at a time, one boom per merge,
+// in order), the beats at the gong and when to give up. gongRunner.ts drives the bodies and the strikes from these.
+// Kept on its own so the errand director (#85) can adopt the run as an errand later.
+
+/** Running to the gong (m/s); body.ts's walk is 1.1. */
+export const RUN_SPEED = 2.8;
+/** Hurrying back to their desk afterwards. */
+export const HURRY_SPEED = 1.9;
+/** Not struck this long after setting off (path blocked, tab hidden): the gong strikes by itself. */
+export const REACH_MS = 12_000;
+/** How long each beat at the gong lasts (ms): take the mallet, wind up, the strike, the victory pose. */
+export const BEATS = { take: 600, windup: 450, strike: 300, pose: 1600 };
+
+/** What a merge does with the gong: the author runs to it, it strikes by itself, or there's no gong on screen. */
+export type GongPlan = 'run' | 'solo' | 'absent';
+
+/**
+ * What a merge on `repoId` does, given the floor whose gong is on screen (`here`). The author runs only when they're
+ * drawn on this floor and the view is showing (a hidden tab or a covering panel stops the frame loop, so a run would
+ * freeze); otherwise the gong strikes by itself, so a merge is never silent.
+ */
+export function planGong(o: { repoId: string | null; here: string | null; agentId: string | null; present: boolean; covered: boolean }): GongPlan {
+  if (!o.repoId || o.repoId !== o.here) return 'absent';
+  return o.agentId && o.present && !o.covered ? 'run' : 'solo';
+}
+
+/** One merge waiting for the gong: `agentId` runs over and strikes it, or null strikes it by itself. */
+export interface GongJob {
+  agentId: string | null;
+  celebrate: boolean;
+}
+
+export type Beat = 'run' | 'take' | 'windup' | 'strike' | 'pose' | 'back';
+
+export interface GongRun {
+  agentId: string;
+  celebrate: boolean;
+  beat: Beat;
+  /** performance.now() when this beat started, and when they set off. */
+  since: number;
+  started: number;
+  /** The waypoints of the current walk (to the gong, or back to their desk) and the one they're heading for. */
+  legs: Pt[];
+  leg: number;
+}
+
+export interface GongRuns {
+  queue: GongJob[];
+  /** The one person on their way to the gong or at it. */
+  run: GongRun | null;
+  /** Runners on their way back to their desks. */
+  home: GongRun[];
+}
+
+export const createRuns = (): GongRuns => ({ queue: [], run: null, home: [] });
+
+/** Whether the gong would boom if struck now (not still ringing from the last strike, `hitAt`). */
+export const gongFree = (now: number, hitAt: number) => now - hitAt >= GONG_GAP_MS;
+
+/**
+ * The next merge to deal with, taken off the queue, or null to wait: while someone is on their way to the gong or at
+ * it, nobody else goes; a strike by itself also waits until the gong would boom again, so each merge gets its own.
+ */
+export function nextJob(q: GongRuns, now: number, hitAt: number): GongJob | null {
+  const job = q.queue[0];
+  if (!job || q.run) return null;
+  if (!job.agentId && !gongFree(now, hitAt)) return null;
+  return q.queue.shift()!;
+}
+
+export function startRun(job: GongJob & { agentId: string }, now: number, legs: Pt[]): GongRun {
+  return { agentId: job.agentId, celebrate: job.celebrate, beat: 'run', since: now, started: now, legs, leg: 0 };
+}
+
+/** Whether a run should give up and let the gong strike by itself: not struck within REACH_MS of setting off. */
+export const timedOut = (r: GongRun, now: number) => (r.beat === 'run' || r.beat === 'take' || r.beat === 'windup') && now - r.started > REACH_MS;
+
+/**
+ * The beat after this one at the gong once it's time, or null to stay. The wind-up holds until the gong would boom,
+ * so a run right after another merge's strike still gets its own boom. 'run' and 'back' end on arrival (the driver).
+ */
+export function nextBeat(r: GongRun, now: number, hitAt: number): Beat | null {
+  const t = now - r.since;
+  switch (r.beat) {
+    case 'take':
+      return t >= BEATS.take ? 'windup' : null;
+    case 'windup':
+      return t >= BEATS.windup && gongFree(now, hitAt) ? 'strike' : null;
+    case 'strike':
+      return t >= BEATS.strike ? 'pose' : null;
+    case 'pose':
+      return t >= BEATS.pose ? 'back' : null;
+    default:
+      return null;
+  }
+}
+
+/** Whether the runner holds the mallet (it's off its hook) in this beat. */
+export const holdsMallet = (b: Beat) => b === 'windup' || b === 'strike' || b === 'pose';
+
+/** Anything left to do: a run, someone on their way back, or merges waiting. */
+export const busy = (q: GongRuns) => q.run !== null || q.home.length > 0 || q.queue.length > 0;
+
+/** Yaw for a body (body.ts: 0 faces -Z) walking from `a` towards `b`. */
+export const headingTo = (a: Pt, b: Pt) => Math.atan2(-(b.x - a.x), -(b.z - a.z));

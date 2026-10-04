@@ -4,6 +4,7 @@ import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
 import { gongState, hitGong, setGongHere } from './gongState';
 import { flashLevel, swingAngle, twistAngle } from './gongRules';
+import { malletHolder, pumpGongRuns, resetGongRuns } from './gongRunner';
 import { useInteractable } from './interact';
 import { GONG } from './layout';
 import { toon } from './materials';
@@ -146,14 +147,21 @@ function Confetti() {
 
 export function Gong({ repoId }: { repoId: string }) {
   const ref = useInteractable<THREE.Group>({ id: 'gong', label: 'Bang the gong', action: { kind: 'poke', toyId: 'gong' } }, 3.4);
+  const mallet = useRef<THREE.Group>(null);
   useEffect(() => {
     setGongHere(repoId);
     const off = onPoke('gong', () => void hitGong());
     return () => {
       off();
+      resetGongRuns();
       if (gongState.here === repoId) setGongHere(null);
     };
   }, [repoId]);
+  // Moves anyone running to the gong along; the mallet leaves its hook while a runner has it.
+  useFrame(() => {
+    pumpGongRuns(performance.now());
+    if (mallet.current) mallet.current.visible = malletHolder() === null;
+  });
 
   return (
     <group ref={ref} position={[GONG.x, 0, GONG.z]}>
@@ -172,7 +180,7 @@ export function Gong({ repoId }: { repoId: string }) {
       <Box size={[w - POST * 2, 0.08, 0.1]} position={[0, 0.42, 0]} color={WOOD_DARK} shadow={false} />
       <Disc />
       {/* the padded mallet, hanging on a hook on the right-hand post */}
-      <group position={[POST_X, 1.45, POST / 2 + 0.05]}>
+      <group ref={mallet} position={[POST_X, 1.45, POST / 2 + 0.05]}>
         <Box size={[0.05, 0.05, 0.1]} position={[0, 0, -0.03]} color="#495057" shadow={false} />
         <Cyl r={0.025} h={0.72} position={[0, -0.36, 0.03]} color="#f1d19b" outline />
         <Ball r={0.13} position={[0, -0.78, 0.03]} color="#e76f51" outline />

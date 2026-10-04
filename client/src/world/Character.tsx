@@ -6,9 +6,11 @@ import type { Agent } from '../store';
 import { ACCENTS, appearanceFor } from './appearance';
 import { gait, newBodyState, smooth, stepBody, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
+import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
 import { mix, shade, toon } from './materials';
 import { bodyTarget, trackBody } from './people';
+import { Ball, Cyl } from './Toon';
 import { useHitReaction } from './useHitReaction';
 
 // A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
@@ -49,6 +51,10 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   reach: { l: null, r: { pitch: 1.05, yaw: 0.05 }, head: 0.15 }, // touch the board
   hold: { l: { pitch: -0.45, yaw: 0.4 }, r: { pitch: -0.45, yaw: 0.4 }, head: -0.05 }, // carry something in front
   sip: { l: null, r: { pitch: 0.7, yaw: 0.85 }, head: 0.25 }, // cup to the mouth
+  // the gong (gongRunner.ts): the mallet raised back over the shoulder, then brought down onto the disc, then a V
+  windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
+  strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
+  cheer: { l: { pitch: 1.45, yaw: -0.35 }, r: { pitch: 1.45, yaw: -0.35 }, head: 0.2 },
 };
 
 export function Character({ agent, chair, children }: { agent: Agent; chair?: RefObject<THREE.Object3D | null>; children?: ReactNode }) {
@@ -69,6 +75,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
   const kneeL = useRef<THREE.Group>(null);
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
+  const mallet = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
@@ -118,6 +125,7 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
       move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
       move.gh += (g.head - move.gh) * kg;
+      if (mallet.current) mallet.current.visible = st.stage === 'up' && malletHolder() === agent.id;
     }
     const seated = st.stage === 'seated';
     const k = smooth(st.sit); // 1 seated, 0 standing
@@ -333,6 +341,14 @@ export function Character({ agent, chair, children }: { agent: Agent; chair?: Re
                 <Outlines thickness={0.012} color={INK} angle={0} />
               </mesh>
               <mesh position={[0, 0, -0.5]} geometry={PARTS.hand} material={skin} castShadow />
+              {x > 0 && (
+                // the gong's mallet, in the right hand while they have it (gongRunner.ts); the handle tips up from the fist
+                <group ref={mallet} position={[0, 0, -0.5]} rotation={[0.5, 0, 0]} visible={false}>
+                  <Cyl r={0.025} h={0.55} position={[0, 0, -0.27]} rotation={[Math.PI / 2, 0, 0]} color="#f1d19b" shadow={false} />
+                  <Ball r={0.12} position={[0, 0, -0.56]} color="#e76f51" outline shadow={false} />
+                  <Cyl r={0.125} h={0.05} position={[0, 0, -0.56]} rotation={[Math.PI / 2, 0, 0]} color="#f4a261" shadow={false} />
+                </group>
+              )}
             </group>
           ))}
 

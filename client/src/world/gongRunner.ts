@@ -1,0 +1,185 @@
+import type { MergeBurst } from './confetti';
+import { HURRY_SPEED, RUN_SPEED, busy, createRuns, headingTo, holdsMallet, nextBeat, nextJob, planGong, startRun, timedOut, type GongJob, type GongPlan, type GongRun } from './gongRun';
+import { gongState, hitGong } from './gongState';
+import { GONG, GONG_SPOT } from './layout';
+import { bodyState, seatBody, setBody } from './people';
+import type { BodyState } from './body';
+import type { Pt } from './toys/roombaBrain';
+import { findPath, walkways } from './walkways';
+
+// The gong run, live: a merge on the player's floor (store.ts) or __swarmGong.run() sends someone running to the gong
+// along the walkways, where they take the mallet, strike (gongState.ts: the boom and the celebration), cheer and
+// hurry back to their desk. The rules are in gongRun.ts; this moves bodies through people.ts. Gong.tsx pumps it every
+// frame, and a coarse timer keeps it going while frames stop (a hidden tab), so a stalled run still ends in a boom.
+
+const runs = createRuns();
+const CORNER = 0.4; // m: head for the next waypoint this far short of one, so the run doesn't stop at every corner
+const ARRIVED = 0.15;
+const NORTH = 0; // body.ts heading facing -Z: the gong
+// Where the runner strikes from: a step closer than GONG_SPOT, so the mallet reaches the disc.
+const STRIKE = { x: GONG.x, z: GONG.z + 1 };
+let timer: ReturnType<typeof setInterval> | null = null;
+
+/** Who has the mallet off its hook right now, or null. Read every frame by Character.tsx and Gong.tsx. */
+export const malletHolder = () => (runs.run && holdsMallet(runs.run.beat) ? runs.run.agentId : null);
+
+/**
+ * A PR merged: queue its author's run to the gong, or a strike by itself. 'absent' when that floor's gong isn't on
+ * screen, so the caller chimes instead. `covered`: a panel covers the 3D view.
+ */
+export function gongForMerge(b: MergeBurst, covered: boolean): GongPlan {
+  return plan(b.repoId, b.agentId, true, covered);
+}
+
+function plan(repoId: string | null, agentId: string | null, celebrate: boolean, covered: boolean): GongPlan {
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  const p = planGong({ repoId, here: gongState.here, agentId, present: !!agentId && !!bodyState(agentId), covered: covered || hidden });
+  if (p === 'absent') return p;
+  runs.queue.push({ agentId: p === 'run' ? agentId : null, celebrate });
+  pumpGongRuns(performance.now());
+  if (busy(runs) && !timer) timer = setInterval(() => pumpGongRuns(performance.now()), 250);
+  return p;
+}
+
+/** Drops every queued and running trip, sending the runners back to their seats (the gong's floor went away). */
+export function resetGongRuns() {
+  if (runs.run) seatBody(runs.run.agentId);
+  for (const r of runs.home) seatBody(r.agentId);
+  runs.queue.length = 0;
+  runs.home.length = 0;
+  runs.run = null;
+  stopTimer();
+}
+
+function stopTimer() {
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+// ---------- walking the legs ----------
+
+/** Sends the runner towards their current waypoint: along the leg, or turning to `end` at the last one. */
+function aim(r: GongRun, speed: number, end: number) {
+  const p = r.legs[r.leg];
+  const heading = r.leg === r.legs.length - 1 ? end : headingTo(r.legs[r.leg - 1], p);
+  setBody(r.agentId, { mode: 'walking', x: p.x, z: p.z, speed, heading, gesture: 'none' });
+}
+
+/** Moves on to the next waypoint when they're near this one; true once they've reached the last. */
+function follow(r: GongRun, s: Readonly<BodyState>, speed: number, end: number) {
+  const p = r.legs[r.leg];
+  const last = r.leg === r.legs.length - 1;
+  if (s.stage !== 'up' || Math.hypot(p.x - s.x, p.z - s.z) > (last ? ARRIVED : CORNER)) return false;
+  if (last) return true;
+  r.leg++;
+  aim(r, speed, end);
+  return false;
+}
+
+/** A walk from `from` along the walkways: [from, ...waypoints], or null when there's no way through. */
+function route(from: Pt, to: Pt): Pt[] | null {
+  const path = findPath(walkways('office'), from, to);
+  return path && path.length ? [from, ...path] : null;
+}
+
+// ---------- the trip ----------
+
+function start(job: GongJob & { agentId: string }, now: number) {
+  const s = bodyState(job.agentId);
+  // Seated, they get up to the spot beside their chair first; plan from there.
+  const from = s && (s.stage === 'seated' || s.stage === 'rising' ? { x: s.standX, z: s.standZ } : { x: s.x, z: s.z });
+  const legs = from && route(from, GONG_SPOT);
+  if (!legs) {
+    runs.queue.unshift({ agentId: null, celebrate: job.celebrate }); // they left, or no way through: it strikes by itself
+    return;
+  }
+  const i = runs.home.findIndex((h) => h.agentId === job.agentId);
+  if (i >= 0) runs.home.splice(i, 1); // turned round on the way back from the last one
+  const r = startRun(job, now, legs);
+  r.leg = 1;
+  runs.run = r;
+  aim(r, RUN_SPEED, NORTH);
+}
+
+function goHome(r: GongRun, s: Readonly<BodyState>, now: number) {
+  r.beat = 'back';
+  r.since = now;
+  const legs = route({ x: s.x, z: s.z }, { x: s.standX, z: s.standZ });
+  if (legs) {
+    r.legs = legs;
+    r.leg = 1;
+    aim(r, HURRY_SPEED, s.seatHeading);
+  } else {
+    r.legs = [];
+    r.leg = 0;
+    seatBody(r.agentId); // straight back to their chair
+  }
+  runs.home.push(r);
+}
+
+function step(r: GongRun, now: number) {
+  const s = bodyState(r.agentId);
+  const struck = r.beat === 'strike' || r.beat === 'pose';
+  if (!s || (!struck && timedOut(r, now))) {
+    // gone from the floor, or not there in time: the gong strikes by itself, and they head back
+    runs.run = null;
+    if (!struck) runs.queue.unshift({ agentId: null, celebrate: r.celebrate });
+    if (s) goHome(r, s, now);
+    else seatBody(r.agentId);
+    return;
+  }
+  if (r.beat === 'run') {
+    if (!follow(r, s, RUN_SPEED, NORTH)) return;
+    r.beat = 'take';
+    r.since = now;
+    setBody(r.agentId, { mode: 'standing', x: STRIKE.x, z: STRIKE.z, heading: NORTH, speed: 1, gesture: 'reach' });
+    return;
+  }
+  const next = nextBeat(r, now, gongState.hitAt);
+  if (!next) return;
+  r.beat = next;
+  r.since = now;
+  if (next === 'windup') setBody(r.agentId, { gesture: 'windup' });
+  else if (next === 'strike') {
+    setBody(r.agentId, { gesture: 'strike' });
+    hitGong({ celebrate: r.celebrate }); // the mallet lands
+  } else if (next === 'pose') setBody(r.agentId, { gesture: 'cheer' });
+  else if (next === 'back') {
+    runs.run = null;
+    goHome(r, s, now);
+  }
+}
+
+/** Moves every trip along; Gong.tsx calls it each frame. Allocates nothing unless something changes. */
+export function pumpGongRuns(now: number) {
+  if (!busy(runs)) return stopTimer();
+  for (let i = runs.home.length - 1; i >= 0; i--) {
+    const r = runs.home[i];
+    const s = bodyState(r.agentId);
+    if (!s) {
+      seatBody(r.agentId);
+      runs.home.splice(i, 1);
+    } else if (r.leg >= r.legs.length) {
+      if (s.stage === 'seated') runs.home.splice(i, 1);
+    } else if (follow(r, s, HURRY_SPEED, s.seatHeading)) {
+      seatBody(r.agentId); // the last step: to the spot beside the chair, and sit
+      r.leg = r.legs.length;
+    }
+  }
+  if (runs.run) step(runs.run, now);
+  for (let job = nextJob(runs, now, gongState.hitAt); job; job = nextJob(runs, now, gongState.hitAt)) {
+    if (job.agentId) start(job as GongJob & { agentId: string }, now);
+    else hitGong({ celebrate: job.celebrate });
+  }
+}
+
+// For QA and e2e: __swarmGong.run(agentId) sends someone on this floor to strike the gong (it strikes by itself when
+// they can't go; returns which), __swarmGong.running() is true until every runner is back in their chair.
+if (typeof window !== 'undefined') {
+  const probe = (window as unknown as Record<string, Record<string, unknown> | undefined>).__swarmGong;
+  if (probe)
+    Object.assign(probe, {
+      run: (agentId: string, opts?: { celebrate?: boolean }) => plan(gongState.here, agentId, opts?.celebrate === true, false),
+      running: () => busy(runs),
+    });
+}

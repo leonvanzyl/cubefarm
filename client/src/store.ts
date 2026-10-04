@@ -3,7 +3,7 @@ import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestVie
 import { blockers } from '../../shared/issues';
 import { chirp, cue } from './ui/sfx';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
-import { hitGong } from './world/gongState';
+import { gongForMerge } from './world/gongRunner';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -218,8 +218,10 @@ export const useStore = create<State>((set, get) => ({
         const before = get().repos.find((r) => r.id === ev.repo.id);
         const qaFor = (n: number) => get().qa[qaKey(ev.repo.id, n)] ?? recentQaRecord(qaKey(ev.repo.id, n));
         const bursts = mergeBursts(live, before, ev.repo, qaFor, Object.values(get().agents));
-        // A merge on the player's floor bangs its gong and the floor celebrates; anywhere else it's the chime.
-        if (bursts.length && hitGong({ repoId: ev.repo.id, celebrate: true }) === 'absent') cue('merged');
+        // A merge on the player's floor sends its author running to bang the gong (or it bangs by itself) and the
+        // floor celebrates; anywhere else it's the chime.
+        const covered = coversView(get().overlay);
+        if (bursts.map((b) => gongForMerge(b, covered)).includes('absent')) cue('merged');
         const repos = get().repos.filter((r) => r.id !== ev.repo.id);
         repos.push(ev.repo);
         set({ repos: repos.sort((a, b) => a.floor - b.floor) });
