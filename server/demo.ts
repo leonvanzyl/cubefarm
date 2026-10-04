@@ -733,6 +733,7 @@ interface DemoFloor {
   team: { id: string; name: string; role: string; specialty: string | null; status: string }[];
   backlog: unknown[];
   pullRequests: unknown[];
+  seats: Record<'dev' | 'qa', { free: number }>;
 }
 
 /** A scripted CEO that uses the real office tools, so proposals, profiles and issues behave exactly as in the real thing. */
@@ -753,7 +754,8 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
     const s = JSON.parse(await office.call('company_status', {})) as { floors: DemoFloor[]; pendingProposals: unknown[] };
     const people = s.floors.reduce((n, f) => n + f.team.length, 0);
     const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
-    cb.log([{ kind: 'result', text: `  ⎿ ${s.floors.length} floors · ${people} people · ${issues} open issues · ${s.pendingProposals.length} proposals pending` }]);
+    const free = s.floors.reduce((n, f) => n + f.seats.dev.free + f.seats.qa.free, 0);
+    cb.log([{ kind: 'result', text: `  ⎿ ${s.floors.length} floors · ${people} people · ${free} free seats · ${issues} open issues · ${s.pendingProposals.length} proposals pending` }]);
     return s;
   };
   const use = async (name: string, args: Record<string, unknown>) => {

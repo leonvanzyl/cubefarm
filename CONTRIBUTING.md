@@ -24,13 +24,26 @@ npm test             # run every test once (Vitest)
 npm run test:watch   # re-run tests as you edit
 npm run typecheck
 npm run build
-npm run test:e2e     # browser smoke tests (Playwright): builds, boots a demo office and drives it
+npm run test:e2e     # browser smoke tests (Playwright): builds, boots a demo office and drives it (see below for when)
 ```
 
 - Tests sit next to the code they cover as `*.test.ts`, anywhere under `client/`, `server/`, `shared/` or `scripts/` (e.g. `shared/issues.test.ts`). Vitest finds them through `vitest.config.ts`; `tsc` type-checks them and the Vite build leaves them out, since nothing in the app imports them.
 - Keep them fast and offline: no network, no GitHub (`gh`), no Claude sessions and no real `~/.cubefarm`. Test pure logic directly, fake anything that would spend usage, and use a temp `SWARM_HOME` and random free ports for anything that needs a server. `npm test` already points `SWARM_HOME` at a temp folder.
-- `npm run test:e2e` runs `e2e/*.spec.ts` in headless Chromium with software WebGL against a demo office on port 4399 (`E2E_PORT` changes it) with a temp `SWARM_HOME`. The first time, get the browser with `npx playwright install chromium`. Wait on what the page shows rather than sleeping, and don't rely on pointer lock, which a headless browser may not grant.
+- Before a pull request, run `typecheck`, `test` and `build`. Run `test:e2e` only when you changed `e2e/`, `playwright.config.ts` or how the office boots (`server/index.ts`, the start screen, the setup wizard), or to fix a failing e2e job: CI runs it on every pull request and is the gate.
+- `npm run test:e2e` runs `e2e/*.spec.ts` headless with software WebGL against a demo office on port 4399 (`E2E_PORT` changes it) with a temp `SWARM_HOME`. It uses your installed Google Chrome when there is one, otherwise Playwright's Chromium (always in CI, or with `E2E_BROWSER=chromium`). If that browser is missing it stops at once and says so: run `npx playwright install chromium` once, into the shared cache (leave `PLAYWRIGHT_BROWSERS_PATH` unset). Just built? `E2E_SKIP_BUILD=1` reuses `dist/` instead of building again. Wait on what the page shows rather than sleeping, and don't rely on pointer lock, which a headless browser may not grant.
 - GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test` and `npm run build` on Ubuntu and Windows for every pull request and every push to `main`, then packs the npm package, installs it into an empty folder and boots it in demo mode (`scripts/smoke-package.mjs`). A separate `e2e` job on Ubuntu runs `npm run test:e2e` and uploads the Playwright report when it fails. It needs no secrets.
+
+### The agents' browser tool
+
+Agents test in a browser through the Playwright MCP server, a pinned dependency (`@playwright/mcp` at an exact version in `package.json`) started as `node <its cli.js>` from the installed package (`server/browser.ts`), so a session never runs npx or touches the npm registry. It drives the installed Google Chrome. To bump it:
+
+```bash
+npm install --save-exact @playwright/mcp@<version>
+node node_modules/@playwright/mcp/cli.js --help   # the flags in server/browser.ts still exist
+npm test && npm run build && node scripts/smoke-package.mjs
+```
+
+Read its release notes first: a release that moves to a new Playwright may change which Chrome versions it supports.
 
 ## Architecture
 

@@ -57,7 +57,7 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
   const defs = [
     tool(
       'company_status',
-      'Everything about the company right now: settings, every floor (repo, clone path, brief, profile, QA brief), its team, backlog, pull requests and QA, pending proposals and recent decisions by the manager. Call this first.',
+      'Everything about the company right now: settings, every floor (repo, clone path, brief, profile, QA brief), its free seats, team, backlog, pull requests and QA, pending proposals and recent decisions by the manager. Call this first.',
       {},
       () => run(() => h.companyStatus()),
     ),
@@ -158,6 +158,28 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
   };
 }
 
+// ---------- seats ----------
+
+/** Desks per floor. client/src/world/layout.ts draws the same number (ceo.test.ts checks they match). */
+export const FLOOR_DESKS = { dev: 12, qa: 3 } as const;
+/** Pending proposals the manager can have waiting: enough to staff one empty floor in one go. */
+export const MAX_PENDING_PROPOSALS = FLOOR_DESKS.dev + FLOOR_DESKS.qa;
+
+export interface SeatCount {
+  total: number;
+  taken: number;
+  /** Pending hire proposals for these seats. */
+  proposed: number;
+  free: number;
+}
+
+export const seatCount = (total: number, taken: number, proposed: number): SeatCount => ({ total, taken, proposed, free: Math.max(0, total - taken - proposed) });
+
+/** Refuses a proposal while the manager already has the most they can be asked to decide on. */
+export function checkPendingLimit(pending: number, max = MAX_PENDING_PROPOSALS) {
+  if (pending >= max) throw new Error(`${pending} proposals are already waiting for the manager; propose the rest after they decide.`);
+}
+
 // ---------- prompts ----------
 
 export function ceoSystemPrompt(o: {
@@ -176,7 +198,7 @@ export function ceoSystemPrompt(o: {
     '',
     'Your job is to run the company, not to write code:',
     '- Understand each project: what it is, its stack, how far along it is, and what kind of people it needs. Projects differ a lot. A static marketing site, a 3D browser game and a REST API need different specialists and different QA.',
-    `- Shape each floor's team. Propose specialists with a specific title and a job description written for this project. Keep teams lean: agents on the same coding agent share one subscription's usage limits${o.sessionLimit ? ` and at most ${o.sessionLimit} sessions run at once` : ''}, so a floor rarely needs more than ${o.teamCap} people. Propose letting people go when a floor is clearly overstaffed or a specialty is no longer needed.`,
+    `- Shape each floor's team. Propose specialists with a specific title and a job description written for this project. Keep teams lean: agents on the same coding agent share one subscription's usage limits${o.sessionLimit ? ` and at most ${o.sessionLimit} sessions run at once` : ''}, so a floor rarely needs more than ${o.teamCap} people. When the manager asks for a bigger team, follow that, up to the floor's free seats (seats in company_status). Propose letting people go when a floor is clearly overstaffed or a specialty is no longer needed.`,
     "- Plan the work: turn a floor's brief into small, well-specified GitHub issues, one agent-session each, with acceptance criteria. Route each to a specialty. The office hands issues out itself: a free specialist gets first pick of their specialty, and otherwise any free developer takes the next issue that can start, so a specialty is a preference, not a lock.",
     "- Write each floor's QA brief: what QA testers must check for this kind of project (for a 3D game: the canvas renders, controls respond, frame rate is smooth; for a website: links, phone layout, accessibility; for an API: status codes, validation, error cases).",
     '',
