@@ -6,6 +6,7 @@ import { CareerPeek } from './CareerCard';
 import { CoinChip } from './CoinChip';
 import './progressProbe';
 import { eAction } from '../world/toys/sip';
+import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { officeUpdateChip } from '../officeUpdate';
 
@@ -69,6 +70,9 @@ export function HUD() {
   const held = useStore((s) => s.held);
   // With coffee in hand, E sips whatever you aim at (except the coffee machine).
   const sip = eAction(held, focus?.action.kind ?? null) === 'sip';
+  // With a sticky in hand, the hint says what E does with it here.
+  const drop = stickyDrop(focus);
+  const dropLabel = !drop || drop.kind === 'none' ? null : drop.kind === 'refuse' ? `⚠️ ${drop.label}` : drop.label;
   const overlay = useStore((s) => s.overlay);
   const locked = useStore((s) => s.locked);
   const started = useStore((s) => s.started);
@@ -115,7 +119,13 @@ export function HUD() {
       {started && !overlay && (focus || sip) && (
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}
-          {sip ? 'Sip coffee' : focus?.label}
+          {sip ? 'Sip coffee' : (dropLabel ?? focus?.label)}
+          {!held && focus?.action.kind === 'card' && focus.action.peel && (
+            <>
+              {' '}
+              · <kbd>G</kbd> / hold <kbd>Click</kbd> take it
+            </>
+          )}
           {!sip && focus?.action.kind === 'jukebox' && (
             <>
               {' '}

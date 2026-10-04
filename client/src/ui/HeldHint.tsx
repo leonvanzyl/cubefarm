@@ -40,6 +40,13 @@ export function HeldHint() {
       </div>
     );
   }
+  if (held.kind === 'sticky') {
+    return (
+      <div className="hud-hint hud-held">
+        📌 {held.pr ? `PR #${held.number}` : `#${held.number}`} · {held.pr ? 'take it to the QA lab' : "take it to a free developer's desk"} and press <kbd>E</kbd> · <kbd>G</kbd> elsewhere puts it back
+      </div>
+    );
+  }
   if (held.kind === 'mug') {
     return (
       <div className="hud-hint hud-held">
