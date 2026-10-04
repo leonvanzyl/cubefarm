@@ -1,12 +1,15 @@
-// The Settings tab's Voice section: who reads messages aloud, the ElevenLabs key (write-only), the voice, and a Test.
-// The key lives on the server; the browser only ever sees its last 4 characters.
+// The Settings tab's Voice section: who reads messages aloud, the ElevenLabs key (write-only), the voice, and a Test;
+// then talking instead of typing: who turns speech into text, auto-send and hands-free. The key lives on the server;
+// the browser only ever sees its last 4 characters.
 import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { SAMPLE_LINE } from '../../../shared/speech';
 import { cacheLabel, clampKeepDays, KEEP_DAYS_MAX, KEEP_DAYS_MIN } from '../../../shared/voiceClips';
-import type { VoiceOption, VoiceProvider, VoiceSettings as Voice } from '../../../shared/types';
+import { CEO_ID, type ListenProvider, type ListenSettings, type VoiceOption, type VoiceProvider, type VoiceSettings as Voice } from '../../../shared/types';
 import { confirmDialog } from './Confirm';
+import { micCaps, setHandsFree } from './mic';
+import { cantListen } from './micText';
 import { getAudioPrefs } from './sfx';
 import { browserVoices, searchVoices, voiceLabels, type BrowserVoice } from './voicePicker';
 import { playClip, speakLine, stopVoice } from './voicePlayback';
@@ -17,6 +20,12 @@ const PROVIDERS: [VoiceProvider, string, string][] = [
   ['off', 'Off', ''],
   ['browser', 'Browser voice', 'free, built in'],
   ['elevenlabs', 'ElevenLabs', 'natural voices, with your own key'],
+];
+
+const LISTENERS: [ListenProvider, string, string][] = [
+  ['off', 'Off', 'no 🎙️'],
+  ['browser', 'Browser', 'free, built in'],
+  ['elevenlabs', 'ElevenLabs Speech to Text', 'with your own key'],
 ];
 
 type Save = (patch: Partial<Voice>) => void;
@@ -371,6 +380,61 @@ export function VoiceSettings() {
         </>
       )}
       {(eleven || cache.clips > 0) && <SavedClips voice={voice} save={save} />}
+      <Listening keyShown={eleven} />
+    </div>
+  );
+}
+
+/** Talking instead of typing: who turns speech into text, sending when you stop talking, and the hands-free phone. */
+function Listening({ keyShown }: { keyShown: boolean }) {
+  const listen = useStore((s) => s.settings.listen);
+  const keySet = useStore((s) => s.voiceKeySet);
+  const voiceOn = useStore((s) => s.settings.voice.provider !== 'off');
+  const ceoName = useStore((s) => s.agents[CEO_ID]?.name ?? 'the CEO');
+  const radioName = useId();
+  if (!listen) return null;
+  const save = (patch: Partial<ListenSettings>) => void api.updateSettings({ listen: { ...listen, ...patch } }).catch(() => undefined);
+  const why = listen.provider === 'off' ? '' : cantListen(listen.provider, micCaps(), keySet || listen.provider !== 'elevenlabs');
+  return (
+    <div className="listen-settings">
+      <h4>🎙️ Talk instead of type</h4>
+      <p className="muted small">
+        Hold the 🎙️ next to Send (or hold <kbd>V</kbd> in the message box) and speak: your words fill the box, to edit before you send. A quick tap listens until you stop talking. <kbd>Esc</kbd> stops listening.
+      </p>
+      <div role="radiogroup" aria-labelledby={`${radioName}-label`}>
+        <div id={`${radioName}-label`} className="field">
+          Turn speech into text with
+        </div>
+        {LISTENERS.map(([p, label, note]) => (
+          <label key={p} className="toggle block">
+            <input type="radio" name={radioName} checked={listen.provider === p} onChange={() => save({ provider: p })} />
+            <span>
+              <b>{label}</b> ({note})
+            </span>
+          </label>
+        ))}
+      </div>
+      {why && <p className="term-error small">{why}</p>}
+      {listen.provider === 'elevenlabs' && (
+        <>
+          <p className="muted small">
+            What you say is recorded in this browser (60 seconds at most) and sent through the office to ElevenLabs, which charges by the length of the audio. A restricted key needs the{' '}
+            <b>Speech to Text</b> permission.
+          </p>
+          {!keyShown && <ElevenLabsKey />}
+        </>
+      )}
+      {listen.provider !== 'off' && (
+        <>
+          <label className="toggle">
+            <input type="checkbox" checked={listen.autoSend} onChange={(e) => save({ autoSend: e.target.checked })} /> Send automatically when I stop talking
+          </label>
+          <label className="toggle" title={voiceOn ? undefined : `Needs ${ceoName}'s voice: pick one under Speak messages`}>
+            <input type="checkbox" checked={listen.handsFree} disabled={!voiceOn && !listen.handsFree} onChange={(e) => void setHandsFree(e.target.checked, ceoName)} /> Hands-free on the phone: after{' '}
+            {ceoName}'s spoken reply, listen for up to 8 s and send what I say{!voiceOn && <span className="muted"> (needs Speak messages above)</span>}
+          </label>
+        </>
+      )}
     </div>
   );
 }

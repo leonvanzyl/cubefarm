@@ -9,6 +9,9 @@ import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../o
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
 import { LiveTerminal } from './LiveTerminal';
+import { MicButton } from './MicButton';
+import { OpsTab } from './MissionConsole';
+import { NotifySettings } from './NotifySettings';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
@@ -259,6 +262,11 @@ function CeoTab() {
   if (!ceo) return <p className="muted">The corner office is empty.</p>;
   const working = ceo.status === 'working';
   const pending = pendingRequests(requests);
+  const send = (t: string) => {
+    if (!t.trim()) return;
+    setText('');
+    void attempt(() => api.messageCeo(t));
+  };
   const decided = requests.filter((r) => r.status !== 'pending').slice(-6).reverse();
   return (
     <div className="tab-grid">
@@ -304,13 +312,11 @@ function CeoTab() {
             className="row"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!text.trim()) return;
-              const t = text;
-              setText('');
-              void attempt(() => api.messageCeo(t));
+              send(text);
             }}
           >
             <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${ceo.name} (or press P anywhere for your phone)…`} />
+            <MicButton kind="console" value={text} onChange={setText} onSend={send} />
             <button className="btn" disabled={!text.trim()}>
               Send
             </button>
@@ -514,23 +520,39 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
                   {i.title}
                   {i.labels.length > 0 && <div className="muted small">{i.labels.join(', ')}</div>}
                 </div>
-                {holder ? (
-                  <span className="agent-chip">
-                    <span className="dot" style={{ background: holder.color }} />
-                    {holder.name}
-                  </span>
-                ) : (
-                  <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
-                    <option value="">Assign…</option>
-                    {agents
-                      .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
-                      .map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                  </select>
-                )}
+                <span className="repo-row-actions">
+                  {holder ? (
+                    <span className="agent-chip">
+                      <span className="dot" style={{ background: holder.color }} />
+                      {holder.name}
+                    </span>
+                  ) : (
+                    <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
+                      <option value="">Assign…</option>
+                      {agents
+                        .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                  <button
+                    className="btn btn-small btn-ghost"
+                    title="Close it on GitHub as not planned"
+                    onClick={() =>
+                      void confirmDialog({
+                        tone: 'danger',
+                        title: `Close #${i.number}?`,
+                        body: `“${i.title}” will be closed on GitHub as not planned${holder ? `, and ${holder.name} stops working on it` : ''}.`,
+                        confirm: 'Close issue',
+                      }).then((ok) => ok && attempt(() => api.closeIssue(repo.id, i.number)))
+                    }
+                  >
+                    Close
+                  </button>
+                </span>
               </div>
             );
           })}
@@ -664,6 +686,10 @@ function SettingsTab() {
           <input defaultValue={settings.companyName} placeholder="cubefarm" onBlur={(e) => e.target.value !== settings.companyName && set({ companyName: e.target.value })} />
         </label>
         <label className="field">
+          <span>The office dog's name</span>
+          <input key={settings.dogName} defaultValue={settings.dogName} placeholder="Biscuit" maxLength={24} onBlur={(e) => e.target.value.trim() !== settings.dogName && set({ dogName: e.target.value })} />
+        </label>
+        <label className="field">
           <span>Projects folder (new projects are created here)</span>
           <input key={settings.projectsDir} defaultValue={settings.projectsDir} onBlur={(e) => e.target.value.trim() && e.target.value !== settings.projectsDir && set({ projectsDir: e.target.value })} />
         </label>
@@ -694,15 +720,19 @@ function SettingsTab() {
       </div>
       <VoiceSettings />
       <OutsideSettings />
+      <NotifySettings />
     </div>
   );
 }
 
-export function ManagerConsole({ initialTab, initialRepo }: { initialTab?: ManagerTab; initialRepo?: string }) {
+/** card: open Mission control at this card (an alarm's id, or 'usage'). */
+export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?: ManagerTab; initialRepo?: string; card?: string }) {
   const [tab, setTab] = useState<ManagerTab>(initialTab ?? 'floors');
   const pending = useStore((s) => pendingRequests(s.requests).length);
+  const alarms = useStore((s) => s.ops.alarms.length);
   const tabs: [ManagerTab, string][] = [
     ['floors', '🏢 Floors & repos'],
+    ['ops', `🛰️ Mission control${alarms ? ` (${alarms})` : ''}`],
     ['ceo', `🧠 CEO & hiring${pending ? ` (${pending})` : ''}`],
     ['team', '👩‍💻 Team'],
     ['issues', '📝 Issues'],
@@ -719,6 +749,7 @@ export function ManagerConsole({ initialTab, initialRepo }: { initialTab?: Manag
       </div>
       <div className="tab-body">
         {tab === 'floors' && <FloorsTab />}
+        {tab === 'ops' && <OpsTab card={card} />}
         {tab === 'ceo' && <CeoTab />}
         {tab === 'team' && <TeamTab />}
         {tab === 'issues' && <IssuesTab initialRepo={initialRepo} />}

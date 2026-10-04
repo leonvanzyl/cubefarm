@@ -4,10 +4,9 @@
 
 import type { PullInfo, QaView } from '../../shared/types';
 
-export type CardTone = 'warn' | 'bad' | 'good';
+export { needsManager } from '../../shared/ops';
 
-/** A PR the office can't move on its own and the CEO has handed on: the only kind that is red and counted as "needs you". */
-export const needsManager = (q: Pick<QaView, 'status' | 'ceoLooking'> | null | undefined) => q?.status === 'needs-human' && !q.ceoLooking;
+export type CardTone = 'warn' | 'bad' | 'good';
 
 /**
  * The note and tone of an open PR's card. mergeNote is only shown where it still means something: on a passed PR

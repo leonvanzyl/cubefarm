@@ -6,7 +6,7 @@
 // onto the monitor of the developer they gave the issue to, where it stays while they work on it.
 // window.__swarmStickies shows the queue, the loose stickies and what happened, for QA.
 
-import { useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coversView, useStore, type Agent, type KanbanCard, type KanbanColumns } from '../store';
@@ -461,6 +461,67 @@ export function giveMine(c: Ctrl, agent: { id: string; role: string; desk: numbe
   }, GIVE_WAIT * 1000);
 }
 
+// ---------- the stand-up ----------
+// Cards the CEO hasn't put up yet at a stand-up (Rituals.tsx) stay off the 3D board; presentSticky() has them slap
+// one on from their hand, and the board shows it once it lands.
+
+const unshown = new Set<string>();
+const unshownListeners = new Set<() => void>();
+let unshownList: readonly string[] = [];
+
+function unshownChanged() {
+  unshownList = [...unshown];
+  for (const fn of unshownListeners) fn();
+}
+
+const subscribeUnshown = (fn: () => void) => {
+  unshownListeners.add(fn);
+  return () => void unshownListeners.delete(fn);
+};
+
+/** Keeps these cards (Kanban keys, `i-12`) off the 3D board until they're presented or shown. */
+export function holdBackCards(keys: readonly string[]) {
+  for (const k of keys) unshown.add(k);
+  unshownChanged();
+}
+
+/** Shows held-back cards (all of them by default) on the board straight away. */
+export function showCards(keys: readonly string[] = unshownList) {
+  if (!keys.some((k) => unshown.has(k))) return;
+  for (const k of [...keys]) unshown.delete(k);
+  unshownChanged();
+}
+
+let presenter: ((who: string, key: string) => boolean) | null = null;
+
+/** `who` slaps card `key` onto the board from their hand; false when there's no board or no such card (it just shows). */
+export function presentSticky(who: string, key: string): boolean {
+  if (presenter?.(who, key)) return true;
+  showCards([key]);
+  return false;
+}
+
+const hand = newPose();
+
+function present(c: Ctrl, who: string, key: string): boolean {
+  if (!c.cols || !findCard(c.cols, key)) return false;
+  // where it goes: where the board will show it, the cards still to come left out
+  const shown = displayColumns(c.cols, [...holdsOf(c), { keep: null, hide: unshownList.filter((k) => k !== key) }]);
+  const at = findCard(shown, key);
+  if (!at) return false;
+  const pose = copyPose(newPose(), boardPose(at.col, at.index, at.card.number, tmp));
+  const owner = `show:${key}`;
+  const p = spawn(c, owner, label(at.card), kanbanCardColor(at.card, at.col), handPose(who, hand) ? hand : pose);
+  const placed = () => {
+    stickySlap(pose);
+    free(c, owner);
+    showCards([key]);
+  };
+  if (p) fly(p, { pose }, 0.32, 0.05, -0.35, placed);
+  else placed();
+  return true;
+}
+
 // ---------- the hook and the mesh ----------
 
 /** The board as the 3D whiteboard should draw it now, and the controller behind it (for <StickyNotes>). */
@@ -469,14 +530,18 @@ export function useStickyBoard(cols: KanbanColumns, agents: Agent[]) {
   const [version, bump] = useReducer((n: number) => n + 1, 0);
   ctrl.changed = bump;
   observe(ctrl, cols, agents);
-  const shown = useMemo(() => displayColumns(cols, holdsOf(ctrl)), [cols, version, ctrl.jobs, ctrl.mine]);
+  const held = useSyncExternalStore(subscribeUnshown, () => unshownList);
+  const shown = useMemo(() => displayColumns(cols, [...holdsOf(ctrl), { keep: null, hide: held }]), [cols, version, ctrl.jobs, ctrl.mine, held]);
   useEffect(() => {
     const b = makeBoard(ctrl);
     board = b;
     probe.ctrl = ctrl;
+    const show = (who: string, key: string) => present(ctrl, who, key);
+    presenter = show;
     return () => {
       if (board === b) board = null;
       if (probe.ctrl === ctrl) probe.ctrl = null;
+      if (presenter === show) presenter = null;
       ctrl.tex.dispose();
     };
   }, [ctrl]);

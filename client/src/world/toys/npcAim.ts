@@ -14,8 +14,8 @@ export interface Stance {
   heading: number;
 }
 
-/** How a ball is held: carried in front, overhead for a hoop shot, at the chest to toss, or down at the feet. */
-export type NpcPose = 'carry' | 'shoot' | 'toss' | 'low';
+/** How a ball is held: carried in front, overhead for a hoop shot, at the chest to toss, down at the feet, or in the dog's mouth. */
+export type NpcPose = 'carry' | 'shoot' | 'toss' | 'low' | 'mouth';
 
 /** Eye height of someone standing (m), where their throws are aimed from. */
 export const NPC_EYE = 1.5;
@@ -27,6 +27,7 @@ const POSES: Record<NpcPose, { ahead: number; aheadR: number; y: number; yR: num
   shoot: { ahead: 0.2, aheadR: 0, y: 1.75, yR: 1 },
   toss: { ahead: 0.3, aheadR: 1, y: 1.2, yR: 0.3 },
   low: { ahead: 0.42, aheadR: 1, y: 0.03, yR: 1 },
+  mouth: { ahead: 0.42, aheadR: 1, y: 0.12, yR: 1 }, // just off the floor, so it doesn't drag
 };
 
 /** Where someone standing at `s` holds a ball of radius `r` in `pose`, written into `out`. */
