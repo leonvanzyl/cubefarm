@@ -3,6 +3,7 @@
 // volume and mute apply to everything at once, then a gentle compressor. Sounds placed in the world pan
 // and fade with distance from the camera (SoundListener.tsx). Audio is optional: when it's blocked or
 // unavailable (headless browsers), sounds just don't play, but window.__swarmSfx still records them.
+// Messages read aloud (voiceMessages.ts) have their own 'voice' group, which skips the bus that ducks everything else.
 
 import { normalizeAudioPrefs, parseAudioPrefs, SOUND_GROUPS, sliderGain, type AudioPrefs, type SoundGroup } from './audioPrefs';
 import { audible, distance, distanceGain, DROP_NEW, MAX_DISTANCE, panOf, PLAY, REF_DISTANCE, ROLLOFF, type Vec3, voiceToDrop } from './sfxMix';
@@ -25,12 +26,14 @@ const listeners = new Set<() => void>();
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let bus: GainNode | null = null; // every sound but the voice, so a message read aloud can duck them
 let unlocked = false;
 const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
 const groupLevels = {} as Record<SoundGroup, number>;
 for (const g of SOUND_GROUPS) groupLevels[g] = sliderGain(prefs[g]);
 
 const COMPRESSOR_TRIM = 10 ** (-2.81 / 20);
+const DUCKED = 10 ** (-8 / 20);
 
 const masterLevel = () => (prefs.muted ? 0 : sliderGain(prefs.volume));
 
@@ -55,10 +58,12 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       const trim = ctx.createGain();
       trim.gain.value = COMPRESSOR_TRIM;
       master.connect(comp).connect(trim).connect(ctx.destination);
+      bus = ctx.createGain();
+      bus.connect(master);
       for (const g of SOUND_GROUPS) {
         const gain = ctx.createGain();
         gain.gain.value = groupLevels[g];
-        gain.connect(master);
+        gain.connect(g === 'voice' ? master : bus);
         groupGains[g] = gain;
       }
       writeListener();
@@ -78,6 +83,9 @@ export function unlockAudio() {
 }
 
 for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, unlockAudio, { once: true, capture: true });
+
+/** Whether the first click or key has happened (sounds may still be unavailable). */
+export const audioUnlocked = () => unlocked;
 
 // ---------- volume & mute ----------
 
@@ -121,6 +129,17 @@ export function setAudioPrefs(patch: Partial<AudioPrefs>) {
 }
 
 export const toggleMute = () => setAudioPrefs({ muted: !prefs.muted });
+
+/** Turns every sound but the voice down by about 8 dB (while a message is read aloud), or back up. */
+export function duckOthers(on: boolean) {
+  if (!ctx || !bus) return;
+  try {
+    bus.gain.cancelScheduledValues(ctx.currentTime);
+    bus.gain.setTargetAtTime(on ? DUCKED : 1, ctx.currentTime, on ? 0.06 : 0.25);
+  } catch {
+    // audio is optional
+  }
+}
 
 // ---------- the listener (the camera's ears) ----------
 
@@ -224,7 +243,7 @@ export function recordSfx(
 export function groupOutput(group?: SoundGroup): AudioNode | null {
   const a = audio();
   if (!a) return null;
-  return (group && groupGains[group]) || a.out;
+  return (group && groupGains[group]) || bus || a.out;
 }
 
 /** A PannerNode with the office's distance model, placed at `pos`. Connect it to groupOutput(). */
@@ -301,7 +320,7 @@ function place(kind: string, { name, group, pos, pan, into }: PlaceOpts, peak: n
     }
   }
 
-  let dest: AudioNode = (group && groupGains[group]) || a.out;
+  let dest: AudioNode = (group && groupGains[group]) || bus || a.out;
   try {
     if (pos) {
       const p = createPanner(a.ctx, pos);

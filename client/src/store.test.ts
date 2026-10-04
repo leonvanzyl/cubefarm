@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PullInfo, RepoView, WorldSnapshot } from '../../shared/types';
 
 // The merge trigger, through the store's own apply(): sounds and the gong are mocked (they need a browser).
-vi.mock('./ui/sfx', () => ({ chirp: vi.fn(), cue: vi.fn() }));
+vi.mock('./ui/sfx', () => ({ audioUnlocked: () => false, chirp: vi.fn(), cue: vi.fn() }));
 vi.mock('./world/gongState', () => ({ hitGong: vi.fn(() => 'boom') }));
 
 const { useStore } = await import('./store');

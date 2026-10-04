@@ -2,7 +2,7 @@
 // sound group. Pure, so loading old or corrupt values is tested without a browser.
 
 /** Each group has its own gain between its sounds and the master volume. */
-export const SOUND_GROUPS = ['steps', 'typing', 'toys', 'alerts', 'music'] as const;
+export const SOUND_GROUPS = ['steps', 'typing', 'toys', 'alerts', 'music', 'voice'] as const;
 export type SoundGroup = (typeof SOUND_GROUPS)[number];
 
 export interface AudioPrefs extends Record<SoundGroup, number> {
@@ -10,7 +10,7 @@ export interface AudioPrefs extends Record<SoundGroup, number> {
   muted: boolean;
 }
 
-export const DEFAULT_AUDIO_PREFS: AudioPrefs = { volume: 70, muted: false, steps: 100, typing: 100, toys: 100, alerts: 100, music: 100 };
+export const DEFAULT_AUDIO_PREFS: AudioPrefs = { volume: 70, muted: false, steps: 100, typing: 100, toys: 100, alerts: 100, music: 100, voice: 100 };
 
 /** A 0-100 percentage, or the fallback when it's missing, not a number or out of range. */
 function percent(v: unknown, fallback: number): number {

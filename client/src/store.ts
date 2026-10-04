@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import { CEO_ID, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type OfficeUpdateView, type PhoneMessage, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type UsageView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { qaCardNote, type CardTone } from './qaCard';
-import { chirp, cue } from './ui/sfx';
+import { audioUnlocked, chirp, cue } from './ui/sfx';
+import { claimVoice } from './ui/voiceClaim';
+import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
 import { hitGong } from './world/gongState';
 
@@ -65,6 +67,7 @@ interface State {
   usage: UsageView; // Claude's subscription usage: normal, pacing after a warning, or paused at the limit
   voiceKeySet: boolean; // an ElevenLabs key is saved on the server
   voiceKeyHint: string; // its last 4 characters
+  voiceSpeaking: number | null; // the phone message being read aloud in this tab (ui/voiceMessages.ts)
   restarting: boolean; // the connection dropped because the office is restarting to update
 
   floor: number; // 0 = lobby
@@ -163,6 +166,7 @@ export const useStore = create<State>((set, get) => ({
   usage: { state: 'normal', until: null },
   voiceKeySet: false,
   voiceKeyHint: '',
+  voiceSpeaking: null,
   restarting: false,
 
   floor: loadView()?.floor ?? 0,
@@ -301,8 +305,15 @@ export const useStore = create<State>((set, get) => ({
         set({ messages: [...get().messages.slice(-199), ev.message] });
         const o = get().overlay;
         const reading = o?.kind === 'phone' && (o.tab ?? 'chat') === 'chat';
+        // Read aloud, in this tab or another; the voice plays the chirp itself if it can't. Locked audio can't speak.
+        const speak = live && audioUnlocked() && speakable(ev.message, get().settings.voice, Date.now());
+        if (speak) {
+          const arrived = Date.now();
+          const wait = claimVoice(ev.message.id);
+          void import('./ui/voiceMessages').then((v) => v.speakMessage(ev.message, arrived, wait));
+        }
         if (ev.message.from === 'ceo' && !reading) {
-          chirp();
+          if (!speak) chirp();
           const ceo = get().agents[CEO_ID]?.name ?? 'CEO';
           const text = ev.message.text.replace(/\s+/g, ' ');
           get().pushToast('info', `📱 ${ceo}: ${text.length > 110 ? `${text.slice(0, 109)}…` : text}`);
