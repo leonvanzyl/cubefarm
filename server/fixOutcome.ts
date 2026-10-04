@@ -43,7 +43,8 @@ export function fixOutcome(rec: FixRecord, head: string | null, minutes: number,
       pushed: false,
     };
   }
-  if (rec.fixReason === 'checks' || rec.fixReason === 'conflict') {
+  // A conflict fix for a PR QA failed on its last round (passedSha null) also fixed QA's findings: QA re-tests it.
+  if (rec.fixReason === 'checks' || (rec.fixReason === 'conflict' && rec.passedSha)) {
     // Back in line to merge: new commits go through QA again first, a re-run of flaky checks doesn't.
     return { set: { status: 'passed', sessionFailures: 0, mergeNote: 'waiting for fresh checks' }, log: { kind: 'done', text: `✔ PR #${pr} fixed in ${minutes}m. Back in line to merge.` }, pushed: true };
   }

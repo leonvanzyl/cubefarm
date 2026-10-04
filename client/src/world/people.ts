@@ -55,6 +55,9 @@ export function trackDirector(report: () => unknown) {
   };
 }
 
+/** Everyone drawn on the current floor, by agent id. */
+export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
+
 const round = (n: number) => Math.round(n * 100) / 100;
 const modeOf = (s: BodyState): BodyMode => (s.stage === 'seated' ? 'seated' : s.speed > 0.05 ? 'walking' : 'standing');
 

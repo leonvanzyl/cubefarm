@@ -187,7 +187,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
                 {l.text || ' '}
               </div>
             ))}
-            {working && <div className="term-line term-spin">✻ {agent.status === 'preparing' ? 'Setting up worktree' : toolVerb(agent.currentTool) || 'Thinking'}… ({elapsed(agent.startedAt, null)})</div>}
+            {working && <div className="term-line term-spin">✻ {agent.status === 'preparing' ? (agent.currentTool ?? 'Setting up worktree') : toolVerb(agent.currentTool) || 'Thinking'}… ({elapsed(agent.startedAt, null)})</div>}
           </div>
         )}
         {agent.hasScreenshot && (
