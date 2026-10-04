@@ -1,9 +1,10 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { glass, glow, shade, toon } from './materials';
+import { glass, shade, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
 import { MugDispenser } from './toys/mugLook';
+import { CoffeeMachine } from './CoffeeMachine';
 
 type P = [number, number, number];
 
@@ -55,37 +56,12 @@ export function CoffeeTable({ position, rotationY = 0 }: { position: P; rotation
 }
 
 export function Kitchenette({ position }: { position: P }) {
-  const steam = useRef<THREE.Group>(null);
-  useFrame(() => {
-    if (!steam.current) return;
-    const t = performance.now() / 1000;
-    steam.current.children.forEach((c, i) => {
-      const k = (t * 0.4 + i / 3) % 1;
-      c.position.y = k * 0.4;
-      c.scale.setScalar(0.5 + k);
-      ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - k);
-    });
-  });
   return (
     <group position={position}>
       {/* counter runs along z */}
       <Box size={[0.8, 0.9, 4]} position={[0, 0.45, 0]} color="#8ecae6" outline />
       <Box size={[0.9, 0.06, 4.1]} position={[-0.02, 0.93, 0]} color="#f8f9fa" outline />
-      {/* coffee machine */}
-      <Box size={[0.45, 0.55, 0.4]} position={[0.05, 1.24, -1.1]} color="#343a40" outline />
-      <Box size={[0.3, 0.12, 0.3]} position={[-0.1, 1.1, -1.1]} color="#495057" />
-      <mesh position={[-0.2, 1.35, -1.1]} rotation={[0, -Math.PI / 2, 0]} material={glow('#ff6b6b')}>
-        <circleGeometry args={[0.03, 12]} />
-      </mesh>
-      <Cyl r={0.05} h={0.1} position={[-0.15, 1.01, -1.1]} color="#ffffff" outline />
-      <group ref={steam} position={[-0.15, 1.1, -1.1]}>
-        {[0, 1, 2].map((i) => (
-          <mesh key={i}>
-            <sphereGeometry args={[0.03, 8, 6]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
-          </mesh>
-        ))}
-      </group>
+      <CoffeeMachine position={[0, 0.96, -1.1]} />
       {/* mug dispenser, next to the coffee machine */}
       <MugDispenser position={[0, 0.96, -0.45]} />
       {/* fruit bowl + kettle */}

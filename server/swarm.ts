@@ -9,6 +9,7 @@ import { defaultProjectsDir, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_
 import { ceoJobPrompt, ceoSystemPrompt, checkPendingLimit, createOfficeTools, FLOOR_DESKS, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type OfficeTools } from './ceo.ts';
 import { fixOutcome } from './fixOutcome.ts';
 import { HttpError } from './httpError.ts';
+import { issuesResolvedBy, issueTaken } from './issueClaims.ts';
 import { CHECKS_ALERT_MS, MAX_MERGE_FIXES, MERGE_RETRY_MS, mergeStep } from './mergeGate.ts';
 import { orphanedQa } from './qaOrphans.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
@@ -1064,7 +1065,29 @@ export class Swarm {
       return this.mergeNote(rec, `merge blocked: ${error}`);
     }
     this.toast('success', `🔀 Merged PR #${pr.number} into ${repo.defaultBranch}: ${pr.title}`);
+    await this.closeResolvedIssues(repo, pr.number, pr);
     return true;
+  }
+
+  /**
+   * After the office merges a PR: close the issues it resolves now rather than waiting for GitHub's "Closes #N" (which
+   * lags, and never comes when the link wasn't recognised), so the scheduler doesn't hand them out again. Never throws.
+   */
+  private async closeResolvedIssues(repo: PersistedRepo, prNumber: number, pr: Pick<PullInfo, 'headRefName' | 'closesIssues'>) {
+    const numbers = issuesResolvedBy(pr);
+    const rt = this.repoRt.get(repo.id);
+    if (rt && rt.issues.some((i) => numbers.includes(i.number))) {
+      rt.issues = rt.issues.filter((i) => !numbers.includes(i.number));
+      this.emitRepo(repo);
+    }
+    for (const n of numbers) {
+      try {
+        if ((await this.backend.issueState(repo.fullName, n)) !== 'OPEN') continue;
+        await this.backend.closeIssue(repo.fullName, n, `Shipped in #${prNumber}`);
+      } catch (err) {
+        console.warn(`could not close ${repo.fullName}#${n} after merging #${prNumber}`, err);
+      }
+    }
   }
 
   /** Show where auto-merge stands on a PR's card. Doesn't count as a change to the record. */
@@ -1231,8 +1254,10 @@ export class Swarm {
 
   async mergePull(repoId: string, number: number, method: 'squash' | 'merge' | 'rebase' = 'squash') {
     const repo = this.repo(repoId);
+    const pr = this.repoRt.get(repo.id)?.pulls.find((p) => p.number === number) ?? (await this.backend.prDetails(repo.fullName, number));
     await this.backend.mergePull(repo.fullName, number, method);
     this.toast('success', `Merged PR #${number} into ${repo.defaultBranch}`);
+    await this.closeResolvedIssues(repo, number, pr);
     await this.syncRepo(repo.id);
     setTimeout(() => this.schedule(), 200);
   }
@@ -1427,9 +1452,12 @@ export class Swarm {
   }
 
   private issueTaken(repo: PersistedRepo, n: number) {
-    if (this.state.agents.some((a) => a.repoId === repo.id && a.role === 'dev' && a.task !== 'qa' && a.issueNumber === n && a.status !== 'idle' && a.status !== 'error')) return true;
-    const pulls = this.repoRt.get(repo.id)?.pulls ?? [];
-    return pulls.some((p) => p.state === 'OPEN' && (p.closesIssues.includes(n) || p.headRefName.startsWith(`swarm/issue-${n}-`)));
+    return issueTaken(
+      n,
+      this.state.agents.filter((a) => a.repoId === repo.id),
+      this.repoRt.get(repo.id)?.pulls ?? [],
+      Date.now(),
+    );
   }
 
   private ensureSlot() {

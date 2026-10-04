@@ -15,6 +15,7 @@ import { pokeToy } from './toys/poke';
 import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
+import { coffeeAction } from './CoffeeMachine';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -64,6 +65,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'pickup') {
     s.setHeld({ kind: 'ball', id: focus.action.toyId }); // already holding one? the toy world swaps them
+    return;
+  }
+  if (focus.action.kind === 'coffee') {
+    coffeeAction(focus.action.op);
     return;
   }
   if (focus.action.kind === 'poke') {
@@ -144,7 +149,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (document.pointerLockElement !== gl.domElement) return requestLook();
       const s = useStore.getState();
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
-      if (s.held) startCharge();
+      // The coffee machine takes a click with your hands full (that's how the mug goes in).
+      if (s.held && s.focus?.action.kind !== 'coffee') startCharge();
       else if (s.focus) runFocusAction(s.focus, 'click');
     };
     const onMouseUp = (e: MouseEvent) => {

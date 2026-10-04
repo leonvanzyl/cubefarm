@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // The store pulls in the sound module, which listens on window for the first click; tests run in node.
 vi.stubGlobal('window', { addEventListener: () => undefined });
 const { useStore } = await import('../../store');
-const { DISPENSER_ID, MUG, clampSips, dropMug, fillLevel, isMugId, mugsToEvict, resetMugs, takeDrop, takeNewMug } = await import('./mugs');
+const { DISPENSER_ID, MUG, clampSips, dropMug, fillLevel, isMugId, mugsToEvict, resetMugs, stowMug, takeDrop, takeNewMug } = await import('./mugs');
 
 describe('sips', () => {
   it('keeps sips a whole number from empty to full', () => {
@@ -77,6 +77,14 @@ describe('hands', () => {
     const a = takeNewMug(1);
     useStore.getState().setHeld({ ...a, sips: 2 });
     expect(takeDrop()).toBeNull();
+  });
+
+  it('hands a mug to the coffee machine without it falling', () => {
+    const a = takeNewMug(1);
+    expect(stowMug()).toEqual(a);
+    expect(useStore.getState().held).toBeNull();
+    expect(takeDrop()).toBeNull();
+    expect(stowMug()).toBeNull();
   });
 
   it('forgets waiting drops on a fresh floor', () => {
