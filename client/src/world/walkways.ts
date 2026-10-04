@@ -1,5 +1,5 @@
 import { kanbanColumnSpan, KANBAN_KEYS } from './draw';
-import { BOARD, CEO_DESK, HALF_D, HALF_W, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
+import { BOARD, CEO_DESK, GONG_SPOT, HALF_D, HALF_W, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
 import { hoopRim } from './toys/hoopScore';
 import { clear, makeNav, planPath, roombaRects, type Nav, type Pt } from './toys/roombaBrain';
 
@@ -80,6 +80,7 @@ function officeSpots(): Spot[] {
     // TODO(#68): line this up with the mug dispenser once it lands; for now, the counter beside the machine
     { id: 'mugs', x: HALF_W - 1.45, z: 6.7, facing: EAST },
     { id: 'cooler', x: HALF_W - 1.5, z: -9.5, facing: EAST },
+    { id: 'gong', ...GONG_SPOT, facing: NORTH },
     // the couch's seat faces east; you walk up past the south end of the coffee table
     { id: 'couch', x: -HALF_W + 1.9, z: 7.7, facing: WEST, sit: { x: -HALF_W + 1.0, z: 7.3, facing: EAST } },
     hoopSpot('office'),
