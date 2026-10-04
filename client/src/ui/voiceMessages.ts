@@ -5,6 +5,7 @@ import { speechText } from '../../../shared/speech';
 import type { PhoneMessage, VoiceProvider } from '../../../shared/types';
 import { useStore } from '../store';
 import { sliderGain } from './audioPrefs';
+import { holdMusicDuck } from './music';
 import { audio, chirp, duckOthers, getAudioPrefs, groupOutput, subscribeAudio } from './sfx';
 import { wonVoice } from './voiceClaim';
 import { enqueue, nextUp, type Queued } from './voiceQueue';
@@ -71,13 +72,14 @@ async function read(m: PhoneMessage) {
   const { settings, voiceKeySet } = useStore.getState();
   const { provider, voiceName } = settings.voice;
   if (provider === 'off') return; // turned off while it waited
-  const now: { rec: SpokenRecord | null } = { rec: null };
+  const now: { rec: SpokenRecord | null; unduckMusic?: () => void } = { rec: null };
   const began = () => {
     now.rec = { id: m.id, provider, start: performance.now(), end: null, volume: level() };
     spoken.push(now.rec);
     if (spoken.length > 50) spoken.splice(0, spoken.length - 50);
     useStore.setState({ voiceSpeaking: m.id });
     duckOthers(true);
+    now.unduckMusic = holdMusicDuck();
   };
   try {
     if (provider === 'browser') await speak(speechText(m.text), voiceName, began);
@@ -95,6 +97,7 @@ async function read(m: PhoneMessage) {
     if (now.rec) {
       now.rec.end = performance.now();
       duckOthers(false);
+      now.unduckMusic?.();
       useStore.setState({ voiceSpeaking: null });
     }
   }
