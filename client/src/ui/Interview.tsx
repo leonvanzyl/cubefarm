@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { effectiveModel } from '../../../shared/models';
 import { Markdown } from './Markdown';
-import { closeOverlay } from './Overlays';
+import { closeOverlay } from './Panel';
 
 // A proposal face to face (#227), as an office document: a candidate's interview in the lobby (E on them, world/
 // Candidates.tsx), or the CEO's let-go note in the envelope on someone's desk. Hire / Decline (Let go / Keep) are the

@@ -9,6 +9,8 @@ describe('proposals made and decided in person', () => {
   it('the demo proposes a hire for a free desk and a let-go on demand; the manager hires with a note', async () => {
     const swarm = new Swarm(createDemoBackend());
     const repo = await swarm.connectRepo('demo-co/pixel-todo');
+    // as start() does: the company always has a CEO (proposals are in their name)
+    (swarm as unknown as { ensureCeo(interrupted: unknown[]): void }).ensureCeo([]);
     swarm.hireAgent(repo.id, {});
     swarm.hireAgent(repo.id, {});
 
