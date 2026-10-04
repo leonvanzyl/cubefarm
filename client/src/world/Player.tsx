@@ -14,6 +14,7 @@ import { watchLookLock } from './lookLock';
 import { pokeToy } from './toys/poke';
 import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
+import { isMugId, takeMug } from './toys/mugs';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -55,6 +56,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   quietUntil = performance.now() + QUIET_MS;
   if (focus.action.kind === 'pickup' && isBlasterId(focus.action.toyId)) {
     takeBlaster(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'pickup' && isMugId(focus.action.toyId)) {
+    takeMug(focus.action.toyId);
     return;
   }
   if (focus.action.kind === 'pickup') {

@@ -10,6 +10,7 @@ import { Blasters } from './Blasters';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
+import { Mugs } from './MugToys';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
 
@@ -353,6 +354,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Hoop floor={floor} groups={BUILDING_GROUPS} />
       <Roomba floor={floor} groups={ROOMBA_GROUPS} dockGroups={BUILDING_GROUPS} />
       <Blasters floor={floor} groups={HELD_GROUPS} />
+      <Mugs groups={HELD_GROUPS} />
       <HitTargets floor={floor} groups={SEATED_GROUPS} />
     </Physics>
   );
