@@ -31,6 +31,8 @@ export function trackBody(id: string, s: BodyState) {
 
 /** Where someone drawn on the current floor is right now, or undefined when they aren't drawn. */
 export const bodyState = (id: string): Readonly<BodyState> | undefined => live.get(id);
+/** Everyone drawn on the current floor, by agent id. */
+export const liveBodies = (): ReadonlyMap<string, BodyState> => live;
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
