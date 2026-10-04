@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { glass, glow, shade, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
+import { MugDispenser } from './toys/mugLook';
 
 type P = [number, number, number];
 
@@ -85,6 +86,8 @@ export function Kitchenette({ position }: { position: P }) {
           </mesh>
         ))}
       </group>
+      {/* mug dispenser, next to the coffee machine */}
+      <MugDispenser position={[0, 0.96, -0.45]} />
       {/* fruit bowl + kettle */}
       <Cyl r={0.2} rTop={0.24} h={0.1} position={[0, 1.01, 0.6]} color="#f4a261" outline />
       <Ball r={0.07} position={[0.05, 1.1, 0.55]} color="#e63946" />
