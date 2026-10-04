@@ -41,10 +41,10 @@ export function IssueForm({ repoId, agents, onDone }: { repoId: string; agents: 
         }
       }}
     >
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Issue title, e.g. Add a dark mode toggle" autoFocus />
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Describe what you want. Acceptance criteria help the developer and the QA tester a lot." rows={5} />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Issue title, e.g. Add a dark mode toggle" aria-label="Issue title" autoFocus />
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Describe what you want. Acceptance criteria help the developer and the QA tester a lot." aria-label="Issue description" rows={5} />
       <div className="row">
-        <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
+        <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)} aria-label="Who works on it">
           <option value="">Leave in backlog (auto-assign picks it up if enabled)</option>
           {free.map((a) => (
             <option key={a.id} value={a.id}>

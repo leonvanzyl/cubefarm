@@ -6,6 +6,7 @@ import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { officeUpdateChip } from '../officeUpdate';
+import { useA11y } from './a11y';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
 function OfficeUpdateChip() {
@@ -76,6 +77,7 @@ export function HUD() {
   const travel = useStore((s) => s.travel);
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  const centerDot = useA11y((s) => s.prefs.centerDot);
 
   const repo = floor === 0 ? null : repoOnFloor(repos, floor);
   const running = useMemo(() => Object.values(agents).filter((a) => a.status === 'working' || a.status === 'preparing').length, [agents]);
@@ -111,7 +113,8 @@ export function HUD() {
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
-      {started && !overlay && !travel && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {/* the centre dot (Settings → Accessibility) is a bolder crosshair that stays through the elevator's fade too */}
+      {started && !overlay && (!travel || centerDot) && <div className={`crosshair ${focus ? 'crosshair-hot' : ''} ${centerDot ? 'crosshair-dot' : ''}`} />}
       {started && !overlay && (focus || sip) && (
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}

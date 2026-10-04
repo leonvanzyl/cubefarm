@@ -9,6 +9,7 @@ import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
+import { getA11y } from '../ui/a11y';
 import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
 import { watchLookLock } from './lookLock';
@@ -299,10 +300,12 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       moving = true;
     }
     bob.current += moving ? dt * speed * 2.2 : 0;
-    camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
+    // Head bob and the head tipping back for a sip can be turned off (Settings → Accessibility, motion comfort).
+    const comfort = getA11y();
+    camera.position.y = EYE_HEIGHT + (moving && comfort.headBob ? Math.sin(bob.current) * 0.035 : 0);
     footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
     tickSip();
-    camera.rotation.set(pitch + sipPose.head, yaw, 0, 'YXZ');
+    camera.rotation.set(pitch + (comfort.cameraShake ? sipPose.head : 0), yaw, 0, 'YXZ');
 
     const now = performance.now();
     if (s.started && !s.travel && now - lastSave.current > 1000) {

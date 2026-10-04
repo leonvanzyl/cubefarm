@@ -5,6 +5,7 @@ import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { closeOverlay } from './Panel';
+import { useDialogFocus } from './dialogFocus';
 import { Games, type GameId } from './games/Games';
 import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
@@ -229,7 +230,7 @@ export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
           <div className={`small ${ceo.status === 'working' ? 'presence-busy' : 'muted'}`}>{presence}</div>
         </div>
       </div>
-      <div className="chat-log" ref={scroller}>
+      <div className="chat-log" ref={scroller} aria-label={`Messages with ${ceo.name}`} tabIndex={0}>
         {messages.length === 0 && (
           <p className="muted small phone-empty">
             Say hi to {ceo.name}. Ask how things are going, hand over a project brief, or ask who the team should hire. Replies land here, and the phone buzzes when {ceo.name} needs you.
@@ -349,6 +350,33 @@ function useCompany() {
   }, [repos, agents, qa, requests, settings, info]);
 }
 
+/** Every panel, a key press away: the phone is where keyboard and screen reader users reach the rest of the office. */
+function Shortcuts() {
+  const openOverlay = useStore((s) => s.openOverlay);
+  const repoId = useStore((s) => s.repos.find((r) => r.floor === s.floor)?.id);
+  return (
+    <nav className="phone-links" aria-label="Open a panel">
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager' })}>
+        🧑‍💼 Console
+      </button>
+      {repoId && (
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'kanban', repoId })}>
+          📋 Kanban
+        </button>
+      )}
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'floorList' })}>
+        👥 Floor list
+      </button>
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'help' })}>
+        ❓ Help
+      </button>
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager', tab: 'access' })}>
+        ♿ Accessibility
+      </button>
+    </nav>
+  );
+}
+
 function Company() {
   const c = useCompany();
   const goToFloor = useStore((s) => s.goToFloor);
@@ -371,6 +399,7 @@ function Company() {
           </div>
         ))}
       </div>
+      <Shortcuts />
       <h3 className="phone-h">Today's report</h3>
       <ul className="report">
         {c.report.map((r, i) => (
@@ -435,6 +464,8 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     [],
   );
   const openOverlay = useStore((s) => s.openOverlay);
+  const box = useRef<HTMLDivElement>(null);
+  useDialogFocus(box);
   const requests = useStore((s) => s.requests);
   const messages = useStore((s) => s.messages);
   const readAt = useStore((s) => s.phoneReadAt);
@@ -473,8 +504,8 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
   ];
   return (
     <div className="overlay phone-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
-      <div className="phone">
-        <div className="phone-status">
+      <div className="phone" ref={box} role="dialog" aria-modal="true" aria-label="Your phone" tabIndex={-1}>
+        <div className="phone-status" aria-hidden>
           <span>{clock(now)}</span>
           <span className="phone-notch" />
           <span>📶 🔋</span>
@@ -485,11 +516,18 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
           {tab === 'company' && <Company />}
           {tab === 'games' && <Games game={game} onGame={setGame} />}
         </div>
-        <nav className="phone-tabs">
+        <nav className="phone-tabs" role="tablist" aria-label="Phone">
           {tabs.map(([k, icon, label, badge]) => (
             // Tapping Games again while in a game goes back to the list.
-            <button key={k} className={`phone-tab ${tab === k ? 'phone-tab-on' : ''}`} onClick={() => (k === 'games' && tab === 'games' ? setGame(null) : setTab(k))}>
-              <span className="phone-tab-icon">
+            <button
+              key={k}
+              role="tab"
+              aria-selected={tab === k}
+              aria-label={badge > 0 ? `${label}, ${badge} new` : label}
+              className={`phone-tab ${tab === k ? 'phone-tab-on' : ''}`}
+              onClick={() => (k === 'games' && tab === 'games' ? setGame(null) : setTab(k))}
+            >
+              <span className="phone-tab-icon" aria-hidden>
                 {icon}
                 {badge > 0 && <span className="badge badge-dot">{badge}</span>}
               </span>

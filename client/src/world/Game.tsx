@@ -1,8 +1,9 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
 import { repoOnFloor, useStore } from '../store';
+import { useA11y } from '../ui/a11y';
 import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
@@ -37,6 +38,20 @@ function Travel() {
   return null;
 }
 
+/** The field of view from Settings → Accessibility (72°, the camera's own, unless changed). */
+function FieldOfView() {
+  const fov = useA11y((s) => s.prefs.fov);
+  const camera = useThree((s) => s.camera);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!(camera instanceof THREE.PerspectiveCamera) || camera.fov === fov) return;
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+    invalidate();
+  }, [camera, fov, invalidate]);
+  return null;
+}
+
 export function Game() {
   const floor = useStore((s) => s.floor);
   const repos = useStore((s) => s.repos);
@@ -68,6 +83,7 @@ export function Game() {
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
       <Player colliders={colliders} floor={floor} />
+      <FieldOfView />
       <Travel />
       <SoundListener />
       <Soundscape kind={isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />

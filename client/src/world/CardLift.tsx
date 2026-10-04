@@ -8,6 +8,7 @@ import { useStore, type KanbanColumns } from '../store';
 import { drawLiftedNote, kanbanNoteRect } from './draw';
 import { boardPose, findCard, type Pose } from './stickies';
 import { BOARD_TEX } from './whiteboard';
+import { statusLook, useA11y } from '../ui/a11y';
 
 const NOTE = kanbanNoteRect(0, 0, BOARD_TEX.w); // every note is this size on the board's canvas
 const PAD = 10; // board pixels around it, for the shadow
@@ -34,13 +35,14 @@ export function CardLift({ repoId, cols }: { repoId: string; cols: KanbanColumns
   const card = spot?.card;
   const col = spot?.col;
   const index = spot?.index ?? -1;
+  const prefs = useA11y((s) => s.prefs);
   useEffect(() => {
     if (!card || !col) return;
-    drawLiftedNote((tex.image as HTMLCanvasElement).getContext('2d')!, card, col, NOTE.w, NOTE.h, PAD, SCALE);
+    drawLiftedNote((tex.image as HTMLCanvasElement).getContext('2d')!, card, col, NOTE.w, NOTE.h, PAD, SCALE, statusLook(prefs));
     tex.needsUpdate = true;
     boardPose(col, index, card.number, pose);
     lift.current = 0;
-  }, [card, col, index, tex, pose]);
+  }, [card, col, index, tex, pose, prefs]);
 
   useFrame((_, dt) => {
     const m = mesh.current;

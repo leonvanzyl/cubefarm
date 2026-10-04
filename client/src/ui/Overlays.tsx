@@ -5,6 +5,7 @@ import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
 import { CardView } from './CardView';
 import { ElevatorPanel } from './ElevatorPanel';
+import { FloorList } from './FloorList';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
 import { Panel } from './Panel';
@@ -202,8 +203,30 @@ function Help() {
         <p>
           The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
         </p>
+        <HelpAccess />
       </div>
     </Panel>
+  );
+}
+
+function HelpAccess() {
+  const openOverlay = useStore((s) => s.openOverlay);
+  return (
+    <>
+      <h3>Accessibility</h3>
+      <p>
+        Captions for the CEO's voice and important sounds, colour-blind-safe status colours with shapes, motion comfort (field of view, no head bob, reduced motion, a centre dot), a bigger UI, a dyslexia-friendly font
+        and high contrast are all in the console's Accessibility tab. Everything works from the keyboard: <kbd>P</kbd> opens your phone, whose Company tab opens every panel, and the list view shows a floor without the 3D.
+      </p>
+      <div className="row wrap">
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager', tab: 'access' })}>
+          ♿ Accessibility settings
+        </button>
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'floorList' })}>
+          👥 List view of this floor
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -227,5 +250,7 @@ export function Overlays() {
       return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} />;
     case 'help':
       return <Help />;
+    case 'floorList':
+      return <FloorList />;
   }
 }

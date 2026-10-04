@@ -11,9 +11,13 @@ import { boardStats, dayStartOf, minuteOf, statsChips } from './boardStats';
 import { activateBoard, makeBoardHands, notePaint } from './boardHands';
 import { CardLift } from './CardLift';
 import { BOARD_TEX, dependencyPairs } from './whiteboard';
+import { useA11y } from '../ui/a11y';
+import { showsShapes } from '../ui/a11yPrefs';
 
 export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const qa = useStore((s) => s.qa);
+  const palette = useA11y((s) => s.prefs.palette);
+  const shapes = useA11y((s) => showsShapes(s.prefs));
   const real = useMemo(() => kanbanFor(repo, agents, qa), [repo, agents, qa]);
   // what the 3D board shows: the real board, with moves held back until whoever makes them has placed the sticky
   const { shown: cols, ctrl } = useStickyBoard(real, agents);
@@ -36,15 +40,17 @@ export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] 
         ...(Object.values(cols) as KanbanCard[][]).map((list) => list.map((c) => [c.key, c.title, c.note, c.agent?.name, c.agent?.color, c.tone, c.ghost, c.ghost ? c.qa?.updatedAt : 0])),
         strings.map((p) => [p.waiter, p.blocker, p.from, p.to]),
         statsChips(stats).map((c) => c.text),
+        palette,
+        shapes,
       ]),
-    [cols, repo, strings, stats],
+    [cols, repo, strings, stats, palette, shapes],
   );
   const texH = BOARD_TEX.h;
   const tex = useCanvasTexture(
     BOARD_TEX.w,
     texH,
     (ctx) => {
-      drawKanban(ctx, BOARD_TEX.w, texH, repo, cols, { strings, stats });
+      drawKanban(ctx, BOARD_TEX.w, texH, repo, cols, { strings, stats, look: { palette, shapes } });
       notePaint();
     },
     [signature],
