@@ -73,6 +73,19 @@ Before speaking, a message is tidied for the ear (`shared/speech.ts`, used by bo
 removed, `#123` becomes "number 123", a URL becomes "a link", and long messages are cut at a sentence end after about
 1,500 characters.
 
+## In the office
+
+A message is spoken as it arrives, whether the phone is open or not, and also while the office tab is in the
+background. Browsers only allow sound after your first click or key in the tab, so anything that arrived before that,
+and anything already on the phone when the page loads, stays silent. Messages are read one at a time, in order; at
+most 3 wait their turn and anything older than 2 minutes is skipped. With several office tabs open, only one reads
+each message (the one you're looking at, if any).
+
+The **Voice** slider in the sound settings (help, **H**) sets its level under the master volume, and **M** mutes it
+like every other sound. Other office sounds dip by about 8 dB while a message is spoken. A 🔊 on the phone icon shows
+it's speaking; click it to stop. If the clip can't be fetched (no key, ElevenLabs down), you hear the usual message
+chirp instead. `window.__swarmVoice` lists the messages read aloud (`id`, `provider`, `start`, `end`, `volume`).
+
 ## API
 
 | Route | What it does |

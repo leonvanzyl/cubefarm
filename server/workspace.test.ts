@@ -35,7 +35,7 @@ process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
 const { HOME_DIR, WORKSPACE_ROOT } = await import('./config.ts');
-const { deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync } =
+const { deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync, trimDesk } =
   await import('./workspace.ts');
 // Most tests only care about the status line.
 const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
@@ -257,6 +257,82 @@ describe('syncMain', { timeout: 60_000 }, () => {
     expect(await syncMain(r.fullName, 'main', { touch: true })).toMatch(/^updated to \w+$/);
     expect(await head(r.dir)).toBe(await head(r.upstream));
     expect(await fs.readFile(path.join(r.dir, 'lines.txt'), 'utf8')).toBe('one\r\ntwo\r\n');
+  });
+});
+
+describe('trimDesk', { timeout: 60_000 }, () => {
+  const write = async (dir: string, file: string, content: string) => {
+    await fs.mkdir(path.dirname(path.join(dir, file)), { recursive: true });
+    await fs.writeFile(path.join(dir, file), content);
+  };
+  const present = (dir: string, rel: string) =>
+    fs.access(path.join(dir, rel)).then(
+      () => true,
+      () => false,
+    );
+
+  /** A desk (a real worktree of the floor's checkout) with an install, build output and an untracked source file. */
+  async function deskWithOutput() {
+    const r = await makeRepos();
+    await commitFile(r.upstream, '.gitignore', 'node_modules/\ndist/\ntest-results/\n.swarm-home/\n');
+    await commitFile(r.upstream, 'src/main.ts', 'export const x = 1;\n');
+    await commitFile(r.upstream, 'packages/app/index.ts', 'export {};\n');
+    await commitFile(r.upstream, 'playwright-report/README.md', 'tracked on purpose\n');
+    await git(['push', '-q', 'origin', 'main'], { cwd: r.upstream });
+    const desk = await prepareDesk(r.fullName, { defaultBranch: 'main' }, 'ada-01df', 'swarm/issue-1-ada');
+    expect(desk).toBe(deskDir(r.fullName, 'ada-01df'));
+    await write(desk, 'node_modules/three/index.js', 'x'.repeat(1000));
+    await write(desk, 'node_modules/.bin/vite', 'y'.repeat(200));
+    await write(desk, 'packages/app/node_modules/left-pad/index.js', 'z'.repeat(300));
+    await write(desk, 'dist/index.html', 'd'.repeat(50));
+    await write(desk, 'test-results/run.json', '{}');
+    await write(desk, '.swarm-home/demo-state.json', '{}');
+    await write(desk, 'notes/draft.ts', 'work in progress\n');
+    return { r, desk };
+  }
+
+  it('removes node_modules and build output, and nothing else', async () => {
+    const { r, desk } = await deskWithOutput();
+    const status = await git(['status', '--porcelain'], { cwd: desk });
+    const worktrees = await git(['worktree', 'list', '--porcelain'], { cwd: r.dir });
+
+    const result = await trimDesk(r.fullName, 'ada-01df');
+    expect(result?.removed.sort()).toEqual(['.swarm-home', 'dist', 'node_modules', 'packages/app/node_modules', 'test-results']);
+    expect(result?.skipped).toEqual([]);
+    expect(result?.freed).toBe(1000 + 200 + 300 + 50 + 2 + 2);
+    for (const gone of ['node_modules', 'packages/app/node_modules', 'dist', 'test-results', '.swarm-home']) expect(await present(desk, gone)).toBe(false);
+    for (const kept of ['.git', 'README.md', 'src/main.ts', 'packages/app/index.ts', 'playwright-report/README.md', 'notes/draft.ts']) expect(await present(desk, kept)).toBe(true);
+    expect(await git(['status', '--porcelain'], { cwd: desk })).toBe(status);
+    expect(await git(['worktree', 'list', '--porcelain'], { cwd: r.dir })).toBe(worktrees);
+    // Nothing is left behind in the trash.
+    expect(await fs.readdir(path.join(path.dirname(path.dirname(desk)), 'trash'))).toEqual([]);
+
+    expect(await trimDesk(r.fullName, 'ada-01df')).toEqual({ freed: 0, removed: [], skipped: [] });
+  });
+
+  it("removes output folders the project doesn't ignore, unless something in them is tracked", async () => {
+    const { r, desk } = await deskWithOutput();
+    await write(desk, 'dist-server/index.js', 'server');
+    await write(desk, 'playwright-report/index.html', 'report');
+    const result = await trimDesk(r.fullName, 'ada-01df');
+    expect(result?.removed).toContain('dist-server');
+    expect(result?.removed).not.toContain('playwright-report');
+    expect(await present(desk, 'playwright-report/index.html')).toBe(true);
+  });
+
+  it('leaves a desk alone when its agent started a task before the lock came round', async () => {
+    const { r, desk } = await deskWithOutput();
+    let busy = false;
+    const trim = trimDesk(r.fullName, 'ada-01df', () => !busy);
+    busy = true; // the task started after the sweep decided, before the trim got the lock
+    expect(await trim).toBeNull();
+    expect(await present(desk, 'node_modules/three/index.js')).toBe(true);
+    expect(await present(desk, 'dist/index.html')).toBe(true);
+  });
+
+  it('is null for a desk that does not exist', async () => {
+    const r = await makeRepos();
+    expect(await trimDesk(r.fullName, 'nobody')).toBeNull();
   });
 });
 
