@@ -1,10 +1,12 @@
 import { useFrame } from '@react-three/fiber';
 import { create } from 'zustand';
 import { DAY_MODES, dayPhase, DEFAULT_DAY_MODE, parseDaytimeParam, parseDayMode, type DayMode } from './time';
+import { replayMoment, setReplayMoment } from '../../officeTime';
 
 // The office's shared time of day. Things that move with it read `dayTime.t` in their useFrame (DayClock
 // advances it once per frame, so nothing re-renders per frame); HTML and anything else that only needs a
 // rough time uses useDayTime(), whose `t` changes about once a minute. The viewer's mode is saved per browser.
+// During the time-lapse the sky follows the replayed moment's own time of day instead (setReplayTime).
 // QA: `?daytime=0.73` freezes the phase; window.__swarmSky reads and moves it.
 
 const MODE_KEY = 'cubefarm:daytime';
@@ -29,9 +31,10 @@ function urlFrozen(): number | null {
 /** The live clock (a mutable ref): `t` is the phase this frame, `frozen` holds it still when set. */
 export const dayTime: { t: number; mode: DayMode; frozen: number | null } = { t: 0, mode: loadMode(), frozen: urlFrozen() };
 
-/** Moves `dayTime.t` to now and returns it. */
+/** Moves `dayTime.t` to now (during the time-lapse, the replayed moment's own time of day) and returns it. */
 export function sampleDayTime(now = Date.now()): number {
-  dayTime.t = dayTime.frozen ?? dayPhase(now, dayTime.mode);
+  const replayed = replayMoment();
+  dayTime.t = dayTime.frozen ?? (replayed !== null ? dayPhase(replayed, 'clock') : dayPhase(now, dayTime.mode));
   return dayTime.t;
 }
 sampleDayTime();
@@ -57,6 +60,18 @@ export function setDayMode(mode: DayMode) {
     // storage may be unavailable (private mode); the setting just won't be remembered
   }
   publish();
+}
+
+let lastReplayPublish = 0;
+
+/** The time-lapse's current moment (null when it stops). React's coarse time follows at most once a second. */
+export function setReplayTime(at: number | null) {
+  setReplayMoment(at);
+  const real = performance.now();
+  if (at === null || real - lastReplayPublish >= 1000) {
+    lastReplayPublish = real;
+    publish();
+  }
 }
 
 /** Mounted once inside the Canvas: advances the clock before the frame draws. */

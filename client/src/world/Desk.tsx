@@ -227,6 +227,57 @@ function DeskMug({ agentId, color }: { agentId: string; color: string }) {
   );
 }
 
+/**
+ * The CEO suggests letting this person go: a sealed envelope on their desk with a ✉️ bobbing over it. E on it opens
+ * the CEO's note (ui/Interview.tsx), where the manager lets them go or keeps them.
+ */
+function LetGoEnvelope({ agentId, name }: { agentId: string; name: string }) {
+  const req = useStore((s) => s.requests.find((r) => r.kind === 'let-go' && r.status === 'pending' && r.agentId === agentId));
+  return req ? <Envelope requestId={req.id} name={name} /> : null;
+}
+
+function Envelope({ requestId, name }: { requestId: string; name: string }) {
+  const ref = useInteractable<THREE.Group>({ id: `letgo-${requestId}`, label: `Read the CEO's note about ${name}`, action: { kind: 'interview', requestId } }, 3.6);
+  const marker = useRef<THREE.Group>(null);
+  const tex = useCanvasTexture(
+    128,
+    128,
+    (ctx) => {
+      ctx.beginPath();
+      ctx.arc(64, 64, 56, 0, Math.PI * 2);
+      ctx.fillStyle = '#fffdf6';
+      ctx.fill();
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = '#e07a5f';
+      ctx.stroke();
+      ctx.font = '64px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✉️', 64, 70);
+    },
+    [],
+  );
+  useFrame(({ clock }) => {
+    if (marker.current) marker.current.position.y = 0.42 + Math.sin(clock.elapsedTime * 2.4) * 0.04;
+  });
+  return (
+    <group ref={ref} position={[-0.45, 0.775, 0.18]} rotation={[0, 0.3, 0]}>
+      <Box size={[0.3, 0.012, 0.2]} color="#fffdf6" outline />
+      <Box size={[0.3, 0.004, 0.012]} position={[0, 0.008, 0.02]} rotation={[0, 0.55, 0]} color="#e9e2d0" shadow={false} />
+      <Box size={[0.3, 0.004, 0.012]} position={[0, 0.008, 0.02]} rotation={[0, -0.55, 0]} color="#e9e2d0" shadow={false} />
+      <Cyl r={0.028} h={0.012} position={[0, 0.012, 0.02]} color="#c1121f" />
+      <group ref={marker} position={[0, 0.42, 0]}>
+        <Billboard>
+          <mesh>
+            <planeGeometry args={[0.3, 0.3]} />
+            <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
+          </mesh>
+        </Billboard>
+      </group>
+    </group>
+  );
+}
+
 const LAB_BENCH = '#dfe7ef';
 const QA_ORANGE = '#ff9f68';
 
@@ -291,6 +342,7 @@ export const Desk = memo(function Desk({
           <group ref={mugRef} position={[0.76, 0.82, 0.02]}>
             <DeskMug agentId={agent.id} color={mug} />
           </group>
+          {agent.role !== 'ceo' && <LetGoEnvelope agentId={agent.id} name={agent.name} />}
         </>
       ) : (
         <VacantMonitor accent={accent} qa={qa} />

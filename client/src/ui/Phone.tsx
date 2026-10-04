@@ -112,8 +112,30 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
   );
 }
 
+/** Candidates waiting in the lobby to be interviewed, with a way down to meet them (unless you're there already). */
+function LobbyNudge() {
+  const n = useStore((s) => pendingRequests(s.requests).filter((r) => r.kind === 'hire').length);
+  const inLobby = useStore((s) => s.floor === 0);
+  const goToFloor = useStore((s) => s.goToFloor);
+  if (!n) return null;
+  return (
+    <div className="phone-nudge" role="status">
+      <span>🪑</span>
+      <span className="grow">
+        {n} candidate{n === 1 ? ' is' : 's are'} waiting in the lobby
+      </span>
+      {!inLobby && (
+        <button className="btn btn-small" onClick={() => goToFloor(0)}>
+          Meet them
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Hires({ focusId }: { focusId?: string }) {
   const requests = useStore((s) => s.requests);
+  const demo = useStore((s) => s.demo);
   const pending = pendingRequests(requests);
   const decided = requests.filter((r) => r.status !== 'pending').slice(-8).reverse();
   return (
@@ -123,6 +145,17 @@ function Hires({ focusId }: { focusId?: string }) {
       {pending.map((r) => (
         <Resume key={r.id} req={r} highlight={r.id === focusId} />
       ))}
+      {demo && (
+        <div className="row wrap">
+          <span className="muted small">Demo:</span>
+          <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.demoPropose('hire'))}>
+            📄 Send a candidate
+          </button>
+          <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.demoPropose('let-go'))}>
+            ✉️ Suggest a let-go
+          </button>
+        </div>
+      )}
       {decided.length > 0 && (
         <>
           <h3 className="phone-h">Earlier</h3>
@@ -505,6 +538,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
           <span>📶 🔋</span>
         </div>
         <div className="phone-screen">
+          {tab !== 'games' && <LobbyNudge />}
           {tab === 'chat' && <Chat />}
           {tab === 'hires' && <Hires focusId={requestId} />}
           {tab === 'company' && <Company />}

@@ -88,11 +88,14 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   // watching something outside (events/watch.ts): pointing up at it, and both hands to the cheeks
   point: { l: null, r: { pitch: 0.6, yaw: -0.12 }, head: 0.28 },
   gasp: { l: { pitch: 0.72, yaw: 0.95 }, r: { pitch: 0.72, yaw: 0.95 }, head: 0.18 },
-  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up
+  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up; a declined
+  // candidate's polite nod is the same (Candidates.tsx)
   clap: { l: { pitch: 0.05, yaw: 0.62 }, r: { pitch: 0.05, yaw: 0.62 }, head: 0.08 },
   nod: { l: null, r: null, head: -0.05 },
   thumbs: { l: null, r: { pitch: 0.45, yaw: 0.25 }, head: 0.12 },
   call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
+  // a hired candidate (Candidates.tsx): the right hand out to shake, pumping (below), beaming (joyful, below)
+  shake: { l: null, r: { pitch: -0.12, yaw: 0.15 }, head: 0.08 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -212,6 +215,7 @@ export function Character({
   chair,
   mug,
   carrying,
+  standAt = STAND,
   scale = 1,
   children,
 }: {
@@ -220,6 +224,8 @@ export function Character({
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
   carrying?: ReactNode;
+  /** Where they step out to when they get up, in chair space (default: beside the chair). */
+  standAt?: { x: number; z: number };
   /** Drawn smaller or bigger than life (the rituals' pizza courier). */
   scale?: number;
   children?: ReactNode;
@@ -321,8 +327,8 @@ export function Character({
       st.seatX = te[12];
       st.seatZ = te[14];
       st.seatHeading = Math.atan2(te[8], te[10]);
-      st.standX = te[0] * STAND.x + te[8] * STAND.z + te[12];
-      st.standZ = te[2] * STAND.x + te[10] * STAND.z + te[14];
+      st.standX = te[0] * standAt.x + te[8] * standAt.z + te[12];
+      st.standZ = te[2] * standAt.x + te[10] * standAt.z + te[14];
       stepBody(st, goal ?? null, dt);
       const b = body.current;
       if (b && st.stage === 'seated') {
@@ -343,6 +349,7 @@ export function Character({
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
       if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'shake') move.r.pitch += Math.sin(t * 11) * 0.13;
       if (gesture === 'talk') {
         move.r.pitch += Math.sin(t * 4.3) * 0.18;
         move.r.yaw += Math.sin(t * 2.6) * 0.2;
@@ -450,13 +457,15 @@ export function Character({
     // browsing: lean in closer to the screen, slowly
     life.browse += ((name === 'browsing' ? 1 : 0) - life.browse) * (1 - Math.exp(-dt * 1.2));
     asleep.current = seated && ls.fidget === 'doze' && fw > 0.5;
-    // the face: an expression for their state, eased in, with blinks
+    // the face: an expression for their state, eased in, with blinks; joyful too while shaking hands on a new job or
+    // cheering it (a hired candidate, Candidates.tsx)
+    const greeting = st.stage === 'up' && (goal?.gesture === 'shake' || goal?.gesture === 'cheer');
     const expression =
       forcedExpression(agent.id, now) ??
       expressionFor({
         status: agent.status,
         hit: h.w > 0,
-        cheering,
+        cheering: cheering || greeting,
         asleep: asleep.current,
         drowsy: isDrowsy(ls.mood === 'idle' ? sec - ls.moodSince : 0, !busy && agent.endedAt != null ? (Date.now() - agent.endedAt) / 1000 : 0),
         pr: prMood,

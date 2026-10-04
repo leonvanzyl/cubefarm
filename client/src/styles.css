@@ -3357,6 +3357,155 @@ input.inline:focus {
   }
 }
 
+/* ---------- the interview: a proposal face to face, as an office document (ui/Interview.tsx) ---------- */
+
+.interview-overlay {
+  background: rgba(21, 21, 31, 0.22);
+}
+.doc {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 18px 26px 18px;
+  background-color: #fffdf3;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 27px, rgba(58, 86, 212, 0.07) 27px 28px);
+  border: 3px solid var(--ink);
+  border-top: 10px solid #06a77d;
+  border-radius: 6px;
+  box-shadow:
+    0 8px 0 var(--ink),
+    10px 18px 0 rgba(0, 0, 0, 0.12);
+  animation: pop 0.18s ease-out;
+}
+.doc-letgo {
+  border-top-color: #e07a5f;
+  background-color: #fff8f3;
+}
+.doc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4a4e69;
+}
+.doc-who {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.doc-title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+.doc-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+}
+.doc-fields dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+.doc-fields dd {
+  margin: 0;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.doc-h {
+  margin: 14px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px dashed rgba(31, 29, 43, 0.3);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4a4e69;
+}
+.doc-pitch {
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.5;
+}
+.doc-sign {
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.doc-brief {
+  max-height: 170px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(31, 29, 43, 0.12);
+  border-radius: 8px;
+}
+.doc-note {
+  background: rgba(255, 255, 255, 0.85);
+}
+.doc-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+.doc-stamp {
+  position: absolute;
+  top: 62px;
+  right: 64px;
+  padding: 2px 12px;
+  border: 4px solid currentColor;
+  border-radius: 8px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transform: rotate(-12deg);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.doc-stamp-good {
+  color: #1b873a;
+}
+.doc-stamp-bad {
+  color: #c1121f;
+}
+@media (max-width: 520px) {
+  .doc {
+    padding: 14px 16px;
+  }
+  .doc-stamp {
+    right: 16px;
+  }
+}
+
+/* the phone's nudge: candidates waiting in the lobby */
+.phone-nudge {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 10px 0;
+  padding: 8px 10px;
+  background: #d8f3dc;
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
 /* ---------- mission control: the HUD's usage chip and the console's Mission control tab ---------- */
 
 /* The office's update chip and the usage chip stack under the floor card. */

@@ -8,6 +8,8 @@ import { drawFacade } from './draw';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BENCH, FLOOR_HEIGHT, HALF_D, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFurniture, floorElevation, sideSign, type Side } from './layout';
 import { toon, toonMap } from './materials';
 import { OutsideSounds } from './OutsideSounds';
+import { doorWalkers } from './hiringState';
+import { bodyState } from './people';
 import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { paneMaterial } from './Shell';
 import { LampHalos, balconyBulb } from './sky/lamps';
@@ -56,8 +58,15 @@ function SideDoors({ kind, floor }: { kind: FloorKind; floor: number }) {
 
   const leaves = useRef<(THREE.Group | null)[]>([]);
   const moved = useCallback((side: Side, opening: boolean) => doorSlide({ x: wallX(side), y: 1.2, z: SIDE_OPENINGS[kind][side].door }, opening), [kind]);
+  const walkers = useMemo(() => [] as { x: number; z: number }[], []);
   useFrame(({ camera }, dt) => {
-    tickDoors(camera.position.x, camera.position.z, Math.min(dt, 0.05), moved);
+    // a declined candidate on their way out of the lobby opens the door too
+    walkers.length = 0;
+    for (const id of doorWalkers) {
+      const b = bodyState(id);
+      if (b) walkers.push(b);
+    }
+    tickDoors(camera.position.x, camera.position.z, Math.min(dt, 0.05), moved, walkers);
     for (const i of LEAVES) {
       const g = leaves.current[i];
       if (!g) continue;

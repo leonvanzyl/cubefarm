@@ -293,9 +293,11 @@ export const RECEPTION = { x: 3, z: -3.5, w: 5, d: 1.2 };
 // The CEO's corner office mirrors the manager's across the lobby; the trophy cabinet ends up behind their desk.
 export const CEO_ROOM = { minX: 6.5, maxX: HALF_W, minZ: -HALF_D, maxZ: -3.5, doorMinX: 8.2, doorMaxX: 10 };
 export const CEO_DESK = { x: 12, z: -7.4 };
-// Candidates the CEO wants to hire wait on a row of chairs along the east wall, facing into the lobby.
-export const WAITING = { x: HALF_W - 1.4, seats: [6.6, 7.9, 9.2, 10.4] };
+// Candidates the CEO wants to hire wait on six chairs along the east wall, facing into the lobby, three either side of
+// a little coffee table, between the sofa and the corner plant. Declined, they leave by the glass door just north.
+export const WAITING = { x: HALF_W - 1.4, seats: [4.7, 5.65, 6.6, 8.5, 9.45, 10.4] };
 export const WAITING_ROTATION = Math.PI / 2;
+export const WAITING_TABLE = { x: HALF_W - 1.4, z: 7.55, w: 0.62, d: 0.9 };
 // The big rug in front of reception; the manager's and CEO's offices are carpeted wall to wall.
 export const LOBBY_RUG = rect(3, 3, 14, 9);
 // The lobby's coffee corner: a short counter against the south wall, east of the elevator and the directory, in
@@ -354,6 +356,7 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(CEO_DESK.x, CEO_DESK.z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
   out.push(rect(CEO_DESK.x, CEO_DESK.z + 0.8, 0.7, 0.6, SOLID_H.seated)); // CEO chair
   for (const z of WAITING.seats) out.push(rect(WAITING.x, z, 0.7, 0.7, SOLID_H.seated));
+  out.push(rect(WAITING_TABLE.x, WAITING_TABLE.z, WAITING_TABLE.w, WAITING_TABLE.d, SOLID_H.coffeeTable));
   out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z, MANAGER_DESK.w, MANAGER_DESK.d, SOLID_H.desk));
   out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z - 1.1, 0.8, 0.8, SOLID_H.seated)); // manager chair
   out.push(rect(-HALF_W + 0.4, -8, 0.8, 5, SOLID_H.bookshelf)); // bookshelf
