@@ -93,3 +93,36 @@ export function chipRects(count: number, w: number, h: number): ChipRect[] {
   const x0 = (w - (count * cw + (count - 1) * gap)) / 2;
   return Array.from({ length: count }, (_, i) => ({ x: x0 + i * (cw + gap), y: h - ch - 18, w: cw, h: ch }));
 }
+
+// ---------- compare mode's path sync ----------
+
+export type Side = 'main' | 'pr';
+
+/** What compare mode remembers to sync paths: where each side last said it was, and where it was last sent. */
+export interface PathSync {
+  at: Record<Side, string | null>;
+  asked: Record<Side, string | null>;
+  relays: number[]; // when paths were passed on lately
+}
+
+export const newPathSync = (): PathSync => ({ at: { main: null, pr: null }, asked: { main: null, pr: null }, relays: [] });
+
+/**
+ * A side reports its path: whether to send the other side there (and note it). Not when it's the echo of where we
+ * sent this side, not when the other side is already there, and at most 4 times in 3 s, so two apps that redirect
+ * each other around can't bounce forever.
+ */
+export function relayPath(s: PathSync, from: Side, path: string, now: number): boolean {
+  const to: Side = from === 'main' ? 'pr' : 'main';
+  s.at[from] = path;
+  if (s.asked[from] === path) {
+    s.asked[from] = null;
+    return false;
+  }
+  if (s.at[to] === path) return false;
+  s.relays = s.relays.filter((t) => now - t < 3000);
+  if (s.relays.length >= 4) return false;
+  s.relays.push(now);
+  s.asked[to] = path;
+  return true;
+}

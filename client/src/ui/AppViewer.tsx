@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Ref } from 'react';
 import { api } from '../api';
 import { qaKey, useStore } from '../store';
 import type { PreviewStatus, PreviewView, PullInfo, QaView, RepoView } from '../../../shared/types';
-import { atPath, channelLabel, channelLed, channelPulls, comparePath, prAsPreview, QA_BADGE, qaShotUrl, type Channel } from './channels';
+import { atPath, channelLabel, channelLed, channelPulls, comparePath, newPathSync, prAsPreview, QA_BADGE, qaShotUrl, relayPath, type Channel, type Side } from './channels';
 import { Markdown } from './Markdown';
 import { Panel } from './Panel';
 import { tuneChannel, useChannel, useWatch } from './theatre';
@@ -383,8 +383,6 @@ function QaPanel({ repo, pull, qa }: { repo: RepoView; pull: PullInfo; qa?: QaVi
   );
 }
 
-type Side = 'main' | 'pr';
-
 // Remembered while the page is open, like the width.
 let lastSync = true;
 
@@ -437,12 +435,13 @@ function CompareView({
   const mainFrame = useRef<HTMLIFrameElement>(null);
   const prFrame = useRef<HTMLIFrameElement>(null);
   const frames = { main: mainFrame, pr: prFrame };
-  const driven = useRef<Record<Side, { scroll: number; path: number }>>({ main: { scroll: 0, path: 0 }, pr: { scroll: 0, path: 0 } });
+  const driven = useRef<Record<Side, number>>({ main: 0, pr: 0 }); // until when a side's scrolling is our own echo
+  const paths = useRef(newPathSync());
 
   const proxy: Record<Side, string | null> = { main: useSyncProxy(repo.id, null, main, sync), pr: useSyncProxy(repo.id, pr.pr, pr, sync) };
 
-  // Each side's script says where it is; the other side follows while syncing. What we asked a side to do echoes back
-  // for a moment: that isn't passed on again.
+  // Each side's script says where it is; the other side follows while syncing. What we asked a side to do echoes back:
+  // that isn't passed on again.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const d = e.data as { cubefarmSync?: unknown; x?: unknown; y?: unknown; path?: unknown } | null;
@@ -454,11 +453,10 @@ function CompareView({
       if (!sync) return;
       const target = frames[to].current?.contentWindow;
       const now = Date.now();
-      if (d.cubefarmSync === 'scroll' && now > driven.current[from].scroll) {
-        driven.current[to].scroll = now + 250;
+      if (d.cubefarmSync === 'scroll' && now > driven.current[from]) {
+        driven.current[to] = now + 250;
         target?.postMessage({ cubefarmSyncTo: 'scroll', x: d.x, y: d.y }, '*');
-      } else if (d.cubefarmSync === 'path' && now > driven.current[from].path) {
-        driven.current[to].path = now + 2000;
+      } else if (d.cubefarmSync === 'path' && typeof d.path === 'string' && relayPath(paths.current, from, d.path, now)) {
         target?.postMessage({ cubefarmSyncTo: 'path', path: d.path }, '*');
       }
     };
@@ -502,6 +500,7 @@ function CompareView({
               lastSync = e.target.checked;
               setSync(e.target.checked);
               setWhere({ main: null, pr: null }); // the frames reload, through the proxies or straight
+              paths.current = newPathSync();
             }}
           />{' '}
           Sync scrolling

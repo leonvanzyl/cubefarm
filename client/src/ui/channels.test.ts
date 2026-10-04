@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PrPreviewView, PullInfo } from '../../../shared/types';
-import { atPath, channelLabel, channelLed, channelPulls, chipRects, comparePath, currentChannel, prAsPreview, qaBadge, qaShotUrl, stripPulls } from './channels';
+import { atPath, channelLabel, channelLed, channelPulls, chipRects, comparePath, currentChannel, newPathSync, prAsPreview, qaBadge, qaShotUrl, relayPath, stripPulls } from './channels';
 
 const pull = (number: number, state: PullInfo['state'] = 'OPEN', title = `Change ${number}`) => ({ number, state, title }) as PullInfo;
 
@@ -72,5 +72,29 @@ describe("the big screen's channel strip", () => {
     const many = chipRects(7, 1280, 720);
     expect(many[6].x + many[6].w).toBeLessThanOrEqual(1280 - 40 + 1e-6);
     expect(many[0].x).toBeGreaterThanOrEqual(40 - 1e-6);
+  });
+});
+
+describe("compare mode's path sync", () => {
+  it('sends the other side along when one navigates, but not the echo', () => {
+    const s = newPathSync();
+    expect(relayPath(s, 'main', '/', 0)).toBe(true); // main loaded first: the PR side follows
+    expect(relayPath(s, 'pr', '/', 10)).toBe(false); // the PR side arriving there
+    expect(relayPath(s, 'pr', '/about', 500)).toBe(true); // a click on the PR side, right after
+    expect(relayPath(s, 'main', '/about', 600)).toBe(false); // main following
+    expect(relayPath(s, 'main', '/', 5000)).toBe(true); // and back
+  });
+
+  it("doesn't send a side where it already is", () => {
+    const s = newPathSync();
+    s.at.pr = '/x';
+    expect(relayPath(s, 'main', '/x', 0)).toBe(false);
+  });
+
+  it('gives up on two apps redirecting each other around', () => {
+    const s = newPathSync();
+    const sent = ['/a', '/b', '/c', '/d', '/e', '/f'].map((p, i) => relayPath(s, i % 2 ? 'pr' : 'main', p, i * 100));
+    expect(sent).toEqual([true, true, true, true, false, false]);
+    expect(relayPath(s, 'main', '/g', 5000)).toBe(true);
   });
 });
