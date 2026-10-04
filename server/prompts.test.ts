@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, PLACEHOLDERS, promptParts, qaBranch, qaPromptPreview, qaSystemPrompt, type PromptAgent, type PromptFloor } from './prompts.ts';
+import { ceoSystemPrompt } from './ceo.ts';
+import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, ONE_TURN, PLACEHOLDERS, promptParts, qaBranch, qaPromptPreview, qaSystemPrompt, type PromptAgent, type PromptFloor } from './prompts.ts';
 
 const repo = (o: Partial<PromptFloor> = {}): PromptFloor => ({
   fullName: 'acme/shop',
@@ -119,21 +120,36 @@ Rules: do not modify the code under test, do not commit, push, comment on, revie
 };
 
 describe('system prompts', () => {
-  it('are unchanged for real sessions', () => {
-    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo() })).toBe(BEFORE.devFull);
-    expect(devSystemPrompt({ ...dev, agent: agent({ title: '', brief: '' }), repo: repo({ autoMerge: false, browserTesting: false, summary: '', mission: '' }), linked: [] })).toBe(BEFORE.devPlain);
-    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), fixing: { pr: 42, headRef: 'swarm/issue-7-margaret' } })).toBe(BEFORE.devFixing);
-    expect(qaSystemPrompt({ ...qa, agent: agent({ role: 'qa', title: 'QA lead' }), repo: repo() })).toBe(BEFORE.qaFull);
-    expect(qaSystemPrompt({ ...qa, agent: agent({ title: '', brief: '' }), repo: repo({ autoMerge: false, browserTesting: false, summary: '', mission: '', qaBrief: '' }) })).toBe(BEFORE.qaCovering);
+  it('are unchanged for real sessions, apart from the line about turns ending (#133)', () => {
+    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo() })).toBe(`${BEFORE.devFull}
+${ONE_TURN}`);
+    expect(devSystemPrompt({ ...dev, agent: agent({ title: '', brief: '' }), repo: repo({ autoMerge: false, browserTesting: false, summary: '', mission: '' }), linked: [] })).toBe(`${BEFORE.devPlain}
+${ONE_TURN}`);
+    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), fixing: { pr: 42, headRef: 'swarm/issue-7-margaret' } })).toBe(`${BEFORE.devFixing}
+${ONE_TURN}`);
+    expect(qaSystemPrompt({ ...qa, agent: agent({ role: 'qa', title: 'QA lead' }), repo: repo() })).toBe(`${BEFORE.qaFull}
+${ONE_TURN}`);
+    expect(qaSystemPrompt({ ...qa, agent: agent({ title: '', brief: '' }), repo: repo({ autoMerge: false, browserTesting: false, summary: '', mission: '', qaBrief: '' }) })).toBe(`${BEFORE.qaCovering}
+${ONE_TURN}`);
+  });
+
+  it('say once that the session ends with the turn', () => {
+    const prompts = [
+      devSystemPrompt({ ...dev, agent: agent(), repo: repo() }),
+      devSystemPrompt({ ...dev, agent: agent(), repo: repo(), fixing: { pr: 42, headRef: 'swarm/issue-7-margaret' } }),
+      qaSystemPrompt({ ...qa, agent: agent({ role: 'qa' }), repo: repo() }),
+      ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: '/notes.md', sessionLimit: 4, teamCap: 5, hiring: 'approve' }),
+    ];
+    for (const p of prompts) expect(p.split(ONE_TURN)).toHaveLength(2);
   });
 
   it("say what the office did about the desk's dependencies, right after the worktree", () => {
     const depsLine = 'Dependencies are already installed for this checkout.';
-    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), depsLine })).toBe(BEFORE.devFull.replace('Your worktree: /desk/m\n', `Your worktree: /desk/m\n${depsLine}\n`));
+    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), depsLine })).toBe(`${BEFORE.devFull.replace('Your worktree: /desk/m\n', `Your worktree: /desk/m\n${depsLine}\n`)}\n${ONE_TURN}`);
     expect(qaSystemPrompt({ ...qa, agent: agent({ role: 'qa', title: 'QA lead' }), repo: repo(), depsLine })).toBe(
-      BEFORE.qaFull.replace('qa/pr-42-margaret.\n', `qa/pr-42-margaret.\n${depsLine}\n`),
+      `${BEFORE.qaFull.replace('qa/pr-42-margaret.\n', `qa/pr-42-margaret.\n${depsLine}\n`)}\n${ONE_TURN}`,
     );
-    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), depsLine: '' })).toBe(BEFORE.devFull);
+    expect(devSystemPrompt({ ...dev, agent: agent(), repo: repo(), depsLine: '' })).toBe(`${BEFORE.devFull}\n${ONE_TURN}`);
   });
 
   it("put a PR's own test step in the QA prompt", () => {

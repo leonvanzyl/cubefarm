@@ -10,7 +10,7 @@ import { OfficeFloor } from './OfficeFloor';
 import { Outside } from './Outside';
 import { City } from './outside/City';
 import { Player } from './Player';
-import { Lights } from './Shell';
+import { DayLights } from './sky/DayLights';
 import { Sky } from './sky/Sky';
 import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
@@ -62,7 +62,7 @@ export function Game() {
     >
       <DayClock />
       <Sky />
-      <Lights />
+      <DayLights />
       <City />
       <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />

@@ -55,6 +55,9 @@ export const PLACEHOLDERS = {
   branch: '<branch>',
 } as const;
 
+/** In every agent's prompt (the CEO's too): an office session ends with its turn, so nothing wakes them later. */
+export const ONE_TURN = "Your session ends when your turn ends: background tasks and notifications won't wake you. Never end a turn to wait. Wait in the foreground with a timeout, then finish.";
+
 export const devBranch = (issue: number | string, slug: string) => `swarm/issue-${issue}-${slug}`;
 export const qaBranch = (pr: number | string, slug: string) => `qa/pr-${pr}-${slug}`;
 
@@ -90,6 +93,7 @@ export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fix
     fixing ? '' : '7. End your final message with the pull request URL on its own line.',
     '',
     'Rules: never push to the default branch, never force-push, never merge pull requests yourself (the office merges them once QA and the checks pass), and never edit files outside your worktree. If you cannot finish, open a draft PR (gh pr create --draft) explaining what is left and why.',
+    ONE_TURN,
   ]
     .filter((l) => l !== '')
     .join('\n');
@@ -120,6 +124,7 @@ export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, depsLine
     "A merge conflict with the default branch is not a fail, nor is a red check unrelated to this change (a flake or an outage: say why): judge the change itself (on a throwaway merge if you need newer work) and pass it if it's good. The office sends conflicting PRs back for a merge fix, then you re-test, and re-runs a failed check before anyone fixes it.",
     '',
     'Rules: do not modify the code under test, do not commit, push, comment on, review or merge anything on GitHub. The office posts your report on the pull request. Finish with the structured QA report: verdict, summary, the checks you performed, the commands you ran and one caption per screenshot.',
+    ONE_TURN,
   ].join('\n');
 }
 
