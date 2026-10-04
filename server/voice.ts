@@ -1,12 +1,14 @@
 // Phone messages read aloud by ElevenLabs: the manager's key (kept in its own secrets file, never in the state, the
 // snapshot, events or agents' environments), the voice list, and spoken messages cached as mp3 under <SWARM_HOME>/voice,
 // with clips.json recording which clips belong to which message so the phone can replay them without a new synthesis.
+// The same key turns the manager's recorded speech into text when ElevenLabs is the 🎙's provider.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { SAMPLE_LINE, speechText, standupLine, type DayPart } from '../shared/speech.ts';
 import { clampKeepDays, KEEP_DAYS_DEFAULT } from '../shared/voiceClips.ts';
-import type { PhoneMessage, VoiceCacheView, VoiceOption, VoiceSettings } from '../shared/types.ts';
+import { clipProblem, clipType } from '../shared/clipLimits.ts';
+import type { ListenSettings, PhoneMessage, VoiceCacheView, VoiceOption, VoiceSettings } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
 import { mergeSecrets, readSecrets } from './secrets.ts';
 
@@ -14,6 +16,9 @@ import { mergeSecrets, readSecrets } from './secrets.ts';
 export const DEFAULT_VOICE_MODEL = 'eleven_flash_v2_5';
 export const VOICES_TTL_MS = 10 * 60_000;
 export const SYNTH_TIMEOUT_MS = 20_000;
+/** ElevenLabs' Speech to Text model (Scribe v2). */
+export const STT_MODEL = 'scribe_v2';
+export const TRANSCRIBE_TIMEOUT_MS = 30_000;
 export const CACHE_MAX_FILES = 200;
 const DAY_MS = 24 * 60 * 60_000;
 export const CACHE_MAX_AGE_MS = KEEP_DAYS_DEFAULT * DAY_MS;
@@ -70,6 +75,19 @@ export function voiceSettings(base: VoiceSettings, patch: unknown): VoiceSetting
   if (typeof p.model === 'string' && MODEL_ID.test(p.model.trim())) out.model = p.model.trim();
   if (typeof p.speakOffice === 'boolean') out.speakOffice = p.speakOffice;
   out.keepDays = clampKeepDays(p.keepDays ?? out.keepDays);
+  return out;
+}
+
+/** The browser's speech recognition is free and needs no key, so it's where a new office starts. */
+export const DEFAULT_LISTEN: ListenSettings = { provider: 'browser', autoSend: false, handsFree: false };
+
+/** Listening settings from a saved state or a PATCH /api/settings, field by field; anything invalid keeps `base`. */
+export function listenSettings(base: ListenSettings, patch: unknown): ListenSettings {
+  const p = (patch && typeof patch === 'object' ? patch : {}) as Partial<Record<keyof ListenSettings, unknown>>;
+  const out = { ...base };
+  if (p.provider === 'off' || p.provider === 'browser' || p.provider === 'elevenlabs') out.provider = p.provider;
+  if (typeof p.autoSend === 'boolean') out.autoSend = p.autoSend;
+  if (typeof p.handsFree === 'boolean') out.handsFree = p.handsFree;
   return out;
 }
 
@@ -153,6 +171,8 @@ export interface VoiceApi {
   checkKey(key: string): Promise<void>;
   listVoices(key: string): Promise<Omit<VoiceOption, 'recommended'>[]>;
   synthesize(key: string, req: { voiceId: string; model: string; text: string }, signal: AbortSignal): Promise<Buffer>;
+  /** Speech to Text: the words in `audio` (a clipType() type). */
+  transcribe(key: string, req: { audio: Buffer; type: string }, signal: AbortSignal): Promise<string>;
 }
 
 export interface VoiceKeyView {
@@ -165,13 +185,14 @@ export interface VoiceDeps {
   secretsFile: string;
   cacheDir: string;
   settings(): VoiceSettings;
+  listen(): ListenSettings;
   /** The phone messages the office still has, oldest first. */
   messages(): readonly PhoneMessage[];
   /** Posts an office message on the manager's phone. */
   officeNote(text: string): void;
   keyChanged(view: VoiceKeyView): void;
   cacheChanged(view: VoiceCacheView): void;
-  /** Server log lines (a new clip made), never the key. */
+  /** Server log lines (a new clip made, a clip transcribed), never the key or what was said. */
   log?(line: string): void;
   now?(): number;
 }
@@ -315,6 +336,26 @@ export class Voice {
       }
       return this.measure(left);
     }).catch(() => this.cacheView);
+  }
+
+  /**
+   * POST /api/voice/transcribe: the manager's recorded speech (`ms` long, by the browser's clock) as text, by
+   * ElevenLabs Speech to Text. Only while ElevenLabs is the 🎙's provider, and at most 60 s / 5 MB a clip.
+   */
+  async transcribe(audio: Buffer, contentType: string | undefined, ms: number): Promise<string> {
+    if (this.deps.listen().provider !== 'elevenlabs') throw new HttpError(409, "ElevenLabs isn't turning speech into text: pick it under Settings → Voice → Talk instead of type.");
+    const bad = clipProblem({ bytes: audio.length, ms, type: contentType });
+    if (bad) throw new HttpError(bad.status, bad.message);
+    if (!this.key) throw new HttpError(409, 'Add your ElevenLabs API key in Settings → Voice to talk instead of type, or pick the browser there.');
+    this.requireKey();
+    const key = this.key;
+    const text = await this.deps.api.transcribe(key, { audio, type: clipType(contentType) }, AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS)).catch((err) => {
+      if (err instanceof VoiceApiError && err.status === 403) throw new HttpError(502, 'Your ElevenLabs key may not use Speech to Text: allow it for the key on elevenlabs.io (Developers → API Keys).');
+      return this.failed(err, key, 'turn your speech into text');
+    });
+    const secs = Number.isFinite(ms) ? ` ${(ms / 1000).toFixed(1)} s` : '';
+    this.deps.log?.(`voice: transcribed a${secs} clip (${Math.ceil(audio.length / 1024)} KB)`);
+    return text.trim();
   }
 
   /** GET /api/voice/sample: the settings' Test button, in `voiceId` (default: the chosen voice). */

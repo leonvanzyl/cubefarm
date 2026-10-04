@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { KANBAN_KEYS } from './draw';
 import { BOARD, PLAYER_RADIUS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders, pongTableRect } from './layout';
 import { BALCONY, BALCONY_OUT, HALF_W, SIDE_OPENINGS, SIDES, sideSign } from './layout';
-import { segmentClear, type Pt } from './toys/roombaBrain';
+import { DOG_R, dogPlaces } from './toys/dogPlaces';
+import { clear, segmentClear, type Pt } from './toys/roombaBrain';
 import { WALK_R, WALK_SPEED, findPath, spot, standable, steer, walkways, type Body, type FloorKind, type Mover, type Walkways } from './walkways';
 
 const FLOORS: FloorKind[] = ['office', 'lobby'];
@@ -93,6 +94,9 @@ describe('the ping-pong table', () => {
     // nobody can stand on it, and the elevator's walkway past it stays open
     expect(standable(w, (table.minX + table.maxX) / 2, (table.minZ + table.maxZ) / 2)).toBe(false);
     expect(findPath(w, spot(w, 'elevator')!, spot(w, 'desk-1')!)).not.toBeNull();
+    // the office dog steers by the same rects: it walks round the table, never onto it
+    expect(clear(dogPlaces('office').rects, (table.minX + table.maxX) / 2, (table.minZ + table.maxZ) / 2, DOG_R)).toBe(false);
+    expect(clear(dogPlaces('office').rects, table.minX + 0.2, table.minZ + 0.2, DOG_R)).toBe(false);
   });
 });
 

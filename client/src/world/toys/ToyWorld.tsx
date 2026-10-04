@@ -10,13 +10,14 @@ import { bodyState } from '../people';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
+import { Dog } from './Dog';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
 import { hoopRim, hoopSquare } from './hoopScore';
 import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
-import { npcGrips, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
+import { npcGrips, npcStance, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
 import { PingPong } from './PingPong';
 import { npcHoldPoint, npcView, type NpcAim } from './npcAim';
 import { setToySource } from './probe';
@@ -29,7 +30,8 @@ const STEP = 1 / 60;
 
 // Collision groups: the elevator doorway (and a shut side door) only stops toys, so the player's pusher can follow the
 // player into the cabin (or through a side door that's still sliding open). The ping-pong ball is a group of its own:
-// it meets everything a toy does except you and the ping-pong table's top, which the match bounces it off itself.
+// it meets the building and the other toys, but not you, the roomba or the dog (a rally goes on round them), nor the
+// ping-pong table's top, which the match bounces it off itself.
 const G = { building: 0, doorway: 1, pusher: 2, toys: 3, pong: 4 };
 const DOORWAY_GROUPS = interactionGroups(G.doorway, [G.toys, G.pong]);
 const PUSHER_GROUPS = interactionGroups(G.pusher, [G.building, G.toys]);
@@ -40,7 +42,8 @@ const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys, G.pong]
 const PONG_TABLE_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
 const PONG_BALL_GROUPS = interactionGroups(G.pong, [G.building, G.doorway, G.toys]);
 const PONG_GROUPS = { table: PONG_TABLE_GROUPS, net: BUILDING_GROUPS, ball: PONG_BALL_GROUPS };
-// The roomba steers itself round the building (roombaBrain.ts) and never shoves the player's pusher: it only touches toys.
+// The roomba and the dog steer themselves round the building (roombaBrain.ts, dogBrain.ts) and never shove the player's
+// pusher: they only touch toys.
 const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
 // Sensors round seated people (HitTargets.tsx) only notice toys.
 const SEATED_GROUPS = interactionGroups(G.toys, [G.toys]);
@@ -403,7 +406,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       let i = -1;
       for (let j = 0; j < defs.length; j++) if (defs[j].id === g.ball) i = j;
       const b = i >= 0 ? bodies.current[i] : null;
-      const st = bodyState(who);
+      const st = bodyState(who) ?? npcStance(who);
       if (!b || !st || i === holding.current) {
         released(who, i === holding.current ? 'taken' : 'stuck');
         continue;
@@ -556,6 +559,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Blasters floor={floor} groups={HELD_GROUPS} />
       <Mugs groups={HELD_GROUPS} />
       <HitTargets floor={floor} groups={SEATED_GROUPS} />
+      <Dog floor={floor} groups={ROOMBA_GROUPS} />
       {floor === 'office' && <PingPong groups={PONG_GROUPS} />}
     </Physics>
   );

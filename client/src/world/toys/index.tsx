@@ -1,5 +1,6 @@
 import { Component, lazy, memo, Suspense, type ComponentType, type ReactNode } from 'react';
 import type { ToyFloor } from './balls';
+import './dogState';
 import './pongProbe';
 import './probe';
 

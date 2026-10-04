@@ -19,6 +19,7 @@ import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
+import { tuneChannel } from '../ui/theatre';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 import { peelAimed, placeSticky, pressBoard, releaseBoard } from './boardHands';
@@ -91,6 +92,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'pong') {
     joinPong(focus.action.end); // a paddle in hand: the mouse and the view are the match's now
+    return;
+  }
+  if (focus.action.kind === 'channel') {
+    tuneChannel(focus.action.repoId, focus.action.pr);
     return;
   }
   if (focus.action.kind === 'resume') {

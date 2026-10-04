@@ -13,6 +13,24 @@ export const WORKSPACE_ROOT = path.join(HOME_DIR, 'workspaces');
 export const DEMO = process.argv.includes('--demo') || process.env.SWARM_DEMO === '1' || process.env.SWARM_DEMO === 'true';
 export const STATE_FILE = path.join(HOME_DIR, DEMO ? 'demo-state.json' : 'state.json');
 
+/** A port from the environment, or the fallback when it's unset or not a usable port. */
+export function envPort(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return value && Number.isInteger(n) && n >= 1024 && n <= 65_000 ? n : fallback;
+}
+
+/** Minutes from the environment (fractions allowed, so a test can make them seconds), or the fallback. */
+export function envMinutes(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return value && Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Floor previews run on this port + the floor number, PR previews 100 above it (docs/how-it-works.md). Moving it only
+// keeps a test office's previews clear of another office's.
+export const PREVIEW_PORT = envPort(process.env.SWARM_PREVIEW_PORT, 6300);
+// A PR preview nobody has had on screen for this long stops.
+export const PR_PREVIEW_IDLE_MS = envMinutes(process.env.SWARM_PR_PREVIEW_IDLE_MIN, 20) * 60_000;
+
 // How often each connected repo's issues and PRs are refreshed from GitHub.
 export const SYNC_INTERVAL_MS = 45_000;
 // How often idle agents on auto-assign floors look for new work.

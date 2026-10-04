@@ -1,9 +1,11 @@
 // The people controller: where each agent's body should be (body.ts). Nobody listed here sits at their desk. Plain
 // module state, read by Character.tsx every frame, so moving someone never re-renders React.
-// window.__swarmPeople drives it by hand (a straight-line walk, no navigation) and reports where everyone is and
-// which errand (errands.ts) they're on, for QA and Playwright.
+// window.__swarmPeople drives it by hand (a straight-line walk, no navigation) and reports where everyone is, which
+// errand (errands.ts) they're on, and their face and look (face.ts, appearance.ts), for QA and Playwright.
 
+import type { Appearance } from './appearance';
 import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gesture } from './body';
+import { EXPRESSIONS, type Expression } from './face';
 import type { Food } from './ritualSchedule';
 
 const targets = new Map<string, BodyTarget>();
@@ -145,6 +147,33 @@ export function setDeskMug(id: string, mug: PersonMug, seconds: number) {
   changed();
 }
 
+// ---------- faces ----------
+
+/** Someone's face as Character.tsx last drew it: the expression, how far closed the eyes are (blinks), their look. */
+export interface FaceInfo {
+  expression: Expression;
+  lid: number;
+  look: Appearance;
+}
+
+const faces = new Map<string, FaceInfo>();
+const forced = new Map<string, { expression: Expression; until: number }>();
+
+/** Character.tsx registers each person's face (it updates the object in place every frame). */
+export function trackFace(id: string, f: FaceInfo) {
+  faces.set(id, f);
+  return () => {
+    if (faces.get(id) === f) faces.delete(id);
+  };
+}
+
+/** An expression put on someone by hand through the probe, until it runs out (`now` is performance.now()). */
+export function forcedExpression(id: string, now: number) {
+  const f = forced.get(id);
+  if (f && now > f.until) forced.delete(id);
+  return f && now <= f.until ? f.expression : null;
+}
+
 // ---------- food in hand, and out of sight (the rituals) ----------
 
 const food = new Map<string, Food>();
@@ -213,9 +242,17 @@ const probe = {
       target: targets.get(id) ?? null,
       mug: hands.get(id) ?? null,
       deskMug: deskMug(id),
+      expression: faces.get(id)?.expression ?? null,
+      lid: round(faces.get(id)?.lid ?? 0),
+      look: faces.get(id)?.look ?? null,
       food: food.get(id) ?? null,
       hidden: hidden.has(id),
     }));
+  },
+  /** Puts an expression on someone's face for `seconds` (the face.ts names), whatever they're up to. */
+  express(id: string, expression: Expression, seconds = 5) {
+    if (!EXPRESSIONS.includes(expression)) throw new Error(`no expression "${expression}": try ${EXPRESSIONS.join(', ')}`);
+    forced.set(id, { expression, until: performance.now() + seconds * 1000 });
   },
   /** Sends someone seated on an errand by name ('coffee', 'stretch', 'hoops', 'toss', 'catch') as soon as the rules and the cap allow. */
   send(id: string, errand: string) {
