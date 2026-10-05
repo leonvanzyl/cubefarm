@@ -4182,11 +4182,17 @@ input.inline:focus {
   font-weight: 600;
 }
 
-/* ---------- presence: visitors, the emote wheel, following ---------- */
+/* ---------- presence: the visitors list, the emote wheel ---------- */
 
+/* like a who's-working row (.wk-row), but not a button: its Follow is */
 .vs-row {
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  cursor: default;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px 5px 26px;
+  border-radius: 12px;
+  color: var(--ink);
 }
 .vs-head {
   cursor: default;
@@ -4283,22 +4289,6 @@ input.inline:focus {
   70% {
     scale: 1.12;
   }
-}
-.follow-chip {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 3px solid var(--ink);
-  background: var(--paper);
-  box-shadow: 0 3px 0 var(--ink);
-  font-family: var(--font);
-  font-size: 0.9rem;
-  color: var(--ink);
-  cursor: pointer;
-  white-space: nowrap;
 }
 /* ---------- progression: coins, the catalogue and the decor box (#210) ---------- */
 

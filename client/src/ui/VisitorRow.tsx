@@ -5,7 +5,7 @@ import type { VisitorView } from '../../../shared/types';
 
 export function VisitorRow({ v, where, following, onFollow }: { v: VisitorView; where: string; following: boolean; onFollow: () => void }) {
   return (
-    <div className="wk-row vs-row">
+    <div className="vs-row">
       <span className="wk-dot" style={{ background: v.color }} />
       <span className="wk-main">
         <span className="wk-name">{v.name}</span>
