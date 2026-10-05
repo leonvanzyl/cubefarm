@@ -5,6 +5,7 @@ import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
 import { CameraRig } from './camera/CameraRig';
+import { Chatter } from './Chatter';
 import { CUT_PLANES } from './camera/rig';
 import { lobbyColliders, officeColliders, ROOF, roofColliders } from './layout';
 import { decorRects } from './decor/decor';
@@ -97,6 +98,7 @@ export function Game() {
       <SoundListener />
       <Soundscape kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />
       <TypingSounds />
+      <Chatter />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
       <Graphics paused={paused} />

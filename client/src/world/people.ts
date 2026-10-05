@@ -40,19 +40,30 @@ export function placeBody(id: string, x: number, z: number, heading = 0) {
 /** Back to their chair: they walk to the standing spot beside it and sit down. */
 export const seatBody = (id: string) => void targets.delete(id);
 
-/** A speech bubble: what someone says (an emoji) and performance.now() when they started. */
+/** A speech bubble: what someone says (an emoji or a short line), performance.now() when they started and when it ends. */
 export interface Saying {
   text: string;
   at: number;
+  /** performance.now() when it goes away by itself; absent: until hidden. */
+  until?: number;
 }
 
-/** Shows a speech bubble over someone (null hides it). Character.tsx draws it. */
-export function say(id: string, text: string | null) {
-  if (text) said.set(id, { text, at: performance.now() });
+/** Shows a speech bubble over someone (null hides it), for `seconds` or until hidden. Character.tsx draws it. */
+export function say(id: string, text: string | null, seconds?: number) {
+  const at = performance.now();
+  if (text) said.set(id, { text, at, until: seconds ? at + seconds * 1000 : undefined });
   else said.delete(id);
 }
 
-export const saying = (id: string) => said.get(id);
+/** What someone is saying now, if anything. */
+export function saying(id: string) {
+  const s = said.get(id);
+  if (s?.until !== undefined && performance.now() >= s.until) {
+    said.delete(id);
+    return undefined;
+  }
+  return s;
+}
 
 /** Everyone you can see on the current floor, as they are now (the elevator opens for anyone near its doors). */
 export function* bodies() {
@@ -81,6 +92,9 @@ export function setErrand(id: string, info: ErrandInfo | null) {
 
 /** Whether the errand director has them out on an errand (rather than someone walking them by hand). */
 export const onErrand = (id: string) => busy.has(id);
+
+/** The errand someone is on, and how far along, while they're on one. */
+export const errandOf = (id: string): Readonly<ErrandInfo> | undefined => busy.get(id);
 
 const claimers = new Set<(id: string) => void>();
 
@@ -240,7 +254,7 @@ const probe = {
       heading: round(s.heading),
       speed: round(s.speed),
       errand: busy.get(id) ?? null,
-      says: said.get(id)?.text ?? null,
+      says: saying(id)?.text ?? null,
       target: targets.get(id) ?? null,
       mug: hands.get(id) ?? null,
       deskMug: deskMug(id),

@@ -229,6 +229,16 @@ export function floorNews(repo: Pick<RepoView, 'pulls'> | undefined, qa: readonl
   return { mergedAgo: ago(merged), failedAgo: ago(failed), working };
 }
 
+/** The PR a 🎉 or 🐛 chat is about: the floor's latest merge, or its latest failed QA (null for other topics). */
+export function topicPr(topic: string, repo: Pick<RepoView, 'pulls'> | undefined, qa: readonly Pick<QaView, 'status' | 'updatedAt' | 'prNumber'>[]): number | null {
+  if (topic === '🎉') {
+    const merged = (repo?.pulls ?? []).filter((p) => p.mergedAt).sort((a, b) => Date.parse(b.mergedAt!) - Date.parse(a.mergedAt!));
+    return merged[0]?.number ?? null;
+  }
+  if (topic === '🐛') return [...qa].filter((q) => q.status === 'failed' || q.status === 'needs-human').sort((a, b) => b.updatedAt - a.updatedAt)[0]?.prNumber ?? null;
+  return null;
+}
+
 /** The emoji bubbles a chat picks from, weighted: a merge brings 🎉, a failed QA 🐛, work in progress 🚀. */
 export function chatTopics(news: FloorNews): [string, number][] {
   const fresh = (ago: number | null) => ago != null && ago < NEWS_SECONDS;

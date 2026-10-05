@@ -30,6 +30,7 @@ import { lookCurve, pad, padName, pollPad, wasPressed, wasReleased, watchPads } 
 import { arriveOnFloor, cameraMode, exitView, homeSpot, lookAllowed, playerAt, rigInput, rigOwnsCamera, rotateView, setHomeLook, stepRig, tapView } from './camera/rig';
 import { leavePerch, perch, takePerchTurn, type Perch } from './perch';
 import { roofAction } from './roof/roofState';
+import { greet } from './Chatter';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -108,6 +109,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'resume') {
     void confirmResume();
+    return;
+  }
+  if (focus.action.kind === 'greet') {
+    greet(focus.action.agentId);
     return;
   }
   if (focus.action.kind === 'hire') {

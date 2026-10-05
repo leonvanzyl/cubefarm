@@ -6,6 +6,7 @@ import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
+import { greetPick } from './Chatter';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { BLOOM } from './gfx/bloomMarks';
@@ -303,6 +304,10 @@ export const Desk = memo(function Desk({
   rotationY?: number;
 }) {
   const qa = role === 'qa';
+  // Aiming at the person themselves, while they've nothing to do, says hi instead (Chatter.tsx).
+  const agentId = agent?.id;
+  const desk = agent?.role === 'ceo' ? 'to open it' : qa ? 'for their test run' : 'for their terminal';
+  const greeting = useMemo(() => (agentId ? greetPick(agentId, desk) : undefined), [agentId, desk]);
   const ref = useInteractable<THREE.Group>(
     agent
       ? {
@@ -316,6 +321,7 @@ export const Desk = memo(function Desk({
           action: { kind: 'hire', repoId, role },
         },
     3.6,
+    greeting,
   );
   const mug = agent ? shade(agent.color, 0.1) : '#ffffff';
   const top = qa ? LAB_BENCH : WOOD;
