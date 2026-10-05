@@ -4,12 +4,12 @@
 // one useFrame with no allocations. The whole sky moves with the camera and sits at the far end of the depth
 // range, so it is drawn only where nothing else is and never cuts through the building or the city.
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
-import { dayTime } from './useDayTime';
+import { dayTime, useSkyFrame } from './useDayTime';
 
 const STARS = 700;
 const FOG_NEAR = 30;
@@ -217,7 +217,7 @@ export function Sky() {
     m.instanceMatrix.needsUpdate = true;
   }, [sky]);
 
-  useFrame(({ camera, clock, gl }, delta) => {
+  useSkyFrame(({ camera, clock, gl }, delta) => {
     const g = group.current;
     if (!g) return;
     g.position.copy(camera.position);

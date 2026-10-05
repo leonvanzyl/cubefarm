@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
+import { setOfficeCanvas, usePhotoGate } from '../photo/gate';
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
 import { lobbyColliders, officeColliders, ROOF, roofColliders } from './layout';
@@ -22,6 +23,8 @@ import { TypingSounds } from './TypingSounds';
 // The roof is its own chunk: fetched as the elevator heads up there, never by a floor that doesn't go.
 const loadRoof = () => import('./roof/Roof');
 const Roof = lazy(loadRoof);
+// Photo mode's camera and drawing load the first time it's opened.
+const PhotoScene = lazy(() => import('../photo/PhotoScene'));
 
 function Travel() {
   const travel = useStore((s) => s.travel);
@@ -62,15 +65,19 @@ export function Game() {
   // Stop drawing while nobody can see the office; switching back to 'always' draws a fresh frame at once.
   const paused = useRenderPaused();
   const [maxDpr, setMaxDpr] = useState(MAX_DPR);
+  // Photo mode's freeze stops the frame loop too: nothing in the office moves (the server and its events carry on).
+  const photo = usePhotoGate((s) => s.active);
+  const frozen = usePhotoGate((s) => s.frozen);
 
   return (
     <Canvas
       shadows
-      frameloop={paused ? 'never' : 'always'}
+      frameloop={paused || frozen ? 'never' : 'always'}
       dpr={[1, maxDpr]}
       camera={{ fov: 72, near: 0.05, far: 560, position: [0, 1.65, 10] }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
+        setOfficeCanvas(gl.domElement);
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.0;
         gl.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -89,8 +96,13 @@ export function Game() {
       <TypingSounds />
       <FrameWhilePaused paused={paused} />
       <AdaptiveResolution onChange={setMaxDpr} />
-      <Graphics paused={paused} />
+      <Graphics paused={paused || photo} />
       {statsEnabled && <StatsProbe paused={paused} />}
+      {photo && (
+        <Suspense fallback={null}>
+          <PhotoScene />
+        </Suspense>
+      )}
     </Canvas>
   );
 }

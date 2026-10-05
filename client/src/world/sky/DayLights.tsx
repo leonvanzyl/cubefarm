@@ -4,13 +4,13 @@
 // useFrame with no allocations or re-renders, and skipped while the clock stands still (?daytime, 'Always day'). A floor
 // winding down for the evening (ritualLook.ts) dims them a little on top.
 import { useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import { DIM_BY, ritualLook } from '../ritualLook';
 import { indoorLight, newIndoorLight, newShadowBox, shadowBox } from './indoor';
 import { setLamps } from './lamps';
 import { setSunPatches } from './SunPatches';
-import { dayTime } from './useDayTime';
+import { dayTime, useSkyFrame } from './useDayTime';
 
 /** How far from the office's middle the key light sits (beyond every corner of the floor). */
 const DISTANCE = 30;
@@ -22,7 +22,7 @@ export function DayLights() {
   const key = useRef<THREE.DirectionalLight>(null);
   const state = useMemo(() => ({ light: newIndoorLight(), box: newShadowBox(), t: -1, dim: 0 }), []);
 
-  useFrame(() => {
+  useSkyFrame(() => {
     const h = hemi.current;
     const a = ambient.current;
     const k = key.current;

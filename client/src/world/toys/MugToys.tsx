@@ -14,6 +14,7 @@ import {
 import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
+import { FIRST_PERSON } from '../viewTags';
 import { escaped } from './balls';
 import { walk } from './hands';
 import { MUG_SIZE, MugLook, Steam, mugColor } from './mugLook';
@@ -69,7 +70,7 @@ function ViewModel({ mug }: { mug: HeldMug }) {
     c.rotation.set(VIEW.tilt + sipPose.tilt, VIEW.turn + (MOUTH.turn - VIEW.turn) * k, 0);
   });
   return (
-    <group ref={root}>
+    <group ref={root} userData={FIRST_PERSON}>
       <group ref={cup} rotation={[VIEW.tilt, VIEW.turn, 0]} scale={VIEW.scale}>
         <MugLook color={mugColor(mug.id)} sips={mug.sips} shadow={false} steam={false} />
       </group>

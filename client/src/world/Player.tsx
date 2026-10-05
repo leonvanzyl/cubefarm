@@ -9,6 +9,7 @@ import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { confirmResume } from '../ui/MissionConsole';
+import { photoActive, photoOwnsLock } from '../photo/gate';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
 import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
@@ -41,7 +42,7 @@ const hushMouse = () => {
 /** Grab the mouse for looking around. Must be called from a click handler. */
 export function requestLook() {
   const s = useStore.getState();
-  if (!canvasEl || s.overlay || !s.started || isConfirmOpen()) return;
+  if (!canvasEl || s.overlay || !s.started || isConfirmOpen() || photoActive()) return;
   const el = canvasEl;
   // Raw (unadjusted) input skips the OS mouse path that produces bogus spikes on Windows.
   // Browsers that can't do it reject with NotSupportedError (Firefox ignores the option).
@@ -181,7 +182,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     // the button comes up) or, empty-handed, act on the crosshair's target (like E). Otherwise this press
     // just captures the mouse, so the click that locks never also acts.
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || photoActive()) return; // photo mode has the mouse (photo/PhotoScene.tsx)
       if (document.pointerLockElement !== gl.domElement) return requestLook();
       const s = useStore.getState();
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
@@ -190,7 +191,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       else if (s.focus && !pressBoard(s.focus)) runFocusAction(s.focus, 'click'); // on a sticky, holding peels it off
     };
     const onMouseUp = (e: MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || photoActive()) return;
       throwHeld();
       releaseBoard((f) => runFocusAction(f, 'click'));
     };
@@ -202,11 +203,11 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     const onLockChange = () => {
       resetLookFilter(lookFilter);
       const locked = document.pointerLockElement === gl.domElement;
-      if (!locked) dropHeld(); // Esc: you've stepped away, so let go rather than leave it hanging in the air
+      if (!locked && !photoOwnsLock()) dropHeld(); // Esc: you've stepped away, so let go rather than leave it hanging in the air
       useStore.getState().setLocked(locked);
     };
     const onMove = (e: MouseEvent) => {
-      if (document.pointerLockElement !== gl.domElement || !document.hasFocus()) return;
+      if (document.pointerLockElement !== gl.domElement || !document.hasFocus() || photoActive()) return;
       const d = filterLookDelta(lookFilter, e.movementX, e.movementY, e.timeStamp);
       lookDiag.dropped = lookFilter.dropped;
       lookDiag.skipped = lookFilter.skipped;
@@ -224,7 +225,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         toggleMute();
         s.pushToast('info', getAudioPrefs().muted ? '🔇 Sound off (M to turn it back on)' : '🔊 Sound on');
       }
-      if (s.overlay || !s.started || isConfirmOpen()) return;
+      if (s.overlay || !s.started || isConfirmOpen() || photoActive()) return;
       keys.current.add(e.code);
       // Perched (a deck chair, the telescope): walking, Space or E gets you up, though E with food in hand still eats.
       if (perch() && !e.repeat && (MOVE_KEYS.has(e.code) || (e.code === 'KeyE' && eAction(s.held, s.focus?.action.kind ?? null) !== 'sip'))) {
@@ -261,7 +262,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     let wheel = 0;
     const onWheel = (e: WheelEvent) => {
       const s = useStore.getState();
-      if (document.pointerLockElement !== gl.domElement || s.overlay || s.focus?.action.kind !== 'jukebox') {
+      if (document.pointerLockElement !== gl.domElement || s.overlay || s.focus?.action.kind !== 'jukebox' || photoActive()) {
         wheel = 0;
         return;
       }
@@ -272,7 +273,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
-      if (e.code === 'KeyF') throwHeld();
+      if (e.code === 'KeyF' && !photoActive()) throwHeld(); // in photo mode F freezes and thaws
     };
     const onBlur = () => {
       keys.current.clear();
@@ -303,6 +304,13 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   }, [gl, lookFilter]);
 
   useFrame((_, rawDt) => {
+    if (photoActive()) {
+      // photo mode flies a camera of its own; the player stands exactly where they were
+      keys.current.clear();
+      walk.x = 0;
+      walk.z = 0;
+      return;
+    }
     const dt = Math.min(rawDt, 0.05);
     const s = useStore.getState();
     if (s.overlay || isConfirmOpen()) keys.current.clear();

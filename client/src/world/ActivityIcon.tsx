@@ -8,6 +8,7 @@ import { reportSign, trackSign } from './activityProbe';
 import { SIGN_SIZE, signHeight } from './activitySign';
 import { SANS, roundRect } from './draw';
 import { bodyState, saying } from './people';
+import { FACES_CAMERA } from './viewTags';
 
 // The little sign over a busy agent's head: an icon for what they're doing (📖 reading, ✏️ editing, 🧪 testing…) and
 // a short detail ("store.ts", "npm test"), straight from the server's redacted activity (shared/activity.ts).
@@ -136,7 +137,7 @@ export const ActivityIcon = memo(function ActivityIcon({ agent }: { agent: Agent
   });
 
   return (
-    <group ref={g} visible={false}>
+    <group ref={g} visible={false} userData={FACES_CAMERA}>
       <mesh geometry={geometry} material={material} renderOrder={3} />
     </group>
   );

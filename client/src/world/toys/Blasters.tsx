@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { CuboidCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../../store';
+import { FIRST_PERSON } from '../viewTags';
 import { drawSign } from '../draw';
 import { useInteractable } from '../interact';
 import { BLASTER_RACK, HALF_D, toyOnlyAt } from '../layout';
@@ -75,7 +76,7 @@ function ViewModel({ def }: { def: BlasterDef }) {
     if (mag.current) mag.current.position.y = -0.08 - dip * 0.14;
   });
   return (
-    <group ref={root}>
+    <group ref={root} userData={FIRST_PERSON}>
       <group ref={gun} scale={VIEW.scale}>
         <BlasterLook def={def} shadow={false} mag={mag} />
       </group>

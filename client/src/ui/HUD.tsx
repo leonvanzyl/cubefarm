@@ -14,6 +14,7 @@ import { ROOF } from '../world/layout';
 import { useRoof } from '../world/roof/roofState';
 import { RoofHud } from './RoofHud';
 import { usageChip } from '../ops';
+import { togglePhoto, usePhotoGate } from '../photo/gate';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
 function OfficeUpdateChip() {
@@ -59,6 +60,19 @@ function PhoneButton() {
       <span className="phone-btn-label">
         <kbd>P</kbd> {badge ? `${badge} waiting` : busy ? `${ceo.name} is working` : 'Phone'}
       </span>
+    </button>
+  );
+}
+
+/** Photo mode (K); a red dot while instant replay keeps the last 15 s (I saves them). */
+function PhotoButton() {
+  const started = useStore((s) => s.started);
+  const replay = usePhotoGate((s) => s.replay);
+  if (!started) return null;
+  return (
+    <button className="pill pill-photo" onClick={togglePhoto} title={replay ? 'Photo mode (K). Instant replay is on: I saves the last 15 s' : 'Photo mode (K): freeze the office, frame a shot, record a clip'}>
+      📷 <kbd>K</kbd>
+      {replay && <span className="pill-photo-rec" aria-label="Instant replay on" />}
     </button>
   );
 }
@@ -133,6 +147,7 @@ export function HUD() {
         </span>
         <CoinChip />
         {user && <span className="pill">🐙 {user}</span>}
+        <PhotoButton />
       </div>
 
       <WorkersPanel />
@@ -169,7 +184,7 @@ export function HUD() {
       {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>Tab</kbd> workers · <kbd>M</kbd> mute · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>E</kbd> / <kbd>Click</kbd> interact · <kbd>P</kbd> phone · <kbd>K</kbd> photo · <kbd>Tab</kbd> workers · <kbd>M</kbd> mute · <kbd>H</kbd> help · <kbd>Esc</kbd> free mouse
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
+import { BILLBOARD } from './viewTags';
 import * as THREE from 'three';
 import { saying } from './people';
 import { drawBubble } from './useHitReaction';
@@ -44,7 +45,7 @@ export function SpeechBubble({ id, y }: { id: string; y: number }) {
   });
   return (
     // The group's origin is the tail's tip, beside the head.
-    <Billboard position={[0.2, y, 0]}>
+    <Billboard position={[0.2, y, 0]} userData={BILLBOARD}>
       <group ref={g} visible={false}>
         <mesh position={[0.195, 0.156, 0]} renderOrder={2}>
           <planeGeometry args={[0.5, 0.344]} />

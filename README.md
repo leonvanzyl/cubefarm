@@ -66,6 +66,8 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `G` | drop what you're holding, or peel the whiteboard sticky you aim at off the board |
 | `R` | reload a blaster |
 | `P` | your phone |
+| `K` | photo mode: freeze the office, fly a camera, filters, shots and clips |
+| `I` | save the last 15 seconds (once instant replay is on, in photo mode or help) |
 | `Tab` | show or hide who's working |
 | `M` | mute or unmute |
 | `H` | help, with every control and the sound settings |

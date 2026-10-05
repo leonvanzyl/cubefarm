@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../../store';
 import { markBloom } from '../gfx/bloomMarks';
-import { dayTime } from '../sky/useDayTime';
+import { dayTime, useSkyFrame } from '../sky/useDayTime';
 import { skyAt, sunDirection } from '../sky/time';
 import { viewElevation } from '../layout';
 import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, type CityBox } from './cityLayout';
@@ -460,8 +460,8 @@ export function City() {
   const elevation = viewElevation(floor, top);
   probe = { buildings: city.layout.buildings.length, cars: city.routes.length, elevation };
 
+  useSkyFrame(followSky);
   useFrame(({ clock }) => {
-    followSky();
     const time = clock.elapsedTime;
     const { traffic, routes, scales, cars } = city;
     for (let i = 0; i < routes.length; i++) {
