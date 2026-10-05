@@ -75,13 +75,13 @@ const CEO_BUSY = ['Planning the next sprint…', 'Busy, busy…', 'Reviewing the
 /** What someone says about what they're doing (lively chatter). */
 const WORK: Record<WorkKind, readonly string[]> = {
   read: ['Reading {detail}…', "So that's how {detail} works", 'Hmm, {detail}…', 'Reading the code…'],
-  search: ['Where is {detail}…', 'Looking for {detail}', 'Where did that go…'],
+  search: ['Where is {detail}…', 'Looking for {detail}', 'Where did that go…', 'I know it was here somewhere'],
   edit: ['Editing {detail}', 'Just a tweak to {detail}', 'Almost done with {detail}', 'Typing, typing…'],
-  test: ['Running the tests…', 'Fingers crossed…', 'Tests, please pass'],
-  build: ['Building…', "Let's see if it builds"],
-  browse: ['Clicking through the app 🌐', 'Let me try it in the browser', 'Looks nice on screen!'],
-  git: ['Committing…', 'Pushing my branch', 'Git, be nice'],
-  think: ['Hmm, let me think…', 'Thinking…', 'What if…'],
+  test: ['Running the tests…', 'Fingers crossed…', 'Tests, please pass', 'Come on, green…'],
+  build: ['Building…', "Let's see if it builds", 'Compiling…'],
+  browse: ['Clicking through the app 🌐', 'Let me try it in the browser', 'Looks nice on screen!', 'Does this button work?', 'Trying it on a phone 📱'],
+  git: ['Committing…', 'Pushing my branch', 'Git, be nice', 'Writing the commit message…'],
+  think: ['Hmm, let me think…', 'Thinking…', 'What if…', 'Making a plan…'],
 };
 
 /** A chat by the cooler or the couch, by topic. */

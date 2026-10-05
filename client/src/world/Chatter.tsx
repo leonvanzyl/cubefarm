@@ -58,7 +58,7 @@ const RANK: Record<Priority, number> = { greet: 0, event: 1, chat: 2, ambient: 3
 const MAX_PENDING = 40;
 const RECENT = 40;
 /** A line isn't picked again while it's among the floor's last few, if there's another way to say it. */
-const HEARD = 4;
+const HEARD = 3;
 /** How far (m) a hit on someone counts as aiming at them rather than their desk. */
 const AIM_RADIUS = 0.42;
 /** People this close (m) take turns: nobody starts a line while a neighbour's is still up (their bubbles would overlap). */
