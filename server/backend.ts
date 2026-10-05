@@ -10,11 +10,23 @@ import { elevenLabs } from './elevenlabs.ts';
 import { httpTransport, type NotifyTransport } from './notifier.ts';
 import type { VoiceApi } from './voice.ts';
 import type { AgentTerminal } from './terminal.ts';
+import type { OpsHistory } from './metrics.ts';
+import type { UsageWarning } from './pacing.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
+
+/** A made-up candidate the demo CEO proposes: the propose_hire tool's arguments, bar the floor and role. */
+export interface DemoHire {
+  title: string;
+  specialty: string;
+  job_description: string;
+  reason: string;
+}
 
 /** Everything the swarm needs from the outside world. The demo backend fakes all of it. */
 export interface Backend {
   demo: boolean;
+  /** Demo only: a made-up developer for this floor whose specialty isn't in `taken`; null once they've all been used. */
+  demoCandidate?(fullName: string, taken: readonly string[]): DemoHire | null;
   user(): Promise<string>;
   listMyRepos(owner?: string): Promise<GhRepoSummary[]>;
   repoMeta(fullName: string): Promise<github.RepoMeta>;
@@ -82,6 +94,10 @@ export interface Backend {
   voice: VoiceApi;
   /** Notifications to the chat apps and push services (docs/pocket.md). */
   notify: NotifyTransport;
+  /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
+  seedOps?(repos: string[], now: number): OpsHistory;
+  /** The demo only: Claude's usage warning, or its limit, on demand, as a session would report it. */
+  simulateUsage?(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number };
 }
 
 export const realBackend: Backend = {

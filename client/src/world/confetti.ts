@@ -49,6 +49,9 @@ export function mergeBursts(live: boolean, before: RepoView | undefined, after: 
 export const burstKind = (o: { hidden: boolean; covered: boolean; reducedMotion: boolean }): 'confetti' | 'glow' | null =>
   o.hidden || o.covered ? null : o.reducedMotion ? 'glow' : 'confetti';
 
+/** Whether a flying burst (coins, confetti) may start now: not hidden, not covered, and not with reduced motion. */
+export const canBurst = (o: { hidden: boolean; covered: boolean; reducedMotion: boolean }) => burstKind(o) === 'confetti';
+
 // ---------- QA records that just left ----------
 
 // The server drops a PR's QA record (qaRemoved) just before it sends the repo update that shows the

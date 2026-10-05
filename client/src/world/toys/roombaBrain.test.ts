@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { HALF_D, PLAYER_RADIUS, coffeeCorner, type Rect } from '../layout';
 import { BALCONY_OUT, HALF_W, SIDE_OPENINGS, SIDES, sideSign } from '../layout';
 import type { ToyFloor } from './balls';
-import { FULL, NAV_R, ROOMBA, ROOMBA_EVENT, clear, createRoomba, dockFor, makeNav, planPath, roombaRects, roombaStatus, segmentClear, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba, type RoombaEnv, type RoombaState } from './roombaBrain';
+import { FULL, NAV_R, ROOMBA, ROOMBA_EVENT, clear, createRoomba, dockFor, makeNav, planPath, roombaRects, roombaStatus, segmentClear, sendOut, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba, type RoombaEnv, type RoombaState } from './roombaBrain';
 
 const DT = 1 / 60;
 const FLOORS: ToyFloor[] = ['office', 'lobby'];
@@ -100,8 +100,8 @@ describe('planPath', () => {
 describe('cleaning', () => {
   it('bumps into a wall without clipping it, then turns or follows the wall', () => {
     const e = env('office');
-    // open floor south of the desks, driving straight at the west wall
-    const r = cleaning(e.dock, -12, 9.6, Math.PI);
+    // open floor south of the desks (between the couch and the decoration slot in the corner), driving straight at the west wall
+    const r = cleaning(e.dock, -12, 8.75, Math.PI);
     let turned = false;
     for (let i = 0; i < 60 * 30 && !turned; i++) {
       stepRoomba(r, DT, e);
@@ -194,6 +194,15 @@ describe('a whole cycle', () => {
     expect(cells.size).toBeGreaterThan(25);
     // and after its 30 s charge it went out again
     expect(r.state).not.toBe('charging');
+  });
+
+  it('the evening round sends it off the dock straight away, but not once it is out', () => {
+    const e = env('office');
+    const r = createRoomba(e.dock, 3);
+    expect(sendOut(r)).toBe(true);
+    stepRoomba(r, DT, e);
+    expect(r.state).toBe('leaving');
+    expect(sendOut(r)).toBe(false);
   });
 
   it('flags leaving, heading home, docking, a full charge and bumps as they happen', () => {

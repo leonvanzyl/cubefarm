@@ -5,10 +5,13 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { CLIP_MAX_BYTES, CLIP_TOO_BIG } from '../shared/clipLimits.ts';
+import { DAY_PARTS } from '../shared/speech.ts';
 import { DEMO, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
+import { parseRange } from './journal.ts';
 import { underLauncher } from './officeUpdate.ts';
 import { serviceWorkerSource, swVersion } from './pwa.ts';
 import { screenStatus } from './screenReply.ts';
@@ -116,6 +119,34 @@ app.post(
   }),
 );
 app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(req))));
+// The PR theatre: open PRs running beside the floor's app, and what the app viewer has on screen
+app.post('/api/repos/:repo/pr-previews/:n', route((req) => swarm.startPrPreview(repoId(req), num(req.params.n), req.body?.restart === true)));
+app.delete('/api/repos/:repo/pr-previews/:n', route((req) => swarm.stopPrPreview(repoId(req), num(req.params.n))));
+app.post(
+  '/api/previews/watch',
+  route((req) => {
+    const viewer = str(req.body?.viewer);
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(viewer)) throw new HttpError(400, 'viewer must be an id of 8-64 letters, digits or dashes');
+    const repo = req.body?.repoId == null ? null : str(req.body.repoId);
+    const pr = req.body?.pr == null ? null : num(req.body.pr);
+    return swarm.watchPreview(viewer, repo || null, repo ? pr : null);
+  }),
+);
+app.post('/api/repos/:repo/preview/sync', route((req) => swarm.previewSyncUrl(repoId(req), req.body?.pr == null ? null : num(req.body.pr))));
+app.get('/api/repos/:repo/pulls/:n/qa-shots/:i', async (req, res, next) => {
+  try {
+    const index = Number(req.params.i);
+    const shot = Number.isInteger(index) && index >= 0 ? await swarm.qaShot(repoId(req), num(req.params.n), index) : null;
+    res.setHeader('Cache-Control', 'no-store');
+    if (!shot) return void res.status(404).end();
+    res.setHeader('Content-Type', shot.mime);
+    // Screenshots can be SVG: never let one run script as a page of the office.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+    res.end(shot.data);
+  } catch (err) {
+    next(err);
+  }
+});
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
 app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
@@ -180,9 +211,27 @@ app.get(
   }),
 );
 app.delete('/api/voice/cache', route(() => swarm.voice.clearCache()));
+// The 🎙 with ElevenLabs: the recorded clip as the raw body (its Content-Type, X-Clip-Ms its length). A body over the
+// cap is refused before it's read, in the same words as clipProblem's.
+const clipBody = express.raw({ type: () => true, limit: CLIP_MAX_BYTES });
+app.post(
+  '/api/voice/transcribe',
+  (req, res, next) => clipBody(req, res, (err?: unknown) => next((err as { type?: unknown } | undefined)?.type === 'entity.too.large' ? new HttpError(413, CLIP_TOO_BIG) : err)),
+  route(async (req) => {
+    const audio = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    return { text: await swarm.voice.transcribe(audio, req.get('content-type'), Number(req.get('x-clip-ms'))) };
+  }),
+);
 app.get(
   '/api/voice/sample',
   route(async (req, res) => sendAudio(res, await swarm.voice.sampleAudio(parse(z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'not a voice id').optional() }), req.query).voiceId))),
+);
+app.get(
+  '/api/voice/standup',
+  route(async (req, res) => {
+    const q = parse(z.object({ n: z.coerce.number().int().min(1).max(99), part: z.enum(DAY_PARTS) }), req.query);
+    sendAudio(res, await swarm.voice.standupAudio(q.n, q.part));
+  }),
 );
 // Notifications (docs/pocket.md). Webhook URLs, tokens and push subscriptions go in; only hints come back out.
 app.put('/api/notify/webhooks/:channel', route((req) => swarm.notifier.setWebhook(String(req.params.channel), req.body ?? {})));
@@ -192,6 +241,20 @@ app.post('/api/notify/push/devices', route((req) => swarm.notifier.subscribe(req
 app.delete('/api/notify/push/devices', route((req) => swarm.notifier.unsubscribe(str(req.body?.endpoint))));
 // The office's own update: Update now / Later
 app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.action)));
+// Claude's usage: resume full speed after a usage warning; in the demo, a warning or the limit on demand
+app.post('/api/usage/resume', route(() => swarm.resumeFullSpeed()));
+app.post('/api/usage/simulate', route((req) => swarm.simulateUsage(req.body?.kind)));
+
+// The journal, for the time-lapse replay (read-only); the demo can write itself a sample day.
+app.get('/api/journal/days', route(() => swarm.journal.days()));
+app.get(
+  '/api/journal/events',
+  route((req) => {
+    const { from, to, seek } = parseRange(req.query, Date.now());
+    return swarm.journal.read(from, to, seek);
+  }),
+);
+app.post('/api/journal/sample', route(() => swarm.journalSample()));
 
 // The CEO and the manager's phone
 app.post('/api/ceo/message', route((req) => swarm.messageCeo(str(req.body.text))));
@@ -199,9 +262,25 @@ app.post('/api/ceo/review', route(() => swarm.requestReview()));
 app.post('/api/phone/read', route((req) => swarm.markPhoneRead(Number(req.body?.at) || Date.now())));
 app.post(
   '/api/requests/:id/approve',
-  route((req) => swarm.approveRequest(String(req.params.id), { name: str(req.body?.name) || undefined, model: typeof req.body?.model === 'string' ? req.body.model : undefined, effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined })),
+  route((req) =>
+    swarm.approveRequest(String(req.params.id), {
+      name: str(req.body?.name) || undefined,
+      model: typeof req.body?.model === 'string' ? req.body.model : undefined,
+      effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
+      note: str(req.body?.note),
+    }),
+  ),
 );
 app.post('/api/requests/:id/reject', route((req) => swarm.rejectRequest(String(req.params.id), str(req.body?.note))));
+// The demo office only: the CEO proposes a hire (or a let-go) on demand.
+app.post('/api/demo/proposals', route((req) => swarm.demoPropose(req.body?.kind, req.body?.floor)));
+
+// Office progression (#210): the lobby kiosk, a floor's decorations, the player's coffees, and the demo's coins and
+// tenure for QA.
+app.post('/api/repos/:repo/decor/buy', route((req) => swarm.buyDecoration(repoId(req), req.body?.item)));
+app.post('/api/repos/:repo/decor/place', route((req) => swarm.placeDecoration(repoId(req), req.body ?? {})));
+app.post('/api/progress/coffee', route((req) => swarm.drankCoffee(req.body?.id)));
+app.post('/api/progress/demo', route((req) => swarm.demoProgress(req.body ?? {})));
 
 // Serve the built client: the published package, or `npm start` after `npm run build`.
 const dist = path.resolve(import.meta.dirname, '../dist');

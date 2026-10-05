@@ -7,10 +7,10 @@ import { roombaChirp } from '../../ui/sfx';
 import { useInteractable } from '../interact';
 import { toon } from '../materials';
 import { BALLS, type ToyFloor } from './balls';
-import { setNpcRoomba } from './npc';
+import { setNpcRoomba, setRoombaRound } from './npc';
 import { onPoke } from './poke';
 import { setRoombaSource } from './probe';
-import { DOCK_SIZE, FULL, ROOMBA, ROOMBA_EVENT, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
+import { DOCK_SIZE, FULL, ROOMBA, ROOMBA_EVENT, createRoomba, dockFor, makeNav, roombaRects, roombaStatus, sendOut, spinRoomba, stepRoomba, type Dock, type Pt, type Roomba as Brain } from './roombaBrain';
 import { RoombaSounds } from './RoombaSounds';
 import { Vacuum } from './RoombaVacuum';
 
@@ -48,7 +48,8 @@ function Look({ brain, light }: { brain: Brain; light: THREE.MeshBasicMaterial }
   });
   const { r } = ROOMBA;
   return (
-    <group>
+    // userData.moving: High's contact-shadow bake (gfx/ContactShadows.tsx) leaves it out, so it leaves no ghost behind
+    <group userData={{ moving: true }}>
       <mesh position={[0, 0.045, 0]} castShadow material={toon('#f1f3f5')}>
         <cylinderGeometry args={[r, r, 0.07, 32]} />
         <Outlines thickness={0.01} color={INK} />
@@ -139,6 +140,7 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     let spins = 0;
     setRoombaSource(() => ({ x: brain.x, z: brain.z, state: brain.state, battery: Math.round(brain.battery * 100), spinning: brain.move === 'spin', spins }));
     setNpcRoomba(() => brain);
+    setRoombaRound(() => sendOut(brain));
     const off = onPoke('roomba', () => {
       if (brain.move !== 'spin') spins++;
       spinRoomba(brain);
@@ -147,6 +149,7 @@ export const Roomba = memo(function Roomba({ floor, groups, dockGroups }: { floo
     return () => {
       setRoombaSource(null);
       setNpcRoomba(null);
+      setRoombaRound(null);
       off();
     };
   }, [brain]);

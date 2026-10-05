@@ -13,18 +13,20 @@ import { CardLift } from './CardLift';
 import { BOARD_TEX, dependencyPairs } from './whiteboard';
 import { useA11y } from '../ui/a11y';
 import { showsShapes } from '../ui/a11yPrefs';
+import { officeNow } from '../officeTime';
 
 export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const qa = useStore((s) => s.qa);
+  const usageState = useStore((s) => s.usage.state);
   const palette = useA11y((s) => s.prefs.palette);
   const shapes = useA11y((s) => showsShapes(s.prefs));
-  const real = useMemo(() => kanbanFor(repo, agents, qa), [repo, agents, qa]);
+  const real = useMemo(() => kanbanFor(repo, agents, qa, { state: usageState }), [repo, agents, qa, usageState]);
   // what the 3D board shows: the real board, with moves held back until whoever makes them has placed the sticky
   const { shown: cols, ctrl } = useStickyBoard(real, agents);
   const strings = useMemo(() => dependencyPairs(repo.issues, repo.pulls, cols), [repo.issues, repo.pulls, cols]);
   // worked out on the minute, so the stats corner changes the board at most once a minute
   const stats = useMemo(() => {
-    const now = minuteOf(Date.now());
+    const now = minuteOf(officeNow()); // the replayed moment during the time-lapse
     return boardStats(repo.pulls, (n) => qa[qaKey(repo.id, n)], now, dayStartOf(now));
   }, [repo, qa]);
   const hands = useMemo(() => makeBoardHands(repo.id, ctrl), [repo.id, ctrl]);

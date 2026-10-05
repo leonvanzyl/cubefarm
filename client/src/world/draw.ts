@@ -1,6 +1,8 @@
 import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { testingLabel } from '../qaCard';
+import { officeNow } from '../officeTime';
+import { chipRects } from '../ui/channels';
 import { inkOn } from '../ui/colorMath';
 import { KIND_ICON, kindStrong, STANDARD_LOOK, STATUS_KIND, TONE_KIND, toneFill, type StatusKind, type StatusLook } from '../ui/statusLook';
 import { statsChips, type BoardStats } from './boardStats';
@@ -157,7 +159,7 @@ export function drawTerminal(
   if (agent.status === 'working' || agent.status === 'preparing') {
     const frame = Math.floor(now / 120) % SPINNER.length;
     const verb = agent.status === 'preparing' ? (agent.currentTool ?? 'Setting up worktree') : toolVerb(agent.currentTool) || VERBS[Math.floor(now / 6000) % VERBS.length];
-    const secs = agent.startedAt ? Math.floor((Date.now() - agent.startedAt) / 1000) : 0;
+    const secs = agent.startedAt ? Math.max(0, Math.floor((officeNow() - agent.startedAt) / 1000)) : 0;
     const mm = Math.floor(secs / 60);
     ctx.fillStyle = '#ff9e64';
     ctx.font = `600 ${fontSize}px ${MONO}`;
@@ -327,7 +329,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   }
 
   const top = NOTE.top;
-  const now = Date.now(); // a testing card's elapsed time: it only moves on when the board repaints anyway
+  const now = officeNow(); // a testing card's elapsed time: it only moves on when the board repaints anyway
   COLS.forEach((c, ci) => {
     const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
@@ -449,7 +451,7 @@ export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, 
     roundRect(ctx, pad + 3, pad + 7, nw + 2, nh + 2, 6);
     ctx.fill();
   }
-  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col, look), Date.now(), look);
+  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col, look), officeNow(), look);
   ctx.restore();
 }
 
@@ -610,10 +612,10 @@ export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: nu
   };
   ctx.fillStyle = '#23263a';
   ctx.font = `700 40px ${SANS}`;
-  ctx.fillText(fit(`${name} · candidate`, w - 100), 80, h * 0.36);
+  ctx.fillText(fit(`Candidate: ${name}`, w - 100), 80, h * 0.36);
   ctx.fillStyle = '#5c6078';
   ctx.font = `600 28px ${SANS}`;
-  ctx.fillText(fit(`${title}${floor ? ` · floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
+  ctx.fillText(fit(`${title}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
 }
 
 export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, lines: { text: string; size: number; color?: string; weight?: number }[], bg: string, fg = '#ffffff') {
@@ -713,13 +715,23 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, max: number) {
   return t;
 }
 
+/** A channel on the big screen's strip: main or an open PR, with its light. */
+export interface ScreenChip {
+  label: string;
+  on: boolean; // the channel on screen
+  led: 'live' | 'busy' | 'bad' | 'off';
+}
+
+const CHIP_LED: Record<ScreenChip['led'], string> = { live: '#7CFFB2', busy: '#ffd166', bad: '#ff6b6b', off: '#6c6c88' };
+
 export interface AppScreenInfo {
   floor: number;
   name: string;
   color: string;
-  preview: PreviewView;
-  shot: HTMLImageElement | null; // the latest agent screenshot on the floor, shown while the app is live
-  shotBy: string | null;
+  preview: PreviewView; // the channel on screen: the floor's main preview, or a PR's
+  shot: HTMLImageElement | null; // shown while the app is live: the latest agent screenshot on the floor, or QA's of the PR
+  shotCaption: string | null; // what the screenshot is, e.g. "latest from Ada's browser"
+  channels?: ScreenChip[]; // the channel strip, drawn when the floor has open PRs
 }
 
 /** The wall screen at the front of an office floor: the floor's app and how it's doing. */
@@ -767,10 +779,13 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillText(fitText(ctx, text, w - 100), w / 2, y);
     ctx.textAlign = 'left';
   };
-  const footer = (text: string, color = '#8d8da8') => centred(text, h - 50, 32, color, 600);
+  // With a channel strip along the bottom, the footer line sits above it.
+  const strip = info.channels && info.channels.length > 1 ? info.channels : null;
+  const footH = strip ? 200 : 100;
+  const footer = (text: string, color = '#8d8da8') => centred(text, h - footH + 50, 32, color, 600);
 
   const bodyTop = headH;
-  const midY = bodyTop + (h - headH - 100) / 2;
+  const midY = bodyTop + (h - headH - footH) / 2;
   const ref = p.ref ?? 'the app';
 
   if (p.status === 'stopped') {
@@ -865,8 +880,37 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.drawImage(img, 0, 0, tw / scale, th / scale, tx, ty, tw, th);
       ctx.font = `500 26px ${SANS}`;
       ctx.fillStyle = '#8d8da8';
-      ctx.fillText(fitText(ctx, info.shotBy ? `latest from ${info.shotBy}'s browser` : 'latest agent screenshot', tw), tx, ty + th + 36);
+      ctx.fillText(fitText(ctx, info.shotCaption ?? 'latest agent screenshot', tw), tx, ty + th + 36);
     }
     footer('Press E to open the app', TERM.done);
   }
+  if (strip) drawChannelStrip(ctx, w, h, strip, info.color);
+}
+
+/** The row of channel chips along the bottom of the big screen; aiming at one and pressing E switches to it. */
+function drawChannelStrip(ctx: CanvasRenderingContext2D, w: number, h: number, chips: ScreenChip[], color: string) {
+  const rects = chipRects(chips.length, w, h);
+  ctx.fillStyle = TERM.bar;
+  ctx.fillRect(0, rects[0].y - 16, w, h - rects[0].y + 16);
+  ctx.textBaseline = 'middle';
+  chips.forEach((c, i) => {
+    const r = rects[i];
+    roundRect(ctx, r.x, r.y, r.w, r.h, 18);
+    ctx.fillStyle = c.on ? color : '#3a3a52';
+    ctx.fill();
+    if (c.on) {
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    }
+    ctx.fillStyle = CHIP_LED[c.led];
+    ctx.beginPath();
+    ctx.arc(r.x + 26, r.y + r.h / 2, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `700 30px ${SANS}`;
+    ctx.fillStyle = c.on ? '#ffffff' : '#c8c8dc';
+    ctx.textAlign = 'center';
+    ctx.fillText(fitText(ctx, c.label, r.w - 56), r.x + r.w / 2 + 14, r.y + r.h / 2 + 1);
+    ctx.textAlign = 'left';
+  });
 }

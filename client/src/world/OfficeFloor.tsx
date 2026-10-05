@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import type { RepoView } from '../../../shared/types';
+import { EMPTY_NUMBERS, signLine } from '../ops';
 import { agentsOnRepo, floorPrCounts, useStore } from '../store';
+import { ActivityIcon } from './ActivityIcon';
+import { ActivityTicker } from './ActivityTicker';
 import { AppMonitor } from './AppMonitor';
 import { Desk } from './Desk';
 import { drawSign } from './draw';
@@ -14,7 +17,12 @@ import { Leaver, useLeavers } from './Leavers';
 import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
+import { Beacon, useFloorAlarm } from './MissionControl';
+import { CoinBurst } from './decor/CoinBurst';
+import { Decorations } from './decor/Decorations';
+import { DeskStory, MvpSign } from './desk/DeskStory';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
+import { OfficeRituals } from './Rituals';
 import { Shell } from './Shell';
 import { Toys } from './toys';
 
@@ -55,6 +63,9 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
   const qaRecords = useStore((s) => s.qa);
   const { inQa, ready } = useMemo(() => floorPrCounts(repo, qaRecords), [repo, qaRecords]);
+  // Mission control's numbers for this floor, compact, on its team sign; the beacon on top spins while something here needs you.
+  const ops = useStore((s) => signLine(s.ops.floors.find((f) => f.repoId === repo.id) ?? EMPTY_NUMBERS));
+  const { alarm, ref: signRef } = useFloorAlarm(repo.id);
   const name = repo.fullName.split('/')[1] ?? repo.fullName;
   const rugColor = shade(repo.color, 0.24);
 
@@ -84,12 +95,19 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
       />
 
       <KanbanBoard repo={repo} agents={agents} />
+      <ActivityTicker repoId={repo.id} />
+      {agents.map((a) => <ActivityIcon key={a.id} agent={a} />)}
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
+      <CoinBurst repo={repo} agents={agents} />
+      <DeskStory agents={agents} />
+      <MvpSign agents={agents} />
+      <Decorations repo={repo} />
       <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
       <ErrandDirector floor="office" agents={agents} leavers={leavers} onGone={gone} repoId={repo.id} />
+      <OfficeRituals repo={repo} agents={agents} />
       {leavers.map((a) => (
         <Leaver key={a.id} agent={a} />
       ))}
@@ -113,25 +131,31 @@ export function OfficeFloor({ repo }: { repo: RepoView }) {
         }
         deps={[repo.floor, repo.fullName, repo.description, repo.color]}
       />
-      <WallSign
-        position={[4.6, 1.95, HALF_D - 0.03]}
-        size={[4.2, 1.3]}
-        px={[1024, 317]}
-        draw={(ctx) =>
-          drawSign(
-            ctx,
-            1024,
-            317,
-            [
-              { text: `👩‍💻 ${agents.length} on the team`, size: 54, color: '#2d3142' },
-              { text: `⚙️ ${working} busy · 🔍 ${inQa} in QA · ✅ ${ready} to merge`, size: 46, color: '#2d3142', weight: 600 },
-              { text: `📋 ${repo.issues.length} open issue${repo.issues.length === 1 ? '' : 's'}${repo.autoAssign ? ' · ⚡ auto' : ''}`, size: 44, color: '#5c6078', weight: 500 },
-            ],
-            '#fffdf5',
-          )
-        }
-        deps={[agents.length, working, inQa, ready, repo.issues.length, repo.autoAssign]}
-      />
+      <group ref={signRef}>
+        <WallSign
+          position={[4.6, 1.95, HALF_D - 0.03]}
+          size={[4.2, 1.3]}
+          px={[1024, 317]}
+          draw={(ctx) =>
+            drawSign(
+              ctx,
+              1024,
+              317,
+              [
+                { text: `👩‍💻 ${agents.length} on the team`, size: 50, color: '#2d3142' },
+                { text: `⚙️ ${working} busy · 🔍 ${inQa} in QA · ✅ ${ready} to merge`, size: 42, color: '#2d3142', weight: 600 },
+                { text: `📋 ${repo.issues.length} open issue${repo.issues.length === 1 ? '' : 's'}${repo.autoAssign ? ' · ⚡ auto' : ''}`, size: 40, color: '#5c6078', weight: 500 },
+                alarm ? { text: `🚨 ${alarm.text.split(':')[0]} · press E`, size: 38, color: '#d62839' } : { text: ops, size: 36, color: '#3a6ea5', weight: 600 },
+              ],
+              '#fffdf5',
+            )
+          }
+          deps={[agents.length, working, inQa, ready, repo.issues.length, repo.autoAssign, ops, alarm?.text]}
+        />
+        <group position={[4.6, 2.62, HALF_D - 0.12]}>
+          <Beacon on={!!alarm} size={0.12} />
+        </group>
+      </group>
 
       <Plant position={[-7.1, 0, -HALF_D + 0.7]} />
       <Plant position={[7.1, 0, -HALF_D + 0.7]} />

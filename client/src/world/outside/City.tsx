@@ -3,9 +3,10 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../../store';
+import { markBloom } from '../gfx/bloomMarks';
 import { dayTime } from '../sky/useDayTime';
 import { skyAt, sunDirection } from '../sky/time';
-import { floorElevation } from '../layout';
+import { viewElevation } from '../layout';
 import { carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, MAX_CARS, type CityBox } from './cityLayout';
 
 // The city around the building (cityLayout.ts says where everything is). Six draw calls: the buildings (one
@@ -372,7 +373,8 @@ function buildCity() {
 
   const buildingGeo = unitBox();
   buildingGeo.setAttribute('aWin', new THREE.InstancedBufferAttribute(new Float32Array(layout.buildings.flatMap((b) => [b.lit, b.pattern])), 2));
-  const buildings = instanced(buildingGeo, material(BUILDING_VERT, BUILDING_FRAG, { uWindows: { value: windows } }), layout.buildings);
+  // the lit windows, street lamps and headlights bloom after dusk
+  const buildings = instanced(buildingGeo, markBloom(material(BUILDING_VERT, BUILDING_FRAG, { uWindows: { value: windows } }), 'night'), layout.buildings);
 
   const propMat = material(PROP_VERT, PROP_FRAG);
   const boxes = instanced(unitBox(), propMat, layout.boxes);
@@ -393,11 +395,12 @@ function buildCity() {
       uCars: { value: [...cars, ...Array.from({ length: MAX_CARS - cars.length }, () => new THREE.Vector4(0, 1e5, 0, 1))] },
     }),
   );
+  markBloom(ground.material, 'night');
   ground.renderOrder = 1;
 
   const carGeo = carGeometry();
   carGeo.setAttribute('aBus', new THREE.InstancedBufferAttribute(new Float32Array(routes.map((r) => (r.bus ? 1 : 0))), 1));
-  const traffic = new THREE.InstancedMesh(carGeo, material(CAR_VERT, CAR_FRAG), routes.length);
+  const traffic = new THREE.InstancedMesh(carGeo, markBloom(material(CAR_VERT, CAR_FRAG), 'night'), routes.length);
   const c = new THREE.Color();
   routes.forEach((r, i) => traffic.setColorAt(i, c.setHex(r.color)));
   traffic.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -450,10 +453,11 @@ let probe: { buildings: number; cars: number; elevation: number } = { buildings:
 /** The city around the building, at the current floor's height below you. Mounted once, in Game.tsx. */
 export function City() {
   const floor = useStore((s) => s.floor);
+  const top = useStore((s) => s.repos.reduce((m, r) => Math.max(m, r.floor), 0));
   const city = useMemo(buildCity, []);
   useEffect(() => () => city.dispose(), [city]);
   // A hair below street level, so the plaza never fights the lobby's floor.
-  const elevation = floorElevation(floor);
+  const elevation = viewElevation(floor, top);
   probe = { buildings: city.layout.buildings.length, cars: city.routes.length, elevation };
 
   useFrame(({ clock }) => {

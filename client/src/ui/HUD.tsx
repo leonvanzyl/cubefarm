@@ -1,12 +1,20 @@
 import { useMemo } from 'react';
+import { AgentCard } from './AgentCard';
 import { floorPrCounts, repoOnFloor, usePhoneBadge, useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
 import { HeldHint } from './HeldHint';
+import { CareerPeek } from './CareerCard';
+import { CoinChip } from './CoinChip';
+import './progressProbe';
 import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { officeUpdateChip } from '../officeUpdate';
 import { useA11y } from './a11y';
+import { ROOF } from '../world/layout';
+import { useRoof } from '../world/roof/roofState';
+import { RoofHud } from './RoofHud';
+import { usageChip } from '../ops';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
 function OfficeUpdateChip() {
@@ -16,6 +24,21 @@ function OfficeUpdateChip() {
   if (!text || overlay?.kind === 'manager') return null;
   return (
     <button className="office-chip" onClick={() => openOverlay({ kind: 'manager', tab: 'floors' })} title="The office is updating itself. Open the manager's console">
+      {text}
+    </button>
+  );
+}
+
+/** While Claude's usage holds new work back (pacing or paused); opens Mission control at the usage meter. */
+function UsageChip() {
+  const usage = useStore((s) => s.usage);
+  const sessions = useStore((s) => s.settings.pacingSessions);
+  const overlay = useStore((s) => s.overlay);
+  const openOverlay = useStore((s) => s.openOverlay);
+  const text = usageChip(usage, sessions, Date.now());
+  if (!text || overlay?.kind === 'manager') return null;
+  return (
+    <button className={`office-chip usage-chip usage-chip-${usage.state}`} onClick={() => openOverlay({ kind: 'manager', tab: 'ops', card: 'usage' })} title="Claude's usage is holding new work back. Open Mission control">
       {text}
     </button>
   );
@@ -60,6 +83,7 @@ export function HUD() {
   const settings = useStore((s) => s.settings);
   const connected = useStore((s) => s.connected);
   const restarting = useStore((s) => s.restarting);
+  const replaying = useStore((s) => s.replaying);
   const demo = useStore((s) => s.demo);
   const user = useStore((s) => s.user);
   const ghReady = useStore((s) => s.ghReady);
@@ -79,7 +103,9 @@ export function HUD() {
   const dismiss = useStore((s) => s.dismissToast);
   const centerDot = useA11y((s) => s.prefs.centerDot);
 
-  const repo = floor === 0 ? null : repoOnFloor(repos, floor);
+  const roof = floor === ROOF;
+  const scope = useRoof((s) => s.telescope); // the telescope's eyepiece has its own crosshair
+  const repo = floor === 0 || roof ? null : repoOnFloor(repos, floor);
   const running = useMemo(() => Object.values(agents).filter((a) => a.status === 'working' || a.status === 'preparing').length, [agents]);
   const floorAgents = repo ? Object.values(agents).filter((a) => a.repoId === repo.id) : [];
   const qa = useStore((s) => s.qa);
@@ -87,38 +113,46 @@ export function HUD() {
 
   return (
     <div className="hud">
-      <div className="hud-floor" style={{ ['--accent' as string]: repo?.color ?? '#ff8a5b' }}>
-        <div className="floor-num">{repo ? repo.floor : 'G'}</div>
+      <div className="hud-floor" style={{ ['--accent' as string]: roof ? '#7cc6fe' : (repo?.color ?? '#ff8a5b') }}>
+        <div className="floor-num">{roof ? 'R' : repo ? repo.floor : 'G'}</div>
         <div>
-          <div className="floor-name">{repo ? repo.fullName : `${settings.companyName || 'cubefarm'} · Lobby`}</div>
+          <div className="floor-name">{roof ? `${settings.companyName || 'cubefarm'} · Roof terrace` : repo ? repo.fullName : `${settings.companyName || 'cubefarm'} · Lobby`}</div>
           <div className="floor-sub">
-            {repo && prs
-              ? `${floorAgents.length} agents · ${floorAgents.filter((a) => a.status === 'working' || a.status === 'preparing').length} working · ${prs.inQa} in QA · ${prs.ready} ready to merge${prs.needsYou ? ` · ${prs.needsYou} need${prs.needsYou === 1 ? 's' : ''} you` : ''}`
-              : `${repos.length} floor${repos.length === 1 ? '' : 's'} connected`}
+            {roof
+              ? 'deck chairs, the barbecue and the telescope'
+              : repo && prs
+                ? `${floorAgents.length} agents · ${floorAgents.filter((a) => a.status === 'working' || a.status === 'preparing').length} working · ${prs.inQa} in QA · ${prs.ready} ready to merge${prs.needsYou ? ` · ${prs.needsYou} need${prs.needsYou === 1 ? 's' : ''} you` : ''}`
+                : `${repos.length} floor${repos.length === 1 ? '' : 's'} connected`}
           </div>
         </div>
       </div>
 
       <div className="hud-status">
         {demo && <span className="pill pill-demo">DEMO</span>}
-        <span className={`pill ${connected ? 'pill-ok' : restarting ? 'pill-demo' : 'pill-bad'}`}>{connected ? '● live' : restarting ? '○ restarting' : '○ reconnecting'}</span>
+        <span className={`pill ${replaying ? 'pill-replay' : connected ? 'pill-ok' : restarting ? 'pill-demo' : 'pill-bad'}`}>{replaying ? '▶ replay' : connected ? '● live' : restarting ? '○ restarting' : '○ reconnecting'}</span>
         <span className="pill">
           ⚙️ {settings.sessionLimit ? `${running}/${settings.sessionLimit}` : running} sessions
         </span>
+        <CoinChip />
         {user && <span className="pill">🐙 {user}</span>}
       </div>
 
       <WorkersPanel />
-      <OfficeUpdateChip />
+      <div className="hud-chips">
+        <OfficeUpdateChip />
+        <UsageChip />
+      </div>
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
       {/* the centre dot (Settings → Accessibility) is a bolder crosshair that stays through the elevator's fade too */}
-      {started && !overlay && (!travel || centerDot) && <div className={`crosshair ${focus ? 'crosshair-hot' : ''} ${centerDot ? 'crosshair-dot' : ''}`} />}
+      {started && !overlay && (!travel || centerDot) && !scope && <div className={`crosshair ${focus ? 'crosshair-hot' : ''} ${centerDot ? 'crosshair-dot' : ''}`} />}
+      {started && !overlay && !travel && <RoofHud />}
+      <AgentCard />
       {started && !overlay && (focus || sip) && (
         <div className="hud-hint">
           <kbd>E</kbd> {!held && <>/ <kbd>Click</kbd> </>}
-          {sip ? 'Sip coffee' : (dropLabel ?? focus?.label)}
+          {sip ? (held?.kind === 'sausage' ? 'Take a bite' : 'Sip coffee') : (dropLabel ?? focus?.label)}
           {!held && focus?.action.kind === 'card' && focus.action.peel && (
             <>
               {' '}
@@ -134,6 +168,7 @@ export function HUD() {
         </div>
       )}
       {started && !overlay && !travel && <HeldHint />}
+      {started && !overlay && !travel && <CareerPeek />}
       {started && !overlay && !locked && !travel && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
@@ -142,7 +177,7 @@ export function HUD() {
       )}
 
       <div className={`fade ${travel?.phase === 'closing' ? 'fade-in' : ''}`}>
-        {travel && <div className="fade-label">{travel.to === 0 ? 'Lobby' : `Floor ${travel.to}`}</div>}
+        {travel && <div className="fade-label">{travel.to === 0 ? 'Lobby' : travel.to === ROOF ? 'Roof' : `Floor ${travel.to}`}</div>}
       </div>
 
       <PhoneButton />

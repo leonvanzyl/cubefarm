@@ -9,8 +9,10 @@ import type { RepoView } from '../../../shared/types';
 import { coversView, useStore, type Agent } from '../store';
 import { reduceMotion } from '../ui/a11y';
 import { burstKind, onMerge } from './confetti';
+import { markBloom } from './gfx/bloomMarks';
 import { onGongParty } from './gongState';
 import { BOARD, GONG, deskPosition } from './layout';
+import { PIZZA_CONFETTI, ritualLook } from './ritualLook';
 
 const SLOTS = 3; // bursts at once
 const PIECES = 90; // per burst
@@ -78,8 +80,9 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       phase: new Float32Array(n),
       dummy: new THREE.Object3D(),
       colors: [...PALETTE, repo.color].map((c) => new THREE.Color(c)),
+      pizza: PIZZA_CONFETTI.map((c) => new THREE.Color(c)),
       geometry: new THREE.PlaneGeometry(0.1, 0.06),
-      material: new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false }),
+      material: markBloom(new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false })),
       glowMaterials: Array.from(
         { length: SLOTS },
         () =>
@@ -150,6 +153,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
         return;
       }
       sim.slots[s] = { key, age: 0, glow: false };
+      const colors = ritualLook.pizza ? sim.pizza : sim.colors; // Friday pizza: the party's in pizza colours
       for (let k = 0; k < PIECES; k++) {
         const i = s * PIECES + k;
         const a = Math.random() * Math.PI * 2;
@@ -160,7 +164,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
         sim.rot.set([Math.random() * 6, Math.random() * 6, Math.random() * 6], i * 3);
         sim.spin.set([(Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 14], i * 3);
         sim.phase[i] = Math.random() * Math.PI * 2;
-        m.setColorAt(i, sim.colors[Math.floor(Math.random() * sim.colors.length)]);
+        m.setColorAt(i, colors[Math.floor(Math.random() * colors.length)]);
       }
       m.instanceColor!.needsUpdate = true;
       m.visible = true;

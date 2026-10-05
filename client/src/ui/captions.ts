@@ -82,9 +82,11 @@ function anchorOf(name: string): Vec3 | null {
   return null;
 }
 
-/** What an alarm is about: the first PR waiting on the manager. */
+/** What an alarm is about: mission control's newest alarm, else the first PR waiting on the manager. */
 function alarmDetail(): string | undefined {
-  const { qa } = useStore.getState();
+  const { ops, qa } = useStore.getState();
+  const last = ops.alarms[ops.alarms.length - 1];
+  if (last) return last.kind === 'pr' && last.prNumber !== null ? `PR #${last.prNumber} needs you` : last.text.split(':')[0];
   const q = Object.values(qa).find((r) => needsManager(r));
   return q ? `PR #${q.prNumber} needs you` : undefined;
 }

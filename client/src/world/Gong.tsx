@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Outlines } from '@react-three/drei';
 import * as THREE from 'three';
+import { markBloom } from './gfx/bloomMarks';
 import { gongState, hitGong, setGongHere } from './gongState';
 import { flashLevel, swingAngle, twistAngle } from './gongRules';
 import { malletHolder, pumpGongRuns, resetGongRuns } from './gongRunner';
@@ -29,7 +30,7 @@ const HANG_Y = h - 0.18; // the crossbar's underside, where the disc's ropes han
 const DROP = HANG_Y - y; // pivot to the disc's centre
 
 // Shared by every floor's gong (only one is drawn at a time), so nothing is made per strike.
-const glowMat = new THREE.MeshBasicMaterial({ color: '#fff3b0', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+const glowMat = markBloom(new THREE.MeshBasicMaterial({ color: '#fff3b0', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
 const ringMat = glowMat.clone();
 const discGeo = new THREE.CylinderGeometry(r, r, 0.07, 40);
 const faceGeo = new THREE.CylinderGeometry(r * 0.86, r * 0.86, 0.09, 40);

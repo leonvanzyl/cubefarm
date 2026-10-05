@@ -4,8 +4,10 @@ import { SENSITIVITY_MAX, SENSITIVITY_MIN, useLookPrefs } from '../world/look';
 import { CEO_ID } from '../../../shared/types';
 import { AppViewer } from './AppViewer';
 import { CardView } from './CardView';
+import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ElevatorPanel } from './ElevatorPanel';
 import { FloorList } from './FloorList';
+import { Interview } from './Interview';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
 import { Panel } from './Panel';
@@ -15,6 +17,8 @@ import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
 import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
+import { GRAPHICS_PRESETS, type GraphicsPreset } from '../world/gfx/quality';
+import { effectiveTier, setGraphicsPreset, useGfx } from '../world/gfx/useGraphics';
 
 export { closeOverlay, Panel } from './Panel';
 
@@ -110,6 +114,30 @@ function DaySettings() {
   );
 }
 
+const GRAPHICS_LABELS: Record<GraphicsPreset, string> = { low: 'Low', medium: 'Medium', high: 'High', auto: 'Auto' };
+
+/** Graphics quality: Low, Medium, High or Auto (which shows the tier it has settled on); saved in this browser. */
+function GraphicsSettings() {
+  const preset = useGfx((s) => s.preset);
+  const tier = useGfx(effectiveTier);
+  const blocked = useGfx((s) => s.blocked);
+  return (
+    <div className="day-settings" role="radiogroup" aria-label="Graphics quality">
+      <span>Graphics</span>
+      {GRAPHICS_PRESETS.map((p) => (
+        <label key={p} className="toggle">
+          <input type="radio" name="graphics" checked={preset === p} onChange={() => setGraphicsPreset(p)} /> {GRAPHICS_LABELS[p]}
+        </label>
+      ))}
+      {blocked ? (
+        <span className="muted small">Effects are off: {blocked}.</span>
+      ) : (
+        preset === 'auto' && <span className="muted small">now {GRAPHICS_LABELS[tier]}</span>
+      )}
+    </div>
+  );
+}
+
 function Help() {
   return (
     <Panel title="How the office works">
@@ -131,6 +159,12 @@ function Help() {
         <p>
           Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
           arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <kbd>E</kbd> for a happy spin.
+        </p>
+        <h3>The office dog</h3>
+        <p>
+          One dog roams the whole building, taking the elevator between floors now and then. Aim at it and press <kbd>E</kbd> to pet it: it wiggles and follows you for a while (into the elevator too).
+          Hold a ball and it watches it eagerly; throw it and it fetches it back to your feet. It naps on the couch or a rug when the floor is quiet, sits with anyone having a hard time
+          (red checks, a third round of fixes, or a PR stuck for a human) and celebrates a merge with its author. Rename it in Settings.
         </p>
         <h3>Foam blasters</h3>
         <p>
@@ -157,15 +191,38 @@ function Help() {
         <h3>Outside</h3>
         <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
         <DaySettings />
+        <h3>Graphics</h3>
+        <p>
+          <b>Low</b> is the plain cartoon look and the lightest on your laptop. <b>Medium</b> adds glow: screens, lamps, the jukebox and, after dark, the city's windows and the moon, and the monitors light up desks and faces at
+          night. <b>High</b> adds soft shadows where things meet the floor and colour that follows the time of day. <b>Auto</b> starts on High and steps down when frames get slow, then back up once there's room. Saved in this
+          browser.
+        </p>
+        <GraphicsSettings />
         <h3>The building</h3>
         <p>
-          The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the entrance. Every connected GitHub repo gets its own
+          The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the glass door. Walk up to one and press <kbd>E</kbd> to interview them: hire them and they shake your hand and take the elevator up to their floor for a welcome tour; decline and they leave by the door. When the CEO suggests letting someone go, an envelope waits on their desk. Every connected GitHub repo gets its own
           floor. To travel, walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel. In the lobby, the directory beside it works too.
+        </p>
+        <p>
+          The elevator's top stop is the roof terrace (<kbd>R</kbd> on its panel). Sit back in a deck chair (<kbd>E</kbd>; walk or press <kbd>E</kbd> to get up), grill a sausage at the barbecue (<kbd>E</kbd> puts one
+          on and turns it, <kbd>E</kbd> again takes it once it's done, then <kbd>E</kbd> eats it a bite at a time), or look through the telescope (<kbd>E</kbd>; the mouse aims and the wheel zooms): the
+          billboards on the rooftops by day, the moon and the constellations at night. The string lights come on at dusk. Idle teammates go up for a break now and then, and the CEO takes calls up there.
+        </p>
+        <h3>Mission control</h3>
+        <p>
+          The curved bank of screens behind reception shows the whole company at a glance: the pipeline (issues ready, being built, in QA, being fixed, ready to merge, needing you), merges today and over the last 24 hours, lead time, QA wait and CI, who's busy, and an estimate of today's cost. Each floor's team sign has a short line of its own numbers. The bottom middle screen is Claude's usage meter: while the office paces itself after a usage warning, press <kbd>E</kbd> on it to resume full speed (if you've topped up or your usage was reset). When a PR needs you, or someone has been stuck on an error for 10 minutes, the beacon on top spins (and the one on that floor's sign) with a calm chime: press <kbd>E</kbd> on it to open the console at that card. The manager's console has it all too, under Mission control.
+        </p>
+        <h3>Time-lapse</h3>
+        <p>
+          Missed the day? The manager's console → 📼 Time-lapse (or the screen by the lobby's hoop) replays it right here in the office at up to 600× speed, or just what happened while you were away. Merges still bang the gong.
+          While it plays, <kbd>Esc</kbd> frees the mouse and <kbd>Esc</kbd> again goes back to the live office.
         </p>
         <h3>Your phone</h3>
         <p>
           Press <kbd>P</kbd> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, see every project at a glance, or play Cubetris, Cable Snake or look after your Desk Pet while the team works. The red badge counts decisions and messages waiting for you. In the chat, and in an agent's
-          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.
+          terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line. To talk instead of type, hold the 🎙️ next to Send, or hold <kbd>V</kbd> in the message box, and speak: your
+          words fill the box to edit before you send (a tap of the 🎙️ listens until you stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after
+          the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's speech recognition or ElevenLabs.
         </p>
         <h3>Who's working</h3>
         <p>
@@ -185,6 +242,17 @@ function Help() {
           <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model, effort, title, specialty and job description. Changes apply from their next task, so nothing is interrupted.
           Open <b>What they're told</b> there to read the full prompt the office gives them, with their job description highlighted. The CEO's model, effort and prompt are in the console's CEO tab.
         </p>
+        <h3>Coins, decorations and trophies</h3>
+        <p>
+          Every merged PR earns its floor coins (🪙 at the top right): 10 a merge, 5 more when QA passed it first time, 5 when its checks were green first time, and 10 for the third merge on a floor within an hour. Nothing
+          ever costs coins but the catalogue. Spend them at the catalogue kiosk in the lobby; what you buy waits in the floor's 📦 decor box by its elevator. Take something out, walk to a glowing spot and press <kbd>E</kbd>:
+          it snaps in. <kbd>E</kbd> on a placed decoration picks it up to move it, and the box puts things away. The arcade cabinet plays your phone's games. Achievements fill the trophy shelf in the lobby: <kbd>E</kbd> on a
+          trophy says what it was for and when.
+        </p>
+        <p>
+          Desks tell their owner's story: a plaque on the monitor for every merged PR, a gold star for ten first-time QA passes, specialty stickers, and a plant, a photo and a desk toy that arrive with time on the team. Look at a
+          desk for a moment to see its career card (or open <b>🏅 Career</b> in their panel); the console's Team tab compares everyone.
+        </p>
         <h3>The QA lab</h3>
         <p>
           The testers in lab coats along the east wall check every pull request before it can be merged. They run the tests, click through the change in a real browser, and post a report with screenshots on the PR. If a PR
@@ -201,7 +269,9 @@ function Help() {
           depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue and anything that needs you.
         </p>
         <p>
-          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app.
+          The big screen to the left of the whiteboard shows the floor's app once its preview is running: press <kbd>E</kbd> or click it to open the app. With PRs open, its bottom row
+          has a channel for each: aim at one and press <kbd>E</kbd> to run that PR beside the main app (at most two PR previews run at once). In the viewer, <b>Compare with main</b> puts
+          them side by side, and the PR's checks and QA report sit beside it.
         </p>
         <HelpAccess />
       </div>
@@ -243,13 +313,19 @@ export function Overlays() {
     case 'card':
       return <CardView repoId={overlay.repoId} cardKey={overlay.key} number={overlay.number} pr={overlay.pr} />;
     case 'app':
-      return <AppViewer repoId={overlay.repoId} />;
+      return <AppViewer repoId={overlay.repoId} pr={overlay.pr} />;
     case 'elevator':
       return <ElevatorPanel />;
     case 'manager':
-      return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} />;
+      return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
+    case 'interview':
+      return <Interview requestId={overlay.requestId} />;
     case 'help':
       return <Help />;
+    case 'catalogue':
+      return <Catalogue repoId={overlay.repoId} />;
+    case 'decor-box':
+      return <DecorBoxPanel repoId={overlay.repoId} />;
     case 'floorList':
       return <FloorList />;
   }

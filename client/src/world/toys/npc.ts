@@ -7,7 +7,7 @@
 import { useStore } from '../../store';
 import type { BallKind } from './balls';
 import type { Vec3 } from './hoopScore';
-import type { NpcAim, NpcPose } from './npcAim';
+import type { NpcAim, NpcPose, Stance } from './npcAim';
 
 // ---------- state ----------
 
@@ -43,6 +43,7 @@ const catching = new Map<string, string>();
 const scored = new Map<string, number>();
 let balls: NpcBall[] = [];
 let roomba: (() => NpcRoomba) | null = null;
+const stances = new Map<string, () => Stance>();
 const stats = { shots: 0, tosses: 0, baskets: 0, catches: 0, pokes: 0, taken: 0 };
 
 /** The roomba, as the people walking past it see it. */
@@ -185,6 +186,24 @@ export function setNpcBalls(list: NpcBall[] | null) {
 export function setNpcRoomba(fn: (() => NpcRoomba) | null) {
   roomba = fn;
 }
+
+/** Hands that aren't a person's (the dog's mouth): where `who` stands, for the toy world to carry their ball. */
+export function setNpcStance(who: string, fn: (() => Stance) | null) {
+  if (fn) stances.set(who, fn);
+  else stances.delete(who);
+}
+
+export const npcStance = (who: string) => stances.get(who)?.();
+
+let round: (() => boolean) | null = null;
+
+/** The roomba registers how to send it out on a round (the rituals' wind-down). */
+export function setRoombaRound(fn: (() => boolean) | null) {
+  round = fn;
+}
+
+/** Sends the floor's roomba off its dock for a clean now; false when it's already out (or there's none). */
+export const roombaRound = () => round?.() ?? false;
 
 /** For window.__swarmToys: who holds what, and what the people on toy errands have done this session. */
 export function npcSnapshot() {

@@ -3,11 +3,12 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Focus } from '../store';
 import { api } from '../api';
-import { EYE_HEIGHT, SPAWN, collide, surfaceAt, type Rect } from './layout';
+import { EYE_HEIGHT, ROOF, SPAWN, collide, surfaceAt, type Rect } from './layout';
 import { interactables } from './interact';
 import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
+import { confirmResume } from '../ui/MissionConsole';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
 import { getA11y } from '../ui/a11y';
 import { footstepsFollow } from '../ui/footsteps';
@@ -19,9 +20,13 @@ import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
+import { tuneChannel } from '../ui/theatre';
+import { decorationAction } from './decor/actions';
 import { eAction } from './toys/sip';
 import { sipCoffee, sipPose, tickSip } from './toys/sipping';
 import { peelAimed, placeSticky, pressBoard, releaseBoard } from './boardHands';
+import { leavePerch, perch, takePerchTurn, type Perch } from './perch';
+import { roofAction } from './roof/roofState';
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -82,8 +87,24 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
     jukeboxAction(focus.action.op);
     return;
   }
+  if (focus.action.kind === 'decoration' || focus.action.kind === 'trophy') {
+    decorationAction(focus.action);
+    return;
+  }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'roof') {
+    roofAction(focus.action.op);
+    return;
+  }
+  if (focus.action.kind === 'channel') {
+    tuneChannel(focus.action.repoId, focus.action.pr);
+    return;
+  }
+  if (focus.action.kind === 'resume') {
+    void confirmResume();
     return;
   }
   if (focus.action.kind === 'hire') {
@@ -111,6 +132,9 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   s.openOverlay(focus.action);
 }
 
+// The keys that walk, and so get you up from a perch (a deck chair, the telescope).
+const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
+
 const isTyping = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
@@ -125,12 +149,14 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   const center = useMemo(() => new THREE.Vector2(0, 0), []);
   const frame = useRef(0);
   const lookFilter = useMemo(createLookFilter, []);
+  const perched = useRef<Perch | null>(null);
 
   // Arrive at the elevator whenever the floor changes; after a page reload, return to the remembered spot.
   const restored = useRef(false);
   useEffect(() => {
     const saved = restored.current ? null : loadView();
     restored.current = true;
+    perched.current = null; // a perch left behind on the old floor doesn't stand you at its exit here
     if (saved && saved.floor === floor) {
       camera.position.set(saved.x, EYE_HEIGHT, saved.z);
       look.current = { yaw: saved.yaw, pitch: saved.pitch };
@@ -160,8 +186,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (document.pointerLockElement !== gl.domElement) return requestLook();
       const s = useStore.getState();
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
-      // The coffee machine takes a click with your hands full (that's how the mug goes in).
-      if (s.held && s.focus?.action.kind !== 'coffee') startCharge();
+      // The coffee machine takes a click with your hands full (that's how the mug goes in), and a decoration goes where you click.
+      if (s.held && s.focus?.action.kind !== 'coffee' && s.held.kind !== 'decor') startCharge();
       else if (s.focus && !pressBoard(s.focus)) runFocusAction(s.focus, 'click'); // on a sticky, holding peels it off
     };
     const onMouseUp = (e: MouseEvent) => {
@@ -187,9 +213,10 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       lookDiag.skipped = lookFilter.skipped;
       if (!d) return;
       const { sensitivity, invertY } = useLookPrefs.getState();
-      const k = LOOK_RADIANS_PER_PX * sensitivity;
+      const p = perch();
+      const k = LOOK_RADIANS_PER_PX * sensitivity * (p?.look ?? 1);
       look.current.yaw -= d[0] * k;
-      look.current.pitch = Math.max(-1.35, Math.min(1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
+      look.current.pitch = Math.max(p?.minPitch ?? -1.35, Math.min(p?.maxPitch ?? 1.35, look.current.pitch - d[1] * k * (invertY ? -1 : 1)));
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
@@ -200,13 +227,21 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       }
       if (s.overlay || !s.started || isConfirmOpen()) return;
       keys.current.add(e.code);
+      // Perched (a deck chair, the telescope): walking, Space or E gets you up, though E with food in hand still eats.
+      if (perch() && !e.repeat && (MOVE_KEYS.has(e.code) || (e.code === 'KeyE' && eAction(s.held, s.focus?.action.kind ?? null) !== 'sip'))) {
+        leavePerch();
+        return;
+      }
       // E acts on the crosshair's target, even with your hands full (a panel opening drops the ball). With coffee in
       // hand it takes a sip instead, except at the coffee machine.
       if (e.code === 'KeyE' && !e.repeat) {
         const act = eAction(s.held, s.focus?.action.kind ?? null);
         if (act === 'sip') sipCoffee();
         else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
-        else if (s.focus) runFocusAction(s.focus);
+        else if (s.focus) {
+          if (s.focus.action.kind === 'phone') e.preventDefault(); // don't type the "e" into the phone's message box
+          runFocusAction(s.focus);
+        }
       }
       // − and + turn the jukebox down and up while you look at it.
       if (s.focus?.action.kind === 'jukebox') {
@@ -278,11 +313,18 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     const fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
     const strafe = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     const speed = k.has('ShiftLeft') || k.has('ShiftRight') ? 6.5 : 3.6;
+    // Perched, the eye stays put and the view starts the perch's way; got up, you stand at its exit.
+    const p = perch();
+    if (p !== perched.current) {
+      if (!p && perched.current) camera.position.set(perched.current.exit.x, camera.position.y, perched.current.exit.z);
+      perched.current = p;
+    }
+    if (p && takePerchTurn()) look.current = { yaw: p.yaw, pitch: p.pitch };
     const { yaw, pitch } = look.current;
     let moving = false;
     walk.x = 0;
     walk.z = 0;
-    if ((fwd || strafe) && !s.travel) {
+    if ((fwd || strafe) && !s.travel && !p) {
       const len = Math.hypot(fwd, strafe);
       const sin = Math.sin(yaw);
       const cos = Math.cos(yaw);
@@ -302,20 +344,25 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     bob.current += moving ? dt * speed * 2.2 : 0;
     // Head bob and the head tipping back for a sip can be turned off (Settings → Accessibility, motion comfort).
     const comfort = getA11y();
-    camera.position.y = EYE_HEIGHT + (moving && comfort.headBob ? Math.sin(bob.current) * 0.035 : 0);
-    footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
+    if (p) {
+      camera.position.set(p.x, p.y, p.z);
+      p.yaw = yaw;
+      p.pitch = pitch;
+    } else camera.position.y = EYE_HEIGHT + (moving && comfort.headBob ? Math.sin(bob.current) * 0.035 : 0);
+    footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === ROOF ? 'roof' : floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
     tickSip();
-    camera.rotation.set(pitch + (comfort.cameraShake ? sipPose.head : 0), yaw, 0, 'YXZ');
+    camera.rotation.set(pitch + (p?.tilt ?? 0) + (comfort.cameraShake ? sipPose.head : 0), yaw, 0, 'YXZ');
 
     const now = performance.now();
     if (s.started && !s.travel && now - lastSave.current > 1000) {
       lastSave.current = now;
-      saveView({ floor: s.floor, x: camera.position.x, z: camera.position.z, yaw, pitch });
+      const at = p ? p.exit : camera.position; // a reload stands you up beside your deck chair
+      saveView({ floor: s.floor, x: at.x, z: at.z, yaw, pitch });
     }
 
-    // what are we looking at?
+    // what are we looking at? (nothing while perched: E gets you up)
     if (++frame.current % 3 !== 0) return;
-    if (s.overlay || s.travel || isConfirmOpen()) {
+    if (s.overlay || s.travel || p || isConfirmOpen()) {
       if (s.focus) s.setFocus(null);
       return;
     }

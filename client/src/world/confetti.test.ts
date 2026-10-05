@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PullInfo, QaView, RepoView } from '../../../shared/types';
-import { burstKind, emitMerge, mergeAuthor, mergeBursts, newlyMerged, onMerge, recentQaRecord, rememberQa } from './confetti';
+import { burstKind, canBurst, emitMerge, mergeAuthor, mergeBursts, newlyMerged, onMerge, recentQaRecord, rememberQa } from './confetti';
 
 const pr = (number: number, state: PullInfo['state'], headRefName = `swarm/issue-${number}-ada`) => ({ number, state, headRefName }) as PullInfo;
 const repo = (pulls: PullInfo[]) => ({ id: 'o/r', pulls }) as RepoView;
@@ -70,6 +70,12 @@ describe('burstKind', () => {
     expect(burstKind({ ...open, covered: true })).toBeNull(); // terminal, Kanban or manager's console open
     expect(burstKind({ ...open, reducedMotion: true })).toBe('glow');
     expect(burstKind({ ...open, reducedMotion: true, hidden: true })).toBeNull();
+  });
+
+  it('lets other bursts (coins) fly only when confetti would', () => {
+    expect(canBurst(open)).toBe(true);
+    expect(canBurst({ ...open, reducedMotion: true })).toBe(false);
+    expect(canBurst({ ...open, covered: true })).toBe(false);
   });
 });
 

@@ -6,6 +6,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { reduceMotion } from '../../ui/a11y';
+import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
 import { dayTime } from './useDayTime';
@@ -124,8 +126,6 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-const reducedMotionQuery = () => (typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null);
-
 export function Sky() {
   const scene = useThree((s) => s.scene);
   const group = useRef<THREE.Group>(null);
@@ -155,7 +155,6 @@ export function Sky() {
       background: new THREE.Color(0xbfe3ff),
       drift: 0,
       lastDrift: -1,
-      motion: reducedMotionQuery(),
       domeGeometry: new THREE.SphereGeometry(50, 32, 16),
       dome: new THREE.ShaderMaterial({
         vertexShader: DOME_VERT,
@@ -170,6 +169,8 @@ export function Sky() {
           uSunDir: { value: new THREE.Vector3(0, 1, 0) },
           uNight: { value: 0 },
         },
+        // the moon blooms after dusk (the dark sky round it is too dim to), and so do the stars
+        userData: BLOOM_AT_NIGHT,
       }),
       cloudGeometry: new THREE.SphereGeometry(1, 14, 10),
       cloud: new THREE.ShaderMaterial({
@@ -188,6 +189,7 @@ export function Sky() {
         transparent: true,
         depthWrite: false,
         uniforms: { uTime: { value: 0 }, uOpacity: { value: 0 }, uPixel: { value: 1 } },
+        userData: BLOOM_AT_NIGHT,
       }),
     };
   }, []);
@@ -246,8 +248,8 @@ export function Sky() {
     const lean = 0.6 + 1.4 * low;
     (cu.uLight.value as THREE.Vector3).set(sun[0] * s * lean, 1, sun[2] * s * lean).normalize();
 
-    // Drift with real time, so a frozen ?daytime still has moving clouds; still for prefers-reduced-motion.
-    if (!sky.motion?.matches) sky.drift += Math.min(delta, 0.1);
+    // Drift with real time, so a frozen ?daytime still has moving clouds; still with reduced motion (Settings → Accessibility).
+    if (!reduceMotion()) sky.drift += Math.min(delta, 0.1);
     const m = clouds.current;
     if (m && sky.drift !== sky.lastDrift) {
       sky.lastDrift = sky.drift;

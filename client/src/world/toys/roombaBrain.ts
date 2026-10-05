@@ -1,5 +1,6 @@
 import { FLOOR_D, FLOOR_W, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, elevatorDoorway, lobbyColliders, officeColliders, rect, sideDoorway, WALL_T, type Rect } from '../layout';
 import type { ToyFloor } from './balls';
+import { reservedDecorRects } from '../decor/decor';
 
 // The roomba's brain: a pure state machine over the 2D layout rects, stepped once per physics step by Roomba.tsx.
 // It cleans with bump-and-turn, some wall-following and the odd spiral, plans a grid path home when the run is
@@ -68,7 +69,7 @@ const DOCK_X: Record<ToyFloor, number> = { office: 12.8, lobby: -3.5 };
 
 // Plants aren't colliders (you brush past the leaves), but the roomba shouldn't drive through the pots.
 // [x, z, scale], matching OfficeFloor.tsx and Lobby.tsx.
-const PLANTS: Record<ToyFloor, [number, number, number][]> = {
+export const PLANTS: Record<ToyFloor, [number, number, number][]> = {
   office: [[-7.1, -HALF_D + 0.7, 1], [7.1, -HALF_D + 0.7, 1], [-HALF_W + 0.7, HALF_D - 0.8, 1.2], [-11, -HALF_D + 0.7, 1.1], [HALF_W - 0.7, HALF_D - 0.7, 0.9]],
   lobby: [
     [-7.1, -HALF_D + 0.6, 1.1], [-HALF_W + 0.6, -4.1, 0.9], [HALF_W - 0.7, -4.2, 1.1], [7.1, -4.1, 0.9],
@@ -88,7 +89,7 @@ export function dockFor(floor: ToyFloor): Dock {
 
 /**
  * Everything the roomba steers around: the floor's colliders, the elevator doorway, the side doorways (the balconies
- * are off-limits, and clear() keeps everything inside the walls anyway), plant pots and its dock.
+ * are off-limits, and clear() keeps everything inside the walls anyway), plant pots, its dock and the decoration slots.
  */
 export function roombaRects(floor: ToyFloor): Rect[] {
   // The balconies' railings and furniture are out of reach anyway: leave them out, as paths check every rect often.
@@ -97,6 +98,7 @@ export function roombaRects(floor: ToyFloor): Rect[] {
   for (const side of SIDES) out.push(sideDoorway(floor, side));
   for (const [x, z, s] of PLANTS[floor]) out.push(rect(x, z, 0.6 * s, 0.6 * s));
   out.push(dockFor(floor).rect);
+  if (floor === 'office') out.push(...reservedDecorRects()); // decorations can be placed there at any time
   return out;
 }
 
@@ -377,6 +379,13 @@ export function spinRoomba(r: Roomba) {
   r.spinFrom = r.heading;
   r.move = 'spin';
   r.moveTime = ROOMBA.spin;
+}
+
+/** The evening round (the rituals' wind-down): off the dock for a clean now, rather than once it's charged. */
+export function sendOut(r: Roomba): boolean {
+  if (r.state !== 'charging' || r.move === 'spin') return false;
+  r.stateTime = Math.max(r.stateTime, ROOMBA.charge);
+  return true;
 }
 
 export interface RoombaEnv {
