@@ -21,6 +21,8 @@ import { catchUp, failedRunId, logTail, noChangeReason, PR_LIMITS_VERSION, QA_ST
 import { conflictFixInstructions, MAX_QA_ROUNDS, qaGate, qaOutcome, type PreQa, type QaNext } from './qaOutcome.ts';
 import { qaInstructions } from './qaPrompt.ts';
 import { followKeptCli, resumeNote, resumesAfterRestart } from './restartRecovery.ts';
+import { reconcileStep, restartMessage, sessionStart, workState, type ReconcileStep, type RestartCounts, type WorkState } from './reconcile.ts';
+import { diagnose, finding, forget, NUDGE_WAIT_MS, nudgeText, QUIET_MS, triage, unclosedIssues, type Problem, type Remedy, type WatchAgent, type WatchMemory } from './watchdog.ts';
 import { sendBackPatch } from './sendBack.ts';
 import { checkTriageTarget, triageStep, type TriagePr } from './triage.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
@@ -66,6 +68,8 @@ import type {
   CeoInfo,
   CliView,
   ClientEvent,
+  DoctorFinding,
+  DoctorFix,
   EffortLevel,
   HireRequestView,
   IssueInfo,
@@ -245,6 +249,15 @@ interface RepoRuntime {
   openAt: Map<string, number>; // `issue#<n>` / `pr#<n>` -> when GitHub said one the sync doesn't list is open
 }
 
+/** What startup reconciliation decided (reconcileRestart), for finishRestart once the floors have synced. */
+interface Restart {
+  carryOn: PersistedAgent[];
+  interrupted: PersistedAgent[];
+  preparing: Set<PersistedAgent>;
+  requeue: Set<PersistedAgent>;
+  counts: RestartCounts;
+}
+
 interface QaReport {
   verdict: 'pass' | 'fail';
   summary: string;
@@ -318,6 +331,8 @@ const FULL_HOUSE = 4;
 // Mission control's numbers are recomputed after these events (debounced), and every half minute for the clock's sake.
 const OPS_EVENTS = new Set<ServerEvent['type']>(['repo', 'repoRemoved', 'agent', 'agentRemoved', 'qa', 'qaRemoved', 'ceo']);
 const OPS_TICK_MS = 30_000;
+// How often the watchdog looks for stuck work (watchdog.ts).
+const WATCHDOG_MS = 60_000;
 const oneLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split(/\r?\n/)[0].slice(0, 200);
 
 // The latest browser screenshot per agent is kept on disk so monitors survive a server restart.
@@ -702,22 +717,11 @@ export class Swarm {
         console.warn('could not reconnect to the terminal keeper', err);
         return [];
       });
-    const carryOn: PersistedAgent[] = [];
-    const preparing = new Set<PersistedAgent>(); // their task's session hadn't started: nothing of it to resume
-    for (const a of this.state.agents) {
-      if (!BUSY.includes(a.status)) continue;
-      if (followKeptCli(a, back.find((c) => c.agentId === a.id))) {
-        carryOn.push(a);
-        continue;
-      }
-      if (a.status === 'preparing') preparing.add(a);
-      a.status = 'stopped';
-      a.lastError = 'The swarm server restarted while this agent was working.';
-      interrupted.push(a);
-    }
-    for (const c of back) if (c.busy && !carryOn.some((a) => a.id === c.agentId)) this.agentRt.get(c.agentId)?.terminal?.releaseIdle?.();
     for (const r of this.state.repos) this.repoRt.set(r.id, { issues: [], pulls: [], lastSync: null, syncing: false, cloneStatus: 'pending', lastMergedAt: null, folderSync: null, merging: false, closedIssues: new Map(), closedPulls: new Map(), openAt: new Map() });
-    for (const a of carryOn) this.reattachSession(a);
+    const restart = await this.reconcileRestart((a) => followKeptCli(a, back.find((c) => c.agentId === a.id)));
+    interrupted.push(...restart.interrupted);
+    for (const c of back) if (c.busy && !restart.carryOn.some((a) => a.id === c.agentId)) this.agentRt.get(c.agentId)?.terminal?.releaseIdle?.();
+    for (const a of restart.carryOn) this.reattachSession(a);
     this.backend.hooksReady();
 
     try {
@@ -759,7 +763,7 @@ export class Swarm {
     ]);
     for (const r of this.state.repos) void this.previews.refreshDefault(r);
     void pruneQaShots(QA_SHOTS_DIR, new Set(this.state.qa.map((q) => `${q.repoId}#${q.prNumber}`)));
-    this.recover(interrupted, preparing);
+    this.finishRestart(restart);
     // A PR the restart left in "testing" with nobody on it: test it again (the result, if any, was lost).
     for (const rec of orphanedQa(this.state.qa, this.state.agents, BUSY)) this.setQa(rec, { status: 'queued', qaAgentId: null });
     if (this.state.prLimits < PR_LIMITS_VERSION) this.catchUpPrs();
@@ -781,6 +785,7 @@ export class Swarm {
     setTimeout(() => this.greet(), 5000);
     setInterval(() => this.emitOps(), OPS_TICK_MS); // the clock moves the numbers too: the last hour, today, errors turning into alarms
     setInterval(() => this.notifyStuck(), 60_000);
+    setInterval(() => this.watchdogTick(), WATCHDOG_MS);
     void this.backend
       .detectClis()
       .then((clis) => {
@@ -804,22 +809,88 @@ export class Swarm {
   }
 
   /**
-   * Agents cut off by a server restart pick their session back up, told what they were doing. QA, demo agents and
-   * tasks still being prepared start over from the queue.
+   * Startup reconciliation (reconcile.ts), before anything is reattached or scheduled: GitHub is asked about every task
+   * and each desk is looked for. Finished work is cleared now (as its closure would); CLIs the keeper kept are followed
+   * again only on open work at a desk that's still there; everyone else who was busy is stopped, to resume or start
+   * over once the floors have synced (finishRestart). alive: the agent's CLI kept working on this task.
    */
-  private recover(agents: PersistedAgent[], preparing: Set<PersistedAgent>) {
+  private async reconcileRestart(alive: (a: PersistedAgent) => boolean): Promise<Restart> {
+    const plan = new Map<PersistedAgent, ReconcileStep>();
+    await Promise.all(
+      this.state.agents.map(async (a) => {
+        const repo = this.state.repos.find((r) => r.id === a.repoId);
+        const rt = repo && this.repoRt.get(repo.id);
+        if (!repo || !rt || a.role === 'ceo' || !a.task) return;
+        const [issue, pr] = await Promise.all([
+          a.task === 'issue' && a.issueNumber ? this.backend.issueState(repo.fullName, a.issueNumber).catch(() => null) : null,
+          a.prNumber ? this.backend.prDetails(repo.fullName, a.prNumber).catch(() => null) : null,
+        ]);
+        // What GitHub said is learned like a sync's asks, so cleanUpClosed clears the desks, QA records and holds.
+        if (issue === 'CLOSED' && a.issueNumber) rt.closedIssues.set(a.issueNumber, Date.now());
+        if (pr && pr.state !== 'OPEN' && !rt.closedPulls.has(pr.number)) {
+          rt.closedPulls.set(pr.number, { number: pr.number, state: pr.state, headRefName: pr.headRefName, closesIssues: pr.closesIssues, at: Date.now() });
+          this.holdIssues(repo, rt.closedPulls.get(pr.number)!);
+        }
+        plan.set(
+          a,
+          reconcileStep({
+            role: a.role,
+            status: a.status,
+            task: a.task,
+            work: workState(issue, pr?.state ?? null),
+            deskExists: this.backend.deskExists(this.backend.deskDir(repo.fullName, this.agentSlug(a))),
+            cliAlive: alive(a),
+            resumable: resumesAfterRestart(a, a.status === 'preparing', this.backend.demo),
+          }),
+        );
+      }),
+    );
+    const out: Restart = { carryOn: [], interrupted: [], preparing: new Set(), requeue: new Set(), counts: { cleared: 0, reattached: 0, resumed: 0, requeued: 0 } };
+    for (const a of this.state.agents) {
+      const step = plan.get(a);
+      if (step === 'requeue') out.requeue.add(a);
+      if (!BUSY.includes(a.status)) continue;
+      if (step === 'reattach' || (step === undefined && alive(a))) {
+        out.carryOn.push(a);
+        continue;
+      }
+      if (a.status === 'preparing') out.preparing.add(a);
+      a.status = 'stopped';
+      a.lastError = 'The swarm server restarted while this agent was working.';
+      out.interrupted.push(a);
+    }
+    for (const r of this.state.repos) this.cleanUpClosed(r);
+    for (const [a, step] of plan) if (step === 'clear' && !a.task) out.counts.cleared++;
+    out.counts.reattached = out.carryOn.filter((a) => a.role !== 'ceo').length;
+    return out;
+  }
+
+  /** After the startup sync: the restart's interrupted work resumes or goes back in line, and the phone hears what happened. */
+  private finishRestart(r: Restart) {
+    this.recover([...r.interrupted, ...[...r.requeue].filter((a) => !r.interrupted.includes(a))], r.preparing, r.requeue, r.counts);
+    const text = restartMessage(r.counts);
+    if (text) this.postMessage('office', text);
+  }
+
+  /**
+   * Agents cut off by a server restart pick their session back up, told what they were doing. QA, demo agents, tasks
+   * still being prepared and work whose desk is gone (requeue) start over from the queue, without a strike.
+   */
+  private recover(agents: PersistedAgent[], preparing: Set<PersistedAgent>, requeue = new Set<PersistedAgent>(), counts: RestartCounts = { cleared: 0, reattached: 0, resumed: 0, requeued: 0 }) {
     for (const a of agents) {
       if (!a.task) continue; // its issue or PR closed while the office was down: the startup sync cleared the desk
       const fix = a.task === 'fix' ? this.state.qa.find((q) => q.devAgentId === a.id && q.status === 'fixing') : undefined;
-      if (!resumesAfterRestart(a, preparing.has(a), this.backend.demo)) {
+      if (requeue.has(a) || !resumesAfterRestart(a, preparing.has(a), this.backend.demo)) {
         this.appendLog(a, [{ kind: 'system', text: '↺ The office server restarted. Starting over from the queue.' }]);
         const rec = a.task === 'qa' ? this.state.qa.find((q) => q.qaAgentId === a.id && q.status === 'testing') : undefined;
         if (rec) this.setQa(rec, { status: 'queued' });
         if (fix) this.setQa(fix, { status: 'failed' });
         this.clearTask(a);
+        counts.requeued++;
         continue;
       }
       if (this.slotsFull()) continue; // stays 'stopped'; the manager can resume it later
+      counts.resumed++;
       void this.message(a.id, resumeNote(a, fix)).catch((err) => console.warn(`could not resume ${a.name}`, err));
     }
   }
@@ -960,6 +1031,7 @@ export class Swarm {
       phoneReadAt: this.state.phoneReadAt,
       usage: this.usageNow(),
       ops: this.opsNow(),
+      doctor: this.doctorView(),
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
@@ -1690,12 +1762,15 @@ export class Swarm {
   }
 
   /** The manager's Close on an issue: closed on GitHub as not planned, and whoever works on it stops now. */
-  async closeIssueByManager(repoId: string, number: number) {
+  async closeIssueByManager(repoId: string, number: number, resolvedBy?: number) {
     const repo = this.repo(repoId);
     const rt = this.repoRt.get(repo.id);
     const state = rt?.issues.some((i) => i.number === number) ? 'OPEN' : await this.backend.issueState(repo.fullName, number).catch(() => null);
     checkCloseIssue({ floor: repo.floor, number, state, pulls: rt?.pulls ?? [] });
-    await this.backend.closeIssue(repo.fullName, number, `Closed as not planned by ${this.state.settings.managerName || 'the manager'} from the cubefarm office.`, 'not planned');
+    const by = this.state.settings.managerName || 'the manager';
+    // From the office doctor, for an issue a merged PR resolved: closed as completed, not as not planned.
+    if (resolvedBy) await this.backend.closeIssue(repo.fullName, number, `Resolved by #${resolvedBy}; closed by ${by} from the cubefarm office.`, 'completed');
+    else await this.backend.closeIssue(repo.fullName, number, `Closed as not planned by ${by} from the cubefarm office.`, 'not planned');
     this.toast('info', `Closed #${number} on ${repo.fullName}`);
     this.learnIssueClosed(repo, number);
     await this.syncRepo(repo.id);
@@ -2345,9 +2420,18 @@ export class Swarm {
     mode: 'typed' | 'reattach' | null = null,
   ) {
     const rt = this.agentRt.get(a.id)!;
+    // A session started in a folder that's gone dies at once (Windows exit 267): set the desk up again first.
+    if (sessionStart(this.backend.deskExists(cwd), mode) === 'prepare') {
+      void this.restoreDesk(a, repo).then((dir) => dir && this.startAgentSession(a, repo, dir, prompt, systemAppend, resumeSessionId, outputSchema, mode));
+      return;
+    }
     a.status = 'working';
+    this.activity.set(a.id, Date.now());
     const how = this.sessionRuntime(a, resumeSessionId);
     this.emitAgent(a);
+    const active = (entries: LogEntry[]) => {
+      if (entries.some((e) => e.kind !== 'manager')) this.activity.set(a.id, Date.now());
+    };
     rt.session = this.backend.startSession(
       {
         cwd,
@@ -2367,8 +2451,12 @@ export class Swarm {
         ...how,
       },
       {
-        log: (entries) => this.appendLog(a, entries),
+        log: (entries) => {
+          active(entries);
+          this.appendLog(a, entries);
+        },
         tool: (name) => {
+          this.activity.set(a.id, Date.now());
           if (rt.currentTool === name) return;
           rt.currentTool = name;
           this.emitAgent(a);
@@ -2403,6 +2491,7 @@ export class Swarm {
     const rt = this.agentRt.get(a.id);
     if (!rt || !this.state.agents.includes(a)) return; // fired
     if (this.officeUpdate.handedOver) return; // stopped for the office's update: recovered like after a restart
+    if (this.silenced.delete(a.id)) return; // the demo's pretend restart cut it off: reconciled like after a real one
     rt.session = null;
     rt.currentTool = null;
     a.endedAt = Date.now();
@@ -4026,6 +4115,245 @@ export class Swarm {
     } finally {
       this.trimming = false;
     }
+  }
+
+  // ---------- the watchdog and the office doctor (#262) ----------
+
+  private activity = new Map<string, number>(); // agent id -> their session's latest output or tool activity
+  private watch: WatchMemory = { remedied: new Map(), nudged: new Map() };
+  private doctor: DoctorFinding[] = [];
+  private ignored = new Set<string>(); // findings the manager ignored, until they go away
+  private lastDoctor = '';
+  private silenced = new Set<string>(); // sessions the demo's pretend restart cut off: their end is ignored
+  private stalled = new Set<string>(); // the demo's stuck sessions
+
+  /**
+   * A session about to start in a desk folder that's gone: the desk is set up again first, on the same branch (at the
+   * PR's head when there is one). Null when it couldn't be (prepare() said why) or the agent was stopped meanwhile.
+   */
+  private async restoreDesk(a: PersistedAgent, repo: PersistedRepo): Promise<string | null> {
+    a.status = 'preparing';
+    this.appendLog(a, [{ kind: 'system', text: 'Their desk folder is gone, so it is set up again first.' }]);
+    this.emitAgent(a);
+    const desk = await this.prepare(a, repo, { pr: a.prNumber ?? undefined }, a.branch ?? `swarm/desk-${this.agentSlug(a)}`);
+    return desk?.cwd ?? null;
+  }
+
+  /** When an agent's session last showed signs of life. Claude Code reports every step; other CLIs may only report a turn's end, so their terminal output counts too. */
+  private activeAt(a: PersistedAgent) {
+    const term = this.agentRt.get(a.id)?.terminal;
+    const cli = a.sessionCli ?? (a.cli || this.state.settings.defaultCli);
+    return Math.max(this.activity.get(a.id) ?? a.startedAt ?? Date.now(), cli !== 'claude' && term ? term.outputAt : 0);
+  }
+
+  /** The agent's task as the office knows it now (closeCleanup.ts). */
+  private workOf(a: PersistedAgent): WorkState {
+    const rt = this.repoRt.get(a.repoId);
+    if (!rt || !a.task) return 'unknown';
+    const f = this.floorState(rt);
+    const issue = a.task === 'issue' && a.issueNumber != null ? issueOpen(a.issueNumber, f) : null;
+    return workState(issue === null ? null : issue ? 'OPEN' : 'CLOSED', a.prNumber != null ? (pullNow(a.prNumber, f)?.state ?? null) : null);
+  }
+
+  /** Every minute: find what's stuck (watchdog.ts), heal what can safely be healed, and list the rest for the doctor. heal false: only list. */
+  private watchdogTick(heal = true) {
+    const now = Date.now();
+    forget(this.watch, now);
+    const agents: WatchAgent[] = this.state.agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      repoId: a.repoId,
+      role: a.role,
+      status: a.status,
+      task: a.task,
+      issueNumber: a.issueNumber,
+      prNumber: a.prNumber,
+      startedAt: a.startedAt,
+      activeAt: this.activeAt(a),
+      work: this.workOf(a),
+    }));
+    const unclosed = this.state.repos.flatMap((r) => {
+      const rt = this.repoRt.get(r.id);
+      return rt?.lastSync ? unclosedIssues(r.id, rt.issues.map((i) => i.number), rt.pulls) : [];
+    });
+    const { auto, doctor } = triage(diagnose(agents, this.state.qa, unclosed, now), this.watch, now);
+    if (heal) {
+      const done = auto.map(({ problem, remedy }) => this.remedy(problem, remedy, now)).filter((t): t is string => !!t);
+      if (done.length) {
+        this.postMessage('office', `🩺 The watchdog ${nameList(done)}.`);
+        setTimeout(() => this.schedule(), 200);
+      }
+    }
+    const agent = (id: string | null) => this.state.agents.find((x) => x.id === id);
+    this.doctor = doctor.map((p) => finding(p, (id) => agent(id)?.name ?? null, agent(p.agentId) ? this.workOf(agent(p.agentId)!) : null, now));
+    for (const id of this.ignored) if (!this.doctor.some((f) => f.id === id)) this.ignored.delete(id);
+    this.emitDoctor();
+  }
+
+  /** Apply an automatic remedy. Returns what to tell the manager, or null. */
+  private remedy(p: Problem, remedy: Remedy, now: number): string | null {
+    const a = p.agentId ? this.state.agents.find((x) => x.id === p.agentId) : undefined;
+    const rec = p.prNumber != null ? this.state.qa.find((q) => q.repoId === p.repoId && q.prNumber === p.prNumber) : undefined;
+    const what = p.prNumber != null ? `PR #${p.prNumber}` : `#${p.issueNumber}`;
+    const mins = Math.round((now - p.since) / 60_000);
+    if (remedy === 'nudge') {
+      const session = a && this.agentRt.get(a.id)?.session;
+      if (!a || !session) return null;
+      this.watch.nudged.set(p.key, now);
+      this.appendLog(a, [{ kind: 'system', text: `🩺 No sign of life for ${mins} minutes: the office nudged them.` }]);
+      session.send(nudgeText(now - p.since));
+      return null;
+    }
+    this.watch.remedied.set(p.key, now);
+    if (remedy === 'requeue' && a) {
+      this.requeue(a, `the watchdog put ${what} back in line after ${mins} ${p.kind === 'quiet' ? 'quiet minutes and a nudge' : 'minutes setting up a desk'}`);
+      return `put ${a.name}'s ${what} back in line (${p.kind === 'quiet' ? `quiet for ${mins} minutes, even after a nudge` : `stuck setting up a desk for ${mins} minutes`})`;
+    }
+    if (remedy === 'clear' && a) {
+      this.requeue(a, `${what} is already ${this.workOf(a) === 'merged' ? 'merged' : 'closed'}`);
+      return `cleared ${a.name}'s desk (${what} was finished)`;
+    }
+    if (remedy === 'retry-qa' && rec) {
+      this.setQa(rec, { status: 'queued', qaAgentId: null });
+      return `sent PR #${rec.prNumber} back to QA (nobody was testing it)`;
+    }
+    if (remedy === 'refix' && rec) {
+      this.setQa(rec, { status: 'failed' });
+      return `put PR #${rec.prNumber}'s fix back in line (nobody was on it)`;
+    }
+    return null;
+  }
+
+  /** Stop the agent if they're busy and put their work back in line, without a strike: an issue back on the board, a QA run or fix back in its PR's queue. */
+  private requeue(a: PersistedAgent, why: string) {
+    for (const q of this.state.qa) {
+      if (q.qaAgentId === a.id && q.status === 'testing') this.setQa(q, { status: 'queued', qaAgentId: null });
+      if (q.devAgentId === a.id && q.status === 'fixing') this.setQa(q, { status: 'failed' });
+    }
+    if (BUSY.includes(a.status)) {
+      // A desk stuck setting up: whatever hangs in it (an install, a checkout) is stopped, so prepare() gives up.
+      const repo = this.state.repos.find((r) => r.id === a.repoId);
+      if (repo && a.status === 'preparing') void this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a)).catch(() => undefined);
+      this.stopForClosure(a, why);
+    } else this.dropTask(a, `↺ ${why[0].toUpperCase()}${why.slice(1)}. Cleared desk.`);
+    this.save();
+  }
+
+  private doctorView(): DoctorFinding[] {
+    return this.doctor.filter((f) => !this.ignored.has(f.id));
+  }
+
+  private emitDoctor() {
+    const doctor = this.doctorView();
+    const key = JSON.stringify(doctor);
+    if (key === this.lastDoctor) return;
+    this.lastDoctor = key;
+    this.broadcast({ type: 'doctor', doctor });
+  }
+
+  /** The doctor's one-click fix (POST /api/doctor/fix): the console's own actions, for the finding they were offered on. */
+  async doctorFix(id: unknown, fix: unknown) {
+    const f = this.doctor.find((x) => x.id === id);
+    if (!f) throw new HttpError(404, 'That finding is gone: the office may have sorted it out already.');
+    if (!f.fixes.includes(fix as DoctorFix)) throw new HttpError(400, `"${String(fix)}" doesn't fix this one. Try ${f.fixes.join(' or ')}.`);
+    const a = f.agentId ? this.state.agents.find((x) => x.id === f.agentId) : undefined;
+    const rec = f.prNumber != null ? this.state.qa.find((q) => q.repoId === f.repoId && q.prNumber === f.prNumber) : undefined;
+    const need = <T>(x: T | undefined, what: string): T => {
+      if (!x) throw new HttpError(404, `${what} is gone: the office may have sorted it out already.`);
+      return x;
+    };
+    if (fix === 'stop') this.stopAgent(need(a, 'That agent').id);
+    else if (fix === 'clear') this.resetAgent(need(a, 'That agent').id);
+    else if (fix === 'requeue') this.requeue(need(a, 'That agent'), 'the manager put the work back in line from the office doctor');
+    else if (fix === 'retry-qa') {
+      this.clearPrepStrikes(f.repoId, f.prNumber!);
+      this.setQa(need(rec, `PR #${f.prNumber}'s QA record`), { status: 'queued', qaAgentId: null });
+    } else if (fix === 'send-back') {
+      const r = need(rec, `PR #${f.prNumber}'s QA record`);
+      // A PR left "testing" or "fixing" with nobody on it goes back to a developer as it is; otherwise it's the console's Send back.
+      if (r.status === 'testing' || r.status === 'fixing') this.setQa(r, { status: 'failed', qaAgentId: null });
+      else await this.sendBackToDev(f.repoId, f.prNumber!);
+    } else if (fix === 'close-issue') await this.closeIssueByManager(f.repoId, f.issueNumber!, f.prNumber ?? undefined);
+    this.watchdogTick(false);
+    setTimeout(() => this.schedule(), 200);
+    return this.doctorView();
+  }
+
+  /** "Ignore" on a finding: hidden until it goes away (and shows again if it comes back). */
+  doctorIgnore(id: unknown) {
+    if (!this.doctor.some((f) => f.id === id)) throw new HttpError(404, 'That finding is gone already.');
+    this.ignored.add(String(id));
+    this.emitDoctor();
+    return this.doctorView();
+  }
+
+  /**
+   * The demo's scenarios (POST /api/doctor/demo). restart: an office restart that finds finished work and desks gone ·
+   * stuck: a session goes quiet for 20 minutes · later: 10 more minutes pass for the stuck ones · unclosed: an issue
+   * a merged PR resolved stays open · check: the watchdog looks now.
+   */
+  async demoDoctor(action: unknown): Promise<{ text: string; doctor: DoctorFinding[] }> {
+    const dd = this.backend.demoDoctor;
+    if (!dd) throw new HttpError(404, 'The office doctor can only be tried out in the demo office.');
+    let text = 'The watchdog looked.';
+    if (action === 'restart') text = await this.demoRestart(dd);
+    else if (action === 'stuck') {
+      const a = this.state.agents.find((x) => x.role === 'dev' && x.status === 'working' && !this.stalled.has(x.id) && this.agentRt.get(x.id)?.session && dd.stall(x.id));
+      if (!a) throw new HttpError(409, 'Nobody is working right now. Wait for someone to start an issue, then try again.');
+      this.stalled.add(a.id);
+      this.activity.set(a.id, Date.now() - QUIET_MS - 60_000);
+      this.watchdogTick();
+      text = `${a.name} went quiet 21 minutes ago (pretend), and the watchdog nudged them.`;
+    } else if (action === 'later') {
+      const skip = NUDGE_WAIT_MS + 60_000;
+      for (const id of this.stalled) {
+        if (!this.state.agents.some((a) => a.id === id && a.status === 'working')) this.stalled.delete(id);
+        else this.activity.set(id, (this.activity.get(id) ?? Date.now()) - skip);
+      }
+      for (const [key, at] of this.watch.nudged) if ([...this.stalled].some((id) => key.includes(`:${id}:`))) this.watch.nudged.set(key, at - skip);
+      this.watchdogTick();
+      text = 'Eleven more minutes passed for the stuck sessions.';
+    } else if (action === 'unclosed') {
+      const repo = this.state.repos[0];
+      const made = repo && dd.unclosedMerge(repo.fullName, 15 * 60_000);
+      if (!made) throw new HttpError(409, 'The first floor has no open issue to leave open.');
+      await this.syncRepo(repo.id);
+      this.watchdogTick();
+      text = `PR #${made.pr} merged 15 minutes ago (pretend), but issue #${made.issue} is still open.`;
+    } else if (action === 'check') this.watchdogTick();
+    else throw new HttpError(400, 'action must be "restart", "stuck", "later", "unclosed" or "check"');
+    return { text, doctor: this.doctorView() };
+  }
+
+  /**
+   * The demo's restart, in place: of the people working, one's CLI keeps going (followed again), the others' sessions
+   * end as if the office stopped and their desks are gone, and half of those finished their work on GitHub meanwhile.
+   * Then the office reconciles as it does after a real restart.
+   */
+  private async demoRestart(dd: NonNullable<Backend['demoDoctor']>): Promise<string> {
+    if (this.state.agents.some((a) => a.status === 'preparing')) throw new HttpError(409, 'Someone is still setting up a desk. Try again in a moment.');
+    const busy = this.state.agents.filter((a) => a.role !== 'ceo' && a.status === 'working' && a.task && this.agentRt.get(a.id)?.session);
+    if (busy.length < 2) throw new HttpError(409, 'Wait until at least two people are working, then try again.');
+    const [keep, ...rest] = busy;
+    rest.forEach((a, i) => {
+      const repo = this.repo(a.repoId);
+      dd.dropDesk(this.backend.deskDir(repo.fullName, this.agentSlug(a)));
+      if (i % 2 === 0) {
+        if (a.task === 'issue' && !a.prNumber && a.issueNumber) dd.finishQuietly(repo.fullName, 'issue', a.issueNumber);
+        else if (a.prNumber) dd.finishQuietly(repo.fullName, 'pr', a.prNumber);
+      }
+      const rt = this.agentRt.get(a.id)!;
+      const session = rt.session;
+      rt.session = null;
+      rt.currentTool = null;
+      this.silenced.add(a.id);
+      session?.stop();
+      this.silenced.delete(a.id);
+    });
+    const restart = await this.reconcileRestart((a) => a === keep); // keep's session never stopped: nothing to reattach
+    this.finishRestart(restart);
+    setTimeout(() => this.schedule(), 500);
+    return restartMessage(restart.counts) ?? 'Restarted: nothing to do.';
   }
 
   // ---------- progress: coins, decorations, achievements and careers (#210, #226) ----------

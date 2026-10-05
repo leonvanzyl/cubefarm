@@ -36,6 +36,8 @@ export class AgentTerminal {
   rows = TERM_ROWS;
   /** Output arrived since the last save. */
   dirty = false;
+  /** When output last arrived (the watchdog's sign of life for CLIs that only report a turn's end). */
+  outputAt = 0;
   /**
    * Closes a CLI left waiting at its prompt after its task, settling once it has exited (set by the runtime that left
    * it there; null while a CLI drives a session).
@@ -67,6 +69,7 @@ export class AgentTerminal {
     if (!data) return;
     this.term.write(data);
     this.dirty = true;
+    this.outputAt = Date.now();
     this.send({ t: 'data', data });
   }
 

@@ -249,6 +249,10 @@ app.post('/api/office/update', route((req) => swarm.updateOffice(req.body?.actio
 // Claude's usage: resume full speed after a usage warning; in the demo, a warning or the limit on demand
 app.post('/api/usage/resume', route(() => swarm.resumeFullSpeed()));
 app.post('/api/usage/simulate', route((req) => swarm.simulateUsage(req.body?.kind)));
+// The office doctor (#262): a finding's one-click fix or Ignore; in the demo, its scenarios
+app.post('/api/doctor/fix', route((req) => swarm.doctorFix(req.body?.id, req.body?.fix)));
+app.post('/api/doctor/ignore', route((req) => swarm.doctorIgnore(req.body?.id)));
+app.post('/api/doctor/demo', route((req) => swarm.demoDoctor(req.body?.action)));
 
 // The journal, for the time-lapse replay (read-only); the demo can write itself a sample day.
 app.get('/api/journal/days', route(() => swarm.journal.days()));
