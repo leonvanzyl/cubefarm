@@ -6,7 +6,8 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 // outline, one in the shadow pass). Every part keeps an invisible stand-in mesh where it always was in the scene, so
 // it still moves with its group, hides with it and is hit by the player's aim; the batch copies the stand-ins' world
 // matrices and colours into its instances just before drawing, after three.js has updated the scene's matrices for the
-// frame, without allocating. Outlines are left off parts beyond `outlineRange` of the camera. A geometry with morph
+// frame, without allocating. As three.js culls whole meshes, a batch leaves out the instances outside the view (in
+// the shadow pass, none: shadows may fall from out of view). Outlines are left off parts beyond `outlineRange`. A geometry with morph
 // targets (a face) gets each instance's weights from its stand-in's morphTargetInfluences.
 
 /** Cel-shaded like toon(), or unlit like glow() (glowNight: one that blooms only after dark, gfx/bloomMarks.ts). */
@@ -57,6 +58,9 @@ interface Slot {
   obj: THREE.Object3D;
   color: THREE.Color;
 }
+
+const sphere = new THREE.Sphere();
+const viewProjection = new THREE.Matrix4();
 
 /** Shown when it and every group above it are (the stand-in itself is never drawn, so its own flag doesn't count). */
 function shown(obj: THREE.Object3D) {
@@ -140,8 +144,10 @@ class Batch {
     this.slots.pop();
   }
 
-  sync(eye: THREE.Vector3 | null, range2: number) {
+  sync(eye: THREE.Vector3 | null, range2: number, frustum: THREE.Frustum | null) {
     const m = this.mesh;
+    const bounds = this.look.geometry.boundingSphere ?? (this.look.geometry.computeBoundingSphere(), this.look.geometry.boundingSphere!);
+    const { x: cx, y: cy, z: cz } = bounds.center;
     const mats = m.instanceMatrix.array as Float32Array;
     const cols = m.instanceColor!.array as Float32Array;
     const o = this.outline;
@@ -154,6 +160,12 @@ class Batch {
     for (const s of this.slots) {
       if (!shown(s.obj)) continue;
       const e = s.obj.matrixWorld.elements;
+      if (frustum) {
+        // the part's bounds where it stands, as three's own culling would test a mesh
+        sphere.center.set(e[0] * cx + e[4] * cy + e[8] * cz + e[12], e[1] * cx + e[5] * cy + e[9] * cz + e[13], e[2] * cx + e[6] * cy + e[10] * cz + e[14]);
+        sphere.radius = bounds.radius * Math.sqrt(Math.max(e[0] * e[0] + e[1] * e[1] + e[2] * e[2], e[4] * e[4] + e[5] * e[5] + e[6] * e[6], e[8] * e[8] + e[9] * e[9] + e[10] * e[10]));
+        if (!frustum.intersectsSphere(sphere)) continue;
+      }
       mats.set(e, n * 16);
       cols[n * 3] = s.color.r;
       cols[n * 3 + 1] = s.color.g;
@@ -204,19 +216,25 @@ export class BatchSet {
   /** Parts further than this from the camera are drawn without their ink outline. */
   outlineRange = Infinity;
   private batches = new Map<string, Batch>();
-  private synced = -1;
+  private synced = '';
   private eye = new THREE.Vector3();
+  private frustum = new THREE.Frustum();
 
   constructor(private materials: BatchMaterials) {
     this.root.name = 'batches';
   }
 
-  /** Called by three.js just before it draws any batch mesh (shadow pass first): the first call each frame syncs them all. */
-  readonly hook = (renderer: THREE.WebGLRenderer) => {
-    const frame = renderer.info.render.frame;
-    if (frame === this.synced) return;
-    this.synced = frame;
-    this.sync();
+  /**
+   * Called by three.js just before it draws any batch mesh: onBeforeShadow (renderer, object, camera, shadow camera…)
+   * or onBeforeRender (renderer, scene, camera, geometry…). The first call of each pass syncs them all: for the shadow
+   * pass every instance, for a view only those in its frustum.
+   */
+  readonly hook = (renderer: THREE.WebGLRenderer, _scene: unknown, camera: THREE.Camera, shadowCamera?: unknown) => {
+    const shadow = (shadowCamera as THREE.Camera | undefined)?.isCamera === true;
+    const key = `${renderer.info.render.frame}:${shadow ? 'shadow' : camera.id}`;
+    if (key === this.synced) return;
+    this.synced = key;
+    this.sync(shadow ? null : camera);
   };
 
   /** Draws `obj` (an invisible stand-in placed in the scene) as an instance of `look`, in `color`. */
@@ -235,11 +253,12 @@ export class BatchSet {
     };
   }
 
-  /** Copies every stand-in's world matrix and colour into its batch. */
-  sync() {
+  /** Copies every stand-in's world matrix and colour into its batch: only those `view` can see, when given. */
+  sync(view: THREE.Camera | null = null) {
     const eye = this.camera ? this.eye.setFromMatrixPosition(this.camera.matrixWorld) : null;
     const range2 = this.outlineRange * this.outlineRange;
-    for (const b of this.batches.values()) b.sync(eye, range2);
+    const frustum = view ? this.frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse)) : null;
+    for (const b of this.batches.values()) b.sync(eye, range2, frustum);
   }
 
   /** How many batches and drawn instances there are (window.__swarmBatches). */

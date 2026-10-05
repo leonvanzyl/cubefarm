@@ -90,19 +90,31 @@ describe('instanced batches', () => {
     expect(ink.geometry).not.toBe(box); // creased normals for the hull
   });
 
-  it('sync once a frame, from the first batch three.js draws', () => {
+  it('sync once a pass, from the first batch three.js draws: in a view only what it can see, for shadows everything', () => {
     const { scene, set, stand } = office();
-    set.add(look(box), stand(scene, 4), '#fff');
+    const l = look(box);
+    set.add(l, stand(scene, 0), '#fff');
+    const behind = stand(scene, 0);
+    behind.position.z = 20;
+    set.add(l, behind, '#fff');
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+    camera.position.z = 10; // looking down -z: the first box ahead, the second behind
+    scene.add(camera);
     scene.updateMatrixWorld();
+    camera.updateMatrixWorld();
     const renderer = { info: { render: { frame: 1 } } } as THREE.WebGLRenderer;
-    set.hook(renderer);
+    const shadowCamera = new THREE.OrthographicCamera();
+    set.hook(renderer, null, camera, shadowCamera);
     const [boxes] = batchMeshes(set);
+    expect(boxes.count).toBe(2);
+    set.hook(renderer, scene, camera, box);
     expect(boxes.count).toBe(1);
+    expect(at(boxes, 0).elements[14]).toBe(0);
     boxes.count = 0;
-    set.hook(renderer); // the same frame: already done
+    set.hook(renderer, scene, camera, box); // the same pass: already done
     expect(boxes.count).toBe(0);
     renderer.info.render.frame = 2;
-    set.hook(renderer);
+    set.hook(renderer, scene, camera, box);
     expect(boxes.count).toBe(1);
   });
 });

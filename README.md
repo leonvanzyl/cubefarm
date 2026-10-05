@@ -85,6 +85,7 @@ A gamepad works too (left stick walks, right stick looks, A uses, B goes back, X
 | `npx cubefarm login` | sign in to Claude Code, the built-in coding agent |
 | `npx cubefarm doctor` | check that your machine is ready |
 | `npx cubefarm --demo` | fake GitHub and fake agents |
+| `npx cubefarm --demo --floors 10 --agents 15` | a big demo company: 10 floors of 15 people, to see the office at scale |
 | `npx cubefarm --port 4400` | use another port (the default is 4317) |
 | `npx cubefarm --no-open` | don't open the browser |
 

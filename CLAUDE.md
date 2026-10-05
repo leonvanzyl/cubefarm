@@ -43,6 +43,7 @@ It ships on npm as `cubefarm` (`npx cubefarm`); it used to be called Office Swar
 | `npm run build` | typecheck, `vite build` to `dist/`, then the server bundled into `dist-server/` (`scripts/build-server.mjs`) |
 | `npm run test:e2e` | optional, local only: Playwright (`e2e/`, `playwright.config.ts`): builds (`E2E_SKIP_BUILD=1` reuses your `dist/`), boots a demo office on `E2E_PORT` (default 4399; set it to your reserved port) with a temp `SWARM_HOME`, and smoke-tests it headless in a local Google Chrome, else Playwright's Chromium. Stops at once if the browser is missing: never install it mid-task |
 | `node scripts/smoke-package.mjs` | after a build: packs the npm package, installs it into a temp folder and boots its demo |
+| `npm run bench -- --port <yours>` | after a build: the scale benchmark (`scripts/bench.mjs`): boots the big-company demo headless, visits the lobby and three floors, writes FPS, frame-time p95, CPU per frame, draw calls, triangles, heap, audio nodes and websocket traffic to a JSON report (`--help`) |
 | `node --import tsx server/index.ts --demo` | a demo office (see SAFETY for the env it needs) |
 
 CI (`.github/workflows/ci.yml`): Node 24, `npm ci` → `typecheck` → `test` → `build` → package smoke test, for every PR
@@ -60,7 +61,10 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `config.ts`: `SWARM_PORT` (default 4317), `SWARM_HOME` (default `~/.cubefarm`), `--demo`, state file, intervals,
   the default projects folder.
 - `swarm.ts`: the orchestrator. Floors, agents, scheduling/auto-assign, dev → QA → fix → merge loop, dev and QA
-  prompts, CEO job queue, phone messages, persistence (`state.json` / `demo-state.json`), websocket fan-out.
+  prompts, CEO job queue, phone messages, persistence (`state.json` / `demo-state.json`), websocket fan-out (through
+  `outbox.ts`).
+- `outbox.ts`: what goes out on `/ws`: agents' and floors' changes batched on a 250 ms tick as patches of what
+  changed, terminal lines only to the tabs that show them (`shared/watch.ts`), catch-ups when a tab's watch changes.
 - `agentRunner.ts`: one Agent SDK session; options, env stripping, Playwright MCP, and turning the SDK stream into
   terminal lines.
 - `cliRunner.ts`: the terminal runtime (the default): one agent as the real CLI in a node-pty, same session contract
@@ -79,7 +83,8 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
   `/ws/term` viewers, and keystrokes/resizes to the running CLI.
 - `ceo.ts`: the CEO's office MCP tools (`createOfficeTools`, zod-validated), `ceoSystemPrompt`, `ceoJobPrompt`.
 - `backend.ts`: the `Backend` interface (everything touching GitHub, git, disk and sessions) and `realBackend`.
-- `demo.ts`: `createDemoBackend()`: fake GitHub, fake sessions (drawn into the agent's terminal in the terminal runtime), fake previews for `--demo`.
+- `demo.ts`: `createDemoBackend()`: fake GitHub, fake sessions (drawn into the agent's terminal in the terminal runtime), fake previews for `--demo`;
+  `--floors N --agents N` (or `SWARM_DEMO_FLOORS` / `SWARM_DEMO_AGENTS`) makes it a big company for scale tests.
 - `github.ts`: all GitHub access through the `gh` CLI.
 - `workspace.ts`: floor checkouts, per-agent worktrees (`<SWARM_HOME>/workspaces/<owner>__<repo>/desks/<agent>`),
   fast-forwarding main, per-repo git lock, stopping processes an agent left running.
@@ -113,6 +118,7 @@ Shared (`shared/`, imported by both sides):
 - `types.ts`: the REST/websocket contract (`WorldSnapshot`, `ServerEvent`, views, settings).
 - `issues.ts`: issue conventions (`swarm:<specialty>` labels, `Depends on #N`, hold-up ranking).
 - `journal.ts`: the time-lapse journal's format and pure rules, for the server and the replay.
+- `watch.ts`: which terminal lines a tab gets: its floor, open panels, the workers list's latest lines.
 - `looks.ts`: the look editor's options and `cleanStyle` (an agent's `style`, checked on the server).
 
 Client (`client/`, Vite root; React 19, R3F, drei, zustand):
@@ -148,7 +154,11 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
   `PhotoPanel.tsx`, and pure `flight.ts`, `shots.ts`, `filters.ts`.
 - `src/store.ts`: the zustand store; `apply(ServerEvent)` folds websocket events into UI state.
 - `src/api.ts`: REST calls; errors become toasts.
-- `src/net.ts`: the websocket connection with reconnect. `src/perf.tsx`: render pausing, adaptive DPR, `?stats`.
+- `src/net.ts`: the websocket connection with reconnect; it sends the tab's watch (`src/watch.ts`) as it changes.
+  `src/perf.tsx`: render pausing, adaptive DPR, `?stats` (and `window.__swarmStats` with a census of what's drawn).
+- `src/world/batch.ts` / `Batched.tsx`: a floor's repeated parts (Toon.tsx's boxes, people's `Piece`s) drawn as
+  instanced batches behind invisible stand-ins (`?batch=off` to compare). `src/world/paint/`: canvas textures
+  recorded here and painted in an OffscreenCanvas worker, with the canvas path as fallback (`?paint=main`).
 - `src/replay.ts`: the time-lapse: plays the journal through `store.apply(ev, 'play' | 'seek')` while live events
   wait; `replayClock.ts` is its pure clock and "since I was last here", `ui/TimeLapse.tsx` its console tab and bar.
 
@@ -162,8 +172,10 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
 - Demo parity: every new `Backend` method, CEO tool or capability gets a fake in `server/demo.ts`, so `--demo` works
   with no GitHub, no git/npm and no Claude usage.
 - UI state comes from the server: on connect the client gets a `snapshot`, then typed `ServerEvent`s (`repo`,
-  `agent`, `log`, `qa`, `ceo`, `message`, `toast`, …) from `Swarm.broadcast`. Add new state to `shared/types.ts`, the
-  snapshot and an event, and handle it in `store.ts`'s `apply`. REST is for commands, not for polling state.
+  `agent`, `qa`, `ceo`, `message`, `toast`, …) from `Swarm.broadcast`; agents' and floors' frequent changes come
+  batched as `agents` / `repos` patches and terminal lines as `logs` / `latest`, only for what the tab shows
+  (`server/outbox.ts`). Add new state to `shared/types.ts`, the snapshot and an event, and handle it in `store.ts`'s
+  `apply`. REST is for commands, not for polling state. A big company must fit `server/scale.test.ts`'s budgets.
 - REST errors: throw `HttpError(4xx, message)`; the handler in `index.ts` returns `{ error }` JSON, anything else
   is a logged 500. Validate request bodies by hand at the route or in the swarm.
 - CEO tools: zod input schemas, errors worded so the CEO can act on them, small outputs.
