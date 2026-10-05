@@ -43,7 +43,24 @@ export interface Focus {
   id: string;
   label: string;
   // resume: the usage meter while pacing, resume full speed (asks first)
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' } | { kind: 'roof'; op: string } | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string } | { kind: 'trophy'; id: string } | { kind: 'pong'; end: 'west' | 'east' };
+  action:
+    | Overlay
+    | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' }
+    | { kind: 'pickup'; toyId: string }
+    | { kind: 'poke'; toyId: string }
+    | { kind: 'coffee'; op: 'place' | 'brew' | 'take' }
+    | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' }
+    | { kind: 'channel'; repoId: string; pr: number | null }
+    | { kind: 'resume' }
+    | { kind: 'roof'; op: string }
+    | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string }
+    | { kind: 'trophy'; id: string }
+    /** Say hi to someone with nothing to do (Chatter.tsx). */
+    | { kind: 'greet'; agentId: string }
+    /** E on a holiday theme's thing (themes/active.ts). */
+    | { kind: 'theme'; id: string }
+    /** Pick up a paddle at that end of the ping-pong table (toys/pongState.ts). */
+    | { kind: 'pong'; end: 'west' | 'east' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -194,6 +211,7 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    themes: { mode: 'auto', disabled: [], birthday: null },
     weather: DEFAULT_WEATHER,
     worldEvents: DEFAULT_WORLD_EVENTS,
     listen: { provider: 'off', autoSend: false, handsFree: false },

@@ -3,8 +3,8 @@
 // when the light does. The key light still lights the whole room and casts every desk's and person's shadow: making
 // the ceiling block it would leave the office in shade all day.
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useSkyFrame } from './useDayTime';
 import { PATCH_MAX, apertures, sunPatch } from './windowLight';
 
 type FloorKind = 'office' | 'lobby';
@@ -55,7 +55,7 @@ export function SunPatches({ kind }: { kind: FloorKind }) {
   useEffect(() => () => geometry.dispose(), [geometry]);
   const seen = useRef(-1);
 
-  useFrame(() => {
+  useSkyFrame(() => {
     if (seen.current === light.version) return;
     seen.current = light.version;
     const pos = geometry.attributes.position as THREE.BufferAttribute;

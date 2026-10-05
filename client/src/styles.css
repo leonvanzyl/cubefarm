@@ -243,6 +243,21 @@ input.inline:focus {
 .pill-demo {
   background: #ffd166;
 }
+.pill-photo {
+  font-family: var(--font);
+  color: var(--ink);
+  cursor: pointer;
+}
+.pill-photo kbd {
+  font-size: 0.7rem;
+  border-bottom-width: 2px;
+}
+.pill-photo-rec {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e63946;
+}
 
 .dot {
   display: inline-block;

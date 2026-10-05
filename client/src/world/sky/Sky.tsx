@@ -5,12 +5,12 @@
 // range, so it is drawn only where nothing else is and never cuts through the building or the city. The weather
 // (weather/) greys and darkens it, swells and darkens the clouds, hides the sun and stars and flashes with lightning.
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
-import { dayTime } from './useDayTime';
+import { dayTime, useSkyFrame } from './useDayTime';
 import { coverOf, weatherSky } from '../weather/weatherRules';
 import { weather } from '../weather/weatherState';
 
@@ -231,7 +231,7 @@ export function Sky() {
     m.instanceMatrix.needsUpdate = true;
   }, [sky]);
 
-  useFrame(({ camera, clock, gl }, delta) => {
+  useSkyFrame(({ camera, clock, gl }, delta) => {
     const g = group.current;
     if (!g) return;
     g.position.copy(camera.position);

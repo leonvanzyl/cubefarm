@@ -1,11 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
+import { BILLBOARD } from './viewTags';
 import * as THREE from 'three';
 import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
+import { greetPick } from './Chatter';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { BLOOM } from './gfx/bloomMarks';
@@ -95,7 +97,7 @@ export function NameTag({ agent }: { agent: Agent }) {
   const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color]);
   return (
     // placed by Character, which carries it about with the person
-    <Billboard>
+    <Billboard userData={BILLBOARD}>
       <mesh>
         <planeGeometry args={[1.15, 0.216]} />
         <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
@@ -269,7 +271,7 @@ function Envelope({ requestId, name }: { requestId: string; name: string }) {
       <Box size={[0.3, 0.004, 0.012]} position={[0, 0.008, 0.02]} rotation={[0, -0.55, 0]} color="#e9e2d0" shadow={false} />
       <Cyl r={0.028} h={0.012} position={[0, 0.012, 0.02]} color="#c1121f" />
       <group ref={marker} position={[0, 0.42, 0]}>
-        <Billboard>
+        <Billboard userData={BILLBOARD}>
           <mesh>
             <planeGeometry args={[0.3, 0.3]} />
             <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
@@ -303,6 +305,10 @@ export const Desk = memo(function Desk({
   rotationY?: number;
 }) {
   const qa = role === 'qa';
+  // Aiming at the person themselves, while they've nothing to do, says hi instead (Chatter.tsx).
+  const agentId = agent?.id;
+  const desk = agent?.role === 'ceo' ? 'to open it' : qa ? 'for their test run' : 'for their terminal';
+  const greeting = useMemo(() => (agentId ? greetPick(agentId, desk) : undefined), [agentId, desk]);
   const ref = useInteractable<THREE.Group>(
     agent
       ? {
@@ -316,6 +322,7 @@ export const Desk = memo(function Desk({
           action: { kind: 'hire', repoId, role },
         },
     3.6,
+    greeting,
   );
   const mug = agent ? shade(agent.color, 0.1) : '#ffffff';
   const top = qa ? LAB_BENCH : WOOD;

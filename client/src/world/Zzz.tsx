@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SANS } from './draw';
+import { FACES_CAMERA } from './viewTags';
 
 // The "z z z" drifting up from someone who nodded off at their desk: three letters that rise, grow and fade, on one
 // texture, geometry and material shared by everyone. Hidden (and skipped) while they're awake.
@@ -55,7 +56,7 @@ export function Zzz({ on, position }: { on: { current: boolean }; position: [num
     }
   });
   return (
-    <group ref={g} position={position} visible={false}>
+    <group ref={g} position={position} visible={false} userData={FACES_CAMERA}>
       {[0, 1, 2].map((i) => (
         <mesh key={i} geometry={geometry} material={zMaterial()} renderOrder={2} />
       ))}

@@ -1,4 +1,5 @@
-import { useFrame } from '@react-three/fiber';
+import { useEffect, useRef } from 'react';
+import { useFrame, type RootState } from '@react-three/fiber';
 import { create } from 'zustand';
 import { DAY_MODES, dayPhase, DEFAULT_DAY_MODE, parseDaytimeParam, parseDayMode, type DayMode } from './time';
 import { replayMoment, setReplayMoment } from '../../officeTime';
@@ -72,6 +73,29 @@ export function setReplayTime(at: number | null) {
     lastReplayPublish = real;
     publish();
   }
+}
+
+type SkyFrame = (state: RootState, delta: number) => void;
+const followers = new Set<{ current: SkyFrame }>();
+
+/**
+ * useFrame for things that follow the time of day (the sky, the lights, the city). Photo mode freezes the frame loop
+ * but can still move the time of day: it re-runs just these (runSkyFrames) with no time passing.
+ */
+export function useSkyFrame(fn: SkyFrame) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useFrame((state, delta) => ref.current(state, delta));
+  useEffect(() => {
+    followers.add(ref);
+    return () => void followers.delete(ref);
+  }, []);
+}
+
+/** Brings everything that follows the time of day up to `dayTime.t` without moving anything else. */
+export function runSkyFrames(state: RootState) {
+  sampleDayTime();
+  for (const f of followers) f.current(state, 0);
 }
 
 /** Mounted once inside the Canvas: advances the clock before the frame draws. */

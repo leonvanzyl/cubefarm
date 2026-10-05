@@ -16,6 +16,7 @@ import { HALF_W, WAITING, WAITING_ROTATION, WAITING_TABLE } from './layout';
 import { WallSign } from './OfficeFloor';
 import { bodyState, say, seatBody, setBody } from './people';
 import { headingTo } from './socials';
+import { BILLBOARD } from './viewTags';
 import { Box, Cyl } from './Toon';
 import type { Pt } from './toys/roombaBrain';
 import { standable, steer, walkways } from './walkways';
@@ -92,7 +93,7 @@ function CandidateTag({ req, high }: { req: HireRequestView; high: boolean }) {
   const floor = useStore((s) => s.repos.find((r) => r.id === req.repoId)?.floor ?? null);
   const tex = useCanvasTexture(512, 128, (ctx) => drawCandidateTag(ctx, 512, 128, req.name, req.title, floor, req.color), [req.name, req.title, floor, req.color]);
   return (
-    <Billboard position={[0, high ? 2.3 : 1.95, -0.1]}>
+    <Billboard position={[0, high ? 2.3 : 1.95, -0.1]} userData={BILLBOARD}>
       <mesh>
         <planeGeometry args={[1.25, 0.31]} />
         <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />

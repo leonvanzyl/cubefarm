@@ -11,6 +11,8 @@ import { markBloom } from './gfx/bloomMarks';
 import { onGongParty } from './gongState';
 import { BOARD, GONG, deskPosition } from './layout';
 import { PIZZA_CONFETTI, ritualLook } from './ritualLook';
+import { useThemeConfetti } from './themes/active';
+import { heart } from './themes/kit/geo';
 
 const SLOTS = 3; // bursts at once
 const PIECES = 90; // per burst
@@ -46,6 +48,8 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
   const mesh = useRef<THREE.InstancedMesh>(null);
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  // a holiday theme's colours (and Valentine's hearts) in place of the usual
+  const themed = useThemeConfetti();
 
   // Everything the frame loop touches is allocated once here.
   const sim = useMemo(() => {
@@ -58,12 +62,12 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       spin: new Float32Array(n * 3),
       phase: new Float32Array(n),
       dummy: new THREE.Object3D(),
-      colors: [...PALETTE, repo.color].map((c) => new THREE.Color(c)),
+      colors: (themed?.colors ?? [...PALETTE, repo.color]).map((c) => new THREE.Color(c)),
       pizza: PIZZA_CONFETTI.map((c) => new THREE.Color(c)),
-      geometry: new THREE.PlaneGeometry(0.1, 0.06),
+      geometry: themed?.shape === 'heart' ? heart(0.1) : new THREE.PlaneGeometry(0.1, 0.06),
       material: markBloom(new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false })),
     };
-  }, [repo.color]);
+  }, [repo.color, themed]);
 
   useEffect(
     () => () => {

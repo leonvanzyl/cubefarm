@@ -10,6 +10,7 @@ import { closeOverlay } from './Panel';
 import { isKey } from './controls';
 import { Key } from './Key';
 import { Games, type GameId } from './games/Games';
+import { HolidayStrip } from './HolidayStrip';
 import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
 
@@ -539,6 +540,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
           <span className="phone-notch" />
           <span>📶 🔋</span>
         </div>
+        <HolidayStrip />
         <div className="phone-screen">
           {tab !== 'games' && <LobbyNudge />}
           {tab === 'chat' && <Chat />}

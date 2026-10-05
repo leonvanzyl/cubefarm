@@ -14,16 +14,18 @@ import { Panel } from './Panel';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
-import { SOUND_GROUPS, type SoundGroup } from './audioPrefs';
+import { CHATTER_LEVELS, SOUND_GROUPS, type ChatterLevel, type SoundGroup } from './audioPrefs';
 import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 import { GRAPHICS_PRESETS, type GraphicsPreset } from '../world/gfx/quality';
 import { effectiveTier, setGraphicsPreset, useGfx } from '../world/gfx/useGraphics';
+import { setReplay, usePhotoGate } from '../photo/gate';
 
 export { closeOverlay, Panel } from './Panel';
 
-const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
+const SOUND_GROUP_LABELS: Record<SoundGroup, string> = { steps: 'Footsteps', typing: 'Typing', babble: 'Chatter', toys: 'Toys', alerts: 'Alerts', music: 'Music', voice: 'Voice', outside: 'Outside', score: 'Soundtrack' };
 const SOUND_GROUP_TITLES: Partial<Record<SoundGroup, string>> = {
+  babble: "The team's babble voices as they talk",
   alerts: 'The phone, the elevator and work cues',
   music: "Each floor's jukebox",
   voice: 'Messages read aloud',
@@ -73,6 +75,34 @@ export function SoundControls() {
   );
 }
 
+const CHATTER_LABELS: Record<ChatterLevel, string> = { off: 'Off', quiet: 'Quiet', lively: 'Lively' };
+
+/** How much the agents say in their speech bubbles, and whether they babble it out loud; saved in this browser. */
+function ChatterSettings() {
+  const { chatter, silentBubbles } = useSyncExternalStore(subscribeAudio, getAudioPrefs);
+  return (
+    <div className="chatter-settings">
+      <div className="day-settings" role="radiogroup" aria-label="Agent chatter">
+        <span>💬 Agent chatter</span>
+        {CHATTER_LEVELS.map((l) => (
+          <label key={l} className="toggle">
+            <input type="radio" name="chatter-level" checked={chatter === l} onChange={() => setAudioPrefs({ chatter: l })} /> {CHATTER_LABELS[l]}
+          </label>
+        ))}
+      </div>
+      <div className="day-settings" role="radiogroup" aria-label="Chatter voices">
+        <span>Their voices</span>
+        <label className="toggle">
+          <input type="radio" name="chatter-voice" checked={!silentBubbles} disabled={chatter === 'off'} onChange={() => setAudioPrefs({ silentBubbles: false })} /> Babble
+        </label>
+        <label className="toggle">
+          <input type="radio" name="chatter-voice" checked={silentBubbles} disabled={chatter === 'off'} onChange={() => setAudioPrefs({ silentBubbles: true })} /> Silent bubbles only
+        </label>
+      </div>
+    </div>
+  );
+}
+
 const DAY_MODE_LABELS: Record<DayMode, string> = { cycle: '30-minute day', clock: 'Follow my clock', day: 'Always day' };
 
 /** How the sky outside moves: a fast day, the viewer's own clock or always afternoon; saved in this browser. */
@@ -111,6 +141,16 @@ function GraphicsSettings() {
         preset === 'auto' && <span className="muted small">now {GRAPHICS_LABELS[tier]}</span>
       )}
     </div>
+  );
+}
+
+/** Instant replay, off by default (photo/instantReplay.ts); saved in this browser. */
+function ReplaySetting() {
+  const on = usePhotoGate((s) => s.replay);
+  return (
+    <label className="toggle">
+      <input type="checkbox" checked={on} onChange={(e) => setReplay(e.target.checked)} /> Instant replay: keep the last 15 seconds, and save them with <Key action="saveReplay" />
+    </label>
   );
 }
 
@@ -195,11 +235,19 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             shows the level, and each floor keeps its own volume and station. The music dips under the gong, alerts and voices, and goes quiet while a panel or the phone is open and in the elevator. Wherever no
             jukebox can be heard, a quiet soundtrack follows the office's mood: soft and calm, a gentle pulse when the team is busy, darker under a red CI or a PR that needs you, slower at night, and a little
             fanfare after a merge (a bigger one on a streak). Every space sounds like itself, from the glassy lobby and the carpeted floors to the tiled kitchenette, the boxy elevator and the open balconies, and
-            sounds behind a wall come through muffled. <Key action="mute" /> mutes or unmutes anywhere. Under the master volume, turn footsteps (yours and everyone's), typing (and the team's chatter), toys (balls,
+            sounds behind a wall come through muffled. <Key action="mute" /> mutes or unmutes anywhere. Under the master volume, turn footsteps (yours and everyone's), typing (and the team's sighs and cheers), chatter (their babble voices), toys (balls,
             blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud), outside (wind, the city, birds by day and crickets at night,
             rain and thunder and the world's goings-on, heard out on a balcony or through an open side door, and the rain on the windows) and the soundtrack up or down on their own, or switch the soundtrack off. Your settings are saved in this browser.
           </p>
           <SoundControls />
+          <h3>Chatter</h3>
+          <p>
+            The team talks as they work: speech bubbles about what's really going on (a PR up for QA, a tester asked to look at it, tests going green, a merge conflict, a merge and a teammate's "Nice
+            one!", coffee at the cooler) in a cute babble voice of their own, the same on every visit; the CEO's is lower and grander. At most three speak at once and the nearest win. Quiet says the news;
+            lively also chats about what they're doing. Aim at someone with nothing to do and press <Key action="interact" /> to say hi (aim at their desk to open it). The Chatter slider above sets how loud
+            they babble.
+          </p>
+          <ChatterSettings />
           <h3>Outside</h3>
           <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
           <p>
@@ -247,6 +295,15 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's
             speech recognition or ElevenLabs.
           </p>
+          <h3>Photo mode and clips</h3>
+          <p>
+            Press <Key action="photo" /> (or 📷 at the top right) to freeze the office and fly a camera of your own: click the view to steer, <MoveKeys /> to fly, <kbd>Space</kbd> and <kbd>C</kbd> up and down,{' '}
+            <Key action="rotateLeft" /> and <Key action="rotateRight" /> to roll and the wheel to zoom. Pick a filter, add depth of field, the logo, the floor and date, or move the sun to golden hour, then{' '}
+            <kbd>Enter</kbd> saves a PNG (up to 4× your screen) and copies it. <kbd>V</kbd> records a clip with the office's sound, optionally slowly circling the gong, the whiteboard or someone. Unfreeze (
+            <kbd>F</kbd>) to film the office live. The work carries on while you shoot, and <Key action="photo" /> puts you back exactly where you were. Shots and clips are kept in this tab's gallery and saved to your
+            downloads, never uploaded.
+          </p>
+          <ReplaySetting />
           <h3>Who's working</h3>
           <p>
             The list at the top right shows everyone who is working right now (on this floor, or on every floor from the lobby) with their latest thought, reply or tool call. Click someone to watch their screen.{' '}

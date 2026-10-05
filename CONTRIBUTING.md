@@ -52,6 +52,7 @@ Read its release notes first: a release that moves to a new Playwright may chang
 client/  Vite + React + react-three-fiber (toon materials, canvas textures)
   src/world/   the 3D building: floors, desks, characters, laptops, whiteboard, elevator, player
   src/ui/      HUD and panels: terminal, Kanban, elevator, manager's console
+  src/photo/   photo mode: a free camera over a frozen office, filters, shots, clips and instant replay
 bin/cubefarm.js  the `npx cubefarm` command: checks the machine, starts the server, opens the browser
 scripts/office.mjs  the launcher for a checkout (npm run dev / demo / start): runs the office and updates it
 server/  Node + Express + ws
