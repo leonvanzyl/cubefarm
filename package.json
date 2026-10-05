@@ -1,6 +1,6 @@
 {
   "name": "cubefarm",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "A cartoon 3D office where a team of AI coding agents works through your GitHub issues.",
   "keywords": [
     "claude-code",
