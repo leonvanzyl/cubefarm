@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { PerformanceMonitor, type PerformanceMonitorApi } from '@react-three/drei';
+import type * as THREE from 'three';
 import { coversView, useStore } from './store';
 
 // Keeping the office cheap to leave open all day: the 3D view stops drawing while a panel hides it or
@@ -76,9 +77,35 @@ let readoutEl: HTMLSpanElement | null = null;
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 
+/** With `?stats`, window.__swarmStats: the same numbers for scripts (scripts/bench.mjs), and census() of what's drawn. */
+const probe = { fps: 0, ms: 0, calls: 0, triangles: 0, geometries: 0, textures: 0, programs: 0 };
+let probeScene: THREE.Scene | null = null;
+
+/** The visible meshes by geometry (and whether instanced), most draws first: where the draw calls and triangles go. */
+function census(top = 25) {
+  const counts = new Map<string, { draws: number; triangles: number }>();
+  probeScene?.traverseVisible((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const g = m.geometry as THREE.BufferGeometry & { parameters?: Record<string, number> };
+    const params = g.parameters ? Object.values(g.parameters).map((v) => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v)).join(',') : g.uuid.slice(0, 6);
+    const instances = (m as THREE.InstancedMesh).isInstancedMesh ? (m as THREE.InstancedMesh).count : 1;
+    const key = `${instances > 1 || (m as THREE.InstancedMesh).isInstancedMesh ? 'instanced ' : ''}${g.type}(${params})${m.castShadow ? ' shadow' : ''}`;
+    const c = counts.get(key) ?? { draws: 0, triangles: 0 };
+    c.draws++;
+    c.triangles += (((g.index?.count ?? g.attributes.position?.count) || 0) / 3) * instances;
+    counts.set(key, c);
+  });
+  return [...counts.entries()].sort((a, b) => b[1].draws - a[1].draws || b[1].triangles - a[1].triangles).slice(0, top);
+}
+
+if (statsEnabled) Object.assign(window as unknown as Record<string, unknown>, { __swarmStats: Object.assign(probe, { census }) });
+
 /** Lives inside the Canvas (only with `?stats`). Samples the frame rate and the renderer's counters twice a second. */
 export function StatsProbe({ paused }: { paused: boolean }) {
   const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  probeScene = scene;
   const acc = useRef({ start: 0, prev: 0, frames: 0 });
   // After a pause (panel open, tab hidden) start a fresh window instead of averaging over the gap.
   useEffect(() => {
@@ -98,6 +125,7 @@ export function StatsProbe({ paused }: { paused: boolean }) {
     // gl.info holds the previous frame's totals (shadow passes included) until this frame renders.
     const { calls, triangles } = gl.info.render;
     const fps = (a.frames * 1000) / elapsed;
+    Object.assign(probe, { fps: Math.round(fps * 10) / 10, ms: Math.round((elapsed / a.frames) * 10) / 10, calls, triangles, geometries: gl.info.memory.geometries, textures: gl.info.memory.textures, programs: gl.info.programs?.length ?? 0 });
     readoutEl.textContent = `${Math.round(fps)} fps · ${(elapsed / a.frames).toFixed(1)} ms · ${calls} calls · ${fmt(triangles)} tris · dpr ${gl.getPixelRatio().toFixed(2)}`;
     a.start = now;
     a.frames = 0;

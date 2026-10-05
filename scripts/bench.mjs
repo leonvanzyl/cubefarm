@@ -179,7 +179,8 @@ async function visit(browser, floor) {
     };
     requestAnimationFrame(tick);
     // The renderer's counters: the office's probe where it has one, else the ?stats corner readout.
-    b.timer = setInterval(() => b.readouts.push(window.__swarmStats ? { ...window.__swarmStats } : (document.querySelector('.stats span')?.textContent ?? null)), 500);
+    const numbers = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => typeof v === 'number'));
+    b.timer = setInterval(() => b.readouts.push(window.__swarmStats ? numbers(window.__swarmStats) : (document.querySelector('.stats span')?.textContent ?? null)), 500);
   });
   await sleep(seconds * 1000);
   const data = await page.evaluate(() => {

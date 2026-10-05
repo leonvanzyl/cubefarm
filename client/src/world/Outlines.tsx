@@ -61,6 +61,30 @@ const OutlinesMaterial = shaderMaterial(
 
 type OutlineMaterial = THREE.ShaderMaterial & { thickness: number; color: THREE.Color; size: THREE.Vector2 };
 
+const inks = new Map<number, OutlineMaterial>();
+
+/**
+ * The ink outline's material for instanced batches (batch.ts), one per thickness: the same shader, which reads each
+ * instance's matrix. `size` must follow the drawing buffer (Batched.tsx does it every frame).
+ */
+export function inkMaterial(thickness: number): OutlineMaterial {
+  let m = inks.get(thickness);
+  if (!m) {
+    m = new OutlinesMaterial({ side: THREE.BackSide }) as OutlineMaterial;
+    m.thickness = thickness;
+    m.color.set(INK);
+    inks.set(thickness, m);
+  }
+  return m;
+}
+
+/** Keeps every batch outline's idea of the screen size current. */
+export function sizeInks(gl: THREE.WebGLRenderer) {
+  for (const m of inks.values()) gl.getDrawingBufferSize(m.size);
+}
+
+const INK = '#1f1d2b';
+
 /** An ink outline round the mesh it's placed in, `thickness` in drei's units. */
 export function Outlines({ color = 'black', thickness = 0.05, angle = Math.PI }: { color?: THREE.ColorRepresentation; thickness?: number; angle?: number }) {
   const ref = useRef<THREE.Group>(null);

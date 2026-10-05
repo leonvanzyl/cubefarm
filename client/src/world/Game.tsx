@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
+import { Batches } from './Batched';
 import { lobbyColliders, officeColliders } from './layout';
 import { Lobby } from './Lobby';
 import { OfficeFloor } from './OfficeFloor';
@@ -65,7 +66,10 @@ export function Game() {
       <Sky />
       <DayLights />
       <City />
-      <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
+      {/* the floor's repeated parts (desks, chairs, props, people) are drawn as instanced batches (Batched.tsx) */}
+      <Batches key={repo?.id ?? 'lobby'}>
+        <Suspense fallback={null}>{repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
+      </Batches>
       <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />
       <Player colliders={colliders} floor={floor} />
       <Travel />

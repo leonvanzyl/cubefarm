@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
-import { createDemoBackend } from './demo.ts';
-import { Swarm } from './swarm.ts';
+
+// Its own folder: notifier.test.ts writes the same demo secrets file in the shared one, and two test processes
+// renaming it at once fail on Windows.
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cubefarm-voicekey-'));
+process.env.SWARM_HOME = home;
+const { createDemoBackend } = await import('./demo.ts');
+const { Swarm } = await import('./swarm.ts');
+afterAll(() => fs.rmSync(home, { recursive: true, force: true, maxRetries: 5 }));
 
 // The ElevenLabs key goes in through PUT /api/voice/key and must never come back out: not in the snapshot, not in
 // the settings broadcast, not in any event.

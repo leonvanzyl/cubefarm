@@ -1,10 +1,15 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import type { ServerEvent } from '../shared/types.ts';
-import { STATE_FILE } from './config.ts';
-import { createDemoBackend } from './demo.ts';
-import { Swarm } from './swarm.ts';
+
+// A whole office writes its state, secrets and voice cache: a folder of its own, so other tests' files are left alone.
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cubefarm-scale-'));
+process.env.SWARM_HOME = home;
+const { createDemoBackend } = await import('./demo.ts');
+const { Swarm } = await import('./swarm.ts');
 
 // The scale budget (#228): the demo's big company, 10 floors of 15 busy people, run for a few minutes of fake time,
 // must fit the snapshot a tab loads and the traffic one tab gets into budgets, so a change that makes either grow with
@@ -15,7 +20,7 @@ const TRAFFIC_BUDGET = 80_000; // bytes per second to a tab on one floor with th
 
 afterAll(() => {
   vi.useRealTimers();
-  fs.rmSync(STATE_FILE, { force: true });
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 5 });
 });
 
 describe('a big company', () => {

@@ -4,30 +4,28 @@ import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
+import { look, type Look } from './batch';
+import { Part } from './Batched';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
-import { glow, shade, toon } from './materials';
+import { PaintedTexture } from './paint/painter';
+import { shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
 
 const SCREEN = { w: 1.0, h: 0.6, px: 896, py: 538 };
 const WOOD = '#f1d19b';
 
-/** The live terminal texture for one agent's laptop. Only repaints when something changed and the player is nearby. */
+/**
+ * The live terminal texture for one agent's laptop. Only repaints when something changed and the player is nearby, in
+ * the paint worker where it can (paint/painter.ts).
+ */
 function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D | null>) {
   const camera = useThree((s) => s.camera);
-  const { canvas, tex } = useMemo(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = SCREEN.px;
-    canvas.height = SCREEN.py;
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 8;
-    return { canvas, tex };
-  }, []);
-  useEffect(() => () => tex.dispose(), [tex]);
+  const painted = useMemo(() => new PaintedTexture(SCREEN.px, SCREEN.py), []);
+  useEffect(() => () => painted.dispose(), [painted]);
 
   const dirty = useRef(true);
   const lastPaint = useRef(0);
@@ -82,18 +80,22 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
     const showBrowser = a.hasScreenshot && a.status !== 'idle' && (a.currentTool?.startsWith('mcp__playwright') || recentShot || a.status === 'done');
     const s = useStore.getState().settings;
     const program = a.role !== 'ceo' && s.runtime === 'terminal' ? a.cli || s.defaultCli : 'claude';
-    drawTerminal(canvas.getContext('2d')!, SCREEN.px, SCREEN.py, a, logs, shot.current, !!showBrowser, now, program);
-    tex.needsUpdate = true;
+    const img = shot.current;
+    painted.paint((ctx) => drawTerminal(ctx, SCREEN.px, SCREEN.py, a, logs, img, !!showBrowser, now, program));
   });
-  return tex;
+  return painted.texture;
 }
 
+// A tag's change of tool waits to be painted while it's further than this (too small to read from there).
+const TAG_RANGE = 18;
+
 export function NameTag({ agent }: { agent: Agent }) {
-  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color]);
+  const anchor = useRef<THREE.Mesh>(null);
+  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color], { anchor, range: TAG_RANGE });
   return (
     // placed by Character, which carries it about with the person
     <Billboard>
-      <mesh>
+      <mesh ref={anchor}>
         <planeGeometry args={[1.15, 0.216]} />
         <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
       </mesh>
@@ -104,6 +106,11 @@ export function NameTag({ agent }: { agent: Agent }) {
 const MONITOR = { y: 1.31, z: -0.3, tilt: -0.06 };
 const BEZEL = '#2b2d42';
 const STAND = '#3d4152';
+// Shapes every desk shares, so a floor's desks draw them in one batch each (Batched.tsx).
+const LOGO = look(new THREE.CircleGeometry(0.06, 24), { shading: 'glow' });
+const LED = look(new THREE.CircleGeometry(0.008, 10), { shading: 'glow' });
+const PAD = look(new THREE.PlaneGeometry(0.24, 0.2));
+const MOUSE = look(new THREE.SphereGeometry(0.05, 14, 10), { castShadow: true });
 
 /** Desktop monitor on a slim stand, set back on the desk so it stays readable over the agent's head. */
 function Monitor({ accent, children }: { accent: string; children: React.ReactNode }) {
@@ -115,12 +122,8 @@ function Monitor({ accent, children }: { accent: string; children: React.ReactNo
         <Box size={[SCREEN.w + 0.07, SCREEN.h + 0.07, 0.05]} color={BEZEL} outline />
         <Box size={[0.6, 0.36, 0.07]} position={[0, 0, -0.055]} color={STAND} />
         {children}
-        <mesh position={[0, 0, -0.091]} rotation={[0, Math.PI, 0]} material={glow(accent)}>
-          <circleGeometry args={[0.06, 24]} />
-        </mesh>
-        <mesh position={[SCREEN.w / 2 - 0.02, -SCREEN.h / 2 - 0.018, 0.026]} material={glow('#7CFFB2')}>
-          <circleGeometry args={[0.008, 10]} />
-        </mesh>
+        <Part look={LOGO} color={accent} position={[0, 0, -0.091]} rotation={[0, Math.PI, 0]} />
+        <Part look={LED} color="#7CFFB2" position={[SCREEN.w / 2 - 0.02, -SCREEN.h / 2 - 0.018, 0.026]} />
       </group>
     </group>
   );
@@ -164,44 +167,45 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
   );
 }
 
-function Keyboard() {
-  const tex = useCanvasTexture(
-    512,
-    176,
-    (ctx) => {
-      ctx.fillStyle = '#d7dbe3';
-      ctx.fillRect(0, 0, 512, 176);
-      const rows = [14, 13, 12, 11];
-      rows.forEach((n, r) => {
-        const kw = (496 - (n - 1) * 5) / n;
-        for (let i = 0; i < n; i++) {
-          ctx.fillStyle = r === 0 && (i === 0 || i === n - 1) ? '#ffb4a2' : '#ffffff';
-          ctx.beginPath();
-          ctx.roundRect(8 + i * (kw + 5), 8 + r * 34, kw, 28, 6);
-          ctx.fill();
-        }
-      });
-      ctx.fillStyle = '#ffffff';
+// Every keyboard is the same picture: painted once, on one material all of them share.
+let keys: Look | null = null;
+function keyboardKeys() {
+  if (keys) return keys;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 176;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#d7dbe3';
+  ctx.fillRect(0, 0, 512, 176);
+  const rows = [14, 13, 12, 11];
+  rows.forEach((n, r) => {
+    const kw = (496 - (n - 1) * 5) / n;
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = r === 0 && (i === 0 || i === n - 1) ? '#ffb4a2' : '#ffffff';
       ctx.beginPath();
-      ctx.roundRect(130, 144, 252, 26, 6);
+      ctx.roundRect(8 + i * (kw + 5), 8 + r * 34, kw, 28, 6);
       ctx.fill();
-    },
-    [],
-  );
+    }
+  });
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect(130, 144, 252, 26, 6);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  keys = look(new THREE.PlaneGeometry(0.5, 0.17), { material: new THREE.MeshToonMaterial({ map: tex }) });
+  return keys;
+}
+
+function Keyboard() {
   return (
     <group position={[0, 0.77, 0.27]}>
       <Box size={[0.52, 0.03, 0.18]} position={[0, 0.015, 0]} color="#c3c8d3" outline />
-      <mesh position={[0, 0.031, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.5, 0.17]} />
-        <meshToonMaterial map={tex} />
-      </mesh>
+      <Part look={keyboardKeys()} color="#ffffff" position={[0, 0.031, 0]} rotation={[-Math.PI / 2, 0, 0]} />
       {/* mouse + pad */}
-      <mesh position={[0.46, 0.002, 0.02]} rotation={[-Math.PI / 2, 0, 0]} material={toon('#3d4152')}>
-        <planeGeometry args={[0.24, 0.2]} />
-      </mesh>
-      <mesh position={[0.46, 0.022, 0.02]} scale={[0.75, 0.5, 1]} material={toon('#f4f4f8')} castShadow>
-        <sphereGeometry args={[0.05, 14, 10]} />
-      </mesh>
+      <Part look={PAD} color="#3d4152" position={[0.46, 0.002, 0.02]} rotation={[-Math.PI / 2, 0, 0]} />
+      <Part look={MOUSE} color="#f4f4f8" position={[0.46, 0.022, 0.02]} scale={[0.75, 0.5, 1]} />
     </group>
   );
 }
