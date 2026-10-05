@@ -1382,9 +1382,6 @@ const demoVoice: VoiceApi = {
  */
 const demoNotify: NotifyTransport = {
   demoWebhooks: {
-    discord: { url: 'https://discord.com/api/webhooks/100000000000000001/demo-webhook-token' },
-    slack: { url: 'https://hooks.slack.com/services/T00000000/B00000000/demowebhooktoken' },
-    telegram: { token: '123456789:demo-bot-token-abcdefghijklmnop', chatId: '123456789' },
     ntfy: { url: 'https://ntfy.sh/cubefarm-demo-office' },
   },
   post: async ({ channel, url, text }) => {

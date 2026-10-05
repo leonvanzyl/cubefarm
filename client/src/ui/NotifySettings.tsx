@@ -1,5 +1,5 @@
 // Settings → Notifications (docs/pocket.md): which events, the office URL messages link to, this device (desktop
-// notifications, Web Push) and the chat apps. Webhook URLs and tokens are write-only: the browser sees a hint of them.
+// notifications, Web Push) and ntfy. Its topic URL and token are write-only: the browser sees a hint of them.
 import { useEffect, useId, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -14,27 +14,6 @@ const DOCS = 'https://github.com/leonvanzyl/cubefarm/blob/main/docs/pocket.md';
 type Field = { key: string; label: string; placeholder: string; secret: boolean; optional?: boolean };
 
 const WEBHOOKS: { id: NotifyWebhook; label: string; help: string; fields: Field[] }[] = [
-  {
-    id: 'discord',
-    label: 'Discord',
-    help: 'Channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.',
-    fields: [{ key: 'url', label: 'Webhook URL', placeholder: 'https://discord.com/api/webhooks/…', secret: true }],
-  },
-  {
-    id: 'slack',
-    label: 'Slack',
-    help: 'A Slack app with Incoming Webhooks on (api.slack.com/apps), added to a channel.',
-    fields: [{ key: 'url', label: 'Webhook URL', placeholder: 'https://hooks.slack.com/services/…', secret: true }],
-  },
-  {
-    id: 'telegram',
-    label: 'Telegram',
-    help: 'Make a bot with @BotFather, send it a message, then use your chat id (docs/pocket.md shows how to find it).',
-    fields: [
-      { key: 'token', label: 'Bot token', placeholder: '123456789:AA…', secret: true },
-      { key: 'chatId', label: 'Chat id', placeholder: '123456789', secret: false },
-    ],
-  },
   {
     id: 'ntfy',
     label: 'ntfy',
@@ -310,12 +289,12 @@ export function NotifySettings() {
       </label>
       <h4 className="notify-h">This device</h4>
       <ThisDevice notify={notify} save={save} />
-      <h4 className="notify-h">Chat apps</h4>
+      <h4 className="notify-h">Phone app</h4>
       {WEBHOOKS.map((h) => (
         <WebhookRow key={h.id} hook={h} notify={notify} save={save} />
       ))}
       <p className="muted small">
-        Webhook addresses and tokens stay on the office's PC and are never shown again. Setup for each, and how to reach the office from your phone safely: <a href={DOCS}>docs/pocket.md</a>.
+        The topic and token stay on the office's PC and are never shown again. Setup for each, and how to reach the office from your phone safely: <a href={DOCS}>docs/pocket.md</a>.
       </p>
     </div>
   );

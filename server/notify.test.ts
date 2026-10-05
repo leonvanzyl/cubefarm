@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  discordPayload,
   due,
   nextDue,
   note,
@@ -13,11 +12,9 @@ import {
   plainText,
   redact,
   secretValues,
-  slackPayload,
   STUCK_ERROR_MS,
   stuckAgents,
   summarize,
-  telegramPayload,
   webhookHint,
   type Gates,
   type Note,
@@ -122,10 +119,7 @@ describe('what a note says', () => {
     expect(note('merge', 'x', 'y'.repeat(1000)).body.length).toBeLessThanOrEqual(300);
   });
 
-  it('fits each chat app', () => {
-    expect(discordPayload(n, 'https://o.example/')).toEqual({ username: 'cubefarm', content: '**⚠️ PR #12 needs you**\npixel-todo: Add login. Stuck because it failed QA 3 times.\n<https://o.example/>', allowed_mentions: { parse: [] } });
-    expect(slackPayload(note('merge', 'Merged <b> & co', 'a < b'), 'https://o.example/').text).toBe('*🔀 Merged &lt;b&gt; &amp; co*\na &lt; b\n<https://o.example/|Open the office>');
-    expect(telegramPayload(n, '-100123')).toEqual({ chat_id: '-100123', text: noteText(n), disable_web_page_preview: true });
+  it('fits ntfy', () => {
     expect(ntfyPayload(n, 'my-topic', 'https://o.example/')).toEqual({ topic: 'my-topic', title: n.title, message: n.body, priority: 4, click: 'https://o.example/' });
     expect(ntfyPayload(note('merge', 'm', 'b'), 't')).toEqual({ topic: 't', title: '🔀 m', message: 'b', priority: 3 });
   });
@@ -148,23 +142,18 @@ describe('what a note says', () => {
 });
 
 describe('chat app settings', () => {
-  it('takes real-looking webhooks and refuses the rest', () => {
-    expect(parseWebhook('discord', { url: ' https://discord.com/api/webhooks/123/abcDEF ' })).toEqual({ url: 'https://discord.com/api/webhooks/123/abcDEF' });
-    expect(() => parseWebhook('discord', { url: 'https://evil.example/api/webhooks/1/2' })).toThrow(/Discord webhook/);
-    expect(() => parseWebhook('discord', { url: 'http://discord.com/api/webhooks/1/2' })).toThrow(/Discord webhook/);
-    expect(parseWebhook('slack', { url: 'https://hooks.slack.com/services/T0/B0/xyz' })).toEqual({ url: 'https://hooks.slack.com/services/T0/B0/xyz' });
-    expect(() => parseWebhook('slack', { url: 'https://hooks.slack.com/other' })).toThrow(/Slack/);
-    expect(parseWebhook('telegram', { token: '123456:ABCdefGHIjklMNOpqrSTUvwx', chatId: '-1001234' })).toEqual({ token: '123456:ABCdefGHIjklMNOpqrSTUvwx', chatId: '-1001234' });
-    expect(() => parseWebhook('telegram', { token: 'nope', chatId: '1' })).toThrow(/bot token/);
-    expect(() => parseWebhook('telegram', { token: '123456:ABCdefGHIjklMNOpqrSTUvwx', chatId: 'x y' })).toThrow(/chat id/);
-    expect(parseWebhook('ntfy', { url: 'https://ntfy.sh/my-office-a8f3/' })).toEqual({ url: 'https://ntfy.sh/my-office-a8f3' });
+  it('takes real-looking topic URLs and refuses the rest', () => {
+    expect(parseWebhook('ntfy', { url: ' https://ntfy.sh/my-office-a8f3/ ' })).toEqual({ url: 'https://ntfy.sh/my-office-a8f3' });
     expect(parseWebhook('ntfy', { url: 'http://ntfy.lan/office', token: 'tk_abcdefgh123' })).toEqual({ url: 'http://ntfy.lan/office', token: 'tk_abcdefgh123' });
     expect(() => parseWebhook('ntfy', { url: 'https://ntfy.sh/' })).toThrow(/topic URL/);
+    expect(() => parseWebhook('ntfy', { url: 'ftp://ntfy.sh/office' })).toThrow(/ntfy topic URL/);
+    expect(() => parseWebhook('ntfy', { url: 'not a url' })).toThrow(/ntfy topic URL/);
+    expect(() => parseWebhook('ntfy', { url: 'https://ntfy.sh/office', token: 'no spaces allowed' })).toThrow(/access token/);
   });
 
   it('removes a chat app with an empty url or token', () => {
-    expect(parseWebhook('discord', { url: '' })).toBeNull();
-    expect(parseWebhook('telegram', {})).toBeNull();
+    expect(parseWebhook('ntfy', { url: '' })).toBeNull();
+    expect(parseWebhook('ntfy', {})).toBeNull();
     expect(parseWebhook('ntfy', null)).toBeNull();
   });
 
@@ -173,20 +162,15 @@ describe('chat app settings', () => {
   });
 
   it('hints at a saved webhook without giving it away', () => {
-    const secrets = {
-      discord: { url: 'https://discord.com/api/webhooks/123/SECRETtokenAB12' },
-      telegram: { token: '123456:SECRETbotTOKENxyzw9876', chatId: '55501234' },
-      ntfy: { url: 'https://ntfy.sh/secret-topic-q7r8', token: 'tk_secret_token_1' },
-    };
-    expect(webhookHint('discord', secrets.discord)).toBe('discord.com/…AB12');
-    expect(webhookHint('telegram', secrets.telegram)).toBe('bot …9876 · chat …1234');
+    const secrets = { ntfy: { url: 'https://ntfy.sh/secret-topic-q7r8', token: 'tk_secret_token_1' } };
     expect(webhookHint('ntfy', secrets.ntfy)).toBe('ntfy.sh/…q7r8 · with a token');
-    expect(webhookHint('slack', undefined)).toBe('');
-    for (const v of secretValues(secrets)) for (const c of ['discord', 'telegram', 'ntfy'] as const) expect(webhookHint(c, secrets[c])).not.toContain(v);
+    expect(webhookHint('ntfy', { url: 'https://ntfy.sh/secret-topic-q7r8' })).toBe('ntfy.sh/…q7r8');
+    expect(webhookHint('ntfy', undefined)).toBe('');
+    for (const v of secretValues(secrets)) expect(webhookHint('ntfy', secrets.ntfy)).not.toContain(v);
   });
 
   it('redacts secrets and URL paths from anything logged', () => {
-    expect(redact('failed: token 123456:abc posted to https://hooks.slack.com/services/T/B/x', ['123456:abc'])).toBe('failed: token •••• posted to https://hooks.slack.com/••••');
+    expect(redact('failed: token tk_abc123 posted to https://ntfy.sh/secret-topic', ['tk_abc123'])).toBe('failed: token •••• posted to https://ntfy.sh/••••');
   });
 });
 

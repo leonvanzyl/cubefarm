@@ -11,12 +11,9 @@ import { Notifier, type NotifyRequest } from './notifier.ts';
 import { Swarm } from './swarm.ts';
 
 const SECRETS = {
-  discord: { url: 'https://discord.com/api/webhooks/999/discordSECRET4242' },
-  slack: { url: 'https://hooks.slack.com/services/T1/B1/slackSECRET4242' },
-  telegram: { token: '987654:telegramSECRETtoken4242abc', chatId: '424242' },
   ntfy: { url: 'https://ntfy.sh/ntfySECRETtopic4242', token: 'tk_ntfySECRET4242' },
 };
-const SECRET_STRINGS = ['discordSECRET4242', 'slackSECRET4242', 'telegramSECRETtoken4242abc', 'ntfySECRETtopic4242', 'tk_ntfySECRET4242', 'pushSECRETendpoint4242'];
+const SECRET_STRINGS = ['ntfySECRETtopic4242', 'tk_ntfySECRET4242', 'pushSECRETendpoint4242'];
 
 /** A browser's push subscription, with a real P-256 key so the office can encrypt for it. */
 function subscription(endpoint = 'https://push.example.net/push/pushSECRETendpoint4242') {
@@ -50,17 +47,17 @@ describe('notification secrets', () => {
 
     out.length = 0;
     swarm.notifier.notify('needsHuman', 'PR #4 needs you', 'pixel-todo: Add login.');
-    for (const c of ['desktop', 'push', 'discord', 'slack', 'telegram', 'ntfy']) answers.push(await swarm.notifier.test(c));
+    for (const c of ['desktop', 'push', 'ntfy']) answers.push(await swarm.notifier.test(c));
     await settle();
 
     // The demo shows what each channel would get: one formatted line per chat app and device for the PR.
     const pr = out.filter((l) => l.includes('⚠️ PR #4 needs you'));
-    expect(pr.map((l) => l.match(/demo (\w+)/)?.[1]).sort()).toEqual(['discord', 'ntfy', 'push', 'slack', 'telegram']);
+    expect(pr.map((l) => l.match(/demo (\w+)/)?.[1]).sort()).toEqual(['ntfy', 'push']);
     expect(pr[0]).toContain('pixel-todo: Add login. ⏎ https://office.example.ts.net/');
     expect(sent.filter((m) => JSON.parse(m).type === 'notify').map((m) => (JSON.parse(m).note as NoteView).title)).toEqual(['⚠️ PR #4 needs you', '🔔 Test from cubefarm']);
 
     const snap = swarm.snapshot();
-    expect(snap.notifyChannels.webhooks.discord).toEqual({ set: true, hint: 'discord.com/…4242' });
+    expect(snap.notifyChannels.webhooks.ntfy).toEqual({ set: true, hint: 'ntfy.sh/…4242 · with a token' });
     expect(snap.notifyChannels.pushDevices).toBe(1);
     const vapid = JSON.parse(fs.readFileSync(path.join(process.env.SWARM_HOME!, 'demo-push.json'), 'utf8')).vapid.privateKey as string;
     const everything = [JSON.stringify(snap), ...sent, ...out, JSON.stringify(answers)].join('\n');
@@ -71,9 +68,9 @@ describe('notification secrets', () => {
     const out: string[] = [];
     for (const m of ['log', 'warn'] as const) vi.spyOn(console, m).mockImplementation((...a: unknown[]) => void out.push(a.map(String).join(' ')));
     const swarm = new Swarm(createDemoBackend());
-    await swarm.notifier.setWebhook('discord', { url: 'https://discord.com/api/webhooks/1/badSECRETtoken77' });
-    await expect(swarm.notifier.test('discord')).rejects.toThrow("The test didn't arrive: Discord doesn't know that webhook (HTTP 404).");
-    expect(out.join('\n')).not.toContain('badSECRETtoken77');
+    await swarm.notifier.setWebhook('ntfy', { url: 'https://bad.example/SECRETtopic77', token: 'tk_badSECRET77' });
+    await expect(swarm.notifier.test('ntfy')).rejects.toThrow("The test didn't arrive: ntfy doesn't know that webhook (HTTP 404).");
+    expect(out.join('\n')).not.toMatch(/SECRETtopic77|tk_badSECRET77/);
   });
 
   it('keep the ElevenLabs key in the same file', async () => {
@@ -82,10 +79,21 @@ describe('notification secrets', () => {
     fs.writeFileSync(secretsFile, JSON.stringify({ elevenlabsKey: 'sk_keep_me' }));
     const n = notifier(dir, () => 200).n;
     await n.init();
-    await n.setWebhook('slack', SECRETS.slack);
-    expect(JSON.parse(fs.readFileSync(secretsFile, 'utf8'))).toEqual({ elevenlabsKey: 'sk_keep_me', notify: { slack: SECRETS.slack } });
-    await n.setWebhook('slack', { url: '' });
+    await n.setWebhook('ntfy', SECRETS.ntfy);
+    expect(JSON.parse(fs.readFileSync(secretsFile, 'utf8'))).toEqual({ elevenlabsKey: 'sk_keep_me', notify: { ntfy: SECRETS.ntfy } });
+    await n.setWebhook('ntfy', { url: '' });
     expect(JSON.parse(fs.readFileSync(secretsFile, 'utf8'))).toEqual({ elevenlabsKey: 'sk_keep_me', notify: {} });
+  });
+
+  it('are deleted for chat apps the office no longer sends to', async () => {
+    const dir = tmpDir();
+    const secretsFile = path.join(dir, 'secrets.json');
+    const old = { discord: { url: 'https://old.example/1' }, slack: { url: 'https://old.example/2' }, telegram: { token: 'old', chatId: '1' } };
+    fs.writeFileSync(secretsFile, JSON.stringify({ elevenlabsKey: 'sk_keep_me', notify: { ntfy: SECRETS.ntfy, ...old } }));
+    const n = notifier(dir, () => 200).n;
+    await n.init();
+    expect(JSON.parse(fs.readFileSync(secretsFile, 'utf8'))).toEqual({ elevenlabsKey: 'sk_keep_me', notify: { ntfy: SECRETS.ntfy } });
+    expect(Object.keys(n.channelsView().webhooks)).toEqual(['ntfy']);
   });
 
   it('are never handled by the browser code', () => {
@@ -120,32 +128,36 @@ describe('the notifier', () => {
     vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 12) });
     const { n, posts, notes } = notifier(tmpDir(), () => 200);
     await n.init();
-    await n.setWebhook('discord', SECRETS.discord);
-    await n.setWebhook('telegram', SECRETS.telegram);
+    await n.setWebhook('ntfy', SECRETS.ntfy);
     for (let i = 1; i <= 10; i++) n.notify('merge', `Merged PR #${i}`, `pixel-todo: Change ${i}`, `#${i} Change ${i}`);
     await vi.advanceTimersByTimeAsync(10);
-    expect(posts.map((p) => p.channel)).toEqual(['discord', 'telegram']);
-    expect(posts[1].url).toBe(`https://api.telegram.org/bot${SECRETS.telegram.token}/sendMessage`);
-    expect(JSON.parse(String(posts[1].body))).toMatchObject({ chat_id: '424242', text: '🔀 Merged PR #1\npixel-todo: Change 1' });
+    expect(posts.map((p) => p.channel)).toEqual(['ntfy']);
+    expect(posts[0].url).toBe('https://ntfy.sh/');
+    expect(posts[0].headers).toMatchObject({ Authorization: `Bearer ${SECRETS.ntfy.token}` });
+    expect(JSON.parse(String(posts[0].body))).toMatchObject({ topic: 'ntfySECRETtopic4242', title: '🔀 Merged PR #1', message: 'pixel-todo: Change 1' });
     await vi.advanceTimersByTimeAsync(59_000);
-    expect(posts).toHaveLength(2);
+    expect(posts).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(posts).toHaveLength(4);
-    expect(posts[2].text).toMatch(/^🔀 9 more merges\n• #2 Change 2/);
+    expect(posts).toHaveLength(2);
+    expect(posts[1].text).toMatch(/^🔀 9 more merges\n• #2 Change 2/);
     expect(notes.map((x) => x.title)).toEqual(['🔀 Merged PR #1', '🔀 9 more merges']);
     expect(notes[0].url).toBe('/?tab=company');
   });
 
   it('says nothing about events or channels that are off', async () => {
-    const settings = notifySettings(DEFAULT_NOTIFY, { channels: { desktop: false, slack: false } });
+    const settings = notifySettings(DEFAULT_NOTIFY, { channels: { desktop: false } });
     const { n, posts, notes } = notifier(tmpDir(), () => 200, settings);
-    await n.setWebhook('slack', SECRETS.slack);
-    await n.setWebhook('discord', SECRETS.discord);
+    await n.setWebhook('ntfy', SECRETS.ntfy);
     n.notify('merge', 'Merged PR #1', 'x'); // merges are off by default
     n.notify('hire', 'New candidate for floor 1', 'Ada');
     await settle();
     expect(notes).toEqual([]);
-    expect(posts.map((p) => [p.channel, p.text])).toEqual([['discord', '📄 New candidate for floor 1\nAda']]);
+    expect(posts.map((p) => [p.channel, p.text])).toEqual([['ntfy', '📄 New candidate for floor 1\nAda']]);
+    const quiet = notifier(tmpDir(), () => 200, notifySettings(DEFAULT_NOTIFY, { channels: { ntfy: false } }));
+    await quiet.n.setWebhook('ntfy', SECRETS.ntfy);
+    quiet.n.notify('hire', 'New candidate for floor 1', 'Ada');
+    await settle();
+    expect(quiet.posts).toEqual([]);
   });
 
   it('pushes an encrypted note to each device and forgets one its push service says is gone', async () => {
@@ -173,9 +185,13 @@ describe('the notifier', () => {
 
   it('refuses a test of a channel that is not set up', async () => {
     const { n } = notifier(tmpDir(), () => 200);
-    await expect(n.test('discord')).rejects.toThrow('Save the Discord settings first.');
+    await expect(n.test('ntfy')).rejects.toThrow('Save the ntfy settings first.');
     await expect(n.test('push')).rejects.toThrow(/No device gets push yet/);
     await expect(n.test('carrier-pigeon')).rejects.toThrow(/no notification channel/);
     await expect(n.setWebhook('carrier-pigeon', {})).rejects.toThrow(/no chat app/);
+    for (const gone of ['discord', 'slack', 'telegram']) {
+      await expect(n.setWebhook(gone, { url: 'https://old.example/1' })).rejects.toThrow(/no chat app/);
+      await expect(n.test(gone)).rejects.toThrow(/no notification channel/);
+    }
   });
 });

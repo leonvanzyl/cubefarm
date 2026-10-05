@@ -13,6 +13,7 @@ export function StartScreen() {
   const loaded = useStore((s) => s.loaded);
   const connected = useStore((s) => s.connected);
   const demo = useStore((s) => s.demo);
+  const version = useStore((s) => s.version);
   const repos = useStore((s) => s.repos);
   const agents = useStore((s) => s.agents);
   const settings = useStore((s) => s.settings);
@@ -56,6 +57,7 @@ export function StartScreen() {
             📱 Pocket mode, for phones and touch screens
           </button>
           {demo && <span className="pill pill-demo">DEMO MODE: fake repos, fake agents</span>}
+          {version && <span className="small">cubefarm {version}</span>}
         </div>
       </div>
     </div>

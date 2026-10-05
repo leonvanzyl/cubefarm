@@ -576,6 +576,8 @@ function SettingsTab() {
   const user = useStore((s) => s.user);
   const workspaceRoot = useStore((s) => s.workspaceRoot);
   const demo = useStore((s) => s.demo);
+  const version = useStore((s) => s.version);
+  const commit = useStore((s) => s.officeCommit);
   const set = (p: Parameters<typeof api.updateSettings>[0]) => void attempt(() => api.updateSettings(p));
   const terminal = settings.runtime === 'terminal';
   const defaultCli = terminal ? settings.defaultCli : 'claude';
@@ -718,6 +720,14 @@ function SettingsTab() {
         </div>
         <h3>ℹ️ Environment</h3>
         <div className="small">
+          cubefarm: <b>{version ?? 'unknown'}</b>
+          {commit && (
+            <>
+              {' '}
+              (<code>{commit}</code>)
+            </>
+          )}
+          <br />
           GitHub: <b>{user ?? 'not signed in'}</b>
           {demo && ' (demo)'}
           <br />

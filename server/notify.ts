@@ -101,24 +101,9 @@ export function nextDue(gates: Gates): number | null {
 /** The office's link, or nothing. */
 const link = (officeUrl: string) => (officeUrl ? `\n${officeUrl}` : '');
 
-/** The note as plain text, e.g. for Telegram, the demo's log and the push body. */
+/** The note as plain text, e.g. for the demo's log and the push body. */
 export function noteText(n: Note, officeUrl = ''): string {
   return `${n.title}\n${n.body}${link(officeUrl)}`.trim();
-}
-
-export function discordPayload(n: Note, officeUrl = '') {
-  // <url> stops Discord unfurling a preview card for the link.
-  return { username: 'cubefarm', content: `**${n.title}**\n${n.body}${officeUrl ? `\n<${officeUrl}>` : ''}`.slice(0, 2000), allowed_mentions: { parse: [] } };
-}
-
-const slackEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-export function slackPayload(n: Note, officeUrl = '') {
-  return { text: `*${slackEscape(n.title)}*\n${slackEscape(n.body)}${officeUrl ? `\n<${officeUrl}|Open the office>` : ''}`, unfurl_links: false };
-}
-
-export function telegramPayload(n: Note, chatId: string, officeUrl = '') {
-  return { chat_id: chatId, text: noteText(n, officeUrl).slice(0, 4000), disable_web_page_preview: true };
 }
 
 /** ntfy's JSON publishing: POSTed to the server's root with the topic in the body. */
@@ -130,13 +115,10 @@ export function ntfyPayload(n: Note, topic: string, officeUrl = '') {
 // ---------- the chat apps' settings ----------
 
 export interface WebhookSecrets {
-  discord?: { url: string };
-  slack?: { url: string };
-  telegram?: { token: string; chatId: string };
   ntfy?: { url: string; token?: string };
 }
 
-const httpsUrl = (raw: unknown, what: string, host?: RegExp): URL => {
+const httpUrl = (raw: unknown, what: string): URL => {
   const s = typeof raw === 'string' ? raw.trim() : '';
   let u: URL;
   try {
@@ -144,35 +126,19 @@ const httpsUrl = (raw: unknown, what: string, host?: RegExp): URL => {
   } catch {
     throw new HttpError(400, `That isn't a ${what} URL.`);
   }
-  if (s.length > 500 || (u.protocol !== 'https:' && !(host === undefined && u.protocol === 'http:')) || (host && !host.test(u.hostname))) throw new HttpError(400, `That isn't a ${what} URL.`);
+  if (s.length > 500 || !/^https?:$/.test(u.protocol)) throw new HttpError(400, `That isn't a ${what} URL.`);
   return u;
 };
 
 /**
  * A chat app's settings from PUT /api/notify/webhooks/:channel, checked. null removes them (an empty url or token).
- * Discord and Slack take their webhook URL, Telegram a bot token and chat id, ntfy a topic URL and an optional token.
+ * ntfy takes a topic URL and an optional token.
  */
-export function parseWebhook(channel: NotifyWebhook, body: unknown): WebhookSecrets[NotifyWebhook] | null {
+export function parseWebhook(_channel: NotifyWebhook, body: unknown): WebhookSecrets[NotifyWebhook] | null {
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const s = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : '');
-  if (channel === 'telegram') {
-    if (!s('token')) return null;
-    if (!/^\d{3,20}:[\w-]{20,80}$/.test(s('token'))) throw new HttpError(400, "That doesn't look like a Telegram bot token (123456:ABC…, from @BotFather).");
-    if (!/^(-?\d{1,20}|@\w{4,64})$/.test(s('chatId'))) throw new HttpError(400, 'The chat id is a number (e.g. 123456789, or -100… for a group) or @channelname.');
-    return { token: s('token'), chatId: s('chatId') };
-  }
   if (!s('url')) return null;
-  if (channel === 'discord') {
-    const u = httpsUrl(s('url'), 'Discord webhook', /^(discord|discordapp|ptb\.discord|canary\.discord)\.com$/);
-    if (!u.pathname.startsWith('/api/webhooks/')) throw new HttpError(400, "That isn't a Discord webhook URL (https://discord.com/api/webhooks/…).");
-    return { url: u.toString() };
-  }
-  if (channel === 'slack') {
-    const u = httpsUrl(s('url'), 'Slack webhook', /^hooks\.slack\.com$/);
-    if (!u.pathname.startsWith('/services/') && !u.pathname.startsWith('/triggers/')) throw new HttpError(400, "That isn't a Slack incoming webhook URL (https://hooks.slack.com/services/…).");
-    return { url: u.toString() };
-  }
-  const u = httpsUrl(s('url'), 'ntfy topic');
+  const u = httpUrl(s('url'), 'ntfy topic');
   if (!/^\/[\w-]{1,64}\/?$/.test(u.pathname)) throw new HttpError(400, 'Give the topic URL, e.g. https://ntfy.sh/my-office-a8f3 (a long, hard-to-guess topic name).');
   const token = s('token');
   if (token && !/^[\w.-]{8,200}$/.test(token)) throw new HttpError(400, "That doesn't look like an ntfy access token (tk_…).");
@@ -190,7 +156,6 @@ const last4 = (s: string) => s.slice(-4);
 /** What the settings show of a saved webhook: enough to recognise it, never enough to use it. */
 export function webhookHint(channel: NotifyWebhook, w: WebhookSecrets[NotifyWebhook] | undefined): string {
   if (!w) return '';
-  if ('chatId' in w) return `bot …${last4(w.token)} · chat …${last4(w.chatId)}`;
   const host = new URL(w.url).host;
   return `${host}/…${last4(w.url)}${channel === 'ntfy' && 'token' in w && w.token ? ' · with a token' : ''}`;
 }

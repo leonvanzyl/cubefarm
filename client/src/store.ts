@@ -113,6 +113,7 @@ interface State {
   ceo: CeoInfo;
   messages: PhoneMessage[];
   phoneReadAt: number;
+  version?: string; // the cubefarm version the server runs
   officeCommit?: string | null; // undefined: the server can't update itself
   officeUpdate?: OfficeUpdateView;
   usage: UsageView; // Claude's subscription usage: normal, pacing after a warning, or paused at the limit
@@ -249,7 +250,7 @@ export const useStore = create<State>((set, get) => ({
   voiceSpeaking: null,
   weather: EMPTY_WEATHER_VIEW,
   ticker: [],
-  notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
+  notifyChannels: { webhooks: { ntfy: { set: false, hint: '' } }, pushDevices: 0 },
   pong: {},
   restarting: false,
   visitors: [],
@@ -306,6 +307,7 @@ export const useStore = create<State>((set, get) => ({
           ceo: d.ceo,
           messages: d.messages,
           phoneReadAt: d.phoneReadAt,
+          version: d.version,
           officeCommit: d.officeCommit,
           officeUpdate: d.officeUpdate,
           usage: d.usage,

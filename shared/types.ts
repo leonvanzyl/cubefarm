@@ -333,10 +333,10 @@ export interface SwarmSettings {
 export type NotifyEvent = 'needsHuman' | 'ceoMessage' | 'hire' | 'agentError' | 'usage' | 'merge';
 
 /** Where it tells them: this browser, Web Push to their devices, or a chat app's webhook. */
-export type NotifyChannel = 'desktop' | 'push' | 'discord' | 'slack' | 'telegram' | 'ntfy';
+export type NotifyChannel = 'desktop' | 'push' | 'ntfy';
 
 /** The chat apps, whose webhook URLs and tokens live in the server's secrets file. */
-export type NotifyWebhook = 'discord' | 'slack' | 'telegram' | 'ntfy';
+export type NotifyWebhook = 'ntfy';
 
 export interface NotifySettings {
   events: Record<NotifyEvent, boolean>;
@@ -554,6 +554,7 @@ export interface WorldSnapshot {
   ceo: CeoInfo;
   messages: PhoneMessage[];
   phoneReadAt: number; // CEO messages newer than this are unread
+  version?: string; // the cubefarm version the server runs (package.json)
   officeCommit?: string | null; // short sha the server started on (absent on servers without self-update)
   officeUpdate?: OfficeUpdateView;
   usage: UsageView;

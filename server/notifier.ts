@@ -8,7 +8,6 @@ import { NOTIFY_WEBHOOKS, noteTab } from '../shared/notify.ts';
 import type { NoteView, NotifyChannel, NotifyChannelsView, NotifyEvent, NotifySettings, NotifyWebhook } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
 import {
-  discordPayload,
   due,
   nextDue,
   note,
@@ -19,8 +18,6 @@ import {
   parseWebhook,
   redact,
   secretValues,
-  slackPayload,
-  telegramPayload,
   webhookHint,
   type Gates,
   type Note,
@@ -69,7 +66,7 @@ export interface NotifierDeps {
   now?(): number;
 }
 
-const LABEL: Record<NotifyChannel, string> = { desktop: 'Desktop', push: 'Push', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', ntfy: 'ntfy' };
+const LABEL: Record<NotifyChannel, string> = { desktop: 'Desktop', push: 'Push', ntfy: 'ntfy' };
 const MAX_DEVICES = 20;
 /** VAPID's contact for push services: the project, as no email address is configured. */
 const SUBJECT = 'https://github.com/leonvanzyl/cubefarm';
@@ -87,9 +84,8 @@ interface PushStore {
 export function sendError(channel: NotifyChannel, status: number): string {
   const name = LABEL[channel];
   if (status === 0) return `couldn't reach ${name}`;
-  if (status === 401 || status === 403) return `${name} refused it (HTTP ${status}): check the ${channel === 'telegram' || channel === 'ntfy' ? 'token' : 'webhook URL'}`;
-  if (status === 404 || status === 410) return `${name} doesn't know that ${channel === 'push' ? 'device any more' : channel === 'telegram' ? 'bot' : 'webhook'} (HTTP ${status})`;
-  if (status === 400 && channel === 'telegram') return 'Telegram rejected it (HTTP 400): check the chat id, and send your bot a message first';
+  if (status === 401 || status === 403) return `${name} refused it (HTTP ${status}): check the ${channel === 'ntfy' ? 'token' : 'webhook URL'}`;
+  if (status === 404 || status === 410) return `${name} doesn't know that ${channel === 'push' ? 'device any more' : 'webhook'} (HTTP ${status})`;
   if (status === 429) return `${name} is rate-limiting the office (HTTP 429)`;
   return `${name} answered HTTP ${status}`;
 }
@@ -109,7 +105,13 @@ export class Notifier {
     if (s.notify === undefined && this.deps.transport.demoWebhooks) {
       this.webhooks = { ...this.deps.transport.demoWebhooks };
       await mergeSecrets(this.deps.secretsFile, { notify: this.webhooks }).catch(() => undefined);
-    } else this.webhooks = loadWebhooks(s.notify);
+    } else {
+      this.webhooks = loadWebhooks(s.notify);
+      // Chat apps the office no longer sends to (Discord, Slack, Telegram): their saved tokens don't stay on disk.
+      if (s.notify && typeof s.notify === 'object' && Object.keys(s.notify).some((k) => !isWebhook(k))) {
+        await mergeSecrets(this.deps.secretsFile, { notify: this.webhooks }).catch(() => undefined);
+      }
+    }
     try {
       const raw = JSON.parse(await fs.readFile(this.deps.pushFile, 'utf8')) as { vapid?: unknown; devices?: unknown };
       const devices = Array.isArray(raw.devices) ? raw.devices : [];
@@ -236,13 +238,8 @@ export class Notifier {
     const json = { 'Content-Type': 'application/json' };
     const text = noteText(n, officeUrl);
     const w = this.webhooks;
-    if (c === 'telegram') return { channel: c, url: `https://api.telegram.org/bot${w.telegram!.token}/sendMessage`, headers: json, body: JSON.stringify(telegramPayload(n, w.telegram!.chatId, officeUrl)), text };
-    if (c === 'ntfy') {
-      const { root, topic } = ntfyTarget(w.ntfy!.url);
-      return { channel: c, url: root, headers: { ...json, ...(w.ntfy!.token ? { Authorization: `Bearer ${w.ntfy!.token}` } : {}) }, body: JSON.stringify(ntfyPayload(n, topic, officeUrl)), text };
-    }
-    const body = c === 'discord' ? discordPayload(n, officeUrl) : slackPayload(n, officeUrl);
-    return { channel: c, url: w[c]!.url, headers: json, body: JSON.stringify(body), text };
+    const { root, topic } = ntfyTarget(w.ntfy!.url);
+    return { channel: c, url: root, headers: { ...json, ...(w.ntfy!.token ? { Authorization: `Bearer ${w.ntfy!.token}` } : {}) }, body: JSON.stringify(ntfyPayload(n, topic, officeUrl)), text };
   }
 
   private async send(req: NotifyRequest): Promise<string | null> {

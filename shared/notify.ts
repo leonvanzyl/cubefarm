@@ -12,13 +12,13 @@ export const NOTIFY_EVENTS: { id: NotifyEvent; label: string }[] = [
   { id: 'merge', label: 'Every merge' },
 ];
 
-export const NOTIFY_WEBHOOKS: NotifyWebhook[] = ['discord', 'slack', 'telegram', 'ntfy'];
+export const NOTIFY_WEBHOOKS: NotifyWebhook[] = ['ntfy'];
 export const NOTIFY_CHANNELS: NotifyChannel[] = ['desktop', 'push', ...NOTIFY_WEBHOOKS];
 
 /** Merges are optional: on a busy office they're the noisiest event. */
 export const DEFAULT_NOTIFY: NotifySettings = {
   events: { needsHuman: true, ceoMessage: true, hire: true, agentError: true, usage: true, merge: false },
-  channels: { desktop: true, push: true, discord: true, slack: true, telegram: true, ntfy: true },
+  channels: { desktop: true, push: true, ntfy: true },
   officeUrl: '',
 };
 

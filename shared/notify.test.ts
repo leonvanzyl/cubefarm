@@ -9,9 +9,9 @@ describe('notification settings', () => {
   });
 
   it('take a patch field by field and ignore anything else', () => {
-    const s = notifySettings(DEFAULT_NOTIFY, { events: { merge: true, ceoMessage: 'yes', bogus: true }, channels: { slack: false }, officeUrl: ' https://office.tail1234.ts.net ' });
+    const s = notifySettings(DEFAULT_NOTIFY, { events: { merge: true, ceoMessage: 'yes', bogus: true }, channels: { ntfy: false, slack: true }, officeUrl: ' https://office.tail1234.ts.net ' });
     expect(s.events).toEqual({ ...DEFAULT_NOTIFY.events, merge: true });
-    expect(s.channels).toEqual({ ...DEFAULT_NOTIFY.channels, slack: false });
+    expect(s.channels).toEqual({ ...DEFAULT_NOTIFY.channels, ntfy: false });
     expect(s.officeUrl).toBe('https://office.tail1234.ts.net/');
     expect(notifySettings(s, { officeUrl: 'javascript:alert(1)' }).officeUrl).toBe('https://office.tail1234.ts.net/');
     expect(notifySettings(s, { officeUrl: '' }).officeUrl).toBe('');

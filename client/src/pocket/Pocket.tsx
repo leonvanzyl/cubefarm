@@ -68,6 +68,7 @@ function Company({ go }: { go: (tab: PocketTab, repoId?: string) => void }) {
   const requests = useStore((s) => s.requests);
   const ceoInfo = useStore((s) => s.ceo);
   const demo = useStore((s) => s.demo);
+  const version = useStore((s) => s.version);
   const ceo = agents[CEO_ID];
   const floors = useMemo(
     () =>
@@ -144,6 +145,7 @@ function Company({ go }: { go: (tab: PocketTab, repoId?: string) => void }) {
         🏢 Open the 3D office
       </button>
       {demo && <div className="pk-center small muted">DEMO MODE: fake repos, fake agents</div>}
+      {version && <div className="pk-center small muted">cubefarm {version}</div>}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 # The office in your pocket
 
 cubefarm works from a phone: **pocket mode** is the office as a 2D app, it installs on your home screen, and the
-office tells you when something needs you, on your devices or in Discord, Slack, Telegram or ntfy.
+office tells you when something needs you, on your devices or in the ntfy app.
 
 ## Pocket mode
 
@@ -68,26 +68,6 @@ The office signs its pushes with its own VAPID key pair, made the first time a d
 each device (RFC 8291) and go through the browser maker's push service (Google, Mozilla, Apple), which can't read
 them. A device that unsubscribes, or whose browser data is cleared, is dropped the next time a push to it fails.
 
-### Discord
-
-1. In Discord: **Server Settings → Integrations → Webhooks → New Webhook**, pick the channel, **Copy Webhook URL**.
-2. Paste it under **Discord** and **Save**, then **Test**.
-
-### Slack
-
-1. At [api.slack.com/apps](https://api.slack.com/apps), create an app (from scratch), turn on **Incoming Webhooks**,
-   and **Add New Webhook to Workspace** for the channel you want.
-2. Paste the `https://hooks.slack.com/services/…` URL under **Slack**, **Save** and **Test**.
-
-### Telegram
-
-1. Message [@BotFather](https://t.me/BotFather), send `/newbot` and follow it; it gives you the bot token
-   (`123456789:AA…`).
-2. Send your new bot any message (bots can't start a chat with you).
-3. Find your chat id: open `https://api.telegram.org/bot<token>/getUpdates` in a browser and look for
-   `"chat":{"id":…}`. Group ids start with `-100`.
-4. Enter the token and chat id under **Telegram**, **Save** and **Test**.
-
 ### ntfy
 
 [ntfy](https://ntfy.sh) pushes to its own phone app with no account. Anyone who knows a topic's name can read it, so
@@ -99,7 +79,7 @@ pick a long random one.
 
 ### Where the secrets live
 
-Webhook URLs, the Telegram token and the ntfy topic and token are kept in `<SWARM_HOME>/secrets.json`
+The ntfy topic and token are kept in `<SWARM_HOME>/secrets.json`
 (`~/.cubefarm/secrets.json` by default) next to the ElevenLabs key: owner-only file permissions, never in
 `state.json`, never logged, never sent to a browser (the settings show the last 4 characters) and never given to
 agents. **Remove** deletes them. A demo office keeps its own `demo-secrets.json` and `demo-push.json`.

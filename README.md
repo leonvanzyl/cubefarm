@@ -112,7 +112,7 @@ Running it from a clone of this repo (`npm start`)? Then the office updates itse
 ## Learn more
 
 - [How it works](docs/how-it-works.md): the life of an issue, QA, auto-merge, models and usage, the safety model and floor previews
-- [The office in your pocket](docs/pocket.md): pocket mode on your phone, installing the app, notifications (desktop, push, Discord, Slack, Telegram, ntfy) and reaching the office safely from your phone
+- [The office in your pocket](docs/pocket.md): pocket mode on your phone, installing the app, notifications (desktop, push, ntfy) and reaching the office safely from your phone
 - [Contributing](CONTRIBUTING.md): run it from source, tests, architecture and publishing
 
 ## License
