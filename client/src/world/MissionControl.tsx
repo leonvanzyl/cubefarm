@@ -12,6 +12,7 @@ import { useCanvasTexture, useInteractable } from './interact';
 import { HALF_D, MISSION, missionColumn } from './layout';
 import { glow, toon } from './materials';
 import { Box, Cyl } from './Toon';
+import { BILLBOARD } from './viewTags';
 
 // Mission control (#216): a curved bank of big screens on the lobby's north wall with the whole office's numbers from
 // the server's ops view (the store, never polled), Claude's usage meter (E: resume full speed while pacing), and a
@@ -84,7 +85,7 @@ function Sweep({ size }: { size: number }) {
           <boxGeometry args={[size * 0.5, size * 0.5, size * 0.12]} />
         </mesh>
       </group>
-      <Billboard>
+      <Billboard userData={BILLBOARD}>
         <mesh material={halo}>
           <circleGeometry args={[size * 2.6, 24]} />
         </mesh>

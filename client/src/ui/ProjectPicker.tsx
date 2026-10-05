@@ -71,7 +71,7 @@ function FolderMode({ floor, onDone }: { floor: FloorOptions; onDone: (r: RepoVi
           load(dir.trim() || undefined);
         }}
       >
-        <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="C:\Projects" title="Your projects folder" />
+        <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="C:\Projects" title="Your projects folder" aria-label="Your projects folder" />
         <button className="btn btn-small">Look here</button>
       </form>
       {root && root !== projectsDir && (

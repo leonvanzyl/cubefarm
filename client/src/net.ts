@@ -9,8 +9,8 @@ let awaitingSnapshot = false;
 // Presence too: the other visitors are live people, there in a replay as much as in the live office.
 const OUTSIDE_REPLAY = new Set<ServerEvent['type']>(['notify', 'notifyChannels', 'settings', 'officeUpdate', 'clis', 'voiceKey', 'voiceCache', 'progress', 'visitors', 'visitorPose', 'visitorEmote', 'visitorPing']);
 let opens = 0;
-/** Characters in and out on /ws since the page loaded (presence's probe turns them into rates). */
-export const wsTraffic = { in: 0, out: 0 };
+/** Characters in and out on /ws since the page loaded, and in for presence alone (its probe turns them into rates). */
+export const wsTraffic = { in: 0, out: 0, presence: 0 };
 
 /** Sends a message on /ws; false while disconnected, when it's dropped. */
 export function sendWs(msg: ClientEvent) {
@@ -66,6 +66,7 @@ export function connect() {
     wsTraffic.in += typeof e.data === 'string' ? e.data.length : 0;
     try {
       const ev = JSON.parse(e.data) as ServerEvent;
+      if (ev.type.startsWith('visitor')) wsTraffic.presence += e.data.length;
       if (ev.type === 'snapshot' && ev.data.officeCommit && reloadForNewCommit(ev.data.officeCommit)) return;
       // While the time-lapse plays it owns the office; it asks for a fresh snapshot when it stops. What isn't part of
       // the replayed office (notifications, settings, the office's own update…) still applies.

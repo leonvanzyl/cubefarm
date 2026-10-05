@@ -25,10 +25,10 @@ export interface ErrandInfo {
 /** This agent's body target, or undefined to stay (or go back to being) seated. */
 export const bodyTarget = (id: string) => targets.get(id);
 
-/** Sends someone to stand or walk somewhere. Fields left out keep their current value. */
+/** Sends someone to stand or walk somewhere. Fields left out keep their current value, except `strafe`, which only lasts while it's asked for. */
 export function setBody(id: string, patch: Partial<Omit<BodyTarget, 'teleport'>>) {
   const t = targets.get(id) ?? { mode: 'walking' as BodyMode, x: 0, z: 0, heading: 0, speed: WALK_SPEED, gesture: 'none' as Gesture, teleport: 0 };
-  targets.set(id, { ...t, ...patch });
+  targets.set(id, { ...t, strafe: false, ...patch });
 }
 
 /** Stands someone at (x, z) straight away, facing heading (a new hire inside the elevator, say). */

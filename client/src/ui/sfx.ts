@@ -32,6 +32,8 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let bus: GainNode | null = null; // every sound but the voice, so a message read aloud can duck them
 let roomIn: GainNode | null = null; // what the groups send into the room's reverb
+let mixOut: GainNode | null = null; // the finished mix, as the speakers get it
+let tap: MediaStreamAudioDestinationNode | null = null;
 let unlocked = false;
 const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
 const groupLevels = {} as Record<SoundGroup, number>;
@@ -66,6 +68,7 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       const trim = ctx.createGain();
       trim.gain.value = COMPRESSOR_TRIM;
       master.connect(comp).connect(trim).connect(ctx.destination);
+      mixOut = trim;
       bus = ctx.createGain();
       bus.connect(master);
       roomIn = ctx.createGain();
@@ -85,6 +88,21 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
     if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     // Don't queue sounds on a stopped clock: they'd all fire at once when it starts.
     return ctx.state === 'running' && master ? { ctx, out: master } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Everything the office plays, as the speakers get it, as a MediaStream for photo mode's clips; null while audio is off. */
+export function soundStream(): MediaStream | null {
+  audio();
+  if (!ctx || !mixOut) return null;
+  try {
+    if (!tap) {
+      tap = ctx.createMediaStreamDestination();
+      mixOut.connect(tap);
+    }
+    return tap.stream;
   } catch {
     return null;
   }
@@ -259,6 +277,18 @@ const PROBE_SIZE = 50;
 const probe: SfxRecord[] = [];
 if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__swarmSfx = probe;
 
+type SoundListener = (rec: SfxRecord, heard: boolean) => void;
+let soundListener: SoundListener | null = null;
+
+/**
+ * Captions (captions.ts) hear of every sound recorded in __swarmSfx: `heard` is false when it's out of earshot, or when
+ * its caller says it didn't play (a loop going silent). Mute and the volume sliders don't count: a muted office still
+ * gets its captions.
+ */
+export function onSoundRecorded(fn: SoundListener | null) {
+  soundListener = fn;
+}
+
 /**
  * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
  * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
@@ -267,7 +297,7 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
  */
 export function recordSfx(
   name: string,
-  { group, pos, pan = 0, peak, played = false, falloff }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean; falloff?: (d: number) => number },
+  { group, pos, pan = 0, peak, played, falloff }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean; falloff?: (d: number) => number },
   log: SfxRecord[] = probe,
 ) {
   const d = pos ? distance(ear, pos) : 0;
@@ -278,11 +308,12 @@ export function recordSfx(
     at: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
     gain: peak * atDistance * (group ? groupLevels[group] : 1),
     pan: pos ? panOf(ear, earFwd, earUp, pos) : pan,
-    played,
+    played: played ?? false,
     t: performance.now(),
   };
   log.push(rec);
   if (log.length > PROBE_SIZE) log.splice(0, log.length - PROBE_SIZE);
+  if (log === probe) soundListener?.(rec, atDistance > 0 && played !== false);
   return rec;
 }
 

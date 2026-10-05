@@ -1,4 +1,5 @@
 import { useStore } from './store';
+import type { PongResult } from '../../shared/pong';
 import type { AgentStyle } from '../../shared/looks';
 import type { AgentCli, AgentPromptView, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, PrPreviewView, RepoView, SwarmSettings, UsageView, VoiceCacheView, VoiceOption } from '../../shared/types';
 import type { JournalChunk, JournalDayView } from '../../shared/journal';
@@ -113,6 +114,8 @@ export const api = {
   messageCeo: (text: string) => call('POST', '/api/ceo/message', { text }),
   ceoReview: () => call('POST', '/api/ceo/review'),
   phoneRead: (at: number) => call('POST', '/api/phone/read', { at }),
+  /** A finished ping-pong game on a floor, for its leaderboard (shared/pong.ts parsePongResult). */
+  pongResult: (repoId: string, result: PongResult) => call('POST', `${r(repoId)}/pong`, result),
   approveRequest: (id: string, overrides: { name?: string; model?: string; effort?: string; note?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
   rejectRequest: (id: string, note?: string) => call('POST', `/api/requests/${id}/reject`, { note }),
   /** Demo office only: the CEO proposes a hire (or letting someone go) on demand. */

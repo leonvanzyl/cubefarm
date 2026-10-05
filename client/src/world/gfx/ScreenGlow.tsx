@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { bodyState } from '../people';
 import { mix } from '../materials';
 import { nightFactor } from '../sky/time';
-import { dayTime } from '../sky/useDayTime';
+import { dayTime, useSkyFrame } from '../sky/useDayTime';
 import { isTierAtLeast } from './quality';
 import { effectiveTier, useGfx } from './useGraphics';
 
@@ -74,7 +74,7 @@ function fadePool(p: { material: THREE.MeshBasicMaterial; strength: number }) {
 /** Mounted once in the Canvas: follows the time of day into every pool. */
 export function ScreenGlowDriver() {
   const last = useRef(-1);
-  useFrame(() => {
+  useSkyFrame(() => {
     if (dayTime.t === last.current) return;
     last.current = dayTime.t;
     night = nightFactor(dayTime.t);

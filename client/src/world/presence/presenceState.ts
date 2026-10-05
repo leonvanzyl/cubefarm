@@ -58,7 +58,14 @@ let lastEmote: { id: string; name: string; e: EmoteId; at: number } | null = nul
 let myEmote: { e: EmoteId; at: number } | null = null;
 let version = 0;
 const listeners = new Set<() => void>();
-const meters = { posesIn: new RateMeter(), posesOut: new RateMeter(), bytesIn: new RateMeter(), bytesOut: new RateMeter(), seen: { in: 0, out: 0 } };
+const meters = {
+  posesIn: new RateMeter(),
+  posesOut: new RateMeter(),
+  bytesIn: new RateMeter(),
+  bytesOut: new RateMeter(),
+  presenceIn: new RateMeter(),
+  seen: { in: 0, out: 0, presence: 0 },
+};
 
 /** Something drawn changed (who's here, what they hold, the pings): React redraws; poses never come through here. */
 function bump() {
@@ -256,7 +263,8 @@ export function tickPresence(now: number) {
   if (changed) bump();
   meters.bytesIn.add(wsTraffic.in - meters.seen.in, now);
   meters.bytesOut.add(wsTraffic.out - meters.seen.out, now);
-  meters.seen = { in: wsTraffic.in, out: wsTraffic.out };
+  meters.presenceIn.add(wsTraffic.presence - meters.seen.presence, now);
+  meters.seen = { ...wsTraffic };
 }
 
 // ---------- what this tab sends ----------
@@ -377,12 +385,13 @@ if (typeof window !== 'undefined') {
         };
       });
     },
-    /** Messages and bytes a second, over the last two seconds (bytes: everything on /ws, the office's updates too). */
+    /** Messages and bytes a second, over the last two seconds: presence's bytes in, and everything on /ws in and out. */
     rates: () => {
       const now = performance.now();
       return {
         posesInPerSec: meters.posesIn.perSecond(now),
         posesOutPerSec: meters.posesOut.perSecond(now),
+        presenceBytesInPerSec: meters.presenceIn.perSecond(now),
         bytesInPerSec: meters.bytesIn.perSecond(now),
         bytesOutPerSec: meters.bytesOut.perSecond(now),
       };

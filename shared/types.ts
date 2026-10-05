@@ -3,6 +3,7 @@ import type { CareerView } from './careers.ts';
 import type { ProgressView, RewardView } from './progress.ts';
 
 import type { WeatherSettings, WeatherView, WorldEventSettings } from './outside.ts';
+import type { ThemeSettings } from './themes.ts';
 import type { AgentStyle } from './looks.ts';
 
 export type AgentStatus =
@@ -321,6 +322,7 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  themes: ThemeSettings; // holiday themes: Settings → Themes (shared/themes.ts)
   weather: WeatherSettings; // Settings → Weather: the calm cycle, off, or the manager's real local weather
   worldEvents: WorldEventSettings; // Settings → World events: how often something happens outside
   listen: ListenSettings;
@@ -526,6 +528,17 @@ export interface CeoInfo {
   nextReviewAt: number | null; // null when the heartbeat is off
 }
 
+/** One player on a floor's ping-pong leaderboard: the manager or an agent, with their games on that floor. */
+export interface PongRow {
+  id: string; // 'player' for the manager (shared/pong.ts PONG_PLAYER), else an agent id
+  name: string; // as of their last game
+  wins: number;
+  losses: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  lastAt: number; // epoch ms of their last game
+}
+
 export interface WorldSnapshot {
   user: string | null; // gh login
   ghReady: boolean;
@@ -553,6 +566,7 @@ export interface WorldSnapshot {
   ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
   notifyChannels: NotifyChannelsView;
   progress: ProgressView; // coins, decorations and achievements (#210)
+  pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard by repo id, best first
 }
 
 export type ServerEvent =
@@ -584,6 +598,7 @@ export type ServerEvent =
   | { type: 'notify'; note: NoteView }
   | { type: 'progress'; progress: ProgressView }
   | { type: 'reward'; reward: RewardView }
+  | { type: 'pong'; repoId: string; board: PongRow[] }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string }
   // Presence (shared/presence.ts): relayed between the office's tabs, never persisted.
   | { type: 'visitors'; you: string; visitors: VisitorView[] }

@@ -42,10 +42,15 @@ export function mergeBursts(live: boolean, before: RepoView | undefined, after: 
 }
 
 /**
- * Whether a burst may start now. A hidden tab or a panel covering the view stops the frame loop, so a
- * burst started then would freeze and play when the view comes back: it's dropped instead.
+ * What a burst starting now is: flying confetti, a soft glow that fades in and out where it would fly (with reduced
+ * motion), or nothing. A hidden tab or a panel covering the view stops the frame loop, so a burst started then would
+ * freeze and play when the view comes back: it's dropped instead.
  */
-export const canBurst = (o: { hidden: boolean; covered: boolean; reducedMotion: boolean }) => !o.hidden && !o.covered && !o.reducedMotion;
+export const burstKind = (o: { hidden: boolean; covered: boolean; reducedMotion: boolean }): 'confetti' | 'glow' | null =>
+  o.hidden || o.covered ? null : o.reducedMotion ? 'glow' : 'confetti';
+
+/** Whether a flying burst (coins, confetti) may start now: not hidden, not covered, and not with reduced motion. */
+export const canBurst = (o: { hidden: boolean; covered: boolean; reducedMotion: boolean }) => burstKind(o) === 'confetti';
 
 // ---------- QA records that just left ----------
 

@@ -1,0 +1,224 @@
+/* ---------- photo mode (photo/PhotoPanel.tsx): loaded with the panel, the first time photo mode opens ---------- */
+
+.photo-preview {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 5;
+}
+.photo-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 0 14px 12px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  box-shadow: 0 5px 0 var(--ink);
+  font-size: 0.9rem;
+  animation: pop 0.2s ease-out;
+}
+.photo-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -14px;
+  padding: 10px 14px;
+  background: var(--accent);
+  border-bottom: 3px solid var(--ink);
+  font-size: 1.05rem;
+}
+.photo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 2px dashed rgba(31, 29, 43, 0.15);
+}
+.photo-section h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.photo-section p {
+  margin: 0;
+}
+.photo-section input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.photo-row {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.photo-row b {
+  min-width: 3.4em;
+  text-align: right;
+  font-size: 0.85rem;
+}
+.photo-row select {
+  grid-column: 2 / 4;
+  font: inherit;
+  padding: 3px 6px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
+}
+.photo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.photo-chip {
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+.photo-chip.on {
+  background: var(--accent);
+  color: #fff;
+}
+.photo-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.photo-big {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 3px 0 var(--ink);
+}
+.photo-big.photo-recording {
+  background: #e63946;
+}
+.photo-big kbd {
+  color: var(--ink);
+}
+.photo-keys {
+  margin: 10px 0 0;
+  line-height: 1.9;
+}
+.photo-note {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: #d8f9df;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.photo-note-bad {
+  background: #ffd6dc;
+}
+.photo-gallery {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.photo-gallery li {
+  position: relative;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.photo-gallery img,
+.photo-gallery video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #222;
+}
+.photo-gallery-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+}
+.photo-gallery-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 3px;
+}
+.photo-gallery-actions .btn {
+  padding: 0 5px;
+  background: rgba(255, 253, 246, 0.9);
+}
+.photo-rec {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 31;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 0 4px 0 var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.photo-rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e63946;
+  animation: photo-blink 1s steps(2, start) infinite;
+}
+@keyframes photo-blink {
+  to {
+    visibility: hidden;
+  }
+}
+.photo-show {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  z-index: 30;
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: rgba(255, 253, 246, 0.85);
+  cursor: pointer;
+}
+.toasts.photo-toasts {
+  position: fixed;
+  left: 16px;
+  right: auto;
+  bottom: 16px;
+  align-items: flex-start;
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   HOLD,
+  HOLIDAY_SONGS,
   REST,
   SONGS,
   STEPS_PER_BAR,
@@ -9,6 +10,7 @@ import {
   compileSong,
   degreeMidi,
   firstSongFor,
+  holidayTrack,
   isFocusSong,
   midiHz,
   moodOf,
@@ -24,6 +26,7 @@ import {
   trackFor,
   type Song,
 } from './jukeboxSongs';
+import { THEMES } from './themes/themes';
 
 const song = (over: Partial<Song> = {}): Song => ({
   id: 'test',
@@ -241,7 +244,7 @@ describe('the playlist', () => {
     }
   });
 
-  it.each(SONGS.map((s) => [s.id, s] as const))('%s is a sensible length, tempo and range', (_, s) => {
+  it.each([...SONGS, ...HOLIDAY_SONGS].map((s) => [s.id, s] as const))('%s is a sensible length, tempo and range', (_, s) => {
     const t = compileSong(s);
     expect(t.duration, 'seconds').toBeGreaterThan(40);
     expect(t.duration, 'seconds').toBeLessThan(200);
@@ -373,5 +376,29 @@ describe('stations', () => {
     expect(isFocusSong(SONGS[firstSongFor(0, 'focus')])).toBe(true);
     expect(firstSongFor(1, 'focus')).not.toBe(firstSongFor(0, 'focus'));
     expect(firstSongFor(focus.length, 'focus')).toBe(firstSongFor(0, 'focus'));
+  });
+});
+
+describe('holiday songs', () => {
+  it('all compile, with ids of their own', () => {
+    const ids = [...SONGS, ...HOLIDAY_SONGS].map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const s of HOLIDAY_SONGS) expect(() => compileSong(s), s.id).not.toThrow();
+  });
+
+  it("every theme's playlist names real songs, and each holiday song belongs to a theme", () => {
+    const named = Object.values(THEMES).flatMap((t) => t.playlist);
+    for (const id of named) expect(HOLIDAY_SONGS.some((s) => s.id === id), id).toBe(true);
+    for (const s of HOLIDAY_SONGS) expect(named, s.id).toContain(s.id);
+  });
+
+  it("goes round a theme's songs, compiled once, and has nothing for an empty or unknown list", () => {
+    const ids = THEMES.halloween.playlist;
+    expect(holidayTrack(ids, 0)!.song.id).toBe('haunted-hotfix');
+    expect(holidayTrack(ids, 1)!.song.id).toBe('monster-merge');
+    expect(holidayTrack(ids, 2)).toBe(holidayTrack(ids, 0));
+    expect(holidayTrack(ids, -1)!.song.id).toBe('monster-merge');
+    expect(holidayTrack([], 0)).toBe(null);
+    expect(holidayTrack(['nope'], 0)).toBe(null);
   });
 });

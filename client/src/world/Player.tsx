@@ -9,7 +9,9 @@ import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
 import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { confirmResume } from '../ui/MissionConsole';
+import { photoActive, photoOwnsLock } from '../photo/gate';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
+import { getA11y, reduceMotion } from '../ui/a11y';
 import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
 import { watchLookLock } from './lookLock';
@@ -19,6 +21,7 @@ import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
 import { jukeboxAction } from './Jukebox';
+import { themeAction } from './themes/active';
 import { tuneChannel } from '../ui/theatre';
 import { decorationAction } from './decor/actions';
 import { eAction } from './toys/sip';
@@ -31,6 +34,10 @@ import { arriveOnFloor, cameraMode, exitView, homeSpot, lookAllowed, playerAt, r
 import { leavePerch, perch, takePerchTurn, type Perch } from './perch';
 import { roofAction } from './roof/roofState';
 import { greet } from './Chatter';
+import { joinPong, pongCamera, pongMouse, tickPaddle } from './toys/pongState';
+
+/** How fast the right stick moves the ping-pong paddle, full over (in mouse pixels a second). */
+const PAD_PADDLE = 600;
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -46,7 +53,7 @@ const hushMouse = () => {
 /** Grab the mouse for looking around. Must be called from a click handler. */
 export function requestLook() {
   const s = useStore.getState();
-  if (!canvasEl || s.overlay || !s.started || isConfirmOpen() || !lookAllowed()) return;
+  if (!canvasEl || s.overlay || !s.started || isConfirmOpen() || !lookAllowed() || photoActive()) return;
   const el = canvasEl;
   // Raw (unadjusted) input skips the OS mouse path that produces bogus spikes on Windows.
   // Browsers that can't do it reject with NotSupportedError (Firefox ignores the option).
@@ -97,6 +104,14 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'pong') {
+    joinPong(focus.action.end); // a paddle in hand: the mouse and the view are the match's now
+    return;
+  }
+  if (focus.action.kind === 'theme') {
+    themeAction(focus.action.id);
     return;
   }
   if (focus.action.kind === 'roof') {
@@ -229,7 +244,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     // the button comes up) or, empty-handed, act on the crosshair's target (like E). Otherwise this press
     // just captures the mouse, so the click that locks never also acts.
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || photoActive()) return; // photo mode has the mouse (photo/PhotoScene.tsx)
       if (document.pointerLockElement !== gl.domElement) return requestLook();
       const s = useStore.getState();
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
@@ -238,7 +253,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       else if (s.focus && !pressBoard(s.focus)) runFocusAction(s.focus, 'click'); // on a sticky, holding peels it off
     };
     const onMouseUp = (e: MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || photoActive()) return;
       throwHeld();
       releaseBoard((f) => runFocusAction(f, 'click'));
     };
@@ -250,16 +265,17 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     const onLockChange = () => {
       resetLookFilter(lookFilter);
       const locked = document.pointerLockElement === gl.domElement;
-      if (!locked) dropHeld(); // Esc: you've stepped away, so let go rather than leave it hanging in the air
+      if (!locked && !photoOwnsLock()) dropHeld(); // Esc: you've stepped away, so let go rather than leave it hanging in the air
       useStore.getState().setLocked(locked);
     };
     const onMove = (e: MouseEvent) => {
-      if (document.pointerLockElement !== gl.domElement || !document.hasFocus()) return;
+      if (document.pointerLockElement !== gl.domElement || !document.hasFocus() || photoActive()) return;
       const d = filterLookDelta(lookFilter, e.movementX, e.movementY, e.timeStamp);
       lookDiag.dropped = lookFilter.dropped;
       lookDiag.skipped = lookFilter.skipped;
       if (!d) return;
       const { sensitivity, invertY } = useLookPrefs.getState();
+      if (useStore.getState().held?.kind === 'paddle') return pongMouse(d[0], d[1], sensitivity); // playing: the mouse moves the paddle
       const p = perch();
       const k = LOOK_RADIANS_PER_PX * sensitivity * (p?.look ?? 1);
       look.current.yaw -= d[0] * k;
@@ -274,7 +290,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         toggleMute();
         s.pushToast('info', getAudioPrefs().muted ? `🔇 Sound off (${keyName('mute')} to turn it back on)` : '🔊 Sound on');
       }
-      if (s.overlay || !s.started || isConfirmOpen()) return;
+      if (s.overlay || !s.started || isConfirmOpen() || photoActive()) return;
       keys.current.add(e.code);
       const mode = cameraMode();
       if (e.code === 'Escape' && mode !== 'first') return exitView();
@@ -315,7 +331,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     let wheel = 0;
     const onWheel = (e: WheelEvent) => {
       const s = useStore.getState();
-      if (document.pointerLockElement !== gl.domElement || s.overlay || s.focus?.action.kind !== 'jukebox') {
+      if (document.pointerLockElement !== gl.domElement || s.overlay || s.focus?.action.kind !== 'jukebox' || photoActive()) {
         wheel = 0;
         return;
       }
@@ -326,7 +342,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
-      if (isBound(bindings(), 'throw', e.code)) throwHeld();
+      if (isBound(bindings(), 'throw', e.code) && !photoActive()) throwHeld(); // in photo mode F freezes and thaws
     };
     const onBlur = () => {
       keys.current.clear();
@@ -393,6 +409,13 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
   };
 
   useFrame((_, rawDt) => {
+    if (photoActive()) {
+      // photo mode flies a camera of its own; the player stands exactly where they were
+      keys.current.clear();
+      walk.x = 0;
+      walk.z = 0;
+      return;
+    }
     const dt = Math.min(rawDt, 0.05);
     const s = useStore.getState();
     if (s.overlay || isConfirmOpen()) keys.current.clear();
@@ -430,6 +453,26 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         lastSave.current = now;
         saveView({ floor: s.floor, x: home.x, z: home.z, yaw: home.yaw, pitch: home.pitch });
       }
+      return;
+    }
+
+    // Playing ping-pong: the view sits behind your end of the table, the mouse (or the right stick) moves the paddle,
+    // and you don't walk anywhere.
+    if (s.held?.kind === 'paddle') {
+      if (padOn && (pad.rx || pad.ry)) pongMouse(pad.rx * PAD_PADDLE * dt, pad.ry * PAD_PADDLE * dt);
+      tickPaddle(dt);
+      const v = pongCamera(s.held.id);
+      const shake = reduceMotion() ? 0 : 1; // Settings → Accessibility, or the system's reduced motion
+      camera.position.set(v.x + v.shake.x * shake, v.y + v.shake.y * shake, v.z + v.shake.z * shake);
+      camera.rotation.set(v.pitch, v.yaw, 0, 'YXZ');
+      look.current = { yaw: v.yaw, pitch: v.pitch };
+      playerAt.x = v.x;
+      playerAt.z = v.z;
+      playerAt.yaw = v.yaw;
+      walk.x = 0;
+      walk.z = 0;
+      footstepsFollow(bob.current, false, false, surfaceAt('office', camera.position.x, camera.position.z));
+      if (s.focus) s.setFocus(null);
       return;
     }
 
@@ -472,13 +515,15 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       moving = true;
     }
     bob.current += moving ? dt * speed * tilt * 2.2 : 0;
+    // Head bob and the head tipping back for a sip can be turned off (Settings → Accessibility, motion comfort).
+    const comfort = getA11y();
     if (p) {
       camera.position.set(p.x, p.y, p.z);
       p.yaw = yaw;
       p.pitch = pitch;
-    } else camera.position.y = EYE_HEIGHT + (moving ? Math.sin(bob.current) * 0.035 : 0);
+    } else camera.position.y = EYE_HEIGHT + (moving && comfort.headBob ? Math.sin(bob.current) * 0.035 : 0);
     footstepsFollow(bob.current, moving, speed > 5, surfaceAt(floor === ROOF ? 'roof' : floor === 0 ? 'lobby' : 'office', camera.position.x, camera.position.z));
-    camera.rotation.set(pitch + (p?.tilt ?? 0) + sipPose.head, yaw, 0, 'YXZ');
+    camera.rotation.set(pitch + (p?.tilt ?? 0) + (comfort.cameraShake ? sipPose.head : 0), yaw, 0, 'YXZ');
     playerAt.x = camera.position.x;
     playerAt.z = camera.position.z;
     playerAt.yaw = yaw;

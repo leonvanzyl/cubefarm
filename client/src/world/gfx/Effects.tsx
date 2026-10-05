@@ -4,6 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows } from './ContactShadows';
+import { photoActive } from '../../photo/gate';
 import { createPipeline, type Pipeline } from './pipeline';
 import type { Tier } from './quality';
 import { gfxBlocked, gfxShown, setPipelineStats } from './useGraphics';
@@ -40,6 +41,7 @@ export default function Effects({ tier }: { tier: Exclude<Tier, 'low'> }) {
 
   // Priority 1: R3F stops drawing the frame itself while this is mounted.
   useFrame((_, delta) => {
+    if (photoActive()) return; // photo mode draws the frame from its own camera (photo/PhotoScene.tsx)
     if (!pipe) {
       gl.render(scene, camera);
       return;

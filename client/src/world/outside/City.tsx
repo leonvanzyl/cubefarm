@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../../store';
 import { markBloom } from '../gfx/bloomMarks';
-import { dayTime } from '../sky/useDayTime';
+import { dayTime, useSkyFrame } from '../sky/useDayTime';
 import { skyAt, sunDirection, type SkyPalette } from '../sky/time';
 import { viewElevation } from '../layout';
 import { hazeRange, weatherSky } from '../weather/weatherRules';
@@ -517,8 +517,8 @@ export function City() {
   const elevation = viewElevation(floor, top);
   probe = { buildings: city.layout.buildings.length, cars: city.routes.length, elevation };
 
+  useSkyFrame(followSky);
   useFrame(({ clock }) => {
-    followSky();
     const time = clock.elapsedTime;
     if (shared.uSway.value > 0) shared.uTime.value = time;
     const { traffic, routes, scales, cars } = city;

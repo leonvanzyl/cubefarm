@@ -28,7 +28,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
   { id: 'lights', name: 'String lights', icon: '💡', kind: 'wall', price: 50, blurb: 'Warm little bulbs along a wall.' },
   { id: 'neon', name: 'Neon sign', icon: '🌈', kind: 'wall', price: 80, blurb: "The floor's name in glowing tubes." },
   { id: 'fishtank', name: 'Fish tank', icon: '🐠', kind: 'big', price: 120, blurb: 'A few toon fish doing laps.' },
-  { id: 'pingpong', name: 'Ping-pong table', icon: '🏓', kind: 'big', price: 150, blurb: 'Decorative, for now.' },
+  { id: 'pingpong', name: 'Ping-pong table', icon: '🏓', kind: 'big', price: 150, blurb: "A spare one, just for show: the floor's own table is for playing." },
   { id: 'arcade', name: 'Arcade cabinet', icon: '🕹️', kind: 'big', price: 200, blurb: "Press E on it to play the phone's games." },
 ];
 

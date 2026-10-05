@@ -22,6 +22,8 @@ export type ActionId =
   | 'rotateLeft'
   | 'rotateRight'
   | 'talk'
+  | 'photo'
+  | 'saveReplay'
   | 'emote'
   | 'ping';
 
@@ -63,6 +65,8 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'talk', label: 'Hold to talk (in a message box)', group: 'Office', scope: 'panel', keys: ['KeyV'] },
   { id: 'emote', label: 'Emote wheel (hold, point, let go)', group: 'Office', scope: 'walk', keys: ['KeyT'] },
   { id: 'ping', label: 'Ping where you aim (or middle-click)', group: 'Office', scope: 'walk', keys: ['KeyX'] },
+  { id: 'photo', label: 'Photo mode', group: 'Office', scope: 'global', keys: ['KeyK'] },
+  { id: 'saveReplay', label: 'Save the last 15 s (instant replay)', group: 'Office', scope: 'global', keys: ['KeyI'] },
 ];
 
 export const ACTION_IDS = ACTIONS.map((a) => a.id);

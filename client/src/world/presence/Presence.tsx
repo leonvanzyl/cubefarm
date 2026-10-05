@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { VisitorHeld, VisitorPose } from '../../../../shared/types';
 import { useStore, type Held } from '../../store';
+import { photoActive } from '../../photo/gate';
 import { isConfirmOpen } from '../../ui/Confirm';
 import { isKey } from '../../ui/controls';
 import { cameraMode, exitView, followBody, followingId, followOnFloor, playerAt, rigOwnsCamera } from '../camera/rig';
@@ -55,7 +56,7 @@ function usePingInput(canvas: HTMLCanvasElement) {
   useEffect(() => {
     const ready = () => {
       const s = useStore.getState();
-      return s.started && !s.overlay && !s.travel && !s.replaying && !isConfirmOpen();
+      return s.started && !s.overlay && !s.travel && !s.replaying && !photoActive() && !isConfirmOpen();
     };
     const onDown = (e: MouseEvent) => {
       if (e.button !== 1 || !ready()) return;
@@ -100,8 +101,9 @@ export function Presence() {
     rideAlong(s.floor, !!s.travel);
     let pose: VisitorPose | null = null;
     if (s.started && !s.travel) {
-      // In the overview or following someone, you're still where you stood (rig.ts playerAt), not where the camera is.
-      const away = rigOwnsCamera();
+      // In the overview, following someone or in photo mode, you're still where you stood (rig.ts playerAt), not
+      // where the camera is.
+      const away = rigOwnsCamera() || photoActive();
       euler.setFromQuaternion(camera.quaternion, 'YXZ');
       pose = {
         ts: Math.round(now),

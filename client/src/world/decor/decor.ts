@@ -44,7 +44,7 @@ export const SLOT_NAMES: Record<string, string> = {
   'b-west': 'west wall',
   'b-lounge': 'the lounge',
   'b-south': 'south wall, east of the elevator',
-  'r-lounge': 'the lounge floor',
+  'r-lounge': 'under the ping-pong table',
   'r-entry': 'in front of the elevator',
 };
 

@@ -1,9 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
+import { BILLBOARD } from './viewTags';
 import * as THREE from 'three';
 import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
+import { useA11y } from '../ui/a11y';
+import { showsShapes } from '../ui/a11yPrefs';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
 import { greetPick } from './Chatter';
@@ -93,10 +96,12 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
 }
 
 export function NameTag({ agent }: { agent: Agent }) {
-  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color]);
+  const palette = useA11y((s) => s.prefs.palette);
+  const shapes = useA11y((s) => showsShapes(s.prefs));
+  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent, { palette, shapes }), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color, palette, shapes]);
   return (
     // placed by Character, which carries it about with the person
-    <Billboard>
+    <Billboard userData={BILLBOARD}>
       <mesh>
         <planeGeometry args={[1.15, 0.216]} />
         <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
@@ -270,7 +275,7 @@ function Envelope({ requestId, name }: { requestId: string; name: string }) {
       <Box size={[0.3, 0.004, 0.012]} position={[0, 0.008, 0.02]} rotation={[0, -0.55, 0]} color="#e9e2d0" shadow={false} />
       <Cyl r={0.028} h={0.012} position={[0, 0.012, 0.02]} color="#c1121f" />
       <group ref={marker} position={[0, 0.42, 0]}>
-        <Billboard>
+        <Billboard userData={BILLBOARD}>
           <mesh>
             <planeGeometry args={[0.3, 0.3]} />
             <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />

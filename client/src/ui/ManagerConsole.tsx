@@ -18,8 +18,10 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
+import { ThemeSettings } from './ThemeSettings';
 import { TimeLapseTab } from './TimeLapse';
 import { VoiceSettings } from './VoiceSettings';
+import { AccessibilitySettings } from './AccessibilitySettings';
 import { OutsideSettings } from './OutsideSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -121,7 +123,7 @@ function FloorRow({ repo, all }: { repo: RepoView; all: RepoView[] }) {
           {repo.cloneError && <div className="term-error small">clone failed: {repo.cloneError}</div>}
           {repo.syncError && <div className="term-error small">sync failed: {repo.syncError}</div>}
         </div>
-        <input type="color" value={repo.color} onChange={(e) => patch({ color: e.target.value })} title="Floor colour" />
+        <input type="color" value={repo.color} onChange={(e) => patch({ color: e.target.value })} title="Floor colour" aria-label={`Floor ${repo.floor} colour`} />
         <button className="btn btn-small" onClick={() => goToFloor(repo.floor)}>
           Visit
         </button>
@@ -500,7 +502,7 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
     <div className="tab-grid">
       <div className="card">
         <h3>📝 File a new issue</h3>
-        <select value={repoId} onChange={(e) => setRepoId(e.target.value)}>
+        <select value={repoId} onChange={(e) => setRepoId(e.target.value)} aria-label="Floor">
           {repos.map((r) => (
             <option key={r.id} value={r.id}>
               Floor {r.floor} · {r.fullName}
@@ -531,7 +533,7 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
                       {holder.name}
                     </span>
                   ) : (
-                    <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))}>
+                    <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))} aria-label={`Assign issue #${i.number}`}>
                       <option value="">Assign…</option>
                       {agents
                         .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
@@ -726,6 +728,7 @@ function SettingsTab() {
       <VoiceSettings />
       <OutsideSettings />
       <NotifySettings />
+      <ThemeSettings />
     </div>
   );
 }
@@ -743,17 +746,18 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
     ['issues', '📝 Issues'],
     ['settings', '⚙️ Settings'],
     ['timelapse', '📼 Time-lapse'],
+    ['access', '♿ Accessibility'],
   ];
   return (
     <Panel wide title="🧑‍💼 Manager's console">
-      <div className="tabs">
+      <div className="tabs" role="tablist" aria-label="Console">
         {tabs.map(([k, label]) => (
-          <button key={k} className={`tab ${tab === k ? 'tab-on' : ''}`} onClick={() => setTab(k)}>
+          <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'tab-on' : ''}`} onClick={() => setTab(k)}>
             {label}
           </button>
         ))}
       </div>
-      <div className="tab-body">
+      <div className="tab-body" role="tabpanel" aria-label={tabs.find(([k]) => k === tab)?.[1]}>
         {tab === 'floors' && <FloorsTab />}
         {tab === 'ops' && <OpsTab card={card} />}
         {tab === 'ceo' && <CeoTab />}
@@ -761,6 +765,11 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
         {tab === 'issues' && <IssuesTab initialRepo={initialRepo} />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'timelapse' && <TimeLapseTab />}
+        {tab === 'access' && (
+          <div className="tab-grid a11y-grid">
+            <AccessibilitySettings />
+          </div>
+        )}
       </div>
     </Panel>
   );

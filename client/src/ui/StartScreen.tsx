@@ -2,10 +2,11 @@ import { usePhoneBadge, useStore } from '../store';
 import { requestLook } from '../world/Player';
 import { setMode } from '../pocket/mode';
 import { CEO_ID } from '../../../shared/types';
-import { useKeyName } from './controls';
+import { keyName, useKeyName } from './controls';
 import { Key } from './Key';
 import { SetupWizard } from './SetupWizard';
 import { unlockAudio } from './sfx';
+import { announce } from './announce';
 
 export function StartScreen() {
   const started = useStore((s) => s.started);
@@ -25,6 +26,9 @@ export function StartScreen() {
     start();
     unlockAudio();
     requestLook();
+    announce(
+      `You're in the office. Press ${keyName('phone')} for your phone: its Company tab opens the console, the Kanban, a list view of this floor and the accessibility settings. ${keyName('help')} opens help.`,
+    );
   };
   const ceo = agents[CEO_ID];
   const staff = Object.values(agents).filter((a) => a.role !== 'ceo').length;

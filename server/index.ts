@@ -122,6 +122,8 @@ app.post(
   }),
 );
 app.delete('/api/repos/:repo/preview', route((req) => swarm.stopPreview(repoId(req))));
+// A finished ping-pong game, for the floor's leaderboard
+app.post('/api/repos/:repo/pong', route((req) => swarm.recordPong(repoId(req), req.body ?? {})));
 // The PR theatre: open PRs running beside the floor's app, and what the app viewer has on screen
 app.post('/api/repos/:repo/pr-previews/:n', route((req) => swarm.startPrPreview(repoId(req), num(req.params.n), req.body?.restart === true)));
 app.delete('/api/repos/:repo/pr-previews/:n', route((req) => swarm.stopPrPreview(repoId(req), num(req.params.n))));

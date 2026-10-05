@@ -129,14 +129,25 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
   overview, the building view and the follow cam in `rig.ts`, pose maths in `cameraMath.ts`, the cutaway as global
   clipping planes), the gamepad (`gamepad.ts`) and the graphics tiers (`gfx/`: Low/Medium/High/Auto in `quality.ts`
   with Auto's governor, post-processing in a lazy chunk (`Effects.tsx`, `pipeline.ts`); a material blooms only if
-  `bloomMarks.ts` marks it), the other people viewing the office (`presence/`: visitors, pings, the profile).
+  `bloomMarks.ts` marks it), the other people viewing the office (`presence/`: visitors, pings, the profile),
+  holiday themes (`themes/`: which one is on from `shared/themes.ts`, their data and decoration slots in `themes.ts`
+  and `layout.ts`, each theme's scene in one lazy chunk loaded only while a theme is on; `?theme=` and `?date=` for QA).
 - `src/ui/`: HTML overlays: HUD, terminal (`LiveTerminal.tsx`: xterm.js on `/ws/term`), Kanban, manager's console,
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
   viewer, sounds (`sfx.ts`), key bindings (`keymap.ts`, pure; `controls.ts` keeps the player's own, and every
   shortcut asks it, never a hard-coded key).
+- Accessibility (Settings → Accessibility, `ui/a11y.ts`, saved per browser through pure `a11yPrefs.ts`): captions
+  (`captions.ts`, rules in `captionRules.ts`; every sound `sfx.ts` records is offered to them), status colours and
+  shapes (`statusLook.ts`, shared by CSS and the canvases), motion comfort (call `reduceMotion()` before animating
+  the camera or anything non-essential), UI scale, readable font, high contrast. Dialogs use `dialogFocus.ts`
+  (focus in, trapped, returned); `announce()` speaks to screen readers; `FloorList.tsx` is the list view.
 - `src/pocket/`: pocket mode (docs/pocket.md), the 2D office for phones (`mode.ts` picks it; `App.tsx` loads it or the
   3D `Office.tsx` lazily, so a phone never downloads three.js). `src/pwa.ts` registers the service worker and Web Push;
   `src/notifications.ts` shows desktop notifications. `ui/Panel.tsx` is the panel, apart from `Overlays.tsx` (3D).
+- `src/photo/`: photo mode and clips, lazy-loaded except `gate.ts` (on/frozen, the K and I keys, `__swarmPhoto`):
+  `PhotoScene.tsx` (its own camera; frozen, the frame loop stops and it draws on change), `post.ts` (filters and depth
+  of field on the finished picture), `recorder.ts` / `instantReplay.ts` (MediaRecorder; `webmRing.ts` keeps the last 15 s),
+  `PhotoPanel.tsx`, and pure `flight.ts`, `shots.ts`, `filters.ts`.
 - `src/store.ts`: the zustand store; `apply(ServerEvent)` folds websocket events into UI state.
 - `src/api.ts`: REST calls; errors become toasts.
 - `src/net.ts`: the websocket connection with reconnect. `src/perf.tsx`: render pausing, adaptive DPR, `?stats`.

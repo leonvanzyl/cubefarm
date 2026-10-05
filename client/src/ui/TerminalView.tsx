@@ -270,7 +270,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
           </button>
         ) : (
           <>
-            <select value={issue} onChange={(e) => setIssue(e.target.value)}>
+            <select value={issue} onChange={(e) => setIssue(e.target.value)} aria-label={isQa ? 'Pull request to test' : 'Issue to work on'}>
               <option value="">{isQa ? 'Pick a pull request to test…' : 'Pick an issue from the backlog…'}</option>
               {choices.map((c) => (
                 <option key={c.key} value={c.number}>

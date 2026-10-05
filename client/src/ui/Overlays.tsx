@@ -6,6 +6,7 @@ import { CardView } from './CardView';
 import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ControlsSettings } from './ControlsSettings';
 import { ElevatorPanel } from './ElevatorPanel';
+import { FloorList } from './FloorList';
 import { Key, MoveKeys } from './Key';
 import { Interview } from './Interview';
 import { KanbanView } from './KanbanView';
@@ -19,6 +20,7 @@ import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 import { GRAPHICS_PRESETS, type GraphicsPreset } from '../world/gfx/quality';
 import { effectiveTier, setGraphicsPreset, useGfx } from '../world/gfx/useGraphics';
+import { setReplay, usePhotoGate } from '../photo/gate';
 
 export { closeOverlay, Panel } from './Panel';
 
@@ -143,6 +145,16 @@ function GraphicsSettings() {
   );
 }
 
+/** Instant replay, off by default (photo/instantReplay.ts); saved in this browser. */
+function ReplaySetting() {
+  const on = usePhotoGate((s) => s.replay);
+  return (
+    <label className="toggle">
+      <input type="checkbox" checked={on} onChange={(e) => setReplay(e.target.checked)} /> Instant replay: keep the last 15 seconds, and save them with <Key action="saveReplay" />
+    </label>
+  );
+}
+
 function Help({ tab: initial }: { tab?: HelpTab }) {
   const [tab, setTab] = useState<HelpTab>(initial ?? 'office');
   return (
@@ -184,6 +196,13 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <p>
             Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
             arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <Key action="interact" /> for a happy spin.
+          </p>
+          <h3>Ping-pong</h3>
+          <p>
+            Every office floor has a ping-pong table south of the desks. Press <Key action="interact" /> at either end to pick up a paddle: the view moves behind your end, and someone free on the floor comes over to
+            play you. The mouse (or the right stick) moves the paddle, up being towards the net; swing it through the ball for pace, forwards for topspin, back for backspin, sideways to curve it. Click (or{' '}
+            <Key action="throw" />) to toss and serve. Games go to 11, won by 2, and land on the floor's leaderboard on the wall. <Key action="drop" /> or <kbd>Esc</kbd> puts the paddle down at any time. Now and then two
+            idle teammates play each other: press <Key action="interact" /> at an end to step in.
           </p>
           <h3>The office dog</h3>
           <p>
@@ -277,6 +296,15 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's
             speech recognition or ElevenLabs.
           </p>
+          <h3>Photo mode and clips</h3>
+          <p>
+            Press <Key action="photo" /> (or 📷 at the top right) to freeze the office and fly a camera of your own: click the view to steer, <MoveKeys /> to fly, <kbd>Space</kbd> and <kbd>C</kbd> up and down,{' '}
+            <Key action="rotateLeft" /> and <Key action="rotateRight" /> to roll and the wheel to zoom. Pick a filter, add depth of field, the logo, the floor and date, or move the sun to golden hour, then{' '}
+            <kbd>Enter</kbd> saves a PNG (up to 4× your screen) and copies it. <kbd>V</kbd> records a clip with the office's sound, optionally slowly circling the gong, the whiteboard or someone. Unfreeze (
+            <kbd>F</kbd>) to film the office live. The work carries on while you shoot, and <Key action="photo" /> puts you back exactly where you were. Shots and clips are kept in this tab's gallery and saved to your
+            downloads, never uploaded.
+          </p>
+          <ReplaySetting />
           <h3>Who's working</h3>
           <p>
             The list at the top right shows everyone who is working right now (on this floor, or on every floor from the lobby) with their latest thought, reply or tool call. Click someone to watch their screen.{' '}
@@ -335,9 +363,31 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             has a channel for each: aim at one and press <Key action="interact" /> to run that PR beside the main app (at most two PR previews run at once). In the viewer, <b>Compare with main</b> puts
             them side by side, and the PR's checks and QA report sit beside it.
           </p>
+          <HelpAccess />
         </div>
       )}
     </Panel>
+  );
+}
+
+function HelpAccess() {
+  const openOverlay = useStore((s) => s.openOverlay);
+  return (
+    <>
+      <h3>Accessibility</h3>
+      <p>
+        Captions for the CEO's voice and important sounds, colour-blind-safe status colours with shapes, motion comfort (field of view, no head bob, reduced motion, a centre dot), a bigger UI, a dyslexia-friendly font
+        and high contrast are all in the console's Accessibility tab. Everything works from the keyboard: <Key action="phone" /> opens your phone, whose Company tab opens every panel, and the list view shows a floor without the 3D.
+      </p>
+      <div className="row wrap">
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager', tab: 'access' })}>
+          ♿ Accessibility settings
+        </button>
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'floorList' })}>
+          👥 List view of this floor
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -367,5 +417,7 @@ export function Overlays() {
       return <Catalogue repoId={overlay.repoId} />;
     case 'decor-box':
       return <DecorBoxPanel repoId={overlay.repoId} />;
+    case 'floorList':
+      return <FloorList />;
   }
 }

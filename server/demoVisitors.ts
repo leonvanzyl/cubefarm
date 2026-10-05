@@ -14,7 +14,8 @@ interface Pt {
 export const ROUTES: { office: Pt[]; lobby: Pt[] } = {
   office: [
     { x: 0, z: 9.5 },
-    { x: -7, z: 9.5 },
+    { x: -9, z: 9.6 }, // round the west of the ping-pong table
+    { x: -9, z: 5.6 },
     { x: -7, z: 1 },
     { x: -7, z: -8.5 },
     { x: 7, z: -8.5 },

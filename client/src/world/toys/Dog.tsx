@@ -13,6 +13,7 @@ import { Outlines } from '../Outlines';
 import { playerAt } from '../camera/rig';
 import { bodyState, liveBodies } from '../people';
 import { walkways } from '../walkways';
+import { FACES_CAMERA } from '../viewTags';
 import { Zzz } from '../Zzz';
 import { BALLS, type ToyFloor } from './balls';
 import { dogLeft, dogMayLeave, dogName, dogNow, dogOn, dogRides, dogSeen, dogStats, setDogHooks, setDogLive, setDogThrow, takeArrival, takeParty, takeRelease, troubled } from './dogState';
@@ -101,7 +102,7 @@ function Hearts({ at }: { at: { current: number } }) {
     }
   });
   return (
-    <group ref={g} position={[0.3, 0.88, 0]} visible={false}>
+    <group ref={g} position={[0.3, 0.88, 0]} visible={false} userData={FACES_CAMERA}>
       {[0, 1, 2].map((i) => (
         <mesh key={i} geometry={heartGeometry} material={heart()} renderOrder={2} />
       ))}

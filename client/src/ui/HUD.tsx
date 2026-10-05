@@ -11,6 +11,7 @@ import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { PresenceHud } from './PresenceHud';
 import { officeUpdateChip } from '../officeUpdate';
+import { useA11y } from './a11y';
 import { useCameraView } from '../world/camera/rig';
 import { CameraHud, OverviewButton } from './CameraHud';
 import { useKeyName } from './controls';
@@ -19,6 +20,7 @@ import { ROOF } from '../world/layout';
 import { useRoof } from '../world/roof/roofState';
 import { RoofHud } from './RoofHud';
 import { usageChip } from '../ops';
+import { togglePhoto, usePhotoGate } from '../photo/gate';
 
 /** While the office is on its way to updating itself (or restarting to do it); opens the console's Office row. */
 function OfficeUpdateChip() {
@@ -69,6 +71,21 @@ function PhoneButton() {
   );
 }
 
+/** Photo mode (K by default); a red dot while instant replay keeps the last 15 s (I saves them). */
+function PhotoButton() {
+  const started = useStore((s) => s.started);
+  const replay = usePhotoGate((s) => s.replay);
+  const photoKey = useKeyName('photo');
+  const replayKey = useKeyName('saveReplay');
+  if (!started) return null;
+  return (
+    <button className="pill pill-photo" onClick={togglePhoto} title={replay ? `Photo mode (${photoKey}). Instant replay is on: ${replayKey} saves the last 15 s` : `Photo mode (${photoKey}): freeze the office, frame a shot, record a clip`}>
+      📷 <kbd>{photoKey}</kbd>
+      {replay && <span className="pill-photo-rec" aria-label="Instant replay on" />}
+    </button>
+  );
+}
+
 /** On the phone icon while a message is read aloud (ui/voiceMessages.ts); a click stops it. */
 function VoiceIndicator() {
   const speaking = useStore((s) => s.voiceSpeaking);
@@ -106,6 +123,7 @@ export function HUD() {
   const travel = useStore((s) => s.travel);
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  const centerDot = useA11y((s) => s.prefs.centerDot);
   // In the overview, the building view and the follow cam there's no crosshair to aim (camera/rig.ts).
   const onFoot = useCameraView((s) => s.mode) === 'first';
 
@@ -142,6 +160,7 @@ export function HUD() {
         </span>
         <CoinChip />
         {user && <span className="pill">🐙 {user}</span>}
+        <PhotoButton />
       </div>
 
       <WorkersPanel />
@@ -152,7 +171,8 @@ export function HUD() {
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
-      {started && !overlay && !travel && onFoot && !scope && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {/* the centre dot (Settings → Accessibility) is a bolder crosshair that stays through the elevator's fade too */}
+      {started && !overlay && (!travel || centerDot) && onFoot && !scope && held?.kind !== 'paddle' && <div className={`crosshair ${focus ? 'crosshair-hot' : ''} ${centerDot ? 'crosshair-dot' : ''}`} />}
       {started && !overlay && !travel && onFoot && <RoofHud />}
       <AgentCard />
       {started && !overlay && onFoot && (focus || sip) && (
@@ -178,7 +198,7 @@ export function HUD() {
       {started && !overlay && !locked && !travel && onFoot && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <MoveKeys joined /> move · <Key action="run" /> run · <Key action="interact" /> / <kbd>Click</kbd> interact · <Key action="phone" /> phone · <Key action="emote" /> emote · <Key action="ping" /> ping ·{' '}
+          <MoveKeys joined /> move · <Key action="run" /> run · <Key action="interact" /> / <kbd>Click</kbd> interact · <Key action="phone" /> phone · <Key action="emote" /> emote · <Key action="ping" /> ping · <Key action="photo" /> photo ·{' '}
           <Key action="overview" /> overview · <Key action="workers" /> workers · <Key action="mute" /> mute · <Key action="help" /> help · <kbd>Esc</kbd> free mouse
         </div>
       )}

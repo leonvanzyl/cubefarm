@@ -1,12 +1,14 @@
 import { create } from 'zustand';
-import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PongRow, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type WeatherView } from '../../shared/outside';
 import { DEFAULT_NOTIFY } from '../../shared/notify';
+import { speechText } from '../../shared/speech';
 import { showDesktopNote } from './notifications';
 import { EMPTY_OPS, newAlarms } from './ops';
 import type { DecorItem, ProgressView } from '../../shared/progress';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
+import { announce } from './ui/announce';
 import { alarm, audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
@@ -33,12 +35,14 @@ export type Overlay =
   | { kind: 'interview'; requestId: string }
   | { kind: 'help'; tab?: HelpTab }
   | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
-  | { kind: 'decor-box'; repoId: string }; // a floor's decor box
+  | { kind: 'decor-box'; repoId: string } // a floor's decor box
+  /** The floor as a list (Settings → Accessibility): who is there, their status and what they're doing. */
+  | { kind: 'floorList' };
 
 /** Help's tabs: how the office works, and the controls (keys, mouse, gamepad). */
 export type HelpTab = 'office' | 'controls';
 
-export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings' | 'timelapse';
+export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings' | 'timelapse' | 'access';
 
 export interface Focus {
   id: string;
@@ -57,7 +61,11 @@ export interface Focus {
     | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string }
     | { kind: 'trophy'; id: string }
     /** Say hi to someone with nothing to do (Chatter.tsx). */
-    | { kind: 'greet'; agentId: string };
+    | { kind: 'greet'; agentId: string }
+    /** E on a holiday theme's thing (themes/active.ts). */
+    | { kind: 'theme'; id: string }
+    /** Pick up a paddle at that end of the ping-pong table (toys/pongState.ts). */
+    | { kind: 'pong'; end: 'west' | 'east' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -72,7 +80,9 @@ export type Held =
   /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
   | { kind: 'sausage'; id: string; bites: number; charred: boolean }
   /** A decoration on its way to a slot (#210): from the floor's decor box (from null) or from the slot it stood in. */
-  | { kind: 'decor'; id: string; item: DecorItem; from: string | null };
+  | { kind: 'decor'; id: string; item: DecorItem; from: string | null }
+  /** A ping-pong paddle, playing at that end of the table (toys/pongState.ts): mouse and camera belong to the match. */
+  | { kind: 'paddle'; id: 'west' | 'east' };
 
 export interface Toast {
   id: number;
@@ -112,6 +122,7 @@ interface State {
   weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   ticker: TickerItem[]; // the floors' recent activity lines, oldest first (world/ActivityTicker.tsx)
   notifyChannels: NotifyChannelsView; // which chat apps have a webhook saved (hints only) and how many devices get push
+  pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard by repo id, best first
   restarting: boolean; // the connection dropped because the office is restarting to update
   visitors: VisitorView[]; // everyone else appearing in the office, any floor (presence; their poses skip the store)
   replaying: boolean; // the time-lapse (replay.ts) is showing a recorded day: live events wait, live actions are off
@@ -206,6 +217,7 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    themes: { mode: 'auto', disabled: [], birthday: null },
     weather: DEFAULT_WEATHER,
     worldEvents: DEFAULT_WORLD_EVENTS,
     listen: { provider: 'off', autoSend: false, handsFree: false },
@@ -232,6 +244,7 @@ export const useStore = create<State>((set, get) => ({
   weather: EMPTY_WEATHER_VIEW,
   ticker: [],
   notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
+  pong: {},
   restarting: false,
   visitors: [],
   replaying: false,
@@ -298,6 +311,7 @@ export const useStore = create<State>((set, get) => ({
           ticker: d.ticker ?? [],
           notifyChannels: d.notifyChannels ?? get().notifyChannels,
           progress: d.progress ?? { floors: {}, achievements: [], coffees: 0, merges: 0 },
+          pong: d.pong ?? {},
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -400,6 +414,8 @@ export const useStore = create<State>((set, get) => ({
           const wait = claimVoice(ev.message.id);
           void import('./ui/voiceMessages').then((v) => v.speakMessage(ev.message, arrived, wait));
         }
+        // Screen readers hear every message from the CEO, in words (no markdown or emoji), wherever focus is.
+        if (live && ev.message.from === 'ceo') announce(`Message from ${get().agents[CEO_ID]?.name ?? 'the CEO'}: ${speechText(ev.message.text, 600)}`);
         if (ev.message.from === 'ceo' && !reading) {
           if (!speak) chirp();
           const ceo = get().agents[CEO_ID]?.name ?? 'CEO';
@@ -464,6 +480,9 @@ export const useStore = create<State>((set, get) => ({
       case 'reward':
         if (live) emitReward(ev.reward);
         break;
+      case 'pong':
+        set({ pong: { ...get().pong, [ev.repoId]: ev.board } });
+        break;
     }
   },
 
@@ -504,6 +523,7 @@ export const useStore = create<State>((set, get) => ({
     else set({ travel: null });
   },
   pushToast(level, text) {
+    if (level === 'error') announce(text, 'assertive');
     const id = toastSeq++;
     set({ toasts: [...get().toasts.slice(-4), { id, level, text }] });
     setTimeout(() => get().dismissToast(id), level === 'error' ? 9000 : 5000);

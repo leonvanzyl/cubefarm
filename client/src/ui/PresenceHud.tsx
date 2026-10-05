@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { EMOTE_EMOJI, EMOTE_LABEL } from '../../../shared/presence';
 import type { EmoteId } from '../../../shared/types';
 import { useStore } from '../store';
+import { photoActive } from '../photo/gate';
 import { cameraMode } from '../world/camera/rig';
 import { emote, myLastEmote, presenceVersion, subscribePresence } from '../world/presence/presenceState';
 import { EMOTE_MS, WHEEL, wheelPick, wheelSpot } from '../world/presence/presenceMath';
@@ -25,7 +26,7 @@ const drag = { x: 0, y: 0, at: 0 };
 
 function ready() {
   const s = useStore.getState();
-  return s.started && !s.overlay && !s.travel && !s.replaying && cameraMode() === 'first' && !isConfirmOpen();
+  return s.started && !s.overlay && !s.travel && !s.replaying && cameraMode() === 'first' && !photoActive() && !isConfirmOpen();
 }
 
 const typing = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]');

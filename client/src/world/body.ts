@@ -4,7 +4,7 @@
 
 export type BodyMode = 'seated' | 'standing' | 'walking';
 /** What the hands are busy with while up. Later issues add more. */
-export type Gesture = 'none' | 'reach' | 'post' | 'hold' | 'sip' | 'stretch' | 'mug' | 'tap' | 'chat' | 'cheer' | 'wave' | 'talk' | 'stoop' | 'shoot' | 'toss' | 'catch' | 'shrug' | 'take' | 'windup' | 'strike' | 'clap' | 'nod' | 'thumbs' | 'call' | 'point' | 'gasp' | 'shake';
+export type Gesture = 'none' | 'reach' | 'post' | 'hold' | 'sip' | 'stretch' | 'mug' | 'tap' | 'chat' | 'cheer' | 'wave' | 'talk' | 'stoop' | 'shoot' | 'toss' | 'catch' | 'shrug' | 'take' | 'windup' | 'strike' | 'clap' | 'nod' | 'thumbs' | 'call' | 'point' | 'gasp' | 'shake' | 'paddle';
 
 /** Where someone should be: the people controller (people.ts) holds one per agent who isn't simply seated. */
 export interface BodyTarget {
@@ -18,6 +18,8 @@ export interface BodyTarget {
   gesture: Gesture;
   /** Bumped to make the person jump straight to x/z (standing) instead of walking there. */
   teleport: number;
+  /** Sidestep there, still facing `heading`, quick on their feet (a ping-pong player covering the table). */
+  strafe?: boolean;
 }
 
 /** 'rising' and 'sitting' are the short transitions between the chair and the standing spot beside it. */
@@ -48,6 +50,7 @@ export const WALK_SPEED = 1.1;
 const ARRIVE = 0.03;
 const TURN_RATE = 6; // rad/s
 const ACCEL = 4; // m/s²
+const STRAFE_ACCEL = 14; // m/s², sidestepping
 
 export function newBodyState(): BodyState {
   return { stage: 'seated', sit: 1, x: 0, z: 0, heading: 0, speed: 0, phase: 0, seatX: 0, seatZ: 0, seatHeading: 0, standX: 0, standZ: 0, teleport: 0 };
@@ -73,6 +76,20 @@ function placeOnTransition(s: BodyState, dt: number) {
   s.z = s.standZ + (s.seatZ - s.standZ) * k;
   s.heading = turnTo(s.heading, s.seatHeading, TURN_RATE * dt);
   s.speed = 0;
+}
+
+/** Sidesteps towards (x, z) at up to `speed` without turning to face the way, turning to `heading` meanwhile. */
+function strafeTo(s: BodyState, x: number, z: number, heading: number, speed: number, dt: number) {
+  const dx = x - s.x;
+  const dz = z - s.z;
+  const dist = Math.hypot(dx, dz);
+  s.heading = turnTo(s.heading, heading, TURN_RATE * dt);
+  const goal = Math.min(speed, Math.sqrt(2 * STRAFE_ACCEL * dist)); // brake in time to stop on the spot
+  s.speed += Math.max(-STRAFE_ACCEL * dt, Math.min(STRAFE_ACCEL * dt, goal - s.speed));
+  if (dist < 1e-4) return;
+  const step = Math.min(dist, s.speed * dt);
+  s.x += (dx / dist) * step;
+  s.z += (dz / dist) * step;
 }
 
 /** Walks towards (x, z) at up to `speed`, slowing on arrival; then turns to `heading`. Returns true once there. */
@@ -139,7 +156,8 @@ export function stepBody(s: BodyState, target: BodyTarget | null, dt: number): B
       }
       break;
     case 'up':
-      if (up) walkTo(s, target.x, target.z, target.heading, target.speed > 0 ? target.speed : WALK_SPEED, dt);
+      if (up && target.strafe) strafeTo(s, target.x, target.z, target.heading, target.speed > 0 ? target.speed : WALK_SPEED, dt);
+      else if (up) walkTo(s, target.x, target.z, target.heading, target.speed > 0 ? target.speed : WALK_SPEED, dt);
       else if (walkTo(s, s.standX, s.standZ, s.seatHeading, WALK_SPEED, dt)) s.stage = 'sitting';
       break;
   }

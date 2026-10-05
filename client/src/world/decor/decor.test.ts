@@ -83,7 +83,7 @@ describe('placing', () => {
     expect(tank.x).toBeCloseTo(-HALF_W + decorSize('fishtank').d / 2 + 0.02);
     expect(tank.z).toBeCloseTo(3.6);
     const table = placement('b-lounge', 'pingpong')!;
-    expect([table.x, table.z]).toEqual([-7, 8.4]);
+    expect([table.x, table.z]).toEqual([-10.9, 6.9]);
     // the table's long side runs north-south there
     const r = decorRect('b-lounge', 'pingpong')!;
     expect(r.maxZ - r.minZ).toBeCloseTo(2.2);
