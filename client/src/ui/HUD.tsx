@@ -6,6 +6,7 @@ import { HeldHint } from './HeldHint';
 import { CareerPeek } from './CareerCard';
 import { CoinChip } from './CoinChip';
 import './progressProbe';
+import './doctorProbe';
 import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
@@ -46,6 +47,19 @@ function UsageChip() {
   return (
     <button className={`office-chip usage-chip usage-chip-${usage.state}`} onClick={() => openOverlay({ kind: 'manager', tab: 'ops', card: 'usage' })} title="Claude's usage is holding new work back. Open Mission control">
       {text}
+    </button>
+  );
+}
+
+/** The office doctor's findings (server/watchdog.ts); opens them in Mission control. */
+function DoctorChip() {
+  const count = useStore((s) => s.doctor.length);
+  const overlay = useStore((s) => s.overlay);
+  const openOverlay = useStore((s) => s.openOverlay);
+  if (!count || overlay?.kind === 'manager') return null;
+  return (
+    <button className="office-chip doctor-chip" onClick={() => openOverlay({ kind: 'manager', tab: 'ops', card: 'doctor' })} title="The office doctor found something stuck. Open Mission control">
+      🩺 {count} to check
     </button>
   );
 }
@@ -167,6 +181,7 @@ export function HUD() {
       <div className="hud-chips">
         <OfficeUpdateChip />
         <UsageChip />
+        <DoctorChip />
       </div>
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}

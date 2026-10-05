@@ -737,7 +737,7 @@ function SettingsTab() {
 export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?: ManagerTab; initialRepo?: string; card?: string }) {
   const [tab, setTab] = useState<ManagerTab>(initialTab ?? 'floors');
   const pending = useStore((s) => pendingRequests(s.requests).length);
-  const alarms = useStore((s) => s.ops.alarms.length);
+  const alarms = useStore((s) => s.ops.alarms.length + s.doctor.length);
   const tabs: [ManagerTab, string][] = [
     ['floors', '🏢 Floors & repos'],
     ['ops', `🛰️ Mission control${alarms ? ` (${alarms})` : ''}`],

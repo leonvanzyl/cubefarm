@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import { api } from '../api';
 import { fmtDuration, fmtPct, fmtUsd, usageMeter } from '../ops';
 import { useStore } from '../store';
-import type { OpsAlarm, OpsNumbers, RepoView } from '../../../shared/types';
+import type { DoctorFinding, DoctorFix, OpsAlarm, OpsNumbers, RepoView } from '../../../shared/types';
 import { confirmDialog } from './Confirm';
 
 // The manager's console → Mission control: Claude's usage with "Resume full speed", what needs you (the alarms the
-// lobby wall's beacon rings for), and every floor's numbers from the wall as a table.
+// lobby wall's beacon rings for), the office doctor's findings with their one-click fixes, and every floor's numbers
+// from the wall as a table.
 
 async function attempt<T>(fn: () => Promise<T>) {
   try {
@@ -143,6 +144,102 @@ function AlarmCard({ alarm, repo, hot }: { alarm: OpsAlarm; repo: RepoView | und
   );
 }
 
+const FIXES: Record<DoctorFix, [string, string]> = {
+  clear: ['↺ Clear desk', 'Clear their desk so they take new work'],
+  stop: ['■ Stop', 'Stop their session'],
+  requeue: ['↩ Requeue', 'Stop them and put the work back in line, without a strike'],
+  'retry-qa': ['Retry QA', 'Queue the PR for a fresh QA run'],
+  'send-back': ['Send back to dev', 'Hand the PR to a developer'],
+  'close-issue': ['Close issue', 'Close the issue on GitHub as completed'],
+};
+
+async function applyFix(f: DoctorFinding, fix: DoctorFix) {
+  if (fix === 'close-issue') {
+    if (document.pointerLockElement) document.exitPointerLock();
+    const ok = await confirmDialog({
+      icon: '🩺',
+      tone: 'warn',
+      title: `Close issue #${f.issueNumber}?`,
+      body: <p>It's closed on GitHub as completed, with a comment saying PR #{f.prNumber} resolved it.</p>,
+      confirm: 'Close issue',
+    });
+    if (!ok) return;
+  }
+  await attempt(() => api.doctorFix(f.id, fix));
+}
+
+function DoctorCard({ finding: f, repo }: { finding: DoctorFinding; repo: RepoView | undefined }) {
+  const openOverlay = useStore((s) => s.openOverlay);
+  return (
+    <div id={`ops-card-doctor-${f.id}`} className="card floor-card alarm-card doctor-card" style={{ ['--accent' as string]: repo?.color ?? '#7c6cf0' }}>
+      <div className="row">
+        <span className="floor-badge">{repo?.floor ?? '?'}</span>
+        <div className="grow">
+          <b>🩺 {f.text}</b>
+          <div className="muted small">
+            {repo?.fullName ?? f.repoId} · since {new Date(f.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+      </div>
+      <div className="row wrap">
+        {f.fixes.map((fix, i) => (
+          <button key={fix} className={`btn btn-small ${i === 0 ? 'btn-good' : ''}`} title={FIXES[fix][1]} onClick={() => void applyFix(f, fix)}>
+            {FIXES[fix][0]}
+          </button>
+        ))}
+        {f.agentId && (
+          <button className="btn btn-small" onClick={() => openOverlay({ kind: 'terminal', agentId: f.agentId! })}>
+            Terminal
+          </button>
+        )}
+        <span className="spacer" />
+        <button className="btn btn-small btn-ghost" title="Hide it until it goes away" onClick={() => void attempt(() => api.doctorIgnore(f.id))}>
+          Ignore
+        </button>
+      </div>
+    </div>
+  );
+}
+
+async function demoDoctor(action: Parameters<typeof api.demoDoctor>[0]) {
+  const r = await attempt(() => api.demoDoctor(action));
+  if (r) useStore.getState().pushToast('info', r.text);
+}
+
+function DoctorSection({ hot }: { hot: boolean }) {
+  const doctor = useStore((s) => s.doctor);
+  const repos = useStore((s) => s.repos);
+  const demo = useStore((s) => s.demo);
+  return (
+    <div id="ops-card-doctor" className={hot ? 'ops-card-hot' : ''}>
+      <h3 className="section">🩺 Office doctor {doctor.length > 0 && <span className="badge">{doctor.length}</span>}</h3>
+      {doctor.length === 0 && (
+        <p className="muted small">Nothing stuck. Every minute the watchdog nudges quiet sessions, frees stuck desks and puts orphaned work back in line by itself; what it can't safely fix shows up here.</p>
+      )}
+      {doctor.map((f) => (
+        <DoctorCard key={f.id} finding={f} repo={repos.find((r) => r.id === f.repoId)} />
+      ))}
+      {demo && (
+        <div className="row wrap">
+          <span className="muted small">Demo:</span>
+          <button className="btn btn-small btn-ghost" title="Restart with desks gone and work finished on GitHub meanwhile" onClick={() => void demoDoctor('restart')}>
+            Simulate a restart
+          </button>
+          <button className="btn btn-small btn-ghost" title="Someone's session goes quiet for 20 minutes" onClick={() => void demoDoctor('stuck')}>
+            Make a session stuck
+          </button>
+          <button className="btn btn-small btn-ghost" title="Ten more minutes pass for the stuck sessions" onClick={() => void demoDoctor('later')}>
+            10 minutes later
+          </button>
+          <button className="btn btn-small btn-ghost" title="A merged PR whose issue was never closed" onClick={() => void demoDoctor('unclosed')}>
+            Leave an issue open
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const COLUMNS: [string, (n: OpsNumbers) => string, string?][] = [
   ['Ready', (n) => String(n.ready), 'Backlog issues that can start now'],
   ['Building', (n) => String(n.building)],
@@ -212,6 +309,7 @@ export function OpsTab({ card }: { card?: string }) {
         {alarms.map((a) => (
           <AlarmCard key={a.id} alarm={a} repo={repos.find((r) => r.id === a.repoId)} hot={a.id === card} />
         ))}
+        <DoctorSection hot={card === 'doctor'} />
       </div>
       <div>
         <h3 className="section">🛰️ The numbers</h3>

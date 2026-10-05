@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PongRow, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type DoctorFinding, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PongRow, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { latestListed } from '../../shared/watch';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type WeatherView } from '../../shared/outside';
@@ -117,6 +117,7 @@ interface State {
   officeUpdate?: OfficeUpdateView;
   usage: UsageView; // Claude's subscription usage: normal, pacing after a warning, or paused at the limit
   ops: OpsView; // mission control: every floor's numbers and what needs the manager
+  doctor: DoctorFinding[]; // the office doctor's findings (server/watchdog.ts)
   voiceKeySet: boolean; // an ElevenLabs key is saved on the server
   voiceKeyHint: string; // its last 4 characters
   voiceCache: VoiceCacheView; // the voice's saved clips: Settings → Voice, and which messages the phone's ▶ replays
@@ -242,6 +243,7 @@ export const useStore = create<State>((set, get) => ({
   phoneReadAt: 0,
   usage: { state: 'normal', until: null, warning: null },
   ops: EMPTY_OPS,
+  doctor: [],
   voiceKeySet: false,
   voiceKeyHint: '',
   voiceCache: { clips: 0, bytes: 0, saved: [] },
@@ -310,6 +312,7 @@ export const useStore = create<State>((set, get) => ({
           officeUpdate: d.officeUpdate,
           usage: d.usage,
           ops: d.ops ?? EMPTY_OPS,
+          doctor: d.doctor ?? [],
           clis: d.clis ?? [],
           voiceKeySet: d.voiceKeySet ?? false,
           voiceKeyHint: d.voiceKeyHint ?? '',
@@ -483,6 +486,9 @@ export const useStore = create<State>((set, get) => ({
         // A new alarm sounds once (rate-limited); the beacons spin until it's handled.
         if (cues && newAlarms(get().ops.alarms, ev.ops.alarms).length) alarm();
         set({ ops: ev.ops });
+        break;
+      case 'doctor':
+        set({ doctor: ev.doctor });
         break;
       case 'voiceKey':
         set({ voiceKeySet: ev.voiceKeySet, voiceKeyHint: ev.voiceKeyHint });

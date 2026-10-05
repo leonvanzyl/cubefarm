@@ -3765,6 +3765,9 @@ input.inline:focus {
 .usage-chip-paused {
   background: #ffc2d1;
 }
+.doctor-chip {
+  background: #d9d2ff;
+}
 .usage-card {
   border-left: 12px solid var(--good);
 }
