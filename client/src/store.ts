@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PongRow, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { latestListed } from '../../shared/watch';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type WeatherView } from '../../shared/outside';
@@ -14,6 +14,7 @@ import { alarm, audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
 import { emitMerge, mergeBursts, recentQaRecord, rememberQa } from './world/confetti';
+import { takeEmote, takePing, takePose, takeRoster } from './world/presence/presenceState';
 import { gongForMerge } from './world/gongRunner';
 import { ROOF } from './world/layout';
 import { emitReward } from './world/decor/rewards';
@@ -63,7 +64,9 @@ export interface Focus {
     /** Say hi to someone with nothing to do (Chatter.tsx). */
     | { kind: 'greet'; agentId: string }
     /** E on a holiday theme's thing (themes/active.ts). */
-    | { kind: 'theme'; id: string };
+    | { kind: 'theme'; id: string }
+    /** Pick up a paddle at that end of the ping-pong table (toys/pongState.ts). */
+    | { kind: 'pong'; end: 'west' | 'east' };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -78,7 +81,9 @@ export type Held =
   /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
   | { kind: 'sausage'; id: string; bites: number; charred: boolean }
   /** A decoration on its way to a slot (#210): from the floor's decor box (from null) or from the slot it stood in. */
-  | { kind: 'decor'; id: string; item: DecorItem; from: string | null };
+  | { kind: 'decor'; id: string; item: DecorItem; from: string | null }
+  /** A ping-pong paddle, playing at that end of the table (toys/pongState.ts): mouse and camera belong to the match. */
+  | { kind: 'paddle'; id: 'west' | 'east' };
 
 export interface Toast {
   id: number;
@@ -120,7 +125,9 @@ interface State {
   weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   ticker: TickerItem[]; // the floors' recent activity lines, oldest first (world/ActivityTicker.tsx)
   notifyChannels: NotifyChannelsView; // which chat apps have a webhook saved (hints only) and how many devices get push
+  pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard by repo id, best first
   restarting: boolean; // the connection dropped because the office is restarting to update
+  visitors: VisitorView[]; // everyone else appearing in the office, any floor (presence; their poses skip the store)
   replaying: boolean; // the time-lapse (replay.ts) is showing a recorded day: live events wait, live actions are off
 
   floor: number; // 0 = lobby
@@ -243,7 +250,9 @@ export const useStore = create<State>((set, get) => ({
   weather: EMPTY_WEATHER_VIEW,
   ticker: [],
   notifyChannels: { webhooks: { discord: { set: false, hint: '' }, slack: { set: false, hint: '' }, telegram: { set: false, hint: '' }, ntfy: { set: false, hint: '' } }, pushDevices: 0 },
+  pong: {},
   restarting: false,
+  visitors: [],
   replaying: false,
 
   floor: loadView()?.floor ?? 0,
@@ -309,6 +318,7 @@ export const useStore = create<State>((set, get) => ({
           ticker: d.ticker ?? [],
           notifyChannels: d.notifyChannels ?? get().notifyChannels,
           progress: d.progress ?? { floors: {}, achievements: [], coffees: 0, merges: 0 },
+          pong: d.pong ?? {},
           restarting: false,
           floor: floorExists ? get().floor : 0,
         });
@@ -493,11 +503,28 @@ export const useStore = create<State>((set, get) => ({
         // This tab shows it only while it's hidden (notifications.ts); a visible office already chimes and toasts.
         showDesktopNote(ev.note, get().settings.notify?.channels.desktop !== false);
         break;
+      // Presence: the list is state; poses, emotes and pings go straight to the 3D view (world/presence/presence.ts).
+      case 'visitors':
+        set({ visitors: ev.visitors });
+        takeRoster(ev, get().floor);
+        break;
+      case 'visitorPose':
+        takePose(ev, get().floor);
+        break;
+      case 'visitorEmote':
+        takeEmote(ev);
+        break;
+      case 'visitorPing':
+        takePing(ev);
+        break;
       case 'progress':
         set({ progress: ev.progress });
         break;
       case 'reward':
         if (live) emitReward(ev.reward);
+        break;
+      case 'pong':
+        set({ pong: { ...get().pong, [ev.repoId]: ev.board } });
         break;
     }
   },

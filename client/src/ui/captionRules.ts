@@ -38,6 +38,7 @@ const RULES: Rule[] = [
   { match: is('cue:welcome'), text: '[welcome jingle]', priority: 2, cooldownMs: 3000 },
   { match: is('chirp'), text: '[phone buzzes]', priority: 2, cooldownMs: 3000 },
   { match: is('ding'), text: '[elevator ding]', priority: 1, cooldownMs: 4000 },
+  { match: is('visitor:ping'), text: '[ping: a visitor points something out]', priority: 2, cooldownMs: 2000 },
   { match: has('alarm'), key: () => 'alarm', text: withDetail('alarm'), priority: 3, cooldownMs: 20_000 },
   { match: has('thunder'), key: () => 'thunder', text: '[thunder]', priority: 1, cooldownMs: 8000 },
   { match: is('event:roar'), text: '[kaiju roars]', priority: 1, cooldownMs: 8000 },

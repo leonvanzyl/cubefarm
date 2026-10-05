@@ -197,6 +197,13 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             Every floor has a basketball hoop on the south wall, with its ball waiting underneath. Aim at the painted square on the backboard and fill the throw meter about half to three quarters of the way: the ball
             arcs up and drops through the rim. A tap falls short and a full charge flies long. Hit someone with a ball or a dart and they react. Aim at the roomba and press <Key action="interact" /> for a happy spin.
           </p>
+          <h3>Ping-pong</h3>
+          <p>
+            Every office floor has a ping-pong table south of the desks. Press <Key action="interact" /> at either end to pick up a paddle: the view moves behind your end, and someone free on the floor comes over to
+            play you. The mouse (or the right stick) moves the paddle, up being towards the net; swing it through the ball for pace, forwards for topspin, back for backspin, sideways to curve it. Click (or{' '}
+            <Key action="throw" />) to toss and serve. Games go to 11, won by 2, and land on the floor's leaderboard on the wall. <Key action="drop" /> or <kbd>Esc</kbd> puts the paddle down at any time. Now and then two
+            idle teammates play each other: press <Key action="interact" /> at an end to step in.
+          </p>
           <h3>The office dog</h3>
           <p>
             One dog roams the whole building, taking the elevator between floors now and then. Aim at it and press <Key action="interact" /> to pet it: it wiggles and follows you for a while (into the elevator
@@ -302,6 +309,13 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <p>
             The list at the top right shows everyone who is working right now (on this floor, or on every floor from the lobby) with their latest thought, reply or tool call. Click someone to watch their screen.{' '}
             <Key action="workers" /> shows or hides it.
+          </p>
+          <h3>Other visitors</h3>
+          <p>
+            Everyone else with the office open (another tab, a colleague, your phone) walks about in it as a visitor with a lanyard, a name tag and a soft glow in their colour, and sees you the same way. Hold{' '}
+            <Key action="emote" /> for the emote wheel: point at wave, thumbs up, clap, point or laugh and let go (a quick tap waves, <kbd>1</kbd>–<kbd>5</kbd> pick straight away). Middle-click, or{' '}
+            <Key action="ping" /> on foot, drops a ping where you aim for everyone on the floor to see. The visitors are at the top of the who's-working list: <b>Follow</b> trails one with the camera, by
+            elevator too. Your name and colour, and <b>Appear to others</b>, are in the manager's console under Settings → Profile; nothing about you is shared before you enter the office.
           </p>
           <h3>The CEO</h3>
           <p>

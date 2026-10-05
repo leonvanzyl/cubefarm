@@ -50,6 +50,19 @@ describe('stepBody', () => {
     expect(s.heading).toBeCloseTo(1, 1);
   });
 
+  it('sidesteps when asked to strafe: quick, still facing the way it was told, and stopping on the spot', () => {
+    const s = seatedAt();
+    run(s, target({ mode: 'standing', x: 0.6, z: -0.1, heading: 0 }), 1);
+    const t = target({ mode: 'standing', x: 0.6, z: -0.9, heading: 0, speed: 3, strafe: true });
+    let turned = 0;
+    for (let i = 0; i < 30; i++) turned = Math.max(turned, Math.abs(angleDelta(stepBody(s, t, 1 / 60).heading, 0)));
+    expect(turned).toBeLessThan(0.01); // it never turned to face the way it went
+    expect(s.z).toBeLessThan(-0.6); // most of the 0.8 m in half a second
+    run(s, t, 1);
+    expect(s.z).toBeCloseTo(-0.9, 2);
+    expect(s.speed).toBeCloseTo(0, 1);
+  });
+
   it('never walks faster than asked', () => {
     const s = seatedAt();
     let top = 0;

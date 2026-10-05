@@ -23,12 +23,13 @@ describe("a tab's watch", () => {
   });
 
   it('only takes well-formed watch messages', () => {
-    expect(parseWatch({ type: 'watch', floor: 2, agents: ['a', 7, ''], workers: true })).toEqual(watch(2, ['a'], true));
-    expect(parseWatch({ type: 'watch', floor: 0, agents: [] })).toEqual(watch(0));
-    expect(parseWatch({ type: 'watch', floor: 1.5, agents: [] })).toBeNull();
+    expect(parseWatch({ type: 'lines', floor: 2, agents: ['a', 7, ''], workers: true })).toEqual(watch(2, ['a'], true));
+    expect(parseWatch({ type: 'lines', floor: 0, agents: [] })).toEqual(watch(0));
+    expect(parseWatch({ type: 'lines', floor: 1.5, agents: [] })).toBeNull();
     expect(parseWatch({ type: 'hello' })).toBeNull();
-    expect(parseWatch('watch')).toBeNull();
-    expect(parseWatch({ type: 'watch', floor: 1, agents: Array.from({ length: 50 }, (_, i) => `a${i}`) })?.agents).toHaveLength(20);
+    expect(parseWatch({ type: 'watch', f: 2 })).toBeNull(); // presence's watch (shared/presence.ts), not this one
+    expect(parseWatch('lines')).toBeNull();
+    expect(parseWatch({ type: 'lines', floor: 1, agents: Array.from({ length: 50 }, (_, i) => `a${i}`) })?.agents).toHaveLength(20);
     expect(sameWatch(watch(1, ['a']), watch(1, ['a']))).toBe(true);
     expect(sameWatch(watch(1, ['a']), watch(1, ['b']))).toBe(false);
   });

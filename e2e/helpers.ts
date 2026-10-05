@@ -40,9 +40,13 @@ export const test = base.extend<{ page: Page }>({
   },
 });
 
-/** Loads the office and walks in through the first-run flow (the setup wizard if it's up, else the start screen). */
-export async function enterOffice(page: Page) {
-  await page.goto('/');
+/**
+ * Loads the office and walks in through the first-run flow (the setup wizard if it's up, else the start screen).
+ * `loaded`: the page has the office open already, so it isn't loaded again (that would abort the lazy chunks the first
+ * load is still fetching, which the fixture counts as failed requests).
+ */
+export async function enterOffice(page: Page, { loaded = false } = {}) {
+  if (!loaded) await page.goto('/');
   const enter = page.getByRole('button', { name: 'Enter the office' });
   const skipSetup = page.getByRole('button', { name: /skip setup/i });
   await expect(enter.or(skipSetup)).toBeVisible();

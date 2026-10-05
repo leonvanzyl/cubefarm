@@ -23,7 +23,7 @@ const buffers: Record<string, LogLine[]> = { ken: [line(1), line(2)], ada: [line
 function outbox() {
   return new Outbox({ agents: () => people, log: (id) => buffers[id] ?? [] });
 }
-const watch = (t: Tab, o: Outbox, floor: number, agents: string[] = [], workers = false) => o.receive(t, JSON.stringify({ type: 'watch', floor, agents, workers }));
+const watch = (t: Tab, o: Outbox, floor: number, agents: string[] = [], workers = false) => o.receive(t, JSON.stringify({ type: 'lines', floor, agents, workers }));
 
 afterEach(() => vi.useRealTimers());
 

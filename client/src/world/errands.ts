@@ -83,6 +83,8 @@ export interface Errand {
   end?(agentId: string, how: 'done' | 'cut'): void;
   /** At most this many people on this errand per floor at once. */
   max?: number;
+  /** Seconds a script may run once there before it's cut short (default a few minutes: a game of ping-pong takes longer). */
+  patience?: number;
   /** Errands with more to them than gestures at one spot (coffee): run by an actor once they've arrived, instead of `steps`. */
   act?: (agentId: string) => ErrandActor;
   /**
@@ -92,12 +94,17 @@ export interface Errand {
   script?: (agent: ErrandAgent, floor: FloorKind) => ErrandScript | null;
 }
 
-/** What a script wants its person to do this frame: stand (where they are), walk somewhere, or go back to their desk. */
+/**
+ * What a script wants its person to do this frame: stand (where they are), walk somewhere, sidestep a little way
+ * straight there without turning (`step`, no path round anything: ping-pong), or go back to their desk.
+ */
 export interface Act {
-  do: 'stand' | 'walk' | 'done';
-  /** Where to walk to (ignored when standing). */
+  do: 'stand' | 'walk' | 'step' | 'done';
+  /** Where to walk or step to (ignored when standing). */
   x: number;
   z: number;
+  /** How fast to step (m/s). */
+  speed?: number;
   /** Facing (a body.ts heading) once there, or while standing. */
   heading: number;
   gesture: Gesture;

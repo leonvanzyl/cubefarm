@@ -24,6 +24,7 @@ const HELP = `
     --gpu                       the real GPU (ANGLE d3d11 / metal / gl) instead of SwiftShader; --angle <name> picks one
     --size 1280x720             the browser's viewport
     --gfx low|medium|high|auto  the graphics preset to measure with, where the office has one
+    --visitors <n>              the demo's fake visitors walking about the floor you're on (shared presence)
     --browser <path>            a Chromium to use instead of Playwright's (or BENCH_CHROMIUM)
     --label <text>              a name for this run, kept in the report ("before", "after")
     --out <file>                where the JSON report goes (default a file in the temp folder)
@@ -45,6 +46,7 @@ const { values } = parseArgs({
     angle: { type: 'string' },
     size: { type: 'string', default: '1280x720' },
     gfx: { type: 'string' },
+    visitors: { type: 'string', default: '0' },
     browser: { type: 'string', default: process.env.BENCH_CHROMIUM },
     label: { type: 'string', default: '' },
     out: { type: 'string' },
@@ -162,6 +164,8 @@ async function visit(browser, floor) {
   // A busy machine can take a while to serve and compile the page.
   await page.goto(`${base}/?stats`, { timeout: 180_000, waitUntil: 'domcontentloaded' });
   await enterOffice(page);
+  const visitors = num(values.visitors);
+  if (visitors) await page.evaluate((n) => window.__swarmPresence?.fakes(n), visitors);
   await sleep(num(values.warmup) * 1000);
 
   // CPU time the page's main thread (and its renderer process) used: on a busy machine frames wait for a core, but
@@ -266,7 +270,7 @@ const report = {
   at: new Date().toISOString(),
   commit: `${git('rev-parse', '--short', 'HEAD')}${git('status', '--porcelain') ? '+dirty' : ''}`,
   office: { floors, people: state.agents.length, scale: values.url ? 'attached' : values.standard ? 'standard' : `${values.floors}x${values.agents}` },
-  browser: { angle, gpu, viewport: `${width}x${height}`, gfx: values.gfx ?? null },
+  browser: { angle, gpu, viewport: `${width}x${height}`, gfx: values.gfx ?? null, visitors: num(values.visitors) },
   machine: { platform: process.platform, cpus: os.cpus().length, cpu: os.cpus()[0]?.model ?? null, memoryGB: Math.round(os.totalmem() / 2 ** 30), loadavg: os.loadavg() },
   window: { seconds, warmup: num(values.warmup), runs: num(values.runs) },
   locations,

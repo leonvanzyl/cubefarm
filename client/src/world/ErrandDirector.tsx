@@ -46,6 +46,7 @@ import { queueFidget } from './reactionFeed';
 import { ARRIVE, CABIN, CHAT, CHAT_VENUES, DOORS_SECONDS, LEAVE, arrivalPath, exitPath, floorNews, headingTo, huddle, nearest, pickTopic, planChat, topicPr } from './socials';
 import { countPoke, npcRoomba } from './toys/npc';
 import { pokeToy } from './toys/poke';
+import './pongErrands';
 import './toyErrands';
 import './events/watch';
 import './roof/roofErrand';
@@ -522,6 +523,12 @@ export function ErrandDirector({
     const act = sc.tick(me);
     if (p.script !== sc) return; // it ended meanwhile
     if (act.do === 'done') return goHome(p, false, st, 'done');
+    if (act.do === 'step') {
+      p.goal = null;
+      p.pin = { x: act.x, z: act.z };
+      setBody(p.id, { mode: 'standing', x: act.x, z: act.z, heading: act.heading, gesture: act.gesture, speed: act.speed ?? WALK_SPEED, strafe: true });
+      return;
+    }
     if (act.do === 'stand') {
       if (p.goal) {
         p.goal = null;
@@ -701,7 +708,7 @@ export function ErrandDirector({
         }
         case 'there': {
           if (p.script) {
-            if (long > GIVE_UP.script) goHome(p, false, st);
+            if (long > (e?.patience ?? GIVE_UP.script)) goHome(p, false, st);
             else play(p, p.script, st, dt);
             break;
           }

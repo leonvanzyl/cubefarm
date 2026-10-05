@@ -49,6 +49,7 @@ import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issue
 import { dayKey, journalFrame } from '../shared/journal.ts';
 import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
 import { achievementDef, type ProgressView } from '../shared/progress.ts';
+import { parsePongResult, PONG_PLAYER, recordGame } from '../shared/pong.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, weatherSettings, worldEventSettings } from '../shared/outside.ts';
 import { DEFAULT_THEME_SETTINGS, dueGreeting, themeSettings } from '../shared/themes.ts';
@@ -72,6 +73,7 @@ import type {
   OfficeUpdateView,
   OpsView,
   PhoneMessage,
+  PongRow,
   PreviewConfig,
   PreviewView,
   PrPreviewView,
@@ -205,6 +207,7 @@ interface Persisted {
   ops: OpsHistory; // mission control's rolling week of merges, QA verdicts, check runs and costs
   held: HeldIssue[];
   progress: LedgerState; // coins, decorations, achievements and careers (ledger.ts)
+  pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard, by repo id
 }
 
 interface Shot {
@@ -469,6 +472,7 @@ export class Swarm {
     ops: emptyHistory(),
     held: [],
     progress: emptyLedger(),
+    pong: {},
   };
   /**
    * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
@@ -515,6 +519,7 @@ export class Swarm {
   private user: string | null = null;
   private ghError: string | undefined;
   private saveTimer: NodeJS.Timeout | null = null;
+  private writing: Promise<void> = Promise.resolve(); // state file writes, one at a time: they share its temp file
   private logSeq = 1;
   private previews: Previews;
   private officeHead: string | null = null; // the commit the office runs (null: not a git checkout, so no self-update)
@@ -648,6 +653,7 @@ export class Swarm {
         ops: loadHistory(loaded.ops, Date.now()),
         held: loaded.held ?? [],
         progress: loadLedger(loaded.progress),
+        pong: loaded.pong && typeof loaded.pong === 'object' ? loaded.pong : {},
       };
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
@@ -963,6 +969,7 @@ export class Swarm {
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
       progress: this.progressView(),
+      pong: this.state.pong,
     };
   }
 
@@ -1095,10 +1102,16 @@ export class Swarm {
     this.saveTimer = setTimeout(() => void this.writeState().catch((err) => console.warn('could not save the state', err)), 1500);
   }
 
-  /** Write the state file now, e.g. before the office stops or hands itself to the launcher. */
-  private async writeState() {
+  /** Write the state file now, e.g. before the office stops or hands itself to the launcher. Waits for a write in progress. */
+  private writeState(): Promise<void> {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
+    const next = this.writing.then(() => this.writeStateFile());
+    this.writing = next.catch(() => undefined);
+    return next;
+  }
+
+  private async writeStateFile() {
     for (const a of this.state.agents) a.logTail = (this.agentRt.get(a.id)?.log ?? []).slice(-200);
     await fs.mkdir(path.dirname(STATE_FILE), { recursive: true });
     const tmp = `${STATE_FILE}.tmp`;
@@ -1257,6 +1270,7 @@ export class Swarm {
     }
     this.state.qa = this.state.qa.filter((q) => q.repoId !== id);
     this.state.held = this.state.held.filter((h) => h.repoId !== id);
+    delete this.state.pong[id];
     for (const r of this.state.repos) r.links = r.links.filter((l) => l !== id);
     this.repoRt.delete(id);
     // Keep floors contiguous.
@@ -4157,6 +4171,29 @@ export class Swarm {
     this.state.phoneReadAt = t;
     this.broadcast({ type: 'phoneRead', at: t });
     this.save();
+  }
+
+  // ---------- ping-pong ----------
+
+  /**
+   * A ping-pong game finished on `repoId`'s floor (the client plays it): onto that floor's leaderboard it goes.
+   * `players` are 'player' (the manager) or agents on the floor, `score` their points in the same order.
+   */
+  recordPong(repoId: string, body: unknown) {
+    this.repo(repoId);
+    const game = parsePongResult(body);
+    if ('error' in game) throw new HttpError(400, game.error);
+    const [a, b] = game.players.map((id) => {
+      if (id === PONG_PLAYER) return { id, name: this.state.settings.managerName.trim() || 'Manager' };
+      const agent = this.state.agents.find((x) => x.id === id && x.repoId === repoId);
+      if (!agent) throw new HttpError(400, `${id} doesn't work on this floor`);
+      return { id, name: agent.name };
+    });
+    const board = recordGame(this.state.pong[repoId] ?? [], { players: [a, b], score: game.score, at: Date.now() });
+    this.state.pong[repoId] = board;
+    this.broadcast({ type: 'pong', repoId, board });
+    this.save();
+    return board;
   }
 
   // ---------- hire and let-go proposals ----------

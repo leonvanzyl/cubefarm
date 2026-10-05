@@ -19,6 +19,8 @@ import { mergedAt, takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
 import { ThemeCostume } from './themes/ThemeCostume';
 import { MugLook, mugColor } from './toys/mugLook';
+import { holdsPaddle, pongPaddle } from './toys/pongState';
+import { PaddleLook } from './PongTable';
 import { Ball, Cyl } from './Toon';
 import { TAP_PHASE, burstLevel, handLift, hashString, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
 import { useHitReaction } from './useHitReaction';
@@ -98,7 +100,11 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
   // a hired candidate (Candidates.tsx): the right hand out to shake, pumping (below), beaming (joyful, below)
   shake: { l: null, r: { pitch: -0.12, yaw: 0.15 }, head: 0.08 },
+  // ping-pong: the free hand out for balance; the bat arm reaches for wherever the match puts the paddle (below)
+  paddle: { l: { pitch: -0.5, yaw: 0.5 }, r: { pitch: -0.35, yaw: -0.25 }, head: 0.05 },
 };
+// The paddle in the right hand (arm space: the hand is at z -0.5): its handle, and the blade's centre further along.
+const BAT = { hand: -0.5, blade: -0.17 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
 
@@ -251,6 +257,8 @@ export function Character({
   const kneeR = useRef<THREE.Group>(null);
   const tag = useRef<THREE.Group>(null);
   const mallet = useRef<THREE.Group>(null);
+  const bat = useRef<THREE.Group>(null);
+  const batBlade = useRef<THREE.Group>(null);
   const bubbleLift = useRef<THREE.Group>(null);
   const held = useRef<THREE.Group>(null);
   const chairZ = useRef<number | null>(null);
@@ -259,7 +267,20 @@ export function Character({
   const food = useSyncExternalStore(subscribeMugs, () => handFood(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
-    () => ({ s: newBodyState(), g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait, placed: false, gl: 0, gr: 0, gh: 0, l: { ...HANG }, r: { ...HANG } }),
+    () => ({
+      s: newBodyState(),
+      g: { stride: 0, cadence: 0, bob: 0, lean: 0 } as Gait,
+      placed: false,
+      gl: 0,
+      gr: 0,
+      gh: 0,
+      l: { ...HANG },
+      r: { ...HANG },
+      // reaching for the ping-pong paddle's spot: the shoulder, the way to it, the torso's turn
+      bat: new THREE.Vector3(),
+      shoulder: new THREE.Vector3(),
+      q: new THREE.Quaternion(),
+    }),
     [],
   );
   // Their merge cheer (cheerSfx.ts): their own voice, whether they were cheering last frame and where their head is.
@@ -350,6 +371,14 @@ export function Character({
       const kg = 1 - Math.exp(-dt * 6);
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
+      // at the ping-pong table, the bat arm points at where the match has the paddle (an arm is one straight piece)
+      const aim = st.stage === 'up' && !party ? pongPaddle(agent.id) : null;
+      if (aim && torso.current) {
+        torso.current.localToWorld(move.shoulder.set(0.25 * torsoWidth(look), 0.44, 0));
+        const d = move.bat.set(aim.x, aim.y, aim.z).sub(move.shoulder).applyQuaternion(torso.current.getWorldQuaternion(move.q).invert()).normalize();
+        move.r.yaw = Math.asin(Math.max(-1, Math.min(1, -d.x)));
+        move.r.pitch = Math.atan2(d.y, -d.z);
+      }
       if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
       if (gesture === 'shake') move.r.pitch += Math.sin(t * 11) * 0.13;
       if (gesture === 'talk') {
@@ -364,10 +393,11 @@ export function Character({
       }
       if (held.current) held.current.visible = gesture === 'hold';
       move.gl += ((g.l ? 1 : 0) - move.gl) * kg;
-      move.gr += ((g.r ? 1 : 0) - move.gr) * kg;
+      move.gr += ((g.r ? 1 : 0) - move.gr) * (aim ? 1 - Math.exp(-dt * 25) : kg);
       move.gh += (g.head - move.gh) * kg;
       hearBody(agent.id, st, st.stage === 'up' ? (goal?.gesture ?? 'none') : 'none', dt, te[13]);
       if (mallet.current) mallet.current.visible = holding;
+      if (bat.current) bat.current.visible = st.stage === 'up' && holdsPaddle(agent.id);
     }
     const seated = st.stage === 'seated';
     const k = smooth(st.sit); // 1 seated, 0 standing
@@ -495,6 +525,8 @@ export function Character({
         lerp(c.r.yaw + driftR * (1 - c.mouse) + glide - wave, o.r.yaw, wr) * k + ry * up - waveUp,
         0,
       );
+      const blade = batBlade.current;
+      if (blade && bat.current?.visible) blade.rotation.set(-armR.current.rotation.x, -armR.current.rotation.y, 0, 'YXZ'); // face the way they face
       const cup = handCup.current;
       if (cup) {
         // undo the arm's turn (XYZ, so inverted as YXZ) so the mug stays upright, then tip it for a sip
@@ -628,6 +660,13 @@ export function Character({
                       </group>
                     </group>
                   )}
+                  {/* a ping-pong paddle while they play (toys/pongState.ts): the blade stays square to the way they face */}
+                  <group ref={bat} position={[0, 0, BAT.hand]} visible={false}>
+                    <Cyl r={0.014} h={0.1} position={[0, 0, -0.05]} rotation={[Math.PI / 2, 0, 0]} color="#d4a373" shadow={false} />
+                    <group ref={batBlade} position={[0, 0, BAT.blade]}>
+                      <PaddleLook handle={false} />
+                    </group>
+                  </group>
                   {/* the gong's mallet, in the right hand while they have it (gongRunner.ts); the handle tips up from the fist */}
                   <group ref={mallet} position={[0, 0, -0.5]} rotation={[0.5, 0, 0]} visible={false}>
                     <Cyl r={0.025} h={0.55} position={[0, 0, -0.27]} rotation={[Math.PI / 2, 0, 0]} color="#f1d19b" shadow={false} />

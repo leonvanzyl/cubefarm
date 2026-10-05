@@ -36,18 +36,27 @@ if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '_
 
 const off = typeof location !== 'undefined' && /[?&]batch=off\b/.test(location.search);
 
-export function Batches({ children }: { children: ReactNode }) {
-  return off ? <>{children}</> : <BatchScope>{children}</BatchScope>;
+interface ScopeProps {
+  children: ReactNode;
+  /** False: nothing inside casts a shadow (visitors). */
+  shadows?: boolean;
+  /** Ink outlines are left off beyond this many metres. */
+  outlineRange?: number;
 }
 
-function BatchScope({ children }: { children: ReactNode }) {
+export function Batches(props: ScopeProps) {
+  return off ? <>{props.children}</> : <BatchScope {...props} />;
+}
+
+function BatchScope({ children, shadows = true, outlineRange = OUTLINE_RANGE }: ScopeProps) {
   const gl = useThree((s) => s.gl);
   const sets = useMemo<Sets>(() => {
     const moving = new BatchSet(MATERIALS);
     moving.root.userData.moving = true;
     return { still: new BatchSet(MATERIALS), moving };
   }, []);
-  sets.still.outlineRange = sets.moving.outlineRange = OUTLINE_RANGE;
+  sets.still.outlineRange = sets.moving.outlineRange = outlineRange;
+  sets.still.shadows = sets.moving.shadows = shadows;
   useEffect(() => {
     live.add(sets);
     return () => {

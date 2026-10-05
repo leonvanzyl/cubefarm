@@ -4,6 +4,7 @@ import { CHARGE, chargePower } from '../world/toys/hands';
 import { BlasterHud } from './BlasterHud';
 import { decorName } from '../world/decor/actions';
 import { Key } from './Key';
+import { PongHud } from './PongHud';
 
 /** The throw meter under the crosshair. Animates itself while charging; hidden during the first moments of a tap. */
 function ChargeMeter({ at }: { at: number }) {
@@ -48,6 +49,7 @@ export function HeldHint() {
       </div>
     );
   }
+  if (held.kind === 'paddle') return <PongHud />;
   if (held.kind === 'sticky') {
     return (
       <div className="hud-hint hud-held">

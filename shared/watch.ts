@@ -32,11 +32,11 @@ export function seesAll(w: Watch, agentId: string, agentFloor: number | null): b
   return w.agents.includes(agentId) || (agentFloor !== null && agentFloor === w.floor);
 }
 
-/** A watch message from a tab, checked; null when it isn't one. At most 20 open panels are honoured. */
+/** A tab's 'lines' message (its watch), checked; null when it isn't one. At most 20 open panels are honoured. */
 export function parseWatch(raw: unknown): Watch | null {
   if (!raw || typeof raw !== 'object') return null;
   const m = raw as Record<string, unknown>;
-  if (m.type !== 'watch' || !Number.isInteger(m.floor) || !Array.isArray(m.agents)) return null;
+  if (m.type !== 'lines' || !Number.isInteger(m.floor) || !Array.isArray(m.agents)) return null;
   const agents = m.agents.filter((a): a is string => typeof a === 'string' && a.length > 0 && a.length <= 64).slice(0, 20);
   return { floor: m.floor as number, agents, workers: m.workers === true };
 }

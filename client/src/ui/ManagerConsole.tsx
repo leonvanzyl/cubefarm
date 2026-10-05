@@ -13,6 +13,7 @@ import { LiveTerminal } from './LiveTerminal';
 import { MicButton } from './MicButton';
 import { OpsTab } from './MissionConsole';
 import { NotifySettings } from './NotifySettings';
+import { ProfileSettings } from './ProfileSettings';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
@@ -723,6 +724,7 @@ function SettingsTab() {
           Agent desks: <code>{workspaceRoot}</code>
         </div>
       </div>
+      <ProfileSettings />
       <VoiceSettings />
       <OutsideSettings />
       <NotifySettings />

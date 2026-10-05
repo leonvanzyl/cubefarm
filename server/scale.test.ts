@@ -37,7 +37,7 @@ describe('a big company', () => {
     const listeners: Record<string, (data: unknown) => void> = {};
     const tab = { OPEN: 1, readyState: 1, send: (m: string) => sent.push(m), on: (ev: string, fn: (data: unknown) => void) => void (listeners[ev] = fn) };
     swarm.addClient(tab as unknown as WebSocket);
-    listeners.message?.(JSON.stringify({ type: 'watch', floor: 1, agents: [], workers: true }));
+    listeners.message?.(JSON.stringify({ type: 'lines', floor: 1, agents: [], workers: true }));
     const snapshot = JSON.parse(sent[0]) as Extract<ServerEvent, { type: 'snapshot' }>;
     expect(snapshot.data.agents).toHaveLength(151);
     expect(snapshot.data.agents.filter((a) => a.status === 'working').length).toBeGreaterThan(60);

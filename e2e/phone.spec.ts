@@ -4,14 +4,14 @@ import { enterOffice, expect, phoneButton, test } from './helpers';
 
 test('the phone opens and closes with P, its button and Esc', async ({ page }) => {
   await enterOffice(page);
-  const hires = page.getByRole('button', { name: /Hires/ }); // one of the phone's tabs
-  const company = page.getByRole('button', { name: /Company/ });
+  const hires = page.getByRole('tab', { name: /Hires/ }); // one of the phone's tabs
+  const company = page.getByRole('tab', { name: /Company/ });
   await page.keyboard.press('p');
   await expect(hires).toBeVisible();
   await expect(phoneButton(page)).toBeHidden();
   // The chat focuses its message box, where P types a "p"; from another tab P puts the phone away.
   await company.click();
-  await expect(company).toHaveClass(/phone-tab-on/);
+  await expect(company).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('p');
   await expect(hires).toBeHidden();
 

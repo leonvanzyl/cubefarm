@@ -112,7 +112,7 @@ export class Outbox {
     return this.tabs.size;
   }
 
-  /** A message from a tab: a new watch catches it up on the agents it now shows. Anything else is ignored. */
+  /** A message from a tab: a new watch ('lines') catches it up on the agents it now shows. Anything else is ignored. */
   receive(tab: Tab, raw: string) {
     let msg: unknown;
     try {

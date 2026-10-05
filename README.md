@@ -51,6 +51,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 - **Time-lapse**: watch the day (or just what happened while you were away) replay in the office at up to 600×, from the manager's console or the screen in the lobby.
 - **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`.
 - **The office dog**: one dog for the whole building (Biscuit, renameable in Settings). Pet it with `E` and it follows you, throw a ball and it fetches it, and it naps, keeps struggling agents company, celebrates merges and rides the elevator between floors.
+- **Ping-pong**: `E` at either end of the table picks up a paddle and someone free comes to play you; the mouse moves the paddle and your swing sets the pace and spin. Games go to 11 and feed the floor's leaderboard on the wall.
 - **Sounds**: a master volume, `M` to mute, and a slider each for footsteps, typing, toys and alerts. Find them in help (`H`).
 
 ## Controls
@@ -64,6 +65,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `E` with coffee | take a sip (three to a mug, the last a big gulp) |
 | `E` on the roof | sit back in a deck chair, grill (and eat) a sausage, look through the telescope (mouse wheel zooms) |
 | `F` / left click, holding something | throw a ball (hold to charge) or fire a blaster |
+| mouse / left click, playing ping-pong | move the paddle (swing it for pace and spin) / toss and serve |
 | `G` | drop what you're holding, or peel the whiteboard sticky you aim at off the board |
 | `R` | reload a blaster |
 | `P` | your phone |

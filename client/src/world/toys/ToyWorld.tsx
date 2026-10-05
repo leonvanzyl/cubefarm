@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { DOOR_PASSABLE, doorOpen } from '../doors';
-import { BALCONY_OUT, BALCONY_TOP, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, sideDoorway, type Rect } from '../layout';
+import { BALCONY_OUT, BALCONY_TOP, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, pongTableRect, sideDoorway, type Rect } from '../layout';
 import { playerAt } from '../camera/rig';
 import { bodyState } from '../people';
 import { FIRST_PERSON } from '../viewTags';
@@ -21,6 +21,7 @@ import { hoopRim, hoopSquare } from './hoopScore';
 import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
 import { npcGrips, npcStance, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
+import { PingPong } from './PingPong';
 import { npcHoldPoint, npcView, type NpcAim } from './npcAim';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
@@ -31,14 +32,19 @@ import { HOLD, THROW, holdPoint, hoopShot, throwVelocity, type HoopAim, type Vie
 const STEP = 1 / 60;
 
 // Collision groups: the elevator doorway (and a shut side door) only stops toys, so the player's pusher can follow the
-// player into the cabin (or through a side door that's still sliding open).
-const G = { building: 0, doorway: 1, pusher: 2, toys: 3 };
-const DOORWAY_GROUPS = interactionGroups(G.doorway, [G.toys]);
+// player into the cabin (or through a side door that's still sliding open). The ping-pong ball is a group of its own:
+// it meets the building and the other toys, but not you, the roomba or the dog (a rally goes on round them), nor the
+// ping-pong table's top, which the match bounces it off itself.
+const G = { building: 0, doorway: 1, pusher: 2, toys: 3, pong: 4 };
+const DOORWAY_GROUPS = interactionGroups(G.doorway, [G.toys, G.pong]);
 const PUSHER_GROUPS = interactionGroups(G.pusher, [G.building, G.toys]);
-const TOY_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.pusher, G.toys]);
+const TOY_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.pusher, G.toys, G.pong]);
 // A ball in (or just out of) your hands: everything but you.
-const HELD_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.toys]);
-const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
+const HELD_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.toys, G.pong]);
+const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys, G.pong]);
+const PONG_TABLE_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
+const PONG_BALL_GROUPS = interactionGroups(G.pong, [G.building, G.doorway, G.toys]);
+const PONG_GROUPS = { table: PONG_TABLE_GROUPS, net: BUILDING_GROUPS, ball: PONG_BALL_GROUPS };
 // The roomba and the dog steer themselves round the building (roombaBrain.ts, dogBrain.ts) and never shove the player's
 // pusher: they only touch toys.
 const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
@@ -46,12 +52,15 @@ const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
 const SEATED_GROUPS = interactionGroups(G.toys, [G.toys]);
 const DOOR = elevatorDoorway();
 
+const sameRect = (a: Rect, b: Rect) => a.minX === b.minX && a.maxX === b.maxX && a.minZ === b.minZ && a.maxZ === b.maxZ;
+
 /**
  * Fixed colliders generated from layout.ts: floor, ceiling, walls, cabin and furniture, each at its own height, and the
  * balconies under the balcony above. A side door stops toys while it's shut; open, they can roll out onto the balcony.
+ * The ping-pong table is PingPong.tsx's, with collision groups of its own.
  */
 function Building({ floor }: { floor: ToyFloor }) {
-  const rects = useMemo<Rect[]>(() => (floor === 'office' ? officeColliders() : lobbyColliders()), [floor]);
+  const rects = useMemo<Rect[]>(() => (floor === 'office' ? officeColliders().filter((r) => !sameRect(r, pongTableRect())) : lobbyColliders()), [floor]);
   const doors = useMemo(() => SIDES.map((side) => sideDoorway(floor, side)), [floor]);
   const doorColliders = useRef<(RapierCollider | null)[]>([]);
   const shut = useRef([true, true]);
@@ -555,6 +564,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Mugs groups={HELD_GROUPS} />
       <HitTargets floor={floor} groups={SEATED_GROUPS} />
       <Dog floor={floor} groups={ROOMBA_GROUPS} />
+      {floor === 'office' && <PingPong groups={PONG_GROUPS} />}
     </Physics>
   );
 }

@@ -1,5 +1,5 @@
 import { kanbanColumnSpan, KANBAN_KEYS } from './draw';
-import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
+import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, PONG_TABLE, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
 import { hoopRim } from './toys/hoopScore';
 import { clear, makeNav, planPath, roombaRects, type Nav, type Pt } from './toys/roombaBrain';
 
@@ -80,6 +80,16 @@ function windowSpots(west: number[], east: number[]): Spot[] {
   ];
 }
 
+/** Where a ping-pong player stands at each end of the table, facing down it (pongErrands.ts). */
+export function pongSpots(): Spot[] {
+  const t = PONG_TABLE;
+  const off = t.len / 2 + t.stand;
+  return [
+    { id: 'pong-west', x: t.x - off, z: t.z, facing: EAST },
+    { id: 'pong-east', x: t.x + off, z: t.z, facing: WEST },
+  ];
+}
+
 // In front of the jukebox, picking a song.
 const jukeboxSpot = (x: number): Spot => ({ id: 'jukebox', x, z: HALF_D - JUKEBOX.d - 0.8, facing: SOUTH });
 
@@ -105,6 +115,7 @@ function officeSpots(): Spot[] {
     // where two people throw the beach ball to each other, either side of where it starts
     { id: 'toss-a', x: 3.8, z: 8.2, facing: EAST },
     { id: 'toss-b', x: 8.3, z: 8.2, facing: WEST },
+    ...pongSpots(),
     jukeboxSpot(JUKEBOX.officeX),
     elevatorSpot(),
     // not the west window at z 8 (the couch) or the east one at z 0 (the QA lab)

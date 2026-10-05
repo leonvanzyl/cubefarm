@@ -11,7 +11,7 @@ import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
 import { confirmResume } from '../ui/MissionConsole';
 import { photoActive, photoOwnsLock } from '../photo/gate';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
-import { getA11y } from '../ui/a11y';
+import { getA11y, reduceMotion } from '../ui/a11y';
 import { footstepsFollow } from '../ui/footsteps';
 import { dropHeld, startCharge, throwHeld, walk } from './toys/hands';
 import { watchLookLock } from './lookLock';
@@ -34,6 +34,10 @@ import { arriveOnFloor, cameraMode, exitView, homeSpot, lookAllowed, playerAt, r
 import { leavePerch, perch, takePerchTurn, type Perch } from './perch';
 import { roofAction } from './roof/roofState';
 import { greet } from './Chatter';
+import { joinPong, pongCamera, pongMouse, tickPaddle } from './toys/pongState';
+
+/** How fast the right stick moves the ping-pong paddle, full over (in mouse pixels a second). */
+const PAD_PADDLE = 600;
 
 let canvasEl: HTMLCanvasElement | null = null;
 
@@ -100,6 +104,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'poke') {
     pokeToy(focus.action.toyId);
+    return;
+  }
+  if (focus.action.kind === 'pong') {
+    joinPong(focus.action.end); // a paddle in hand: the mouse and the view are the match's now
     return;
   }
   if (focus.action.kind === 'theme') {
@@ -267,6 +275,7 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       lookDiag.skipped = lookFilter.skipped;
       if (!d) return;
       const { sensitivity, invertY } = useLookPrefs.getState();
+      if (useStore.getState().held?.kind === 'paddle') return pongMouse(d[0], d[1], sensitivity); // playing: the mouse moves the paddle
       const p = perch();
       const k = LOOK_RADIANS_PER_PX * sensitivity * (p?.look ?? 1);
       look.current.yaw -= d[0] * k;
@@ -444,6 +453,26 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
         lastSave.current = now;
         saveView({ floor: s.floor, x: home.x, z: home.z, yaw: home.yaw, pitch: home.pitch });
       }
+      return;
+    }
+
+    // Playing ping-pong: the view sits behind your end of the table, the mouse (or the right stick) moves the paddle,
+    // and you don't walk anywhere.
+    if (s.held?.kind === 'paddle') {
+      if (padOn && (pad.rx || pad.ry)) pongMouse(pad.rx * PAD_PADDLE * dt, pad.ry * PAD_PADDLE * dt);
+      tickPaddle(dt);
+      const v = pongCamera(s.held.id);
+      const shake = reduceMotion() ? 0 : 1; // Settings → Accessibility, or the system's reduced motion
+      camera.position.set(v.x + v.shake.x * shake, v.y + v.shake.y * shake, v.z + v.shake.z * shake);
+      camera.rotation.set(v.pitch, v.yaw, 0, 'YXZ');
+      look.current = { yaw: v.yaw, pitch: v.pitch };
+      playerAt.x = v.x;
+      playerAt.z = v.z;
+      playerAt.yaw = v.yaw;
+      walk.x = 0;
+      walk.z = 0;
+      footstepsFollow(bob.current, false, false, surfaceAt('office', camera.position.x, camera.position.z));
+      if (s.focus) s.setFocus(null);
       return;
     }
 

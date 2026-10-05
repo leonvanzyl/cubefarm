@@ -106,6 +106,15 @@ Workspaces live outside this project on purpose: agents working in them never pi
 
 Disconnecting a floor never deletes anything on GitHub, and it leaves the clone on disk.
 
+## Shared presence
+
+Everyone with the 3D office open (another tab, a colleague, a second screen) appears in it to the others as a visitor: the office's own cartoon people in their profile colour, with a lanyard, a name tag and a glow on the floor, walking where they walk, riding the elevator when they change floors and holding what they hold (a ball, a mug, a blaster; thrown balls stay each tab's own physics).
+
+- **Over `/ws`**: once you're in the office, the tab sends its floor, position, heading, look pitch and what it holds, ten times a second at most and only when something changed, stamped with its own clock. `server/presence.ts` relays it to the tabs on the same floor and to nobody else, draws at most 16 visitors a floor (the first in, by join order), rate-limits emotes and pings, and keeps nothing on disk (the time-lapse doesn't record it either). Others are drawn a little in the past (about 100 ms, longer while poses arrive unevenly) and eased between poses, so they walk smoothly.
+- **Social**: hold T for the emote wheel (wave, thumbs up, clap, point, laugh); middle-click or X pings a spot or a thing for the floor ("look here: the whiteboard"); **Follow** in the who's-working list trails a visitor with the follow cam, by elevator too.
+- **Privacy**: name, colour and **Appear to others** are in Settings → Profile (this browser only). Off, you still see everyone and the server only knows your floor; nothing is sent before you enter the office. The server cleans every name (control and bidi characters out, 24 characters at most) and the office only ever draws names as text.
+- **Demo**: two fake visitors wander the floor the last real visitor is on, emote, ping and follow you by elevator. `window.__swarmPresence` shows who's drawn, the message and byte rates and the last emote, and `__swarmPresence.fakes(n)` sets how many fakes there are (0–16).
+
 ## Time-lapse
 
 The office keeps a journal of how it looked, so you can come back and watch the day replay in the office itself, up to 600 times faster.

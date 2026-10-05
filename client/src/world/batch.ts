@@ -98,7 +98,7 @@ class Batch {
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3).setUsage(THREE.DynamicDrawUsage);
     m.count = 0;
-    m.castShadow = this.look.castShadow;
+    m.castShadow = this.look.castShadow && this.set.shadows;
     m.receiveShadow = this.look.receiveShadow;
     m.frustumCulled = false; // it spans the floor; the bounds of the instances would need working out every frame
     m.matrixAutoUpdate = false;
@@ -215,6 +215,8 @@ export class BatchSet {
   camera: THREE.Camera | null = null;
   /** Parts further than this from the camera are drawn without their ink outline. */
   outlineRange = Infinity;
+  /** False: no part of this set casts a shadow, whatever its look says (visitors, grounded by their glow instead). */
+  shadows = true;
   private batches = new Map<string, Batch>();
   private synced = '';
   private eye = new THREE.Vector3();
