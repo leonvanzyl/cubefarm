@@ -46,6 +46,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 - **The lobby**: the manager's office, where you connect projects, hire, file issues and change settings, and the CEO's corner office.
 - **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model, effort and job description, and "What they're told" shows the full prompt the office gives them.
 - **Merges**: confetti bursts over the developer's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
+- **Chatter**: the team talks about their real work in speech bubbles ("PR #212 is up for QA", "Tests are green! ✅", "Ugh, a merge conflict in store.ts") in a cute babble voice of their own, Animal Crossing style. Aim at someone with nothing to do and press `E` to say hi. Off, quiet or lively, with or without the babble, in help (`H`).
 - **Rituals**: when the CEO files a burst of issues, the free agents gather at the whiteboard and the CEO comes up in the elevator to put up the new stickies (and says so out loud if the CEO's voice is on). The CEO walks the floors now and then (press `E` on them to text them), people eat lunch from noon to one, pizza arrives on Friday afternoons, and in the evening the desk lamps come on, idle agents head home and come back in the morning with a coffee. They follow the sky's clock (in help: a 30-minute day, your own clock, or always afternoon).
 - **Time-lapse**: watch the day (or just what happened while you were away) replay in the office at up to 600×, from the manager's console or the screen in the lobby.
 - **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`.
@@ -59,7 +60,7 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `W A S D` / arrows | walk |
 | `Shift` | run |
 | mouse | look around (click the view first) |
-| `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine |
+| `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine; say hi to someone with nothing to do |
 | `E` with coffee | take a sip (three to a mug, the last a big gulp) |
 | `E` on the roof | sit back in a deck chair, grill (and eat) a sausage, look through the telescope (mouse wheel zooms) |
 | `F` / left click, holding something | throw a ball (hold to charge) or fire a blaster |

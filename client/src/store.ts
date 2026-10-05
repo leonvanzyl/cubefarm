@@ -43,7 +43,20 @@ export interface Focus {
   id: string;
   label: string;
   // resume: the usage meter while pacing, resume full speed (asks first)
-  action: Overlay | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' } | { kind: 'pickup'; toyId: string } | { kind: 'poke'; toyId: string } | { kind: 'coffee'; op: 'place' | 'brew' | 'take' } | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' } | { kind: 'channel'; repoId: string; pr: number | null } | { kind: 'resume' } | { kind: 'roof'; op: string } | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string } | { kind: 'trophy'; id: string };
+  action:
+    | Overlay
+    | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' }
+    | { kind: 'pickup'; toyId: string }
+    | { kind: 'poke'; toyId: string }
+    | { kind: 'coffee'; op: 'place' | 'brew' | 'take' }
+    | { kind: 'jukebox'; op: 'next' | 'toggle' | 'station' | 'vol+' | 'vol-' }
+    | { kind: 'channel'; repoId: string; pr: number | null }
+    | { kind: 'resume' }
+    | { kind: 'roof'; op: string }
+    | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string }
+    | { kind: 'trophy'; id: string }
+    /** Say hi to someone with nothing to do (Chatter.tsx). */
+    | { kind: 'greet'; agentId: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
