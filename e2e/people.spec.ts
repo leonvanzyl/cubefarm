@@ -7,6 +7,9 @@ test('people get up with a chair creak, walk over with footsteps for the floor, 
   // Floor 1, on the open wood floor between the front desk row and the elevator.
   const spot: SavedView = { floor: 1, x: -4, z: 6, yaw: 0, pitch: 0 };
   await startAt(page, spot);
+  // Two people standing together murmur only while the chatter's babble voices are off (ui/peopleSounds.ts): with
+  // them on, a chat's lines have voices of their own instead. Bubbles without voices, then.
+  await page.addInitScript(() => localStorage.setItem('cubefarm:audio', JSON.stringify({ silentBubbles: true })));
   await enterOffice(page);
   // window.__swarmPeople (world/people.ts) moves people by hand
   const people = (fn: 'list' | 'walkTo' | 'gesture' | 'where', ...args: (string | number)[]) =>

@@ -17,7 +17,7 @@ test('__swarmSfx records sounds, fading and panning with where you stand', async
   expect(locked.name).toBe('ping');
   expect(locked.played).toBe(false);
 
-  await enterOffice(page);
+  await enterOffice(page, { loaded: true });
   await expect.poll(() => savedView(page)).not.toBeNull(); // frames have run, so the listener follows the camera
   const v = (await savedView(page))!;
   const right = { x: Math.cos(v.yaw), z: -Math.sin(v.yaw) }; // the camera's right, at yaw 0 it's +x

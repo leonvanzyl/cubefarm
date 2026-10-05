@@ -1,12 +1,28 @@
+import type { APIRequestContext } from '@playwright/test';
 import { MAX_DESKS, QA_LAB } from '../client/src/world/layout';
 import { keyboardSpot } from '../client/src/world/typing';
 import { enterOffice, expect, startAt, test, type SavedView } from './helpers';
 
 // Typing and mouse clicks from working agents' desks.
 
+/**
+ * Every spec shares one demo office, whose few seeded issues may all be merged by the time this runs: give an idle
+ * developer on `floor` a fresh one (a minute and a half of fake work), so there's someone to hear typing.
+ */
+async function giveWork(request: APIRequestContext, floor: number) {
+  type State = { repos: { id: string; floor: number }[]; agents: { id: string; repoId: string; role: string; status: string }[] };
+  const { repos, agents } = (await (await request.get('/api/state')).json()) as State;
+  const repo = repos.find((r) => r.floor === floor)!;
+  const idle = agents.find((a) => a.repoId === repo.id && a.role === 'dev' && a.status === 'idle');
+  if (!idle) return; // everyone's busy already
+  const res = await request.post(`/api/repos/${encodeURIComponent(repo.id)}/issues`, { data: { title: 'Tidy the footer', body: 'Something to type.', assignTo: idle.id } });
+  expect(res.ok(), await res.text()).toBe(true);
+}
+
 test("working agents type at their desks, and stop while a panel covers the view", async ({ page }) => {
   // The middle of floor 1, where the demo's developers are busy.
   const spot: SavedView = { floor: 1, x: 0, z: -7, yaw: 0, pitch: 0.15 };
+  await giveWork(page.request, spot.floor);
   await startAt(page, spot);
   await enterOffice(page);
   const entered = await page.evaluate(() => performance.now());

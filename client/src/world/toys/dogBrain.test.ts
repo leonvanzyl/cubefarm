@@ -257,6 +257,22 @@ describe('fetch', () => {
     expect(events & DOG_EVENT.lost).toBe(0);
   });
 
+  it('keeps after a ball that rolls on while it comes round the furniture for it', () => {
+    // called from the lobby's manager's office (its path goes out through the door), the ball rolling a long way east
+    const p: DogPlayer = { x: -6, z: 7, fx: 1, fz: 0, holding: null };
+    const ball: DogBall = { id: 'yarn-ball', x: -6, y: 0.33, z: 7, r: 0.33, vx: 0, vy: 0, vz: 0, holder: 'player' };
+    const e = env('lobby', { player: p, balls: [ball] });
+    const d = at(-7.4, -9.4, 'lobby');
+    callDog(d);
+    run(d, e, 0.6);
+    const sim = ballWorld(e, d, ball);
+    toss(d, p, ball, 0, 6);
+    const events = run(d, e, 25, sim);
+    expect(events & DOG_EVENT.lost).toBe(0);
+    expect(events & DOG_EVENT.returned).toBeTruthy();
+    expect(Math.hypot(ball.x - p.x, ball.z - p.z)).toBeLessThan(1.6);
+  });
+
   it("doesn't fetch a ball you just put down at your feet", () => {
     const p: DogPlayer = { x: 0, z: 7, fx: 0, fz: -1, holding: null };
     const ball: DogBall = { id: 'yarn-ball', x: 0, y: 0.33, z: 6.2, r: 0.33, vx: 0, vy: 0, vz: 0, holder: null };

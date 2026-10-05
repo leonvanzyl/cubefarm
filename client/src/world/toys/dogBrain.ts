@@ -131,6 +131,8 @@ export interface Dog {
   look: { x: number; y: number; z: number; on: boolean };
 
   goal: Pt;
+  /** Where `path` was planned to: a moving goal drifts from it a little at a time, and gets a new plan once it's far. */
+  planned: Pt;
   hasGoal: boolean;
   path: Pt[];
   straight: Pt[];
@@ -267,6 +269,7 @@ export function createDog(places: DogPlaces, how: DogArrival, at: Pt & { heading
     target: { kind: null, id: null, x: 0, z: 0 },
     look: { x: 0, y: 0, z: 0, on: false },
     goal,
+    planned: { x: at.x, z: at.z },
     hasGoal: false,
     path: [],
     straight: [goal],
@@ -646,8 +649,8 @@ function napSpot(d: Dog, env: DogEnv): NapSpot | null {
 const ARRIVE = 0.1;
 
 function plan(d: Dog, env: DogEnv, x: number, z: number, direct: boolean) {
-  d.goal.x = x;
-  d.goal.z = z;
+  d.goal.x = d.planned.x = x;
+  d.goal.z = d.planned.z = z;
   d.hasGoal = true;
   d.wp = 0;
   d.noWay = false;
@@ -678,12 +681,18 @@ function go(d: Dog, env: DogEnv, x: number, z: number, speed: number, dt: number
     getDown(d, dt);
     return false;
   }
-  if (!d.hasGoal || Math.abs(x - d.goal.x) + Math.abs(z - d.goal.z) > 0.35) {
+  // Measured from where the path was planned to, not from last step's goal: a goal that moves a little every step (a
+  // rolling ball) would otherwise never get a new plan, and the dog would stop at the old path's end as if it had arrived.
+  if (!d.hasGoal || Math.abs(x - d.planned.x) + Math.abs(z - d.planned.z) > 0.35) {
     plan(d, env, x, z, direct);
     if (d.noWay) return false; // the caller gives up rather than walk through the furniture
   } else {
-    d.goal.x = x; // small moves of a moving goal: just aim at it
+    // small moves of a moving goal: just aim at it, the planned path's last corner included
+    d.goal.x = x;
     d.goal.z = z;
+    const end = d.path[d.path.length - 1];
+    end.x = x;
+    end.z = z;
   }
   let w = d.path[d.wp];
   while (d.wp < d.path.length - 1 && Math.hypot(w.x - d.x, w.z - d.z) < 0.3) w = d.path[++d.wp];
