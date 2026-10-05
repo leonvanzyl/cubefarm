@@ -4,7 +4,9 @@ import { DEFAULT_AUDIO_PREFS, normalizeAudioPrefs, parseAudioPrefs, sliderGain }
 describe('parseAudioPrefs', () => {
   it('uses the defaults when nothing is saved', () => {
     expect(parseAudioPrefs(null)).toEqual(DEFAULT_AUDIO_PREFS);
-    expect(DEFAULT_AUDIO_PREFS).toMatchObject({ steps: 100, typing: 100, toys: 100, alerts: 100, music: 100, voice: 100, outside: 100 });
+    expect(DEFAULT_AUDIO_PREFS).toMatchObject({ steps: 100, typing: 100, babble: 100, toys: 100, alerts: 100, music: 100, voice: 100, outside: 100 });
+    // the agents chat now and then, with their babble voices
+    expect(DEFAULT_AUDIO_PREFS).toMatchObject({ chatter: 'quiet', silentBubbles: false });
     // the soundtrack is on, but low
     expect(DEFAULT_AUDIO_PREFS).toMatchObject({ soundtrack: true, score: 30 });
   });
@@ -14,8 +16,11 @@ describe('parseAudioPrefs', () => {
       volume: 40,
       muted: true,
       soundtrack: true,
+      chatter: 'quiet',
+      silentBubbles: false,
       steps: 100,
       typing: 100,
+      babble: 100,
       toys: 100,
       alerts: 100,
       music: 100,
@@ -26,7 +31,7 @@ describe('parseAudioPrefs', () => {
   });
 
   it('round-trips saved group levels', () => {
-    const saved = { volume: 55, muted: false, soundtrack: false, steps: 0, typing: 35, toys: 80, alerts: 100, music: 45, voice: 60, outside: 60, score: 10 };
+    const saved = { volume: 55, muted: false, soundtrack: false, chatter: 'lively', silentBubbles: true, steps: 0, typing: 35, babble: 40, toys: 80, alerts: 100, music: 45, voice: 60, outside: 60, score: 10 };
     expect(parseAudioPrefs(JSON.stringify(saved))).toEqual(saved);
   });
 
@@ -41,6 +46,20 @@ describe('parseAudioPrefs', () => {
   it('only turns the Soundtrack off when it was saved off', () => {
     expect(normalizeAudioPrefs({ soundtrack: false }).soundtrack).toBe(false);
     for (const v of [true, 'false', 0, null, undefined, {}]) expect(normalizeAudioPrefs({ soundtrack: v }).soundtrack).toBe(true);
+  });
+
+  it('fills in quiet chatter with babble for settings saved before it existed', () => {
+    expect(parseAudioPrefs('{"volume":55,"muted":false,"typing":35,"score":10}')).toMatchObject({ typing: 35, score: 10, chatter: 'quiet', silentBubbles: false, babble: 100 });
+  });
+
+  it('keeps a known chatter level and falls back to quiet for anything else', () => {
+    for (const level of ['off', 'quiet', 'lively'] as const) expect(normalizeAudioPrefs({ chatter: level }).chatter).toBe(level);
+    for (const v of ['loud', 'OFF', 1, true, null, {}, ['off']]) expect(normalizeAudioPrefs({ chatter: v }).chatter).toBe('quiet');
+  });
+
+  it('only goes to silent bubbles when it was saved that way', () => {
+    expect(normalizeAudioPrefs({ silentBubbles: true }).silentBubbles).toBe(true);
+    for (const v of [false, 'true', 1, null, undefined]) expect(normalizeAudioPrefs({ silentBubbles: v }).silentBubbles).toBe(false);
   });
 
   it('falls back to the defaults for corrupt JSON or a non-object', () => {

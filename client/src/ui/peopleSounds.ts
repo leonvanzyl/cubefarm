@@ -1,6 +1,7 @@
 // The sounds of the people around you (peopleSoundRules.ts decides when): their footsteps (footsteps.ts's voices at
 // their feet), the chair rolling and creaking as they get up and sit down, a sticky peeled off the board and slapped
-// back on, a sigh as they stretch, a yawn as they nod off and a soft "blah blah" while two of them chat. All of it is
+// back on, a sigh as they stretch, a yawn as they nod off and a soft "blah blah" while two of them chat (unless their
+// chat lines babble, Chatter.tsx). All of it is
 // positional and quiet. Character.tsx calls hearBody() every frame, so nothing plays (or piles up) while the 3D view
 // is paused, and nothing plays while you're in the elevator or have a panel open.
 
@@ -9,7 +10,7 @@ import type { BodyState } from '../world/body';
 import { ROOF, surfaceAt } from '../world/layout';
 import { footstepAt, scuffAt } from './footsteps';
 import { HURRYING, hearPerson, newHearing, type Crowd, type Hearing } from './peopleSoundRules';
-import { listenerAt, noise, recordSfx, tone, type Vec3 } from './sfx';
+import { getAudioPrefs, listenerAt, noise, recordSfx, tone, type Vec3 } from './sfx';
 
 // ---------- the voices ----------
 
@@ -141,9 +142,12 @@ export function hearBody(id: string, s: BodyState, gesture: string, dt: number, 
       case 'seated':
         chairCreak(at(s.seatX, floorY + 0.45, s.seatZ));
         break;
-      case 'murmur':
-        murmur(at(s.x, floorY + 1.5, s.z));
+      case 'murmur': {
+        // With chatter babbling, a chat's lines have voices of their own (Chatter.tsx): no "blah blah" under them.
+        const p = getAudioPrefs();
+        if (p.chatter === 'off' || p.silentBubbles) murmur(at(s.x, floorY + 1.5, s.z));
         break;
+      }
       default: {
         const [edge, name] = e.split(':') as ['start' | 'end', string];
         const play = GESTURES[name]?.[edge];
