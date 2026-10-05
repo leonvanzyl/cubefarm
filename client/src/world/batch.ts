@@ -5,10 +5,12 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 // shapes in different colours, so each shape, however many there are of it, costs one draw call (and one for its ink
 // outline, one in the shadow pass). Every part keeps an invisible stand-in mesh where it always was in the scene, so
 // it still moves with its group, hides with it and is hit by the player's aim; the batch copies the stand-ins' world
-// matrices and colours into its instances just before drawing, after three.js has updated the scene's matrices for the
-// frame, without allocating. As three.js culls whole meshes, a batch leaves out the instances outside the view (in
-// the shadow pass, none: shadows may fall from out of view). Outlines are left off parts beyond `outlineRange`. A geometry with morph
-// targets (a face) gets each instance's weights from its stand-in's morphTargetInfluences.
+// matrices and colours into its instances at the start of every render of the scene (Batched.tsx), after three.js has
+// updated the scene's matrices and before it uploads anything, without allocating. Every pass of that render (the
+// shadows, the view, post-processing's extra ones) draws the same instances: three.js uploads an instanced mesh's
+// buffers once a render, at the first pass that draws it, so data changed between passes would reach the screen a
+// pass late, in the wrong slots. Outlines are left off parts beyond `outlineRange`. A geometry with morph targets (a
+// face) gets each instance's weights from its stand-in's morphTargetInfluences.
 
 /** Cel-shaded like toon(), or unlit like glow() (glowNight: one that blooms only after dark, gfx/bloomMarks.ts). */
 export type Shading = 'toon' | 'glow' | 'glowNight';
@@ -59,9 +61,6 @@ interface Slot {
   color: THREE.Color;
 }
 
-const sphere = new THREE.Sphere();
-const viewProjection = new THREE.Matrix4();
-
 /** Shown when it and every group above it are (the stand-in itself is never drawn, so its own flag doesn't count). */
 function shown(obj: THREE.Object3D) {
   let p = obj.parent;
@@ -103,7 +102,6 @@ class Batch {
     m.frustumCulled = false; // it spans the floor; the bounds of the instances would need working out every frame
     m.matrixAutoUpdate = false;
     m.raycast = () => undefined; // the stand-ins are what the player's aim hits
-    m.onBeforeShadow = m.onBeforeRender = this.set.hook;
     const morphs = this.look.geometry.morphAttributes.position?.length ?? 0;
     if (morphs) m.morphTexture = new THREE.DataTexture(new Float32Array((morphs + 1) * capacity), morphs + 1, capacity, THREE.RedFormat, THREE.FloatType);
     this.set.root.add(m);
@@ -117,7 +115,6 @@ class Batch {
     o.frustumCulled = false;
     o.matrixAutoUpdate = false;
     o.raycast = () => undefined;
-    o.onBeforeRender = this.set.hook;
     this.set.root.add(o);
     return o;
   }
@@ -144,10 +141,8 @@ class Batch {
     this.slots.pop();
   }
 
-  sync(eye: THREE.Vector3 | null, range2: number, frustum: THREE.Frustum | null) {
+  sync(eye: THREE.Vector3 | null, range2: number) {
     const m = this.mesh;
-    const bounds = this.look.geometry.boundingSphere ?? (this.look.geometry.computeBoundingSphere(), this.look.geometry.boundingSphere!);
-    const { x: cx, y: cy, z: cz } = bounds.center;
     const mats = m.instanceMatrix.array as Float32Array;
     const cols = m.instanceColor!.array as Float32Array;
     const o = this.outline;
@@ -160,12 +155,6 @@ class Batch {
     for (const s of this.slots) {
       if (!shown(s.obj)) continue;
       const e = s.obj.matrixWorld.elements;
-      if (frustum) {
-        // the part's bounds where it stands, as three's own culling would test a mesh
-        sphere.center.set(e[0] * cx + e[4] * cy + e[8] * cz + e[12], e[1] * cx + e[5] * cy + e[9] * cz + e[13], e[2] * cx + e[6] * cy + e[10] * cz + e[14]);
-        sphere.radius = bounds.radius * Math.sqrt(Math.max(e[0] * e[0] + e[1] * e[1] + e[2] * e[2], e[4] * e[4] + e[5] * e[5] + e[6] * e[6], e[8] * e[8] + e[9] * e[9] + e[10] * e[10]));
-        if (!frustum.intersectsSphere(sphere)) continue;
-      }
       mats.set(e, n * 16);
       cols[n * 3] = s.color.r;
       cols[n * 3 + 1] = s.color.g;
@@ -218,26 +207,11 @@ export class BatchSet {
   /** False: no part of this set casts a shadow, whatever its look says (visitors, grounded by their glow instead). */
   shadows = true;
   private batches = new Map<string, Batch>();
-  private synced = '';
   private eye = new THREE.Vector3();
-  private frustum = new THREE.Frustum();
 
   constructor(private materials: BatchMaterials) {
     this.root.name = 'batches';
   }
-
-  /**
-   * Called by three.js just before it draws any batch mesh: onBeforeShadow (renderer, object, camera, shadow camera…)
-   * or onBeforeRender (renderer, scene, camera, geometry…). The first call of each pass syncs them all: for the shadow
-   * pass every instance, for a view only those in its frustum.
-   */
-  readonly hook = (renderer: THREE.WebGLRenderer, _scene: unknown, camera: THREE.Camera, shadowCamera?: unknown) => {
-    const shadow = (shadowCamera as THREE.Camera | undefined)?.isCamera === true;
-    const key = `${renderer.info.render.frame}:${shadow ? 'shadow' : camera.id}`;
-    if (key === this.synced) return;
-    this.synced = key;
-    this.sync(shadow ? null : camera);
-  };
 
   /** Draws `obj` (an invisible stand-in placed in the scene) as an instance of `look`, in `color`. */
   add(l: Look, obj: THREE.Object3D, color: THREE.ColorRepresentation): BatchSlot {
@@ -255,12 +229,11 @@ export class BatchSet {
     };
   }
 
-  /** Copies every stand-in's world matrix and colour into its batch: only those `view` can see, when given. */
-  sync(view: THREE.Camera | null = null) {
+  /** Copies every shown stand-in's world matrix and colour into its batch. Call it before three.js draws the scene. */
+  sync() {
     const eye = this.camera ? this.eye.setFromMatrixPosition(this.camera.matrixWorld) : null;
     const range2 = this.outlineRange * this.outlineRange;
-    const frustum = view ? this.frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse)) : null;
-    for (const b of this.batches.values()) b.sync(eye, range2, frustum);
+    for (const b of this.batches.values()) b.sync(eye, range2);
   }
 
   /** How many batches and drawn instances there are (window.__swarmBatches). */

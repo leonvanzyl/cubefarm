@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type Ref } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, type ReactNode, type Ref } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BatchSet, look, type BatchMaterials, type BatchSlot, type Look } from './batch';
@@ -30,6 +30,18 @@ const BatchContext = createContext<Sets | null>(null);
 export const useBatches = () => useContext(BatchContext);
 
 const live = new Set<Sets>();
+
+/**
+ * The scene's onBeforeRender: three.js calls it at the start of every render of the scene, once the matrices are up to
+ * date and before it uploads any buffer, so every batch is current for all of that render's passes (batch.ts).
+ */
+function syncLive() {
+  for (const s of live) {
+    s.still.sync();
+    s.moving.sync();
+  }
+}
+
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmBatches')) {
   Object.defineProperty(window, '__swarmBatches', { get: () => [...live].map((s) => ({ still: s.still.stats(), moving: s.moving.stats() })) });
 }
@@ -50,6 +62,7 @@ export function Batches(props: ScopeProps) {
 
 function BatchScope({ children, shadows = true, outlineRange = OUTLINE_RANGE }: ScopeProps) {
   const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
   const sets = useMemo<Sets>(() => {
     const moving = new BatchSet(MATERIALS);
     moving.root.userData.moving = true;
@@ -57,14 +70,16 @@ function BatchScope({ children, shadows = true, outlineRange = OUTLINE_RANGE }: 
   }, []);
   sets.still.outlineRange = sets.moving.outlineRange = outlineRange;
   sets.still.shadows = sets.moving.shadows = shadows;
-  useEffect(() => {
+  // A layout effect, like the stand-ins' own, so the first frame already draws them.
+  useLayoutEffect(() => {
     live.add(sets);
+    scene.onBeforeRender = syncLive;
     return () => {
       live.delete(sets);
       sets.still.dispose();
       sets.moving.dispose();
     };
-  }, [sets]);
+  }, [sets, scene]);
   useFrame(({ camera }) => {
     sets.still.camera = sets.moving.camera = camera;
     sizeInks(gl);

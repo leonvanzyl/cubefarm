@@ -52,7 +52,6 @@ export function Tint({ def }: { def: ThemeDef }) {
         uniforms: { uColor: { value: new THREE.Color(def.sky?.color ?? '#000000') }, uAmount: { value: 0 } },
       }),
       domeGeo: new THREE.SphereGeometry(49, 24, 12),
-      fogNear: -1,
     }),
     [def],
   );
@@ -92,23 +91,14 @@ export function Tint({ def }: { def: ThemeDef }) {
     const fog = scene.fog as THREE.Fog | null;
     if (fog) {
       fog.color.lerp(st.sky, k * 0.6);
-      // the fog comes in closer at night
+      // the fog comes in closer at night: scaled from what Sky.tsx set this frame (it sets both every frame, before this)
       const night = nightFactor(dayTime.t);
-      if (st.fogNear < 0) st.fogNear = fog.near;
       fog.far *= 1 - sky.fog * night;
-      fog.near = st.fogNear * (1 - sky.fog * night * 0.8);
+      fog.near *= 1 - sky.fog * night * 0.8;
     }
     if (scene.background instanceof THREE.Color) scene.background.lerp(st.sky, k * 0.6);
     st.dome.uniforms.uAmount.value = k * 0.55;
   });
-
-  useEffect(
-    () => () => {
-      const fog = scene.fog as THREE.Fog | null;
-      if (fog && st.fogNear >= 0) fog.near = st.fogNear;
-    },
-    [scene, st],
-  );
 
   if (!def.sky) return null;
   return <mesh ref={dome} geometry={st.domeGeo} material={st.dome} frustumCulled={false} renderOrder={1001} />;

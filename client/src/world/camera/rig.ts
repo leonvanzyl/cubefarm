@@ -173,6 +173,18 @@ export const rigOwnsCamera = () => rig.owns;
 /** Whether the rig's flight is under way (the HUD waits for it before offering clicks). */
 export const rigFlying = () => rig.flight < 1;
 
+/**
+ * How far the rig has taken the camera from the player's eyes: 0 in first person, growing and shrinking smoothly
+ * through every flight. The fog starts that much further out (sky/Sky.tsx), or from the overview or the building view
+ * the whole floor would sit deep in it.
+ */
+export function viewStandoff(): number {
+  const c = camera;
+  if (!rig.owns || !c) return 0;
+  const p = c.position;
+  return Math.hypot(p.x - rig.home.x, p.y - EYE_HEIGHT, p.z - rig.home.z);
+}
+
 // ---------- the React side ----------
 
 interface CameraView {

@@ -90,31 +90,28 @@ describe('instanced batches', () => {
     expect(ink.geometry).not.toBe(box); // creased normals for the hull
   });
 
-  it('sync once a pass, from the first batch three.js draws: in a view only what it can see, for shadows everything', () => {
+  it('draw every shown part wherever the camera looks, and leave syncing to the render: no per-pass hooks', () => {
     const { scene, set, stand } = office();
-    const l = look(box);
-    set.add(l, stand(scene, 0), '#fff');
+    const l = look(box, { castShadow: true, outline: 0.018 });
+    set.add(l, stand(scene, 0), '#f00');
     const behind = stand(scene, 0);
     behind.position.z = 20;
-    set.add(l, behind, '#fff');
+    set.add(l, behind, '#00f');
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
     camera.position.z = 10; // looking down -z: the first box ahead, the second behind
     scene.add(camera);
+    set.camera = camera;
     scene.updateMatrixWorld();
-    camera.updateMatrixWorld();
-    const renderer = { info: { render: { frame: 1 } } } as THREE.WebGLRenderer;
-    const shadowCamera = new THREE.OrthographicCamera();
-    set.hook(renderer, null, camera, shadowCamera);
-    const [boxes] = batchMeshes(set);
+    set.sync();
+    const [boxes, ink] = batchMeshes(set);
+    // The shadow pass and the view share one upload a render, so both see every part, in the same slots.
     expect(boxes.count).toBe(2);
-    set.hook(renderer, scene, camera, box);
-    expect(boxes.count).toBe(1);
-    expect(at(boxes, 0).elements[14]).toBe(0);
-    boxes.count = 0;
-    set.hook(renderer, scene, camera, box); // the same pass: already done
-    expect(boxes.count).toBe(0);
-    renderer.info.render.frame = 2;
-    set.hook(renderer, scene, camera, box);
-    expect(boxes.count).toBe(1);
+    expect(at(boxes, 1).elements[14]).toBe(20);
+    expect(Array.from(boxes.instanceColor!.array.slice(3, 6))).toEqual([0, 0, 1]);
+    // three.js calls these before or between passes: a sync from either would reach the screen a pass late
+    for (const m of [boxes, ink]) {
+      expect(m.onBeforeRender).toBe(THREE.Object3D.prototype.onBeforeRender);
+      expect(m.onBeforeShadow).toBe(THREE.Object3D.prototype.onBeforeShadow);
+    }
   });
 });

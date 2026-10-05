@@ -111,6 +111,8 @@ export default function PhotoScene() {
       firstPerson: [] as THREE.Object3D[],
       seeThrough: [] as THREE.Object3D[],
       hidden: [] as boolean[],
+      /** How much further out the fog starts while this camera draws (prepare to putBack). */
+      fogBack: 0,
       scanAt: -Infinity,
       frames: 0,
       seed: 0,
@@ -214,6 +216,14 @@ export default function PhotoScene() {
         rt.hidden.push(rt.firstPerson[n].visible);
         rt.firstPerson[n].visible = false;
       }
+      // three.js measures fog from the camera: flown away from the player's, it starts that much further out, as for
+      // the overview (camera/rig.ts viewStandoff), so a shot from afar doesn't sink the office in it
+      const fog = scene.fog as THREE.Fog | null;
+      rt.fogBack = fog?.isFog ? view.position.distanceTo(camera.position) : 0;
+      if (fog && rt.fogBack) {
+        fog.near += rt.fogBack;
+        fog.far += rt.fogBack;
+      }
       const s = usePhoto.getState();
       const p = rt.post;
       p.grade = GRADES[s.filter];
@@ -224,6 +234,12 @@ export default function PhotoScene() {
 
     const putBack = () => {
       for (let i = 0; i < rt.firstPerson.length; i++) rt.firstPerson[i].visible = rt.hidden[i];
+      const fog = scene.fog as THREE.Fog | null;
+      if (fog && rt.fogBack) {
+        fog.near -= rt.fogBack;
+        fog.far -= rt.fogBack;
+      }
+      rt.fogBack = 0;
     };
 
     /** One picture of the whole view, as on screen. */
@@ -278,7 +294,7 @@ export default function PhotoScene() {
     };
 
     return { prepare, putBack, frame };
-  }, [gl, scene, view, post, rt]);
+  }, [gl, scene, view, camera, post, rt]);
   const { prepare, putBack, frame } = engine;
 
   // Frozen: the frame loop is stopped, so photo mode keeps its own.

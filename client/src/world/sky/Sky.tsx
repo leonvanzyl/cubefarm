@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { reduceMotion } from '../../ui/a11y';
+import { viewStandoff } from '../camera/rig';
 import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
@@ -252,8 +253,10 @@ export function Sky() {
     u.uCover.value = cover;
     u.uFlash.value = weather.flash;
     sky.fog.color.setHex(p.fog);
-    sky.fog.near = FOG_NEAR - (w ? FOG_IN.near * w.fog : 0);
-    sky.fog.far = FOG_FAR_DAY + (FOG_FAR_NIGHT - FOG_FAR_DAY) * night - (w ? FOG_IN.far * w.fog + 6 * w.rain : 0);
+    // three.js measures fog from the camera: pulled back for a view, it starts that much further out, so the floor stays clear
+    const back = viewStandoff();
+    sky.fog.near = FOG_NEAR - (w ? FOG_IN.near * w.fog : 0) + back;
+    sky.fog.far = FOG_FAR_DAY + (FOG_FAR_NIGHT - FOG_FAR_DAY) * night - (w ? FOG_IN.far * w.fog + 6 * w.rain : 0) + back;
     sky.background.setHex(p.horizon);
 
     // Clouds: white at noon, gold and pink at golden hour (the sun's and the horizon's colours), dim blue-grey at night.
