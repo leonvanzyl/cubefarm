@@ -5,6 +5,8 @@ import { BILLBOARD } from './viewTags';
 import * as THREE from 'three';
 import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
+import { useA11y } from '../ui/a11y';
+import { showsShapes } from '../ui/a11yPrefs';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
 import { greetPick } from './Chatter';
@@ -94,7 +96,9 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
 }
 
 export function NameTag({ agent }: { agent: Agent }) {
-  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color]);
+  const palette = useA11y((s) => s.prefs.palette);
+  const shapes = useA11y((s) => showsShapes(s.prefs));
+  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent, { palette, shapes }), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color, palette, shapes]);
   return (
     // placed by Character, which carries it about with the person
     <Billboard userData={BILLBOARD}>

@@ -7,6 +7,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { reduceMotion } from '../../ui/a11y';
 import { BLOOM_AT_NIGHT } from '../gfx/bloomMarks';
 import { cloudScale, cloudZ, makeClouds, starField } from './skyLayout';
 import { nightFactor, skyAt, sunDirection, type SkyPalette } from './time';
@@ -136,8 +137,6 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-const reducedMotionQuery = () => (typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null);
-
 export function Sky() {
   const scene = useThree((s) => s.scene);
   const group = useRef<THREE.Group>(null);
@@ -168,7 +167,6 @@ export function Sky() {
       drift: 0,
       lastDrift: -1,
       lastSwell: -1,
-      motion: reducedMotionQuery(),
       domeGeometry: new THREE.SphereGeometry(50, 32, 16),
       dome: new THREE.ShaderMaterial({
         vertexShader: DOME_VERT,
@@ -275,8 +273,8 @@ export function Sky() {
     const lean = 0.6 + 1.4 * low;
     (cu.uLight.value as THREE.Vector3).set(sun[0] * s * lean, 1, sun[2] * s * lean).normalize();
 
-    // Drift with real time, so a frozen ?daytime still has moving clouds; still for prefers-reduced-motion.
-    if (!sky.motion?.matches) sky.drift += Math.min(delta, 0.1) * (1 + 2 * (w?.wind ?? 0)); // a storm's wind hurries them on
+    // Drift with real time, so a frozen ?daytime still has moving clouds; still with reduced motion (Settings → Accessibility).
+    if (!reduceMotion()) sky.drift += Math.min(delta, 0.1) * (1 + 2 * (w?.wind ?? 0)); // a storm's wind hurries them on
     const m = clouds.current;
     // heavier skies: bigger, lower-hanging clouds
     const swell = 1 + 0.5 * cover;

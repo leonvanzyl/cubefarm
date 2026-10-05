@@ -3,6 +3,8 @@ import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { testingLabel } from '../qaCard';
 import { officeNow } from '../officeTime';
 import { chipRects } from '../ui/channels';
+import { inkOn } from '../ui/colorMath';
+import { KIND_ICON, kindStrong, STANDARD_LOOK, STATUS_KIND, TONE_KIND, toneFill, type StatusKind, type StatusLook } from '../ui/statusLook';
 import { statsChips, type BoardStats } from './boardStats';
 import type { Pair } from './whiteboard';
 
@@ -227,8 +229,6 @@ const COLS: { key: keyof KanbanColumns; title: string; chip: string; note: strin
   { key: 'merged', title: '🎉 Merged', chip: '#c77dff', note: '#eadcff' },
 ];
 
-const TONE = { warn: '#ffd8a8', bad: '#ffc9c9', good: '#d8f9df' };
-
 /** The whiteboard's columns, left to right. */
 export const KANBAN_KEYS: (keyof KanbanColumns)[] = COLS.map((c) => c.key);
 
@@ -253,8 +253,27 @@ export function kanbanNoteRect(ci: number, i: number, w: number) {
 /** A column's sticky-note colour. */
 export const kanbanNoteColor = (key: keyof KanbanColumns) => COLS.find((c) => c.key === key)?.note ?? '#fff3b0';
 
-/** A card's sticky colour where it is: its tone's, else its column's. */
-export const kanbanCardColor = (card: KanbanCard, key: keyof KanbanColumns) => (card.tone ? TONE[card.tone] : kanbanNoteColor(key));
+/** A card's sticky colour where it is: its tone's (in the viewer's status palette), else its column's. */
+export const kanbanCardColor = (card: KanbanCard, key: keyof KanbanColumns, look: StatusLook = STANDARD_LOOK) => (card.tone ? toneFill(card.tone, look.palette, 'board') : kanbanNoteColor(key));
+
+/** A status shape in a filled circle (the colour-blind-safe cue beside a status colour), centred at x, y. */
+function drawStatusBadge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, kind: StatusKind, look: StatusLook) {
+  const fill = kindStrong(kind, look.palette);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = Math.max(2, r * 0.16);
+  ctx.strokeStyle = '#1f1d2b';
+  ctx.stroke();
+  ctx.fillStyle = inkOn(fill);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(r * 1.25)}px ${SANS}`;
+  ctx.fillText(KIND_ICON[kind], x, y + r * 0.08);
+  ctx.restore();
+}
 
 /** A loose sticky (StickyNotes.tsx's atlas): the note colour, its number big, a darker edge for the toon outline. */
 export function drawSticky(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, label: string, color: string) {
@@ -279,10 +298,11 @@ function shadeHex(hex: string, k: number) {
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
-/** What the board shows besides the cards: "Depends on" strings between stickies, and the stats corner. */
+/** What the board shows besides the cards: "Depends on" strings between stickies, the stats corner, and the status palette and shapes. */
 export interface KanbanExtras {
   strings?: readonly Pair[];
   stats?: BoardStats | null;
+  look?: StatusLook;
 }
 
 export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, repo: RepoView, cols: KanbanColumns, extras: KanbanExtras = {}) {
@@ -333,7 +353,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
     const shown = cards.length > capacity ? cards.slice(0, capacity - 1) : cards;
     shown.forEach((card, i) => {
       const n = kanbanNoteRect(ci, i, w);
-      drawNote(ctx, n.x, n.y, n.w, n.h, card, card.tone ? TONE[card.tone] : c.note, now);
+      drawNote(ctx, n.x, n.y, n.w, n.h, card, kanbanCardColor(card, c.key, extras.look), now, extras.look);
     });
     if (cards.length > shown.length) {
       ctx.fillStyle = '#6c7086';
@@ -423,7 +443,7 @@ function drawString(ctx: CanvasRenderingContext2D, w: number, p: Pair) {
  * One card on its own canvas (the sticky lifted off the board under the crosshair), drawn as the board draws it with
  * a deeper shadow. The note is `nw` × `nh` board pixels, `pad` of them around it, at `scale` canvas pixels each.
  */
-export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, col: keyof KanbanColumns, nw: number, nh: number, pad: number, scale: number) {
+export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, col: keyof KanbanColumns, nw: number, nh: number, pad: number, scale: number, look: StatusLook = STANDARD_LOOK) {
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.save();
   ctx.scale(scale, scale);
@@ -432,11 +452,11 @@ export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, 
     roundRect(ctx, pad + 3, pad + 7, nw + 2, nh + 2, 6);
     ctx.fill();
   }
-  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), officeNow());
+  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col, look), officeNow(), look);
   ctx.restore();
 }
 
-function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string, now: number) {
+function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string, now: number, look: StatusLook = STANDARD_LOOK) {
   const tilt = (((card.number * 37) % 7) - 3) * 0.006;
   const ink = card.agent && /^#[0-9a-f]{6}$/i.test(card.agent.color) ? card.agent.color : '#8a8fa3';
   ctx.save();
@@ -506,13 +526,14 @@ function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
     ctx.fillText(card.note, w - 12, h - 14);
     ctx.textAlign = 'left';
   }
+  if (look.shapes && card.tone && !card.ghost) drawStatusBadge(ctx, w - 18, 20, 13, TONE_KIND[card.tone], look);
   ctx.restore();
   ctx.textBaseline = 'middle';
 }
 
 // ---------- signs and tags ----------
 
-export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, agent: Agent) {
+export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, agent: Agent, look: StatusLook = STANDARD_LOOK) {
   ctx.clearRect(0, 0, w, h);
   const icon =
     agent.status === 'working'
@@ -564,8 +585,11 @@ export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, age
               : agent.title
                 ? `${agent.name} · ${agent.title}`
                 : agent.name;
-  while (label.length > 4 && ctx.measureText(label).width > w - 96) label = `${label.slice(0, -2)}…`;
+  // With status shapes on, a badge at the right end says the status in shape and colour (the icon on the left is the detail).
+  const badge = look.shapes ? h * 0.32 : 0;
+  while (label.length > 4 && ctx.measureText(label).width > w - 96 - badge * 2) label = `${label.slice(0, -2)}…`;
   ctx.fillText(label, 78, h / 2 + 2);
+  if (badge) drawStatusBadge(ctx, w - 14 - badge, h / 2, badge, STATUS_KIND[agent.status], look);
 }
 
 /** Name tag for a candidate in the waiting room: who they are and the job they're up for. */

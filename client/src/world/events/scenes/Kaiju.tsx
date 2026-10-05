@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { getA11y, reduceMotion } from '../../../ui/a11y';
 import { placeAt, play } from '../../../ui/eventSfx';
 import { outsideAt } from '../../layout';
 import { cityLayout } from '../../outside/cityLayout';
@@ -21,7 +22,6 @@ const ROARS = [9, 33, 62];
 const ROAR = 2.6;
 /** The knocked-over tower is back up this long after the kaiju has gone. */
 const REBUILD_MS = 90_000;
-const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export default function Kaiju({ run, elevation }: SceneProps) {
   const kaiju = useRef<THREE.Group>(null);
@@ -52,7 +52,7 @@ export default function Kaiju({ run, elevation }: SceneProps) {
     const z0 = zMid - dir * SPEED * 40;
     return { dir, x, z0, tower, tankR: tank ? tank.w / 2 : 1.5 };
   }, [run.seed, s]);
-  const live = useMemo(() => ({ shake: 0, lastStep: -1, roared: -1, knocked: -1, crashed: false, reduce: reduceMotion() }), []);
+  const live = useMemo(() => ({ shake: 0, lastStep: -1, roared: -1, knocked: -1, crashed: false }), []);
 
   // the tower it knocks over comes back a while after it has gone
   useEffect(() => {
@@ -109,7 +109,7 @@ export default function Kaiju({ run, elevation }: SceneProps) {
       play('roar', { gain: heard.gain, pan: heard.pan });
     }
     live.shake *= Math.exp(-6 * Math.min(0.1, delta));
-    if (!live.reduce && live.shake > 0.01 && outsideAt(camera.position.x)) {
+    if (live.shake > 0.01 && getA11y().cameraShake && !reduceMotion() && outsideAt(camera.position.x)) {
       camera.rotation.x += live.shake * 0.0035 * Math.sin(t * 41);
       camera.rotation.z += live.shake * 0.0025 * Math.sin(t * 33);
     }

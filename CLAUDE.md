@@ -134,6 +134,11 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
   phone (with its mini-games in `games/`: pure logic in `tetris.ts` / `snake.ts` / `pet.ts`), elevator panel, app
   viewer, sounds (`sfx.ts`), key bindings (`keymap.ts`, pure; `controls.ts` keeps the player's own, and every
   shortcut asks it, never a hard-coded key).
+- Accessibility (Settings → Accessibility, `ui/a11y.ts`, saved per browser through pure `a11yPrefs.ts`): captions
+  (`captions.ts`, rules in `captionRules.ts`; every sound `sfx.ts` records is offered to them), status colours and
+  shapes (`statusLook.ts`, shared by CSS and the canvases), motion comfort (call `reduceMotion()` before animating
+  the camera or anything non-essential), UI scale, readable font, high contrast. Dialogs use `dialogFocus.ts`
+  (focus in, trapped, returned); `announce()` speaks to screen readers; `FloorList.tsx` is the list view.
 - `src/pocket/`: pocket mode (docs/pocket.md), the 2D office for phones (`mode.ts` picks it; `App.tsx` loads it or the
   3D `Office.tsx` lazily, so a phone never downloads three.js). `src/pwa.ts` registers the service worker and Web Push;
   `src/notifications.ts` shows desktop notifications. `ui/Panel.tsx` is the panel, apart from `Overlays.tsx` (3D).

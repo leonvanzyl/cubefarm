@@ -3,10 +3,12 @@ import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, t
 import { blockers } from '../../shared/issues';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type WeatherView } from '../../shared/outside';
 import { DEFAULT_NOTIFY } from '../../shared/notify';
+import { speechText } from '../../shared/speech';
 import { showDesktopNote } from './notifications';
 import { EMPTY_OPS, newAlarms } from './ops';
 import type { DecorItem, ProgressView } from '../../shared/progress';
 import { needsManager, qaCardNote, type CardTone } from './qaCard';
+import { announce } from './ui/announce';
 import { alarm, audioUnlocked, chirp, cue } from './ui/sfx';
 import { claimVoice } from './ui/voiceClaim';
 import { speakable } from './ui/voiceQueue';
@@ -32,12 +34,14 @@ export type Overlay =
   | { kind: 'interview'; requestId: string }
   | { kind: 'help'; tab?: HelpTab }
   | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
-  | { kind: 'decor-box'; repoId: string }; // a floor's decor box
+  | { kind: 'decor-box'; repoId: string } // a floor's decor box
+  /** The floor as a list (Settings → Accessibility): who is there, their status and what they're doing. */
+  | { kind: 'floorList' };
 
 /** Help's tabs: how the office works, and the controls (keys, mouse, gamepad). */
 export type HelpTab = 'office' | 'controls';
 
-export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings' | 'timelapse';
+export type ManagerTab = 'floors' | 'ops' | 'ceo' | 'team' | 'issues' | 'settings' | 'timelapse' | 'access';
 
 export interface Focus {
   id: string;
@@ -407,6 +411,8 @@ export const useStore = create<State>((set, get) => ({
           const wait = claimVoice(ev.message.id);
           void import('./ui/voiceMessages').then((v) => v.speakMessage(ev.message, arrived, wait));
         }
+        // Screen readers hear every message from the CEO, in words (no markdown or emoji), wherever focus is.
+        if (live && ev.message.from === 'ceo') announce(`Message from ${get().agents[CEO_ID]?.name ?? 'the CEO'}: ${speechText(ev.message.text, 600)}`);
         if (ev.message.from === 'ceo' && !reading) {
           if (!speak) chirp();
           const ceo = get().agents[CEO_ID]?.name ?? 'CEO';
@@ -500,6 +506,7 @@ export const useStore = create<State>((set, get) => ({
     else set({ travel: null });
   },
   pushToast(level, text) {
+    if (level === 'error') announce(text, 'assertive');
     const id = toastSeq++;
     set({ toasts: [...get().toasts.slice(-4), { id, level, text }] });
     setTimeout(() => get().dismissToast(id), level === 'error' ? 9000 : 5000);

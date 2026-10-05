@@ -1,7 +1,7 @@
 :root {
   --ink: #1f1d2b;
   --paper: #fffdf6;
-  --muted: #6c7086;
+  --muted: #62667b; /* 4.5:1 or better on every panel, card and code background */
   --good: #2dc653;
   --bad: #ef476f;
   --warn: #ffb703;
@@ -286,33 +286,35 @@ input.inline:focus {
   letter-spacing: 0.03em;
 }
 .status-idle {
-  background: #e9ecef;
+  background: var(--st-idle, #e9ecef);
 }
 .status-preparing {
-  background: #ffe066;
+  background: var(--st-preparing, #ffe066);
 }
 .status-working {
-  background: #74c0fc;
+  background: var(--st-working, #74c0fc);
 }
 .status-done {
-  background: #8ce99a;
+  background: var(--st-done, #8ce99a);
 }
 .status-error {
-  background: #ffa8a8;
+  background: var(--st-error, #ffa8a8);
 }
 .status-stopped {
-  background: #dee2e6;
+  background: var(--st-stopped, #dee2e6);
 }
 /* app preview statuses (preparing, stopped and error share the agent colours) */
-.status-installing,
+.status-installing {
+  background: var(--st-installing, #ffe066);
+}
 .status-starting {
-  background: #ffe066;
+  background: var(--st-starting, #ffe066);
 }
 .status-running {
-  background: #8ce99a;
+  background: var(--st-running, #8ce99a);
 }
 .status-unconfigured {
-  background: #e9ecef;
+  background: var(--st-unconfigured, #e9ecef);
 }
 
 /* ---------- HUD ---------- */
@@ -1136,6 +1138,7 @@ input.inline:focus {
   border-bottom: 4px solid var(--ink);
 }
 .panel-title {
+  margin: 0;
   flex: 1;
   font-weight: 700;
   font-size: 1.25rem;
@@ -1669,13 +1672,13 @@ input.inline:focus {
   box-shadow: 0 3px 0 rgba(31, 29, 43, 0.8);
 }
 .kcard-warn {
-  background: #fff3d6;
+  background: var(--tone-warn, #fff3d6);
 }
 .kcard-bad {
-  background: #ffe0e6;
+  background: var(--tone-bad, #ffe0e6);
 }
 .kcard-good {
-  background: #e3fbe7;
+  background: var(--tone-good, #e3fbe7);
 }
 .kcard-title {
   font-weight: 500;
@@ -2284,8 +2287,7 @@ input.inline:focus {
 }
 .tab-on {
   background: var(--accent);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
   box-shadow: 0 3px 0 var(--ink);
 }
 .tab-body {
@@ -2607,8 +2609,7 @@ input.inline:focus {
 }
 .picker-tab-on {
   background: var(--accent);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
   box-shadow: 0 3px 0 var(--ink);
 }
 .picker-mode {
@@ -3027,6 +3028,7 @@ input.inline:focus {
 }
 .phone-hint kbd {
   font-size: 0.7rem;
+  color: var(--ink);
 }
 .phone-scroll {
   flex: 1;
@@ -3107,6 +3109,9 @@ input.inline:focus {
 .bubble-me {
   background: #ffd6a5;
   border-bottom-right-radius: 4px;
+}
+.bubble-me .bubble-time {
+  color: #4d5163; /* --muted is a touch light on the peach bubble */
 }
 .bubble-from {
   font-size: 0.72rem;
@@ -4055,7 +4060,7 @@ input.inline:focus {
   text-align: center;
 }
 .pk-stage-zero {
-  opacity: 0.5;
+  opacity: 0.72;
 }
 .pk-stage-hot {
   border-color: var(--bad);
@@ -4094,8 +4099,7 @@ input.inline:focus {
 }
 .pk-chip-on {
   background: var(--accent);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
 }
 .pk-h {
   display: flex;
@@ -4483,4 +4487,389 @@ input.inline:focus {
 }
 .link-btn {
   color: #3a56d4;
+}
+
+/* ---------- accessibility (ui/a11y.ts: Settings → Accessibility sets these attributes on <html>) ---------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard focus is always visible; a dialog that holds focus itself (to be read out) doesn't need a ring. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #3a56d4;
+  outline-offset: 2px;
+}
+.panel:focus,
+.phone:focus,
+.confirm:focus {
+  outline: none;
+}
+
+/* captions (ui/CaptionStrip.tsx): above the phone button, over everything, never in the way of the mouse */
+.captions {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 70;
+  width: min(860px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(1.15rem * var(--caption-scale, 1));
+  pointer-events: none;
+}
+.caption {
+  max-width: 100%;
+  padding: 0.2em 0.6em;
+  border-radius: 8px;
+  background: rgba(10, 10, 16, var(--caption-bg, 0.75));
+  color: #fff;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow:
+    0 1px 2px #000,
+    0 0 3px #000;
+}
+.caption-alarm {
+  color: #ffe066;
+}
+.caption-speech b {
+  color: #9bd8ff;
+}
+.captions-preview {
+  position: static;
+  transform: none;
+  width: auto;
+  z-index: auto;
+  padding: 14px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #bfe3ff, #fff3b0 50%, #5c677d);
+}
+
+/* the centre dot: a bigger, two-ring crosshair that reads on any background and stays above the elevator's fade */
+.crosshair-dot {
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-width: 3px;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* Settings → Accessibility */
+.a11y-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+}
+.a11y-slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.92rem;
+  flex-wrap: wrap;
+}
+.a11y-slider > span {
+  min-width: 9em;
+}
+.a11y-slider input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
+}
+.a11y-slider b {
+  min-width: 3.2em;
+  font-variant-numeric: tabular-nums;
+}
+.a11y-fieldset {
+  border: 2px solid rgba(31, 29, 43, 0.25);
+  border-radius: 12px;
+  padding: 4px 12px 8px;
+  margin: 4px 0;
+}
+.a11y-fieldset legend {
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0 4px;
+}
+.a11y-fieldset .toggle.block {
+  margin: 4px 0;
+  gap: 8px;
+}
+.a11y-hint {
+  font-weight: 400;
+}
+.status-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.status-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px 2px 6px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-kind::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--kind);
+}
+.status-kind-idle {
+  --kind: var(--kind-idle, #adb5bd);
+}
+.status-kind-waiting {
+  --kind: var(--kind-waiting, #fab005);
+}
+.status-kind-busy {
+  --kind: var(--kind-busy, #339af0);
+}
+.status-kind-ok {
+  --kind: var(--kind-ok, #2dc653);
+}
+.status-kind-attention {
+  --kind: var(--kind-attention, #ffb703);
+}
+.status-kind-bad {
+  --kind: var(--kind-bad, #ef476f);
+}
+
+/* the list view (ui/FloorList.tsx) */
+.floor-list {
+  width: min(980px, 100%);
+}
+.field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.field-inline select {
+  width: auto;
+}
+.floor-summary {
+  margin: 4px 0 10px;
+}
+.floor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.floor-table th,
+.floor-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 2px solid rgba(31, 29, 43, 0.12);
+  vertical-align: middle;
+}
+.floor-table thead th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.floor-floors {
+  margin: 4px 0;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+
+/* secondary text on a coloured panel head, and on a colour-blind palette's card colours, reads in ink */
+.panel-head .muted,
+html[data-palette] :is(.kcard-good, .kcard-warn, .kcard-bad) .muted {
+  color: inherit;
+}
+
+/* the phone's Company tab: every panel, a tap (or Tab) away */
+.phone-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 2px;
+}
+
+/* status shapes: a shape beside every status colour (always on with a colour-blind palette) */
+html[data-status-shapes] :is(.status-idle, .status-unconfigured, .status-stopped)::before {
+  content: '○ ';
+}
+html[data-status-shapes] :is(.status-preparing, .status-installing, .status-starting)::before {
+  content: '⏳ ';
+}
+html[data-status-shapes] .status-working::before {
+  content: '▶ ';
+}
+html[data-status-shapes] :is(.status-done, .status-running)::before {
+  content: '✓ ';
+}
+html[data-status-shapes] .status-error::before {
+  content: '✕ ';
+}
+html[data-status-shapes] :is(.kcard-good, .kcard-warn, .kcard-bad) {
+  position: relative;
+}
+html[data-status-shapes] :is(.kcard-good, .kcard-warn, .kcard-bad)::after {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+html[data-status-shapes] .kcard-good::after {
+  content: '✓';
+}
+html[data-status-shapes] .kcard-warn::after {
+  content: '!';
+}
+html[data-status-shapes] .kcard-bad::after {
+  content: '✕';
+}
+html[data-status-shapes] .toast-success::before {
+  content: '✓ ';
+  font-weight: 700;
+}
+html[data-status-shapes] .toast-error::before {
+  content: '✕ ';
+  font-weight: 700;
+}
+
+/* reduced motion: nothing slides, pops, spins or bounces; the elevator's fade stays (a fade isn't motion) */
+html[data-reduce-motion] *,
+html[data-reduce-motion] *::before,
+html[data-reduce-motion] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-reduce-motion] .fade {
+  transition-duration: 0.6s !important;
+}
+
+/* UI scale: the HUD, the phone, the console and every panel, 80-150%. Inside a zoomed box, viewport units are zoomed
+   too, so whatever is sized to the screen divides by the scale to still fit it. */
+html[data-ui-scale] :is(.hud, .overlay, .confirm-overlay, .tour, .start, .pocket) {
+  zoom: var(--ui-scale, 1);
+}
+/* pocket mode's panels open inside the (already scaled) pocket: once is enough */
+html[data-ui-scale] .pocket .overlay {
+  zoom: 1;
+}
+html[data-ui-scale] :is(.hud-floor, .office-chip, .toasts) {
+  max-width: min(420px, calc(100vw / var(--ui-scale) - 32px));
+}
+html[data-ui-scale] .hud-floor {
+  max-width: min(520px, calc(100vw / var(--ui-scale) - 32px));
+}
+html[data-ui-scale] .hud-status {
+  max-width: calc(50vw / var(--ui-scale));
+}
+html[data-ui-scale] .hud-banner {
+  max-width: calc(90vw / var(--ui-scale));
+}
+html[data-ui-scale] .workers {
+  width: min(360px, calc(100vw / var(--ui-scale) - 32px));
+  max-height: calc(100vh / var(--ui-scale) - 180px);
+}
+html[data-ui-scale] .tour {
+  width: min(390px, calc(100vw / var(--ui-scale) - 32px));
+}
+html[data-ui-scale] :is(.panel, .start-card) {
+  max-height: calc(100vh / var(--ui-scale) - 32px);
+}
+html[data-ui-scale] .panel-wide {
+  height: calc(100vh / var(--ui-scale) - 32px);
+}
+html[data-ui-scale] .phone {
+  height: min(760px, calc(100vh / var(--ui-scale) - 32px));
+}
+
+/* dyslexia-friendly: a plain sans serif with wider letter, word and line spacing (British Dyslexia Association style guide) */
+html[data-readable-font] {
+  --font: Verdana, Tahoma, 'Trebuchet MS', 'Segoe UI', sans-serif;
+}
+html[data-readable-font] :is(.hud, .overlay, .confirm-overlay, .tour, .start, .pocket, .captions) {
+  letter-spacing: 0.035em;
+  word-spacing: 0.12em;
+  line-height: 1.55;
+}
+html[data-readable-font] :is(em, i, .wk-last-thinking) {
+  font-style: normal;
+}
+
+/* high contrast: white panels, darker secondary text, heavier borders and a two-tone focus ring */
+html[data-high-contrast] {
+  --paper: #ffffff;
+  --muted: #3d3f52;
+}
+html[data-high-contrast] .overlay {
+  background: rgba(10, 10, 16, 0.7);
+}
+html[data-high-contrast] :is(.panel, .card, .kcard, .phone, .confirm, .toast, .hud-floor, .workers, .hud-hint) {
+  border-color: #000;
+}
+html[data-high-contrast] :is(input, select, textarea, .btn-ghost) {
+  border-color: var(--ink);
+}
+html[data-high-contrast] :is(.hud-help, .chat-log, .phone-screen) {
+  background: #fff;
+}
+html[data-high-contrast] .phone-hint {
+  color: #fff;
+}
+html[data-high-contrast] .wk-head b {
+  color: #0b6b2a;
+}
+html[data-high-contrast] .floor-num {
+  color: var(--ink);
+  text-shadow: none;
+}
+html[data-high-contrast] .hud-resume {
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: rgba(10, 10, 16, 0.85);
+  text-shadow: none;
+}
+html[data-high-contrast] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid #000;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px #ffe066;
 }

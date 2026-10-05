@@ -6,6 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { RepoView } from '../../../../shared/types';
 import { coversView, useStore, type Agent } from '../../store';
+import { reduceMotion } from '../../ui/a11y';
 import { canBurst } from '../confetti';
 import { BOARD, deskPosition, qaDeskPosition } from '../layout';
 import { toon } from '../materials';
@@ -17,8 +18,6 @@ const COINS = 16;
 const LIFE = 1.9;
 const GRAVITY = 5.5;
 const DELAY_MS = 250; // after the confetti has popped
-
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let flying = 0;
 let burstHere: ((agentId: string | null) => void) | null = null;
@@ -64,7 +63,7 @@ export function CoinBurst({ repo, agents }: { repo: RepoView; agents: Agent[] })
         setTimeout(() => {
           pling({ x: at.x, y: at.y, z: at.z });
           const m = mesh.current;
-          if (!m || !canBurst({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reducedMotion() })) return;
+          if (!m || !canBurst({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reduceMotion() })) return;
           const s = sim.age.findIndex((x) => x < 0);
           if (s < 0) return;
           sim.age[s] = 0;

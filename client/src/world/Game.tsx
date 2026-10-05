@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled, useRenderPaused } from '../perf';
 import { setOfficeCanvas, usePhotoGate } from '../photo/gate';
 import { repoOnFloor, useStore } from '../store';
+import { useA11y } from '../ui/a11y';
 import { ding, whoosh } from '../ui/sfx';
 import { CameraRig } from './camera/CameraRig';
 import { Chatter } from './Chatter';
@@ -51,6 +52,20 @@ function Travel() {
     );
     return () => clearTimeout(t);
   }, [travel, finish]);
+  return null;
+}
+
+/** The field of view from Settings → Accessibility (72°, the camera's own, unless changed). */
+function FieldOfView() {
+  const fov = useA11y((s) => s.prefs.fov);
+  const camera = useThree((s) => s.camera);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!(camera instanceof THREE.PerspectiveCamera) || camera.fov === fov) return;
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+    invalidate();
+  }, [camera, fov, invalidate]);
   return null;
 }
 
@@ -106,6 +121,7 @@ export function Game() {
       {!onRoof && <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />}
       <ThemeLayer key={onRoof ? ROOF : isOffice ? floor : 0} kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} floor={onRoof ? ROOF : isOffice ? floor : 0} top={top} repoId={repo?.id ?? null} />
       <Player colliders={colliders} floor={floor} />
+      <FieldOfView />
       <CameraRig />
       <Travel />
       <SoundListener />

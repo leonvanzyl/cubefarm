@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
+import { reduceMotion } from '../ui/a11y';
 import { playerAt, wallCut } from './camera/rig';
 import { ELEVATOR, HALF_D, WALL_H } from './layout';
 import { drawSign } from './draw';
@@ -35,7 +36,8 @@ export function Elevator({ floorLabel, accent }: { floorLabel: string; accent: s
     for (const b of bodies()) if (b.stage !== 'seated' && Math.abs(b.x) < doorHalf + 0.6 && Math.abs(b.z - zDoor) < 2) near = true;
     if (dogNow.drawn && Math.abs(dogNow.x) < doorHalf + 0.6 && Math.abs(dogNow.z - zDoor) < 2) near = true; // and the dog
     const want = travel?.phase === 'closing' ? 0 : near || travel?.phase === 'opening' ? 1 : 0;
-    open.current += (want - open.current) * (1 - Math.exp(-dt * 5));
+    // With reduced motion the doors don't slide: they're open or shut, and the ride is the screen's fade.
+    open.current = reduceMotion() ? want : open.current + (want - open.current) * (1 - Math.exp(-dt * 5));
     const slide = open.current * doorHalf * 0.98;
     if (left.current) left.current.position.x = -doorHalf / 2 - slide;
     if (right.current) right.current.position.x = doorHalf / 2 + slide;

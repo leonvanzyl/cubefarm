@@ -1,5 +1,6 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { create } from 'zustand';
+import { useDialogFocus } from './dialogFocus';
 
 // The office's own confirmation box, instead of the browser's confirm():
 //   if (await confirmDialog({ title: 'Merge PR #12?', confirm: 'Merge' })) …
@@ -37,10 +38,18 @@ function answer(ok: boolean) {
 
 export function ConfirmDialog() {
   const ask = useConfirm((s) => s.ask);
+  if (!ask) return null;
+  return <Question ask={ask} />;
+}
+
+function Question({ ask }: { ask: Ask }) {
+  const box = useRef<HTMLDivElement>(null);
+  useDialogFocus(box);
   useEffect(() => {
-    if (!ask) return;
     // Capture phase, so Esc answers the question instead of also closing the panel underneath.
     const onKey = (e: KeyboardEvent) => {
+      // Enter on the focused Cancel button cancels, as a click would.
+      if (e.key === 'Enter' && (e.target as HTMLElement | null)?.dataset?.answer === 'cancel') return;
       if (e.key === 'Escape' || e.key === 'Enter') {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -50,16 +59,15 @@ export function ConfirmDialog() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [ask]);
-  if (!ask) return null;
   const tone = ask.tone ?? 'good';
   return (
     <div className="confirm-overlay" onMouseDown={(e) => e.target === e.currentTarget && answer(false)}>
-      <div className={`confirm confirm-${tone}`} role="alertdialog" aria-modal="true" aria-label={ask.title}>
+      <div ref={box} className={`confirm confirm-${tone}`} role="alertdialog" aria-modal="true" aria-label={ask.title} tabIndex={-1}>
         <div className="confirm-icon">{ask.icon ?? (tone === 'danger' ? '⚠️' : tone === 'warn' ? '🤔' : '✨')}</div>
         <h3>{ask.title}</h3>
         {ask.body && <div className="confirm-body">{ask.body}</div>}
         <div className="confirm-actions">
-          <button className="btn btn-ghost" onClick={() => answer(false)}>
+          <button className="btn btn-ghost" data-answer="cancel" onClick={() => answer(false)}>
             {ask.cancel ?? 'Cancel'}
           </button>
           <button className={`btn ${tone === 'danger' ? 'btn-bad' : tone === 'warn' ? 'btn-warn' : 'btn-good'}`} onClick={() => answer(true)} autoFocus>

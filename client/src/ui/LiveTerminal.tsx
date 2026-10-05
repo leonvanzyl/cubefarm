@@ -10,7 +10,7 @@ import type { TermClientMessage, TermServerMessage } from '../../../shared/types
 
 const THEME: ITheme = {
   background: '#1b1b29',
-  foreground: '#e8e8f2',
+  foreground: '#eeeef6', // bright enough that dim text (drawn at half strength) still reads at 4.5:1
   cursor: '#ff9e64',
   cursorAccent: '#1b1b29',
   selectionBackground: '#44475a',
@@ -49,6 +49,8 @@ export function LiveTerminal({ agentId, className }: { agentId: string; classNam
       allowProposedApi: true,
       scrollOnEraseInDisplay: true,
       theme: THEME,
+      // Coloured output is nudged until it reads at 4.5:1 on the terminal's background (WCAG AA).
+      minimumContrastRatio: 4.5,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

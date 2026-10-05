@@ -277,7 +277,7 @@ export const autopilot = { on: false, swing: { forward: 1.2, right: 0 } as Swing
 const VIEW = { back: 1.3, y: 1.8, follow: 0.35, lookBack: -TABLE.len * 0.8, lookY: TABLE.top + 0.02 };
 let shake = { at: -Infinity, power: 0 };
 
-/** A smash shakes the view a little (Player.tsx leaves it still for prefers-reduced-motion). */
+/** A smash shakes the view a little (Player.tsx leaves it still under reduced motion: Settings → Accessibility, or the system's). */
 export function shakeView(power: number) {
   shake = { at: performance.now(), power };
 }

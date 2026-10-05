@@ -10,6 +10,7 @@ import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { officeUpdateChip } from '../officeUpdate';
+import { useA11y } from './a11y';
 import { useCameraView } from '../world/camera/rig';
 import { CameraHud, OverviewButton } from './CameraHud';
 import { useKeyName } from './controls';
@@ -121,6 +122,7 @@ export function HUD() {
   const travel = useStore((s) => s.travel);
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  const centerDot = useA11y((s) => s.prefs.centerDot);
   // In the overview, the building view and the follow cam there's no crosshair to aim (camera/rig.ts).
   const onFoot = useCameraView((s) => s.mode) === 'first';
 
@@ -168,7 +170,8 @@ export function HUD() {
 
       {!ghReady && ghError && <div className="hud-banner">⚠️ {ghError}</div>}
 
-      {started && !overlay && !travel && onFoot && !scope && held?.kind !== 'paddle' && <div className={`crosshair ${focus ? 'crosshair-hot' : ''}`} />}
+      {/* the centre dot (Settings → Accessibility) is a bolder crosshair that stays through the elevator's fade too */}
+      {started && !overlay && (!travel || centerDot) && onFoot && !scope && held?.kind !== 'paddle' && <div className={`crosshair ${focus ? 'crosshair-hot' : ''} ${centerDot ? 'crosshair-dot' : ''}`} />}
       {started && !overlay && !travel && onFoot && <RoofHud />}
       <AgentCard />
       {started && !overlay && onFoot && (focus || sip) && (

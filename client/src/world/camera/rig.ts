@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { create } from 'zustand';
 import { CEO_ID } from '../../../../shared/types';
 import { repoOnFloor, useStore } from '../../store';
+import { getA11y, reduceMotion } from '../../ui/a11y';
 import { EYE_HEIGHT, HALF_D, HALF_W, WALL_H } from '../layout';
 import { bodyState } from '../people';
 import {
@@ -92,7 +93,8 @@ interface Home {
   pitch: number;
 }
 
-const FIRST_FOV = 72;
+/** First person's field of view: Settings → Accessibility's (72° unless changed). */
+const firstFov = () => getA11y().fov;
 const FIRST_NEAR = 0.05;
 /** Seconds: out to a view, between views, and back to first person. */
 const FLY_OUT = 0.9;
@@ -286,7 +288,8 @@ function leaveFirst() {
 function startFlight(time: number) {
   capture(rig.from);
   copyPose(rig.from, rig.pose);
-  rig.flight = 0;
+  // With reduced motion (Settings → Accessibility) there's no flight: the view cuts straight to where it was going.
+  rig.flight = reduceMotion() ? 1 : 0;
   rig.flightTime = time;
 }
 
@@ -484,8 +487,8 @@ function followGoal(out: typeof rig.goal) {
 }
 
 function restoreLens(c: THREE.PerspectiveCamera) {
-  if (c.fov === FIRST_FOV && c.near === FIRST_NEAR) return;
-  c.fov = FIRST_FOV;
+  if (c.fov === firstFov() && c.near === FIRST_NEAR) return;
+  c.fov = firstFov();
   c.near = FIRST_NEAR;
   c.updateProjectionMatrix();
 }
@@ -548,7 +551,7 @@ export function stepRig(dt: number) {
     p.z = rig.home.z;
     p.yaw = look.yaw;
     p.pitch = look.pitch;
-    p.fov = FIRST_FOV;
+    p.fov = firstFov();
     p.near = FIRST_NEAR;
   }
 

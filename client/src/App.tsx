@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useMode } from './pocket/mode';
+import { Captions, LiveRegions } from './ui/CaptionStrip';
 import { ConfirmDialog } from './ui/Confirm';
 
 // Each loads only when it's shown: a phone in pocket mode never fetches three.js.
@@ -12,6 +13,8 @@ export function App() {
     <>
       <Suspense fallback={<div className="app-loading">Loading the office…</div>}>{mode === 'pocket' ? <Pocket /> : <Office />}</Suspense>
       <ConfirmDialog />
+      <Captions />
+      <LiveRegions />
     </>
   );
 }

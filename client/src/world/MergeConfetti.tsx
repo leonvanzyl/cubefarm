@@ -1,12 +1,14 @@
 // Confetti over a developer's desk when their PR merges (over the Kanban board when nobody on the floor
 // wrote it), and over the floor's gong when a merge strikes it (gongState.ts). One pooled InstancedMesh per
-// floor: a few slots of flat paper bits, hidden and skipped entirely while no burst is flying.
+// floor: a few slots of flat paper bits, hidden and skipped entirely while no burst is flying. With reduced
+// motion (Settings → Accessibility) a burst is a soft glow that swells and fades on the spot instead.
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { RepoView } from '../../../shared/types';
 import { coversView, useStore, type Agent } from '../store';
-import { canBurst, onMerge } from './confetti';
+import { reduceMotion } from '../ui/a11y';
+import { burstKind, onMerge } from './confetti';
 import { markBloom } from './gfx/bloomMarks';
 import { onGongParty } from './gongState';
 import { BOARD, GONG, deskPosition } from './layout';
@@ -24,28 +26,47 @@ const PALETTE = ['#ff5d8f', '#ffd23f', '#3bceac', '#3a86ff', '#ff8c42', '#9b5de5
 interface Slot {
   key: string | null; // the desk (agent id), 'board' or 'gong' while flying, null when free
   age: number;
+  glow: boolean; // a glow rather than confetti
 }
 
 interface Controller {
   active: () => number;
+  glowing: () => number;
   burst: (agentId?: string) => void;
 }
 
 let controller: Controller | null = null;
 
 // window.__swarmConfetti: for QA and Playwright. burst() goes over that developer's desk on this floor,
-// over the gong for burst('gong'), or over the Kanban board.
+// over the gong for burst('gong'), or over the Kanban board; glowing() counts the reduced-motion glows among active().
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmConfetti')) {
   Object.defineProperty(window, '__swarmConfetti', {
-    value: { active: () => controller?.active() ?? 0, burst: (agentId?: string) => controller?.burst(agentId) },
+    value: { active: () => controller?.active() ?? 0, glowing: () => controller?.glowing() ?? 0, burst: (agentId?: string) => controller?.burst(agentId) },
     enumerable: false,
   });
 }
 
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const GLOW_SIZE = 3; // metres across
+
+/** A soft round glow, white in the middle: tinted per floor by its sprite's colour. */
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
+  const glows = useRef<(THREE.Sprite | null)[]>([]);
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
   // a holiday theme's colours (and Valentine's hearts) in place of the usual
@@ -55,7 +76,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
   const sim = useMemo(() => {
     const n = SLOTS * PIECES;
     return {
-      slots: Array.from({ length: SLOTS }, (): Slot => ({ key: null, age: 0 })),
+      slots: Array.from({ length: SLOTS }, (): Slot => ({ key: null, age: 0, glow: false })),
       pos: new Float32Array(n * 3),
       vel: new Float32Array(n * 3),
       rot: new Float32Array(n * 3),
@@ -66,16 +87,34 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       pizza: PIZZA_CONFETTI.map((c) => new THREE.Color(c)),
       geometry: themed?.shape === 'heart' ? heart(0.1) : new THREE.PlaneGeometry(0.1, 0.06),
       material: markBloom(new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false })),
+      glowMaterials: Array.from(
+        { length: SLOTS },
+        () =>
+          new THREE.SpriteMaterial({
+            color: new THREE.Color(repo.color).lerp(new THREE.Color('#ffd166'), 0.7),
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+          }),
+      ),
     };
   }, [repo.color, themed]);
+  const glowMap = useMemo(glowTexture, []);
+  useLayoutEffect(() => {
+    for (const m of sim.glowMaterials) m.map = glowMap;
+  }, [sim, glowMap]);
 
   useEffect(
     () => () => {
       sim.geometry.dispose();
       sim.material.dispose();
+      for (const m of sim.glowMaterials) m.dispose();
     },
     [sim],
   );
+  useEffect(() => () => glowMap.dispose(), [glowMap]);
 
   // Hide every piece and create the colour attribute before the first draw, so the shader includes it.
   useLayoutEffect(() => {
@@ -94,18 +133,30 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
 
   useEffect(() => {
     const active = () => sim.slots.filter((s) => s.key).length;
+    const glowing = () => sim.slots.filter((s) => s.key && s.glow).length;
 
     const burst = (agentId?: string | null) => {
       const gong = agentId === 'gong';
       const m = mesh.current;
-      if (!m || !canBurst({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reducedMotion() })) return;
+      const kind = burstKind({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reduceMotion() });
+      if (!m || !kind) return;
       const dev = agentId ? agentsRef.current.find((a) => a.id === agentId && a.role === 'dev') : undefined;
       const key = dev?.id ?? (gong ? 'gong' : 'board');
       if (sim.slots.some((s) => s.key === key)) return; // one per desk
       const s = sim.slots.findIndex((x) => !x.key);
       if (s < 0) return; // full: dropped, never queued
       const at = dev ? { ...deskPosition(dev.desk), y: 1.5 } : gong ? { x: GONG.x, z: GONG.z + 0.3, y: GONG.h + 0.1 } : { x: 0, z: BOARD.z + 1.2, y: BOARD.y + BOARD.h * 0.6 };
-      sim.slots[s] = { key, age: 0 };
+      if (kind === 'glow') {
+        const g = glows.current[s];
+        if (!g) return;
+        sim.slots[s] = { key, age: 0, glow: true };
+        g.position.set(at.x, at.y, at.z);
+        g.scale.setScalar(GLOW_SIZE);
+        sim.glowMaterials[s].opacity = 0;
+        g.visible = true;
+        return;
+      }
+      sim.slots[s] = { key, age: 0, glow: false };
       const colors = ritualLook.pizza ? sim.pizza : sim.colors; // Friday pizza: the party's in pizza colours
       for (let k = 0; k < PIECES; k++) {
         const i = s * PIECES + k;
@@ -126,7 +177,8 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
     // A panel that covers the view stops the frame loop: drop bursts in the air rather than finish them later.
     const unsub = useStore.subscribe((s) => {
       const m = mesh.current;
-      if (!m?.visible || !coversView(s.overlay)) return;
+      if (!m || !coversView(s.overlay) || !sim.slots.some((x) => x.key)) return;
+      for (const g of glows.current) if (g) g.visible = false;
       sim.dummy.scale.setScalar(0);
       sim.dummy.updateMatrix();
       for (let i = 0; i < SLOTS * PIECES; i++) m.setMatrixAt(i, sim.dummy.matrix);
@@ -141,7 +193,7 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
     const offGong = onGongParty((repoId) => {
       if (repoId === repo.id) burst('gong');
     });
-    controller = { active, burst };
+    controller = { active, glowing, burst };
     return () => {
       off();
       offGong();
@@ -152,13 +204,27 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
 
   useFrame((_, delta) => {
     const m = mesh.current;
-    if (!m || !m.visible) return;
+    if (!m) return;
     const dt = Math.min(delta, 0.05);
     const { slots, pos, vel, rot, spin, phase, dummy } = sim;
+    // the glows swell in and fade out on the spot: nothing moves
+    for (let s = 0; s < SLOTS; s++) {
+      const slot = slots[s];
+      if (!slot.key || !slot.glow) continue;
+      slot.age += dt;
+      const g = glows.current[s];
+      if (slot.age >= LIFE || !g) {
+        slot.key = null;
+        if (g) g.visible = false;
+        continue;
+      }
+      sim.glowMaterials[s].opacity = Math.sin((Math.PI * slot.age) / LIFE);
+    }
+    if (!m.visible) return;
     let flying = 0;
     for (let s = 0; s < SLOTS; s++) {
       const slot = slots[s];
-      if (!slot.key) continue;
+      if (!slot.key || slot.glow) continue;
       slot.age += dt;
       const done = slot.age >= LIFE;
       // Full size for the first 60% of the flight, then shrink away.
@@ -192,5 +258,20 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
     if (!flying) m.visible = false;
   });
 
-  return <instancedMesh ref={mesh} args={[sim.geometry, sim.material, SLOTS * PIECES]} frustumCulled={false} />;
+  return (
+    <>
+      <instancedMesh ref={mesh} args={[sim.geometry, sim.material, SLOTS * PIECES]} frustumCulled={false} />
+      {sim.glowMaterials.map((mat, i) => (
+        <sprite
+          key={i}
+          ref={(g) => {
+            glows.current[i] = g;
+          }}
+          material={mat}
+          visible={false}
+          renderOrder={2}
+        />
+      ))}
+    </>
+  );
 }

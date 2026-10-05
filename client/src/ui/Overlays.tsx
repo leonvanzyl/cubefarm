@@ -6,6 +6,7 @@ import { CardView } from './CardView';
 import { Catalogue, DecorBoxPanel } from './Catalogue';
 import { ControlsSettings } from './ControlsSettings';
 import { ElevatorPanel } from './ElevatorPanel';
+import { FloorList } from './FloorList';
 import { Key, MoveKeys } from './Key';
 import { Interview } from './Interview';
 import { KanbanView } from './KanbanView';
@@ -355,9 +356,31 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             has a channel for each: aim at one and press <Key action="interact" /> to run that PR beside the main app (at most two PR previews run at once). In the viewer, <b>Compare with main</b> puts
             them side by side, and the PR's checks and QA report sit beside it.
           </p>
+          <HelpAccess />
         </div>
       )}
     </Panel>
+  );
+}
+
+function HelpAccess() {
+  const openOverlay = useStore((s) => s.openOverlay);
+  return (
+    <>
+      <h3>Accessibility</h3>
+      <p>
+        Captions for the CEO's voice and important sounds, colour-blind-safe status colours with shapes, motion comfort (field of view, no head bob, reduced motion, a centre dot), a bigger UI, a dyslexia-friendly font
+        and high contrast are all in the console's Accessibility tab. Everything works from the keyboard: <Key action="phone" /> opens your phone, whose Company tab opens every panel, and the list view shows a floor without the 3D.
+      </p>
+      <div className="row wrap">
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager', tab: 'access' })}>
+          ♿ Accessibility settings
+        </button>
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'floorList' })}>
+          👥 List view of this floor
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -387,5 +410,7 @@ export function Overlays() {
       return <Catalogue repoId={overlay.repoId} />;
     case 'decor-box':
       return <DecorBoxPanel repoId={overlay.repoId} />;
+    case 'floorList':
+      return <FloorList />;
   }
 }

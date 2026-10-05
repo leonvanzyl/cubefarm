@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { agentsOnRepo, useStore, type Agent } from '../store';
 import { CEO_ID, INSTALL_STEP, type LogLine, type RepoView } from '../../../shared/types';
+import { dialogOpen } from './dialogFocus';
 import { isKey, useKeyName } from './controls';
 import { Key } from './Key';
 
@@ -118,12 +119,15 @@ export function WorkersPanel() {
       }
       return !was;
     });
-  // Its key shows and hides it, like a game's player list. Not while a panel is open or you're typing.
+  // Its key shows and hides it, like a game's player list. Not while a panel or question is open, while you're typing,
+  // or while you're moving through the HUD's buttons with Tab (it moves focus then, as everywhere else).
   const key = useKeyName('workers');
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isKey('workers', e.code) || e.repeat || e.altKey || e.ctrlKey || e.metaKey || useStore.getState().overlay) return;
-      if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (!isKey('workers', e.code) || e.repeat || e.altKey || e.ctrlKey || e.metaKey || useStore.getState().overlay || dialogOpen()) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.code === 'Tab' && el && el !== document.body && el.closest?.('.hud') && el.matches(':focus-visible')) return;
       e.preventDefault();
       toggle();
     };
