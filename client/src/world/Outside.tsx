@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import * as THREE from 'three';
 import { doorSlide } from '../ui/sfx';
+import { playerAt } from './camera/rig';
 import { doorOpen, resetDoors, tickDoors } from './doors';
 import { drawFacade } from './draw';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BENCH, FLOOR_HEIGHT, HALF_D, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFurniture, floorElevation, sideSign, type Side } from './layout';
@@ -59,14 +60,14 @@ function SideDoors({ kind, floor }: { kind: FloorKind; floor: number }) {
   const leaves = useRef<(THREE.Group | null)[]>([]);
   const moved = useCallback((side: Side, opening: boolean) => doorSlide({ x: wallX(side), y: 1.2, z: SIDE_OPENINGS[kind][side].door }, opening), [kind]);
   const walkers = useMemo(() => [] as { x: number; z: number }[], []);
-  useFrame(({ camera }, dt) => {
+  useFrame((_, dt) => {
     // a declined candidate on their way out of the lobby opens the door too
     walkers.length = 0;
     for (const id of doorWalkers) {
       const b = bodyState(id);
       if (b) walkers.push(b);
     }
-    tickDoors(camera.position.x, camera.position.z, Math.min(dt, 0.05), moved, walkers);
+    tickDoors(playerAt.x, playerAt.z, Math.min(dt, 0.05), moved, walkers);
     for (const i of LEAVES) {
       const g = leaves.current[i];
       if (!g) continue;

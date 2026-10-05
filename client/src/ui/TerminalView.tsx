@@ -12,6 +12,7 @@ import { MicButton } from './MicButton';
 import { closeOverlay, Panel } from './Panel';
 import { loadScreenshot } from '../screenshot';
 import { toolVerb } from '../world/draw';
+import { followAgent } from '../world/camera/rig';
 
 const STATUS_LABEL: Record<string, string> = {
   idle: 'free',
@@ -128,6 +129,9 @@ export function TerminalView({ agentId }: { agentId: string }) {
           <StatusPill status={agent.status} />
           {working && agent.currentTool && <span className="muted small">{toolVerb(agent.currentTool)}…</span>}
           <span className="spacer" />
+          <button className="btn btn-small" title={`Trail ${agent.name} with the camera wherever they go (a movement key or Esc gives you the controls back)`} onClick={() => followAgent(agent.id)}>
+            🎥 Follow
+          </button>
           {agent.career && (
             <button className={`btn btn-small setup-toggle ${showCareer ? 'setup-toggle-on' : ''}`} aria-expanded={showCareer} title={`${agent.name}'s career on the team`} onClick={() => setShowCareer((v) => !v)}>
               🏅 Career

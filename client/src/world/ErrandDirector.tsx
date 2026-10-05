@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import type { AgentStatus } from '../../../shared/types';
 import { useRenderPaused } from '../perf';
 import { useStore, type Agent } from '../store';
+import type { ChatTopic } from '../ui/chatterLines';
 import { ding } from '../ui/sfx';
 import { WALK_SPEED, type Gesture } from './body';
+import { chatSay } from './Chatter';
+import { playerAt } from './camera/rig';
 import './coffeeErrand';
 import {
   HURRY_SPEED,
@@ -40,10 +43,11 @@ import { takeWelcome, tourAt, tourEnded, tourStarted } from './hiringState';
 import { HALF_D } from './layout';
 import { bodyState, bodyTarget, isSeated, onClaim, placeBody, say, seatBody, setBody, setErrand, takeAsk, trackDirector } from './people';
 import { queueFidget } from './reactionFeed';
-import { ARRIVE, CABIN, CHAT, CHAT_VENUES, DOORS_SECONDS, LEAVE, arrivalPath, exitPath, floorNews, headingTo, huddle, nearest, pickTopic, planChat } from './socials';
+import { ARRIVE, CABIN, CHAT, CHAT_VENUES, DOORS_SECONDS, LEAVE, arrivalPath, exitPath, floorNews, headingTo, huddle, nearest, pickTopic, planChat, topicPr } from './socials';
 import { countPoke, npcRoomba } from './toys/npc';
 import { pokeToy } from './toys/poke';
 import './toyErrands';
+import './events/watch';
 import './roof/roofErrand';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, spot as spotById, standable, steer, walkways, type Body, type FloorKind, type Spot } from './walkways';
@@ -136,7 +140,6 @@ export function ErrandDirector({
   /** The floor's repo, for what chats are about. */
   repoId?: string;
 }) {
-  const camera = useThree((s) => s.camera);
   const paused = useRenderPaused();
   const w = walkways(floor);
   const people = useMemo(() => new Map<string, Person>(), []);
@@ -322,8 +325,10 @@ export function ErrandDirector({
     sc?.end();
   }
 
+  // Only a chat's bubble goes with it: anything else they're saying (Chatter.tsx's lines) runs its own time.
   const leaveChat = (p: Person) => {
-    p.chat?.ids.delete(p.id);
+    if (!p.chat) return;
+    p.chat.ids.delete(p.id);
     p.chat = null;
     say(p.id, null);
   };
@@ -479,7 +484,7 @@ export function ErrandDirector({
     if (d > 0.05) {
       const ux = dx / d;
       const uz = dz / d;
-      const player = { x: camera.position.x, z: camera.position.z };
+      const player = { x: playerAt.x, z: playerAt.z };
       const s = steer({ id: p.id, x, z, dx: ux, dz: uz }, p.ghost > 0 ? [] : run.walkers, player, (sx, sz) => standable(w, sx, sz));
       if (s.wait) {
         tx = x;
@@ -512,8 +517,8 @@ export function ErrandDirector({
     me.heading = st.heading;
     me.arrived = p.arrived;
     me.dt = dt;
-    me.player.x = camera.position.x;
-    me.player.z = camera.position.z;
+    me.player.x = playerAt.x;
+    me.player.z = playerAt.z;
     const act = sc.tick(me);
     if (p.script !== sc) return; // it ended meanwhile
     if (act.do === 'done') return goHome(p, false, st, 'done');
@@ -581,13 +586,14 @@ export function ErrandDirector({
     return headingFor(dest.facing) + turn;
   };
 
-  /** Something to say in a chat, fitting what just happened on the floor. */
-  const topic = () => {
+  /** Something to say in a chat, fitting what just happened on the floor: a line about it (or its emoji, chatter off). */
+  const talk = (p: Person, seconds: number) => {
     const s = useStore.getState();
     const repo = s.repos.find((r) => r.id === repoId);
     const qa = Object.values(s.qa).filter((q) => q.repoId === repoId);
     const working = latest.current.filter((a) => a.status === 'working').length;
-    return pickTopic(floorNews(repo, qa, working, Date.now()), Math.random());
+    const topic = pickTopic(floorNews(repo, qa, working, Date.now()), Math.random()) as ChatTopic;
+    chatSay(p.id, topic, topicPr(topic, repo, qa), p.dest?.id.split('-chat-')[0] ?? '', seconds);
   };
 
   /** One frame of an errand's actor: walk where it says, stand how it says, or head home when it's done. */
@@ -670,7 +676,7 @@ export function ErrandDirector({
             // The doors open: out round you if you're in front of them (you may have ridden up together).
             const lift = p.hold <= 0 && e === TOUR ? spotById(w, 'elevator') : undefined;
             if (lift) {
-              const out = stepOut(lift, { x: camera.position.x, z: camera.position.z }, planTour(w, lift)[0]?.spot ?? null);
+              const out = stepOut(lift, { x: playerAt.x, z: playerAt.z }, planTour(w, lift)[0]?.spot ?? null);
               p.path = [out];
               p.dest = { ...lift, ...out, facing: -Math.PI / 2 };
             }
@@ -710,7 +716,7 @@ export function ErrandDirector({
           p.step++;
           const s = p.hurry ? undefined : e.steps[p.step];
           if (!s) {
-            say(p.id, null);
+            if (p.chat) say(p.id, null);
             if (leaving) exit(p);
             else goHome(p, false, st, 'done');
             break;
@@ -720,7 +726,8 @@ export function ErrandDirector({
             break;
           }
           p.stepLeft = s.seconds * (0.8 + Math.random() * 0.45);
-          say(p.id, s.say ? topic() : null);
+          if (s.say) talk(p, p.stepLeft);
+          else if (p.chat) say(p.id, null);
           // A few steps to another spot first (along the board): the step lasts at least the walk.
           const next = s.to ? spotById(w, s.to(p.id) ?? '') : undefined;
           const speed = e.speed ?? WALK_SPEED;

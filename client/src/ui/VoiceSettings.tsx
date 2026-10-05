@@ -11,6 +11,8 @@ import { confirmDialog } from './Confirm';
 import { micCaps, setHandsFree } from './mic';
 import { cantListen } from './micText';
 import { getAudioPrefs } from './sfx';
+import { keyName } from './controls';
+import { Key } from './Key';
 import { browserVoices, searchVoices, voiceLabels, type BrowserVoice } from './voicePicker';
 import { playClip, speakLine, stopVoice } from './voicePlayback';
 
@@ -34,7 +36,7 @@ type Save = (patch: Partial<Voice>) => void;
 type Playing = string | null;
 
 function hintMuted() {
-  if (getAudioPrefs().muted) useStore.getState().pushToast('info', '🔇 Sound is off: press M to hear it');
+  if (getAudioPrefs().muted) useStore.getState().pushToast('info', `🔇 Sound is off: press ${keyName('mute')} to hear it`);
 }
 
 /** The browser's voices, which arrive asynchronously; null where the browser can't speak. */
@@ -399,7 +401,7 @@ function Listening({ keyShown }: { keyShown: boolean }) {
     <div className="listen-settings">
       <h4>🎙️ Talk instead of type</h4>
       <p className="muted small">
-        Hold the 🎙️ next to Send (or hold <kbd>V</kbd> in the message box) and speak: your words fill the box, to edit before you send. A quick tap listens until you stop talking. <kbd>Esc</kbd> stops listening.
+        Hold the 🎙️ next to Send (or hold <Key action="talk" /> in the message box) and speak: your words fill the box, to edit before you send. A quick tap listens until you stop talking. <kbd>Esc</kbd> stops listening.
       </p>
       <div role="radiogroup" aria-labelledby={`${radioName}-label`}>
         <div id={`${radioName}-label`} className="field">

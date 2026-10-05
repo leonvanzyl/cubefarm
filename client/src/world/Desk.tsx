@@ -8,6 +8,7 @@ import { useA11y } from '../ui/a11y';
 import { showsShapes } from '../ui/a11yPrefs';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
+import { greetPick } from './Chatter';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { BLOOM } from './gfx/bloomMarks';
@@ -15,6 +16,7 @@ import { DeskGlow } from './gfx/ScreenGlow';
 import { glow, shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
+import { useKeyName } from '../ui/controls';
 
 const SCREEN = { w: 1.0, h: 0.6, px: 896, py: 538 };
 const WOOD = '#f1d19b';
@@ -146,6 +148,7 @@ function LiveMonitor({ agent, accent }: { agent: Agent; accent: string }) {
 }
 
 function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
+  const use = useKeyName('interact');
   const tex = useCanvasTexture(
     640,
     384,
@@ -155,10 +158,10 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
       drawSign(ctx, 640, 384, [
         { text: qa ? '🔍' : '🪑', size: 70 },
         { text: qa ? 'QA STATION' : 'VACANT', size: 70, color: '#ffd6a5' },
-        { text: qa ? 'press E or click to hire a tester' : 'press E or click to hire an agent', size: 36, color: '#a9adc6', weight: 500 },
+        { text: qa ? `press ${use} or click to hire a tester` : `press ${use} or click to hire an agent`, size: 36, color: '#a9adc6', weight: 500 },
       ], 'rgba(0,0,0,0)');
     },
-    [qa],
+    [qa, use],
   );
   return (
     <Monitor accent={accent}>
@@ -305,6 +308,10 @@ export const Desk = memo(function Desk({
   rotationY?: number;
 }) {
   const qa = role === 'qa';
+  // Aiming at the person themselves, while they've nothing to do, says hi instead (Chatter.tsx).
+  const agentId = agent?.id;
+  const desk = agent?.role === 'ceo' ? 'to open it' : qa ? 'for their test run' : 'for their terminal';
+  const greeting = useMemo(() => (agentId ? greetPick(agentId, desk) : undefined), [agentId, desk]);
   const ref = useInteractable<THREE.Group>(
     agent
       ? {
@@ -318,6 +325,7 @@ export const Desk = memo(function Desk({
           action: { kind: 'hire', repoId, role },
         },
     3.6,
+    greeting,
   );
   const mug = agent ? shade(agent.color, 0.1) : '#ffffff';
   const top = qa ? LAB_BENCH : WOOD;

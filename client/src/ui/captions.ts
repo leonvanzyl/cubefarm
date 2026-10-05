@@ -10,7 +10,7 @@ import { useStore } from '../store';
 import { GONG } from '../world/layout';
 import { getA11y } from './a11y';
 import { announce } from './announce';
-import { admitCaption, arrowFor, captionFor, captionMs, estimateSpeechMs, newCaptionGate, spokenChars, withArrow, wordEnd, type CaptionPriority } from './captionRules';
+import { admitCaption, arrowFor, arrowForPan, captionFor, captionMs, estimateSpeechMs, newCaptionGate, spokenChars, withArrow, wordEnd, type CaptionPriority } from './captionRules';
 import { listenerAt, listenerFacing, onSoundRecorded, type Vec3 } from './sfx';
 
 export interface CaptionLine {
@@ -100,8 +100,8 @@ async function detailOf(name: string): Promise<string | undefined> {
   return undefined;
 }
 
-/** Captions a sound by its name (as sfx.ts records it), from `pos` when it has one. */
-export function captionSound(name: string, pos: Vec3 | null = null) {
+/** Captions a sound by its name (as sfx.ts records it), from `pos` when it has one, else by its stereo `pan`. */
+export function captionSound(name: string, pos: Vec3 | null = null, pan = 0) {
   const info = captionFor(name);
   if (!info) return;
   const on = getA11y().captions;
@@ -109,7 +109,7 @@ export function captionSound(name: string, pos: Vec3 | null = null) {
   if (!on && !alarm) return;
   if (!admitCaption(gate, info, performance.now())) return;
   const at = pos ?? anchorOf(name);
-  const arrow = at ? arrowTo(at) : '';
+  const arrow = at ? arrowTo(at) : arrowForPan(pan);
   void detailOf(name).then((detail) => {
     const text = captionFor(name, detail)?.text ?? info.text;
     if (alarm) announce(text.replace(/^\[|\]$/g, ''), 'assertive');
@@ -118,7 +118,7 @@ export function captionSound(name: string, pos: Vec3 | null = null) {
 }
 
 onSoundRecorded((rec, heard) => {
-  if (heard) captionSound(rec.name, rec.at);
+  if (heard) captionSound(rec.name, rec.at, rec.pan);
 });
 
 // ---------- the CEO's voice ----------

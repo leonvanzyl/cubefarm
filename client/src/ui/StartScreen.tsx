@@ -2,6 +2,8 @@ import { usePhoneBadge, useStore } from '../store';
 import { requestLook } from '../world/Player';
 import { setMode } from '../pocket/mode';
 import { CEO_ID } from '../../../shared/types';
+import { keyName, useKeyName } from './controls';
+import { Key } from './Key';
 import { SetupWizard } from './SetupWizard';
 import { unlockAudio } from './sfx';
 import { announce } from './announce';
@@ -16,6 +18,7 @@ export function StartScreen() {
   const settings = useStore((s) => s.settings);
   const start = useStore((s) => s.start);
   const waiting = usePhoneBadge();
+  const phoneKey = useKeyName('phone');
   if (started) return null;
   if (loaded && !settings.setupDone) return <SetupWizard />;
 
@@ -23,7 +26,9 @@ export function StartScreen() {
     start();
     unlockAudio();
     requestLook();
-    announce("You're in the office. Press P for your phone: its Company tab opens the console, the Kanban, a list view of this floor and the accessibility settings. H opens help.");
+    announce(
+      `You're in the office. Press ${keyName('phone')} for your phone: its Company tab opens the console, the Kanban, a list view of this floor and the accessibility settings. ${keyName('help')} opens help.`,
+    );
   };
   const ceo = agents[CEO_ID];
   const staff = Object.values(agents).filter((a) => a.role !== 'ceo').length;
@@ -38,9 +43,9 @@ export function StartScreen() {
           <li>
             🏢 {repos.length} project{repos.length === 1 ? '' : 's'}, {staff} {staff === 1 ? 'person' : 'people'} on staff{ceo ? `, and ${ceo.name} in the corner office` : ''}.
           </li>
-          <li>{waiting ? `📱 ${waiting} thing${waiting === 1 ? '' : 's'} waiting on your phone. Press P once you're in.` : '📱 Press P anywhere for your phone.'}</li>
+          <li>{waiting ? `📱 ${waiting} thing${waiting === 1 ? '' : 's'} waiting on your phone. Press ${phoneKey} once you're in.` : `📱 Press ${phoneKey} anywhere for your phone.`}</li>
           <li>
-            💻 Walk up behind anyone to watch their screen, or press <kbd>E</kbd> (or click) on things to use them. <kbd>H</kbd> for help.
+            💻 Walk up behind anyone to watch their screen, or press <Key action="interact" /> (or click) on things to use them. <Key action="help" /> for help.
           </li>
         </ul>
         <button className="btn btn-big" onClick={enter} disabled={!loaded}>

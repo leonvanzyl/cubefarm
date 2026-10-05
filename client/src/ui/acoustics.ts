@@ -124,7 +124,7 @@ export function fillImpulse(spec: RoomSound, rate: number, rand: () => number, c
 // ---------- the sends ----------
 
 /** How much of each group goes into the room: none for messages read aloud (your phone) or the outside's own air. */
-export const ROOM_SENDS: Record<SoundGroup, number> = { steps: 1, typing: 0.8, toys: 1, alerts: 0.5, music: 0.6, voice: 0, outside: 0, score: 0.35 };
+export const ROOM_SENDS: Record<SoundGroup, number> = { steps: 1, typing: 0.8, babble: 0.7, toys: 1, alerts: 0.5, music: 0.6, voice: 0, outside: 0, score: 0.35 };
 
 // ---------- moving between rooms ----------
 

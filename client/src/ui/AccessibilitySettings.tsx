@@ -3,6 +3,7 @@
 // 3D-only parts (motion, the field of view) are left out.
 import { useId, type ReactNode } from 'react';
 import { useStore } from '../store';
+import { Key } from './Key';
 import { resetA11y, setA11y, useA11y } from './a11y';
 import { DEFAULT_A11Y, LIMITS, reducesMotion, showsShapes, type A11yPrefs, type ReduceMotion } from './a11yPrefs';
 import { KIND_ICON, KIND_WORD, kindStrong, PALETTE_LABELS, PALETTES, STATUS_KINDS, type Palette } from './statusLook';
@@ -144,7 +145,7 @@ export function AccessibilitySettings({ pocket = false }: { pocket?: boolean }) 
         <section className="card a11y-card" aria-labelledby={`${name}-kb`}>
           <h3 id={`${name}-kb`}>⌨️ Keyboard and screen readers</h3>
           <p className="small">
-            <kbd>P</kbd> opens your phone from anywhere: its <b>Company</b> tab opens the console, this floor's Kanban, the floor list, help and these settings. <kbd>H</kbd> opens help. In any panel,{' '}
+            <Key action="phone" /> opens your phone from anywhere: its <b>Company</b> tab opens the console, this floor's Kanban, the floor list, help and these settings. <Key action="help" /> opens help. In any panel,{' '}
             <kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> move between controls, <kbd>Enter</kbd> or <kbd>Space</kbd> uses one and <kbd>Esc</kbd> closes it; focus goes back where it was.
             Screen readers hear the CEO's messages and alarms as they happen.
           </p>

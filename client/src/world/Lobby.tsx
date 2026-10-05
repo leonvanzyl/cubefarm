@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { floorPrCounts, pendingRequests, useStore } from '../store';
+import { useKeyName } from '../ui/controls';
 import { CEO_ID } from '../../../shared/types';
 import { ActivityIcon } from './ActivityIcon';
 import { WaitingRoom } from './Candidates';
@@ -55,6 +56,7 @@ function useOfficeStats() {
 }
 
 function ManagerComputer() {
+  const use = useKeyName('interact');
   const stats = useOfficeStats();
   const ref = useInteractable<THREE.Group>({ id: 'manager-console', label: "Open the manager's console", action: { kind: 'manager' } }, 3.2);
   const tex = useCanvasTexture(
@@ -94,9 +96,9 @@ function ManagerComputer() {
       });
       ctx.fillStyle = '#7CFFB2';
       ctx.font = `600 32px ${SANS}`;
-      ctx.fillText('Press E or click to manage floors, team & issues', 50, 592);
+      ctx.fillText(`Press ${use} or click to manage floors, team & issues`, 50, 592);
     },
-    [stats.repos, stats.agents, stats.working, stats.max, stats.issues, stats.inQa, stats.readyToMerge, stats.pending],
+    [stats.repos, stats.agents, stats.working, stats.max, stats.issues, stats.inQa, stats.readyToMerge, stats.pending, use],
   );
   return (
     <group ref={ref} position={[MANAGER_DESK.x, 0, MANAGER_DESK.z]}>

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { agentsOnRepo, useStore, type Agent } from '../store';
 import { CEO_ID, INSTALL_STEP, type LogLine, type RepoView } from '../../../shared/types';
 import { dialogOpen } from './dialogFocus';
+import { isKey, useKeyName } from './controls';
+import { Key } from './Key';
 
 // Who is busy with what, across the whole company: everyone working right now with their project and their latest
 // thought, reply or tool call. Idle workers are left out; the floor you're on comes first. Click someone to watch
-// their screen; Tab shows and hides the list.
+// their screen; L (Help → Controls) shows and hides the list.
 
 const SHOWN: LogLine['kind'][] = ['tool', 'text', 'thinking', 'error', 'done', 'manager'];
 const isWorking = (a: Agent) => a.status === 'working' || a.status === 'preparing';
@@ -117,14 +119,15 @@ export function WorkersPanel() {
       }
       return !was;
     });
-  // Tab shows and hides it, like a game's player list. Not while a panel or question is open, while you're typing, or
-  // while you're moving through the HUD's buttons with the keyboard (Tab moves focus then, as everywhere else).
+  // Its key shows and hides it, like a game's player list. Not while a panel or question is open, while you're typing,
+  // or while you're moving through the HUD's buttons with Tab (it moves focus then, as everywhere else).
+  const key = useKeyName('workers');
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'Tab' || e.repeat || e.altKey || e.ctrlKey || e.metaKey || useStore.getState().overlay || dialogOpen()) return;
+      if (!isKey('workers', e.code) || e.repeat || e.altKey || e.ctrlKey || e.metaKey || useStore.getState().overlay || dialogOpen()) return;
       const el = e.target as HTMLElement | null;
       if (el?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-      if (el && el !== document.body && el.closest?.('.hud') && el.matches(':focus-visible')) return;
+      if (e.code === 'Tab' && el && el !== document.body && el.closest?.('.hud') && el.matches(':focus-visible')) return;
       e.preventDefault();
       toggle();
     };
@@ -149,12 +152,12 @@ export function WorkersPanel() {
 
   return (
     <div className={`workers ${open ? '' : 'workers-closed'}`}>
-      <button className="wk-head" onClick={toggle} title={open ? 'Hide the list (Tab)' : 'Show who is working (Tab)'}>
+      <button className="wk-head" onClick={toggle} title={open ? `Hide the list (${key})` : `Show who is working (${key})`}>
         <span>
           Working <b>{total}</b>
         </span>
         <span className="wk-chevron">
-          <kbd>Tab</kbd> {open ? '▾' : '▸'}
+          <Key action="workers" /> {open ? '▾' : '▸'}
         </span>
       </button>
       {open && (

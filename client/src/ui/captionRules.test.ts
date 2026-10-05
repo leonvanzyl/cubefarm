@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { admitCaption, arrowFor, captionFor, captionTail, estimateSpeechMs, GATE, newCaptionGate, spokenChars, withArrow, wordEnd } from './captionRules';
+import { admitCaption, arrowFor, arrowForPan, captionFor, captionTail, estimateSpeechMs, GATE, newCaptionGate, spokenChars, withArrow, wordEnd } from './captionRules';
 
 describe('captionFor', () => {
   it('captions the important sounds, short and in brackets', () => {
@@ -7,7 +7,8 @@ describe('captionFor', () => {
     expect(captionFor('cheer:crowd')?.text).toBe('[merge cheer]');
     expect(captionFor('cheer:woo')?.text).toBe('[merge cheer]');
     expect(captionFor('thunder')?.text).toBe('[thunder]');
-    expect(captionFor('outside:thunder')?.text).toBe('[thunder]');
+    expect(captionFor('weather:thunder')?.text).toBe('[thunder]');
+    expect(captionFor('event:roar')?.text).toBe('[kaiju roars]');
     expect(captionFor('alarm', 'PR #212 needs you')?.text).toBe('[alarm: PR #212 needs you]');
     expect(captionFor('alarm')?.text).toBe('[alarm]');
     expect(captionFor('jukebox:refactor-rain', 'Refactor Rain')?.text).toBe('[jukebox: Refactor Rain]');
@@ -86,6 +87,12 @@ describe('arrowFor', () => {
     expect(arrowFor(-3, -3)).toBe('↙');
     expect(arrowFor(3, -3)).toBe('↘');
     expect(arrowFor(-3, 3)).toBe('↖');
+  });
+
+  it('points left or right for a sound that is only panned (thunder)', () => {
+    expect(arrowForPan(-0.4)).toBe('←');
+    expect(arrowForPan(0.4)).toBe('→');
+    expect(arrowForPan(0.1)).toBe('');
   });
 
   it('has no arrow for a sound right beside you', () => {

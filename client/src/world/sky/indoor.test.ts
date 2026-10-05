@@ -100,6 +100,19 @@ describe('indoorLight', () => {
     const out = newIndoorLight();
     expect(indoorLight(0.4, out)).toBe(out);
   });
+
+  it('brings the lamps on earlier in heavy weather, and passes the palette through its touch', () => {
+    const late = 0.7; // late afternoon: the lamps are still off on a fair day
+    expect(indoorLight(late).lamps).toBe(0);
+    const storm = indoorLight(late, newIndoorLight(), { gloom: 1, sky: (p) => void (p.sunIntensity *= 0.3) });
+    expect(storm.lamps).toBeGreaterThan(0.3);
+    expect(storm.keyIntensity).toBeLessThan(indoorLight(late).keyIntensity * 0.4);
+    // at dusk they're on sooner
+    const dusk = sample(400).filter((t) => t > 0.5 && t < 0.8);
+    const firstOn = (gloom: number) => dusk.find((t) => indoorLight(t, newIndoorLight(), { gloom, sky: () => undefined }).lamps > 0.5)!;
+    expect(firstOn(1)).toBeLessThan(firstOn(0));
+    expect(indoorLight(0.5, newIndoorLight(), { gloom: 0, sky: () => undefined })).toEqual(indoorLight(0.5));
+  });
 });
 
 describe('shadowBox', () => {

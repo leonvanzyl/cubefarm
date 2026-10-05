@@ -10,6 +10,7 @@ import type { ListenProvider } from '../../../shared/types';
 import { api } from '../api';
 import { useStore } from '../store';
 import { isConfirmOpen } from './Confirm';
+import { bindings } from './controls';
 import { HANDS_FREE_IDLE, handsFree, type HandsFree, type HandsFreeEvent, type Room } from './handsFree';
 import { closesMic, HOLD_MS, isTalkKey, type KeyPlace } from './micKeys';
 import { freshEars, heardLevel, heardWords, listenRules, sendsWhenDone, verdict, type Ears, type MicMode } from './micSilence';
@@ -580,25 +581,27 @@ function typeHeldV() {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  if (e.code === 'KeyV' && e.repeat && (vPress || vTalking)) return void e.preventDefault();
-  if (vPress && e.code !== 'KeyV') typeHeldV(); // typing on: the v comes first
+  const { talk, mute } = bindings(); // the player's keys (Help → Controls): V and M unless rebound
+  const isTalk = talk.includes(e.code);
+  if (isTalk && e.repeat && (vPress || vTalking)) return void e.preventDefault();
+  if (vPress && !isTalk) typeHeldV(); // typing on: the v comes first
   const { place, target, box } = placeOf(e.target);
   const s = session;
   if (s) {
-    if (closesMic(e, s.mode === 'handsfree', place)) {
+    if (closesMic(e, s.mode === 'handsfree', place, mute)) {
       e.preventDefault();
       e.stopImmediatePropagation(); // Esc stops listening; it doesn't also close the phone or the panel
       cancel('stopped');
     }
     return;
   }
-  if (hf.kind === 'chime' && closesMic(e, true, place)) {
+  if (hf.kind === 'chime' && closesMic(e, true, place, mute)) {
     e.preventDefault();
     e.stopImmediatePropagation();
     step({ type: 'closed' });
     return;
   }
-  if (e.repeat || !target || !isTalkKey(e, place) || isConfirmOpen() || listening().provider === 'off') return;
+  if (e.repeat || !target || !isTalkKey(e, place, talk) || isConfirmOpen() || listening().provider === 'off') return;
   e.preventDefault(); // held back: a tap types it on release
   vPress = {
     target,
@@ -613,7 +616,7 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function onKeyUp(e: KeyboardEvent) {
-  if (e.code !== 'KeyV') return;
+  if (!bindings().talk.includes(e.code)) return;
   if (vPress) typeHeldV();
   else if (vTalking) {
     vTalking = false;

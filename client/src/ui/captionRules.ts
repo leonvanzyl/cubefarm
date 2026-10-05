@@ -40,6 +40,10 @@ const RULES: Rule[] = [
   { match: is('ding'), text: '[elevator ding]', priority: 1, cooldownMs: 4000 },
   { match: has('alarm'), key: () => 'alarm', text: withDetail('alarm'), priority: 3, cooldownMs: 20_000 },
   { match: has('thunder'), key: () => 'thunder', text: '[thunder]', priority: 1, cooldownMs: 8000 },
+  { match: is('event:roar'), text: '[kaiju roars]', priority: 1, cooldownMs: 8000 },
+  { match: is('event:crash'), text: '[crash outside]', priority: 1, cooldownMs: 8000 },
+  { match: is('event:boom'), text: '[boom outside]', priority: 1, cooldownMs: 8000 },
+  { match: is('event:launch'), text: '[launch outside]', priority: 1, cooldownMs: 8000 },
   // one per song: a new song is captioned at once, the same one again only after a while
   { match: starts('jukebox:'), key: (n) => n, text: withDetail('jukebox'), priority: 1, cooldownMs: 90_000 },
 ];
@@ -98,6 +102,9 @@ export function arrowFor(right: number, ahead: number): string {
   const sector = Math.round(Math.atan2(right, ahead) / (Math.PI / 4));
   return ARROWS[(sector + 8) % 8];
 }
+
+/** The arrow for a sound that is only panned (-1 left to 1 right), not placed: left or right, or none near the middle. */
+export const arrowForPan = (pan: number) => (pan <= -0.3 ? '←' : pan >= 0.3 ? '→' : '');
 
 /** The caption with its arrow on the side the sound is on. */
 export const withArrow = (text: string, arrow: string) => (!arrow ? text : ['↙', '←', '↖'].includes(arrow) ? `${arrow} ${text}` : `${text} ${arrow}`);

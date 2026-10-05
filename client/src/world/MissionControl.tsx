@@ -6,6 +6,7 @@ import type { OpsAlarm } from '../../../shared/types';
 import { usageMeter } from '../ops';
 import { officeNow } from '../officeTime';
 import { useStore, type Focus } from '../store';
+import { useKeyName } from '../ui/controls';
 import { drawCost, drawFlow, drawPipeline, drawStrip, drawTeam, drawThroughput, drawUsage, type FloorTag, type UsageScreen } from './drawOps';
 import { useCanvasTexture, useInteractable } from './interact';
 import { HALF_D, MISSION, missionColumn } from './layout';
@@ -117,6 +118,7 @@ const alarmFocus = (id: string, a: OpsAlarm): Focus => ({
 });
 
 export function MissionControl() {
+  const use = useKeyName('interact');
   const ops = useStore((s) => s.ops);
   const repos = useStore((s) => s.repos);
   const usage = useStore((s) => s.usage);
@@ -158,7 +160,7 @@ export function MissionControl() {
   const m = usageMeter(usage, officeNow());
   const meterData: UsageScreen = {
     ...m,
-    hint: usage.state === 'pacing' ? 'Press E to resume full speed' : usage.state === 'paused' ? "A pause at the limit can't be cleared early" : 'New work starts at full speed',
+    hint: usage.state === 'pacing' ? `Press ${use} to resume full speed` : usage.state === 'paused' ? "A pause at the limit can't be cleared early" : 'New work starts at full speed',
   };
   const meter = useScreen('usage', BOTTOM_PX, meterData, drawUsage);
   const cost = useScreen('cost', BOTTOM_PX, { floors: tags.map(({ tag, n }) => ({ ...tag, usd: n.costToday })), ceo: ops.ceoCostToday, total: t.costToday }, drawCost);

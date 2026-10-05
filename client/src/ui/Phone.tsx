@@ -8,6 +8,8 @@ import { MicButton } from './MicButton';
 import { handsFreeProblem, setHandsFree } from './mic';
 import { closeOverlay } from './Panel';
 import { useDialogFocus } from './dialogFocus';
+import { isKey } from './controls';
+import { Key } from './Key';
 import { Games, type GameId } from './games/Games';
 import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
@@ -543,7 +545,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
-      if (e.key === 'Escape' || (!typing && e.code === 'KeyP')) {
+      if (e.key === 'Escape' || (!typing && isKey('phone', e.code))) {
         e.preventDefault();
         closeOverlay();
       }
@@ -600,7 +602,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
               <kbd>Shift</kbd>+<kbd>Enter</kbd> new line ·{' '}
               {listenOn && (
                 <>
-                  <kbd>V</kbd> to talk ·{' '}
+                  <Key action="talk" /> to talk ·{' '}
                 </>
               )}
             </>
@@ -610,7 +612,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
               <kbd>Backspace</kbd> games ·{' '}
             </>
           )}
-          <kbd>P</kbd> or <kbd>Esc</kbd> to put it away
+          <Key action="phone" /> or <kbd>Esc</kbd> to put it away
         </div>
       </div>
     </div>
