@@ -17,6 +17,7 @@ import { Panel } from './Overlays';
 import { Resume } from './Phone';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
+import { ThemeSettings } from './ThemeSettings';
 import { TimeLapseTab } from './TimeLapse';
 import { VoiceSettings } from './VoiceSettings';
 import { AccessibilitySettings } from './AccessibilitySettings';
@@ -725,6 +726,7 @@ function SettingsTab() {
       <VoiceSettings />
       <OutsideSettings />
       <NotifySettings />
+      <ThemeSettings />
     </div>
   );
 }

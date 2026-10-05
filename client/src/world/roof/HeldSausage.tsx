@@ -5,6 +5,7 @@ import { useStore } from '../../store';
 import { Outlines } from '../Outlines';
 import { toon } from '../materials';
 import { sipPose } from '../toys/sipping';
+import { FIRST_PERSON } from '../viewTags';
 import { BITES } from './grillRules';
 
 // The sausage in your hands, held like a mug (toys/MugToys.tsx): in its bun at the lower right of the view, raised to
@@ -35,7 +36,7 @@ export function HeldSausage() {
   const left = Math.max(0.15, held.bites / BITES);
   const len = 0.17 * left;
   return (
-    <group ref={root}>
+    <group ref={root} userData={FIRST_PERSON}>
       <group ref={hand} scale={0.8}>
         <group position={[0, 0, -0.085 + len / 2]}>
           {[-1, 1].map((side) => (

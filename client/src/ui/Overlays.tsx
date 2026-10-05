@@ -20,6 +20,7 @@ import type { DayMode } from '../world/sky/time';
 import { setDayMode, useDayTime } from '../world/sky/useDayTime';
 import { GRAPHICS_PRESETS, type GraphicsPreset } from '../world/gfx/quality';
 import { effectiveTier, setGraphicsPreset, useGfx } from '../world/gfx/useGraphics';
+import { setReplay, usePhotoGate } from '../photo/gate';
 
 export { closeOverlay, Panel } from './Panel';
 
@@ -141,6 +142,16 @@ function GraphicsSettings() {
         preset === 'auto' && <span className="muted small">now {GRAPHICS_LABELS[tier]}</span>
       )}
     </div>
+  );
+}
+
+/** Instant replay, off by default (photo/instantReplay.ts); saved in this browser. */
+function ReplaySetting() {
+  const on = usePhotoGate((s) => s.replay);
+  return (
+    <label className="toggle">
+      <input type="checkbox" checked={on} onChange={(e) => setReplay(e.target.checked)} /> Instant replay: keep the last 15 seconds, and save them with <Key action="saveReplay" />
+    </label>
   );
 }
 
@@ -278,6 +289,15 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's
             speech recognition or ElevenLabs.
           </p>
+          <h3>Photo mode and clips</h3>
+          <p>
+            Press <Key action="photo" /> (or 📷 at the top right) to freeze the office and fly a camera of your own: click the view to steer, <MoveKeys /> to fly, <kbd>Space</kbd> and <kbd>C</kbd> up and down,{' '}
+            <Key action="rotateLeft" /> and <Key action="rotateRight" /> to roll and the wheel to zoom. Pick a filter, add depth of field, the logo, the floor and date, or move the sun to golden hour, then{' '}
+            <kbd>Enter</kbd> saves a PNG (up to 4× your screen) and copies it. <kbd>V</kbd> records a clip with the office's sound, optionally slowly circling the gong, the whiteboard or someone. Unfreeze (
+            <kbd>F</kbd>) to film the office live. The work carries on while you shoot, and <Key action="photo" /> puts you back exactly where you were. Shots and clips are kept in this tab's gallery and saved to your
+            downloads, never uploaded.
+          </p>
+          <ReplaySetting />
           <h3>Who's working</h3>
           <p>
             The list at the top right shows everyone who is working right now (on this floor, or on every floor from the lobby) with their latest thought, reply or tool call. Click someone to watch their screen.{' '}

@@ -30,6 +30,8 @@ describe('default bindings', () => {
     expect(b.volumeUp).toEqual(['Equal', 'NumpadAdd']);
     expect(b.overview).toEqual(['Tab']);
     expect(b.talk).toEqual(['KeyV']);
+    expect(b.photo).toEqual(['KeyK']);
+    expect(b.saveReplay).toEqual(['KeyI']);
   });
 
   it('have no conflicts (E interacts on foot and turns the overview, which never run together)', () => {

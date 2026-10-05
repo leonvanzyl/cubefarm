@@ -60,7 +60,9 @@ export interface Focus {
     | { kind: 'decoration'; op: 'place' | 'take' | 'box' | 'arcade'; slot?: string }
     | { kind: 'trophy'; id: string }
     /** Say hi to someone with nothing to do (Chatter.tsx). */
-    | { kind: 'greet'; agentId: string };
+    | { kind: 'greet'; agentId: string }
+    /** E on a holiday theme's thing (themes/active.ts). */
+    | { kind: 'theme'; id: string };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -208,6 +210,7 @@ export const useStore = create<State>((set, get) => ({
     pacingSessions: 3,
     trimIdleDesksMin: 120,
     voice: { provider: 'off', voiceId: '', voiceName: '', model: '', speakOffice: false, keepDays: 7 },
+    themes: { mode: 'auto', disabled: [], birthday: null },
     weather: DEFAULT_WEATHER,
     worldEvents: DEFAULT_WORLD_EVENTS,
     listen: { provider: 'off', autoSend: false, handsFree: false },

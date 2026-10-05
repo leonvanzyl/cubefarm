@@ -8,6 +8,7 @@ import { DOOR_PASSABLE, doorOpen } from '../doors';
 import { BALCONY_OUT, BALCONY_TOP, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, sideDoorway, type Rect } from '../layout';
 import { playerAt } from '../camera/rig';
 import { bodyState } from '../people';
+import { FIRST_PERSON } from '../viewTags';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
@@ -184,6 +185,7 @@ const GRACE_MS = 1500;
 const PICKUP_RANGE = 2.5;
 
 const tmp = new THREE.Vector3();
+const LOOSE = {}; // a ball nobody holds: no tags (a held one is hidden from photo mode's camera)
 
 /** A ball's looks, and the handle you aim at to pick it up. Only this re-renders when the ball is picked up. */
 function Grip({ def }: { def: BallDef }) {
@@ -197,7 +199,7 @@ function Grip({ def }: { def: BallDef }) {
     if (g.visible === near) g.visible = !near;
   });
   return (
-    <group ref={ref}>
+    <group ref={ref} userData={held ? FIRST_PERSON : LOOSE}>
       <BallLook def={def} />
     </group>
   );

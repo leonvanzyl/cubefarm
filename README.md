@@ -69,6 +69,8 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `P` | your phone |
 | `Tab` | the overview: the whole floor from above, dollhouse style (drag to pan, scroll to zoom, `Q` / `E` to turn, click someone to open their panel); `Tab` again flies you back, twice quickly shows the whole building |
 | `L` | show or hide who's working |
+| `K` | photo mode: freeze the office, fly a camera, filters, shots and clips |
+| `I` | save the last 15 seconds (once instant replay is on, in photo mode or help) |
 | `M` | mute or unmute |
 | `H` | help, with every control and the sound settings; its Controls tab rebinds every key and sets up the mouse and gamepad |
 | `Esc` | let go of the mouse, close a panel, or leave the overview |

@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Outlines } from './Outlines';
 import { qaKey, useStore, type Agent } from '../store';
-import { appearanceFor } from './appearance';
+import { BUILD_SHAPE, appearanceFor } from './appearance';
 import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
 import { PROUD_FOR, blink, expressionFor, isDrowsy, newFace, prFaceOf, stepFace } from './face';
@@ -17,6 +17,7 @@ import { FoodLook } from './food';
 import { bodyTarget, forcedExpression, handFood, handMug, isHidden, seatBody, setBody, subscribeMugs, trackBody, trackFace } from './people';
 import { mergedAt, takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
+import { ThemeCostume } from './themes/ThemeCostume';
 import { MugLook, mugColor } from './toys/mugLook';
 import { Ball, Cyl } from './Toon';
 import { TAP_PHASE, burstLevel, handLift, hashString, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
@@ -605,6 +606,9 @@ export function Character({
 
         <group ref={torso} position={[0, 0.5, -(look.height - 1) * 0.25]} scale={look.height}>
           <TorsoWear agent={agent} look={look} busy={busy} />
+          <group scale={[torsoWidth(look), 1, BUILD_SHAPE[look.build].depth]}>
+            <ThemeCostume agent={agent} look={look} part="body" />
+          </group>
 
           {/* arms pivot at the shoulders */}
           {[
@@ -646,6 +650,7 @@ export function Character({
 
           <group ref={head} position={[0, 0.66, 0]}>
             <HeadParts agent={agent} look={look} busy={busy} face={faceMesh} />
+            <ThemeCostume agent={agent} look={look} part="head" />
             {chair && <FaceGlow id={agent.id} geometry={PARTS.head} />}
           </group>
           {carrying && (

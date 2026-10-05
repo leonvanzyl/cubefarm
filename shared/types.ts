@@ -3,6 +3,7 @@ import type { CareerView } from './careers.ts';
 import type { ProgressView, RewardView } from './progress.ts';
 
 import type { WeatherSettings, WeatherView, WorldEventSettings } from './outside.ts';
+import type { ThemeSettings } from './themes.ts';
 import type { AgentStyle } from './looks.ts';
 
 export type AgentStatus =
@@ -321,6 +322,7 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  themes: ThemeSettings; // holiday themes: Settings → Themes (shared/themes.ts)
   weather: WeatherSettings; // Settings → Weather: the calm cycle, off, or the manager's real local weather
   worldEvents: WorldEventSettings; // Settings → World events: how often something happens outside
   listen: ListenSettings;

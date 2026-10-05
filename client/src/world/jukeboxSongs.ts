@@ -680,11 +680,168 @@ export const SONGS: Song[] = [
   },
 ];
 
+/** The holiday themes' own songs (themes/themes.ts names each theme's), taking turns with the usual ones on the All station while it's on (Jukebox.tsx). */
+export const HOLIDAY_SONGS: Song[] = [
+  {
+    id: 'haunted-hotfix',
+    title: 'Haunted Hotfix',
+    artist: 'The Flaky Phantoms',
+    bpm: 108,
+    swing: 0.18,
+    root: 62,
+    scale: 'minor',
+    chords: [1, 1, 6, 5, 1, 1, 4, 5],
+    lead: "1 . 3 . 5 . 6 5 | 4 - 3 - 2 . 1 . | 6, . 1 . 3 . 4 3 | 2 - 7, - 5, - . . | 1 . 3 . 5 . 1' 7 | 6 - 5 - 4 . 3 . | 4 . 6 . 1' . 6 4 | 5 - - - 5, - . .",
+    bass: "1 . 5, . 1 . 5, .",
+    comp: '. x . x . x . x',
+    drums: { kick: 'x . . . x . . .', snare: '. . x . . . x .', hat: 'x . x . x . x .' },
+    sound: { lead: 'square', bass: 'triangle', chord: 'triangle' },
+    passes: 4,
+    color: '#ff7b00',
+  },
+  {
+    id: 'monster-merge',
+    title: 'Monster Merge',
+    artist: 'Boo-lean Logic',
+    bpm: 128,
+    swing: 0,
+    root: 69,
+    scale: 'minor',
+    chords: [1, 7, 6, 5, 1, 7, 6, 5],
+    lead: "1 1' 7 5 . 3 . 5 | 7 - 5 - 3 - 2 . | 6, 6 5 3 . 1 . 3 | 5 - 7, - 5, - . . | 1 1' 7 5 . 3 . 5 | 7 - 2' - 1' - 7 . | 6 . 5 . 4 . 3 . | 1 - - - . . 5, .",
+    bass: "1 . 1' . 1 . 1' .",
+    comp: 'x . . x . . x .',
+    drums: { kick: 'x . . x x . . .', snare: '. . x . . . x .', hat: 'x x x x x x x x' },
+    sound: { lead: 'square', bass: 'sawtooth', chord: 'triangle' },
+    passes: 4,
+    color: '#9d4edd',
+  },
+  {
+    id: 'snowed-in-standup',
+    title: 'Snowed-in Standup',
+    artist: 'The Merry Mergers',
+    bpm: 120,
+    swing: 0.25,
+    root: 67,
+    scale: 'major',
+    chords: [1, 4, 1, 5, 1, 4, 5, 1],
+    lead: "3 . 3 . 5 - 3 . | 4 . 6 . 1' - 6 . | 5 . 3 . 1 . 3 5 | 2 - - . 5, - . . | 3 . 3 . 5 - 1' . | 6 . 4 . 6 - 1' 6 | 5 . 7, . 2 . 4 . | 3 - 1 - - . . .",
+    bass: "1 . 5, . 1 . 5, .",
+    comp: '. x . x . x . x',
+    drums: { kick: 'x . . . x . . .', snare: '. . x . . . x .', hat: 'x x x x x x x x' },
+    sound: { lead: 'triangle', bass: 'triangle', chord: 'sine' },
+    passes: 4,
+    color: '#e63946',
+  },
+  {
+    id: 'cocoa-and-code',
+    title: 'Cocoa & Code',
+    artist: 'Marshmallow Pipeline',
+    bpm: 84,
+    swing: 0.2,
+    root: 72,
+    scale: 'major',
+    chords: [4, 3, 2, 1, 4, 3, 2, 5],
+    sevenths: true,
+    lead: ". . 3 - 5 - 6 - | 5 - - . . 3 2 - | 1 - 2 - 3 - 5 - | 3 - - - . . . . | . . 3 - 5 - 1' - | 7 - 6 - 5 - . . | 4 - 3 - 2 - 6, - | 7, - - - . . . .",
+    bass: "1 - - - . . 5, -",
+    comp: 'x - - - - - - -',
+    drums: { kick: 'x . . . . x . .', snare: '. . x . . . x .', hat: '. x . x . x . x' },
+    sound: { lead: 'sine', bass: 'triangle', chord: 'keys' },
+    passes: 3,
+    color: '#a47148',
+    mood: 'lofi',
+    texture: { crackle: true, warmth: 2600, wobble: true, softDrums: true },
+  },
+  {
+    id: 'countdown-commit',
+    title: 'Countdown Commit',
+    artist: 'The Midnight Deploys',
+    bpm: 128,
+    swing: 0,
+    root: 64,
+    scale: 'major',
+    chords: [1, 5, 6, 4, 1, 5, 4, 5],
+    lead: "1 . 1 . 3 . 5 . | 5 - 4 - 3 - 2 - | 1 . 1 . 3 . 6 . | 6 - 5 - 4 - . . | 5 . 5 . 1' . 7 6 | 5 - 7 - 2' - . . | 1' . 6 . 4 . 6 . | 5 - - - 1' - . .",
+    bass: "1 1 1 1 1 1 1 1",
+    comp: 'x . x . x . x .',
+    drums: { kick: 'x . . . x . . .', snare: '. . x . . . x .', hat: 'x x x x x x x x' },
+    sound: { lead: 'square', bass: 'triangle', chord: 'sawtooth' },
+    passes: 4,
+    color: '#ffd23f',
+  },
+  {
+    id: 'pair-programming',
+    title: 'Pair Programming (Love Song)',
+    artist: 'The Rubber Ducks',
+    bpm: 96,
+    swing: 0.12,
+    root: 65,
+    scale: 'major',
+    chords: [1, 6, 2, 5, 1, 6, 4, 5],
+    sevenths: true,
+    lead: "5 - 3 - 1 - 3 - | 6 - - 5 3 - . . | 4 - 2 - 6, - 2 - | 5 - - - . . . . | 5 - 3 - 1' - 7 - | 6 - - 5 3 - 1 - | 4 - 6 - 1' - 6 - | 5 - - - . . 4 3",
+    bass: "1 - - 5, 1 - - 5,",
+    comp: 'x . . x . . x .',
+    drums: { kick: 'x . . x x . . .', snare: '. . x . . . x .', hat: 'x . x . x . x .' },
+    sound: { lead: 'triangle', bass: 'triangle', chord: 'sine' },
+    passes: 4,
+    color: '#ff4d6d',
+  },
+  {
+    id: 'egg-hunt-hop',
+    title: 'Egg Hunt Hop',
+    artist: 'Bunny & the Breakpoints',
+    bpm: 132,
+    swing: 0,
+    root: 72,
+    scale: 'major',
+    chords: [1, 1, 4, 1, 5, 4, 1, 5],
+    lead: "1 3 5 3 1 . 5, . | 1 3 5 1' 5 - . . | 4 6 1' 6 4 . 2 . | 3 - 5 - 1 - . . | 2 4 5 7 5 . 4 . | 4 6 1' 6 4 . 3 . | 5 3 1 3 5 - 1' - | 7 - 5 - 2 - . .",
+    bass: "1 . 5, . 1 . 5, .",
+    comp: '. x . x . x . x',
+    drums: { kick: 'x . . . x . . .', snare: '. . x . . . x .', hat: '. . x . . . x .' },
+    sound: { lead: 'square', bass: 'triangle', chord: 'triangle' },
+    passes: 5,
+    color: '#a0c4ff',
+  },
+  {
+    id: 'another-year-of-uptime',
+    title: 'Another Year of Uptime',
+    artist: 'The 99.9s',
+    bpm: 116,
+    swing: 0,
+    root: 67,
+    scale: 'major',
+    chords: [1, 4, 5, 1, 6, 4, 5, 1],
+    lead: "5 . 5 . 6 . 5 . | 1' - 6 - 4 . . . | 5 . 7 . 2' . 7 . | 1' - - - . . 5 . | 6 . 1' . 3' . 1' . | 6 - 4 - 1' - 6 . | 5 . 7 . 2' - 7 5 | 1' - - - - . . .",
+    bass: "1 . 5, . 1 . 5, .",
+    comp: 'x . . x . . x .',
+    drums: { kick: 'x . . . x . . .', snare: '. . x . . . x .', hat: 'x x x x x x x x' },
+    sound: { lead: 'square', bass: 'triangle', chord: 'triangle' },
+    passes: 4,
+    color: '#ff5d8f',
+  },
+];
+
 const tracks = new Map<string, Track>();
 
 /** Song `i` of the playlist (wrapping round), compiled once. */
 export function trackFor(i: number): Track {
   const song = SONGS[((i % SONGS.length) + SONGS.length) % SONGS.length];
+  let t = tracks.get(song.id);
+  if (!t) {
+    t = compileSong(song);
+    tracks.set(song.id, t);
+  }
+  return t;
+}
+
+/** Holiday song `n` of `ids` (a theme's playlist, wrapping round), compiled once; null when it names none. */
+export function holidayTrack(ids: readonly string[], n: number): Track | null {
+  const list = ids.map((id) => HOLIDAY_SONGS.find((s) => s.id === id)).filter((s): s is Song => !!s);
+  if (!list.length) return null;
+  const song = list[((n % list.length) + list.length) % list.length];
   let t = tracks.get(song.id);
   if (!t) {
     t = compileSong(song);

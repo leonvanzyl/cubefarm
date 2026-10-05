@@ -21,7 +21,9 @@ export type ActionId =
   | 'overview'
   | 'rotateLeft'
   | 'rotateRight'
-  | 'talk';
+  | 'talk'
+  | 'photo'
+  | 'saveReplay';
 
 /**
  * Where an action works: `global` everywhere; `move` on foot and in the overview (where the movement keys pan);
@@ -59,6 +61,8 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'rotateLeft', label: 'Turn the overview left', group: 'Overview', scope: 'overview', keys: ['KeyQ'] },
   { id: 'rotateRight', label: 'Turn the overview right', group: 'Overview', scope: 'overview', keys: ['KeyE'] },
   { id: 'talk', label: 'Hold to talk (in a message box)', group: 'Office', scope: 'panel', keys: ['KeyV'] },
+  { id: 'photo', label: 'Photo mode', group: 'Office', scope: 'global', keys: ['KeyK'] },
+  { id: 'saveReplay', label: 'Save the last 15 s (instant replay)', group: 'Office', scope: 'global', keys: ['KeyI'] },
 ];
 
 export const ACTION_IDS = ACTIONS.map((a) => a.id);

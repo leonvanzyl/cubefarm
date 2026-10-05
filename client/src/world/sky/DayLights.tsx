@@ -6,7 +6,7 @@
 // in heavy weather, and a lightning flash lights the office through the windows on this same rig. A floor winding down
 // for the evening (ritualLook.ts) dims them a little on top.
 import { useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import { DIM_BY, ritualLook } from '../ritualLook';
 import { gloomOf, weatherSky } from '../weather/weatherRules';
@@ -14,7 +14,7 @@ import { weather } from '../weather/weatherState';
 import { indoorLight, newIndoorLight, newShadowBox, shadowBox, type IndoorWeather } from './indoor';
 import { setLamps } from './lamps';
 import { setSunPatches } from './SunPatches';
-import { dayTime } from './useDayTime';
+import { dayTime, useSkyFrame } from './useDayTime';
 
 /** How far from the office's middle the key light sits (beyond every corner of the floor). */
 const DISTANCE = 30;
@@ -31,7 +31,7 @@ export function DayLights() {
     return { light: newIndoorLight(), box: newShadowBox(), t: -1, version: -1, dim: 0, indoors };
   }, []);
 
-  useFrame(() => {
+  useSkyFrame(() => {
     const h = hemi.current;
     const a = ambient.current;
     const k = key.current;

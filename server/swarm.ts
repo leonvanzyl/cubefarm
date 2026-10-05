@@ -50,6 +50,7 @@ import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/
 import { achievementDef, type ProgressView } from '../shared/progress.ts';
 import { effectiveModel } from '../shared/models.ts';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, weatherSettings, worldEventSettings } from '../shared/outside.ts';
+import { DEFAULT_THEME_SETTINGS, dueGreeting, themeSettings } from '../shared/themes.ts';
 import { CEO_ID, DEFAULT_DOG_NAME, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentActivity,
@@ -451,6 +452,7 @@ export class Swarm {
       pacingSessions: DEFAULT_PACING_SESSIONS,
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
+      themes: DEFAULT_THEME_SETTINGS,
       weather: { ...DEFAULT_WEATHER },
       worldEvents: { ...DEFAULT_WORLD_EVENTS },
       listen: { ...DEFAULT_LISTEN },
@@ -657,6 +659,7 @@ export class Swarm {
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
+      this.state.settings.themes = themeSettings(DEFAULT_THEME_SETTINGS, loaded.settings?.themes);
       this.state.settings.weather = weatherSettings(DEFAULT_WEATHER, loaded.settings?.weather);
       this.state.settings.worldEvents = worldEventSettings(DEFAULT_WORLD_EVENTS, loaded.settings?.worldEvents);
       this.state.settings.listen = listenSettings(DEFAULT_LISTEN, loaded.settings?.listen);
@@ -762,6 +765,8 @@ export class Swarm {
       void this.journal.prune().catch((err) => console.warn('could not prune the journal', err));
     }, this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
+    setInterval(() => this.greet(), 60_000);
+    setTimeout(() => this.greet(), 5000);
     setInterval(() => this.emitOps(), OPS_TICK_MS); // the clock moves the numbers too: the last hour, today, errors turning into alarms
     setInterval(() => this.notifyStuck(), 60_000);
     void this.backend
@@ -3007,6 +3012,10 @@ export class Swarm {
       s.voice = voiceSettings(s.voice, patch.voice);
       if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
     }
+    if (patch.themes !== undefined) {
+      s.themes = themeSettings(s.themes, patch.themes);
+      setTimeout(() => this.greet(), 1000);
+    }
     if (patch.weather !== undefined) {
       s.weather = weatherSettings(s.weather, patch.weather);
       this.weather.settingsChanged();
@@ -4077,6 +4086,12 @@ export class Swarm {
     // Proposals are notified as such (proposeHire, proposeLetGo).
     if (from === 'ceo' && !requestId) this.notifier.notify('ceoMessage', this.ceo().name, plainText(m.text), `${this.ceo().name}: ${plainText(m.text, 100)}`);
     return m;
+  }
+
+  /** The team's holiday greeting (shared/themes.ts) from the CEO, once a day while a theme is on. */
+  private greet() {
+    const text = dueGreeting(new Date(), this.state.settings.themes, this.state.settings.managerName || this.user || '', this.state.messages);
+    if (text) this.postMessage('ceo', text);
   }
 
   // ---------- notifications ----------

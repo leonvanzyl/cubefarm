@@ -32,6 +32,8 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let bus: GainNode | null = null; // every sound but the voice, so a message read aloud can duck them
 let roomIn: GainNode | null = null; // what the groups send into the room's reverb
+let mixOut: GainNode | null = null; // the finished mix, as the speakers get it
+let tap: MediaStreamAudioDestinationNode | null = null;
 let unlocked = false;
 const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
 const groupLevels = {} as Record<SoundGroup, number>;
@@ -66,6 +68,7 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       const trim = ctx.createGain();
       trim.gain.value = COMPRESSOR_TRIM;
       master.connect(comp).connect(trim).connect(ctx.destination);
+      mixOut = trim;
       bus = ctx.createGain();
       bus.connect(master);
       roomIn = ctx.createGain();
@@ -85,6 +88,21 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
     if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     // Don't queue sounds on a stopped clock: they'd all fire at once when it starts.
     return ctx.state === 'running' && master ? { ctx, out: master } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Everything the office plays, as the speakers get it, as a MediaStream for photo mode's clips; null while audio is off. */
+export function soundStream(): MediaStream | null {
+  audio();
+  if (!ctx || !mixOut) return null;
+  try {
+    if (!tap) {
+      tap = ctx.createMediaStreamDestination();
+      mixOut.connect(tap);
+    }
+    return tap.stream;
   } catch {
     return null;
   }

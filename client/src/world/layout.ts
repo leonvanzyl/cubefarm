@@ -373,6 +373,107 @@ export function lobbyColliders(): Rect[] {
   return out;
 }
 
+// ---------- holiday decoration slots ----------
+
+/**
+ * A named place a holiday theme can dress (themes/themes.ts): a point on a desk, a counter, a ceiling corner or the
+ * floor, facing rotY. `floor` ones stand in the way: the theme's item there adds a collider (decorColliders there).
+ */
+export interface DecorSlot {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  floor?: boolean;
+}
+
+/** Each desk's back right corner (desk frame), clear of the monitor, the mug and the plant or test tubes. */
+const DESK_CORNER = { x: 0.74, z: -0.3 };
+/** The desks' top, where things stand on them. */
+export const DESK_TOP = 0.77;
+
+/** Every slot on a floor kind. Office floors all share the same ones. */
+export function decorSlots(kind: FloorKind): DecorSlot[] {
+  const c = 0.02;
+  const corners: DecorSlot[] = [
+    { id: 'corner-nw', x: -HALF_W + c, y: WALL_H, z: -HALF_D + c, rotY: 0 },
+    { id: 'corner-ne', x: HALF_W - c, y: WALL_H, z: -HALF_D + c, rotY: -Math.PI / 2 },
+    { id: 'corner-se', x: HALF_W - c, y: WALL_H, z: HALF_D - c, rotY: Math.PI },
+    { id: 'corner-sw', x: -HALF_W + c, y: WALL_H, z: HALF_D - c, rotY: Math.PI / 2 },
+  ];
+  // Either side of the elevator's frame, against the south wall.
+  const elevator: DecorSlot[] = [-1, 1].map((s) => ({ id: s < 0 ? 'elevator-w' : 'elevator-e', x: s * (ELEVATOR.doorHalf + 0.95), y: 0, z: HALF_D - 0.4, rotY: Math.PI, floor: true }));
+  if (kind === 'office') {
+    const desks = Array.from({ length: MAX_DESKS }, (_, s): DecorSlot => {
+      const { x, z } = deskPosition(s);
+      return { id: `desk-${s}`, x: x + DESK_CORNER.x, y: DESK_TOP, z: z + DESK_CORNER.z, rotY: 0 };
+    });
+    // QA desks are turned to face the east wall (QA_ROTATION), so the corner turns with them.
+    const qa = QA_LAB.stations.map((_, s): DecorSlot => {
+      const { x, z } = qaDeskPosition(s);
+      return { id: `qa-${s}`, x: x - DESK_CORNER.z, y: DESK_TOP, z: z + DESK_CORNER.x, rotY: QA_ROTATION };
+    });
+    // On each balcony, just inside the planter at either end.
+    const balconies = SIDES.flatMap((side) =>
+      [-1, 1].map((n): DecorSlot => ({ id: `balcony-${side[0]}-${n < 0 ? 'n' : 's'}`, x: sideSign(side) * (BALCONY_OUT - 0.45), y: 0, z: n * (BALCONY.maxZ - 2.6), rotY: -sideSign(side) * (Math.PI / 2), floor: true })),
+    );
+    return [...desks, ...qa, ...corners, ...elevator, ...balconies];
+  }
+  const r = RECEPTION;
+  return [
+    ...corners,
+    ...elevator,
+    // the reception counter's top, either side of the receptionist bot, towards the lobby
+    { id: 'reception-w', x: r.x - r.w / 2 + 0.55, y: 1.13, z: r.z + 0.2, rotY: 0 },
+    { id: 'reception-e', x: r.x + r.w / 2 - 0.55, y: 1.13, z: r.z + 0.2, rotY: 0 },
+    // the lobby's showpiece (a tree, a gravestone), in the quiet corner south of the manager's office
+    { id: 'lobby-feature', x: -12.6, y: 0, z: -1.5, rotY: Math.PI / 4, floor: true },
+    // out on the west patio, just north of the bench, in view through the window beside it
+    { id: 'patio', x: -(HALF_W + WALL_T + BALCONY.depth / 2 + 0.1), y: 0, z: -1.2, rotY: Math.PI / 2, floor: true },
+    // the manager's desk, left of the keyboard (desk frame: the visitor's side is +z)
+    { id: 'manager-desk', x: MANAGER_DESK.x - 0.6, y: 0.8, z: MANAGER_DESK.z + 0.25, rotY: 0 },
+    // on top of the trophy cabinet (Lobby.tsx), at its east end
+    { id: 'cabinet-top', x: 13.5, y: 2.1, z: -HALF_D + 0.55, rotY: 0 },
+    // across the lobby under the ceiling, in view from the elevator
+    { id: 'banner', x: 3, y: 3.25, z: 0.5, rotY: 0 },
+  ];
+}
+
+/** A run along a wall just under the ceiling, for string lights, garlands and bunting: from [x, z] to [x, z] at y. */
+export interface DecorRun {
+  from: [number, number];
+  to: [number, number];
+  y: number;
+}
+
+/** Each floor kind's runs, clear of the signs and the boards on the walls. */
+export function decorRuns(kind: FloorKind): DecorRun[] {
+  const y = 3.5;
+  const n = -HALF_D + 0.08;
+  const s = HALF_D - 0.08;
+  const w = -HALF_W + 0.08;
+  const e = HALF_W - 0.08;
+  if (kind === 'office') {
+    return [
+      { from: [w, n], to: [e, n], y },
+      { from: [w, s], to: [e, s], y },
+      { from: [w, n], to: [w, s], y },
+      // the east wall, round the QA lab's sign
+      { from: [e, n], to: [e, -3.8], y },
+      { from: [e, -0.2], to: [e, s], y },
+    ];
+  }
+  // The lobby: the walls of the open hall, from the glass offices round to them again.
+  const m = MANAGER_ROOM.maxZ + 0.1;
+  return [
+    { from: [MANAGER_ROOM.maxX + 0.2, n], to: [CEO_ROOM.minX - 0.2, n], y },
+    { from: [w, m], to: [w, s], y },
+    { from: [w, s], to: [e, s], y },
+    { from: [e, m], to: [e, s], y },
+  ];
+}
+
 // ---------- the roof terrace (roof/Roof.tsx) ----------
 
 /** The roof's stop on the elevator (store.floor): always above the top floor, however many floors there are. */
