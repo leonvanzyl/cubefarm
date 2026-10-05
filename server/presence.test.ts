@@ -87,16 +87,16 @@ function setup(demo = false) {
   return { hub, tab, advance: (ms: number) => void (now += ms) };
 }
 
-const pose = (f: number, x = 0, z = 0, extra: object = {}) => ({ t: 'pose', ts: 1, f, x, z, h: 0, p: 0, held: null, ...extra });
+const pose = (f: number, x = 0, z = 0, extra: object = {}) => ({ type: 'pose', ts: 1, f, x, z, h: 0, p: 0, held: null, ...extra });
 
 describe('PresenceHub', () => {
   it('relays a pose to the other tab on the floor, with the cleaned name in the roster', () => {
     const { tab, advance } = setup();
     const a = tab();
     const b = tab();
-    a.say({ t: 'hello', name: '  <b>Ada</b>\u0000 ', color: '#118AB2' });
+    a.say({ type: 'hello', name: '  <b>Ada</b>\u0000 ', color: '#118AB2' });
     a.say(pose(1, 2, 3));
-    b.say({ t: 'watch', f: 1 });
+    b.say({ type: 'watch', f: 1 });
     expect(b.last('visitors')?.visitors).toEqual([{ id: a.peer.id, name: '<b>Ada</b>', color: '#118ab2', floor: 1 }]);
     expect(b.last('visitorPose')).toMatchObject({ id: a.peer.id, f: 1, x: 2, z: 3 }); // caught up on arrival
     advance(RELAY_GAP_MS);
@@ -110,7 +110,7 @@ describe('PresenceHub', () => {
     const { hub, tab, advance } = setup();
     const a = tab();
     const b = tab();
-    b.say({ t: 'watch', f: 1 });
+    b.say({ type: 'watch', f: 1 });
     a.say(pose(1, 1));
     advance(20);
     a.say(pose(1, 2));
@@ -129,8 +129,8 @@ describe('PresenceHub', () => {
     const b = tab();
     b.say(pose(2));
     a.say(pose(1));
-    a.say({ t: 'emote', e: 'wave' });
-    a.say({ t: 'ping', x: 0, y: 1, z: 0, label: 'here' });
+    a.say({ type: 'emote', e: 'wave' });
+    a.say({ type: 'ping', x: 0, y: 1, z: 0, label: 'here' });
     expect(b.all('visitorPose').map((e) => e.id)).not.toContain(a.peer.id);
     expect(b.all('visitorEmote')).toEqual([]);
     expect(b.all('visitorPing')).toEqual([]);
@@ -155,9 +155,9 @@ describe('PresenceHub', () => {
     const a = tab();
     const b = tab();
     a.say(pose(1));
-    b.say({ t: 'watch', f: 1 });
+    b.say({ type: 'watch', f: 1 });
     expect(b.last('visitors')?.visitors).toHaveLength(1);
-    a.say({ t: 'watch', f: 1 });
+    a.say({ type: 'watch', f: 1 });
     expect(b.last('visitors')?.visitors).toEqual([]);
     a.say(pose(1));
     expect(b.last('visitors')?.visitors).toHaveLength(1);
@@ -172,7 +172,7 @@ describe('PresenceHub', () => {
     const crowd = Array.from({ length: FLOOR_CAP + 1 }, () => tab());
     crowd.forEach((t, i) => t.say(pose(1, i)));
     const watcher = tab();
-    watcher.say({ t: 'watch', f: 1 });
+    watcher.say({ type: 'watch', f: 1 });
     const last = crowd[FLOOR_CAP];
     expect(watcher.all('visitorPose').map((e) => e.id)).not.toContain(last.peer.id);
     hub.leave(crowd[0].peer);
@@ -185,14 +185,14 @@ describe('PresenceHub', () => {
     const b = tab();
     a.say(pose(1));
     b.say(pose(1));
-    a.say({ t: 'emote', e: 'wave' });
-    a.say({ t: 'emote', e: 'clap' });
+    a.say({ type: 'emote', e: 'wave' });
+    a.say({ type: 'emote', e: 'clap' });
     expect(b.all('visitorEmote').map((e) => e.e)).toEqual(['wave']);
     advance(EMOTE_GAP_MS);
-    a.say({ t: 'emote', e: 'clap' });
+    a.say({ type: 'emote', e: 'clap' });
     expect(b.all('visitorEmote').map((e) => e.e)).toEqual(['wave', 'clap']);
-    a.say({ t: 'ping', x: 0, y: 1, z: 0, label: '<the whiteboard>' });
-    a.say({ t: 'ping', x: 1, y: 1, z: 0, label: 'again' });
+    a.say({ type: 'ping', x: 0, y: 1, z: 0, label: '<the whiteboard>' });
+    a.say({ type: 'ping', x: 1, y: 1, z: 0, label: 'again' });
     expect(b.all('visitorPing')).toEqual([{ type: 'visitorPing', id: a.peer.id, x: 0, y: 1, z: 0, label: '<the whiteboard>' }]);
   });
 
@@ -200,8 +200,8 @@ describe('PresenceHub', () => {
     const { hub, tab } = setup();
     const a = tab();
     const b = tab();
-    b.say({ t: 'watch', f: 1 });
-    for (const junk of ['', 'null', '[1,2]', '{"t":"pose"}', '{"t":"emote","e":"<script>"}', 'x'.repeat(5000)]) hub.receive(a.peer, junk);
+    b.say({ type: 'watch', f: 1 });
+    for (const junk of ['', 'null', '[1,2]', '{"type":"pose"}', '{"type":"emote","e":"<script>"}', 'x'.repeat(5000)]) hub.receive(a.peer, junk);
     expect(b.all('visitorPose')).toEqual([]);
     expect(b.all('visitorEmote')).toEqual([]);
   });
@@ -209,7 +209,7 @@ describe('PresenceHub', () => {
   it('keeps fakes for the demo only, and they come to the floor the real visitor is on', () => {
     const plain = setup();
     const t = plain.tab();
-    t.say({ t: 'fakes', n: 4 });
+    t.say({ type: 'fakes', n: 4 });
     expect(plain.hub.state().filter((p) => p.fake)).toEqual([]);
 
     const { hub, tab, advance } = setup(true);
@@ -220,11 +220,11 @@ describe('PresenceHub', () => {
     hub.tick();
     expect(me.last('visitors')?.visitors.map((v) => v.floor)).toEqual([3, 3]);
     expect(me.all('visitorPose').length).toBeGreaterThan(0);
-    me.say({ t: 'fakes', n: 8 });
+    me.say({ type: 'fakes', n: 8 });
     advance(100);
     hub.tick();
     expect(me.last('visitors')?.visitors).toHaveLength(8);
-    me.say({ t: 'fakes', n: 0 });
+    me.say({ type: 'fakes', n: 0 });
     expect(me.last('visitors')?.visitors).toEqual([]);
   });
 });

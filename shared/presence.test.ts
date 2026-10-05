@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanColor, cleanHeld, cleanName, cleanText, NAME_MAX, parseClientMessage, wrapAngle } from './presence.ts';
+import { cleanColor, cleanHeld, cleanName, cleanText, NAME_MAX, parsePresenceEvent, wrapAngle } from './presence.ts';
 
 describe('cleanName', () => {
   it('trims, collapses whitespace and caps the length', () => {
@@ -57,32 +57,32 @@ describe('cleanText, cleanColor, cleanHeld', () => {
   });
 });
 
-describe('parseClientMessage', () => {
+describe('parsePresenceEvent', () => {
   it('reads a pose, rounding and clamping its numbers', () => {
-    const m = parseClientMessage(JSON.stringify({ t: 'pose', ts: 1234.5, f: 2, x: 1.23456, z: 999, h: 7, p: -9, held: null }));
-    expect(m).toEqual({ t: 'pose', ts: 1235, f: 2, x: 1.23, z: 18, h: Math.round(wrapAngle(7) * 1000) / 1000, p: -1.6, held: null });
+    const m = parsePresenceEvent(JSON.stringify({ type: 'pose', ts: 1234.5, f: 2, x: 1.23456, z: 999, h: 7, p: -9, held: null }));
+    expect(m).toEqual({ type: 'pose', ts: 1235, f: 2, x: 1.23, z: 18, h: Math.round(wrapAngle(7) * 1000) / 1000, p: -1.6, held: null });
   });
 
   it('rejects bad floors, non-numbers and unknown kinds', () => {
-    expect(parseClientMessage({ t: 'pose', ts: 1, f: -1, x: 0, z: 0, h: 0, p: 0 })).toBeNull();
-    expect(parseClientMessage({ t: 'pose', ts: 1, f: 1.5, x: 0, z: 0, h: 0, p: 0 })).toBeNull();
-    expect(parseClientMessage({ t: 'pose', ts: 1, f: 1, x: 'NaN', z: 0, h: 0, p: 0 })).toBeNull();
-    expect(parseClientMessage({ t: 'pose', f: 1, x: 0, z: 0, h: 0, p: 0 })).toBeNull(); // no timestamp
-    expect(parseClientMessage('{"t":"pose","ts":1,"f":1,"x":1e999,"z":0,"h":0,"p":0}')).toBeNull(); // Infinity
-    expect(parseClientMessage({ t: 'emote', e: 'dance' })).toBeNull();
-    expect(parseClientMessage({ t: 'teleport' })).toBeNull();
-    expect(parseClientMessage('not json')).toBeNull();
-    expect(parseClientMessage(`{"t":"hello","name":"${'x'.repeat(5000)}"}`)).toBeNull(); // too long to bother parsing
+    expect(parsePresenceEvent({ type: 'pose', ts: 1, f: -2, x: 0, z: 0, h: 0, p: 0 })).toBeNull(); // -1 is the roof
+    expect(parsePresenceEvent({ type: 'pose', ts: 1, f: 1.5, x: 0, z: 0, h: 0, p: 0 })).toBeNull();
+    expect(parsePresenceEvent({ type: 'pose', ts: 1, f: 1, x: 'NaN', z: 0, h: 0, p: 0 })).toBeNull();
+    expect(parsePresenceEvent({ type: 'pose', f: 1, x: 0, z: 0, h: 0, p: 0 })).toBeNull(); // no timestamp
+    expect(parsePresenceEvent('{"type":"pose","ts":1,"f":1,"x":1e999,"z":0,"h":0,"p":0}')).toBeNull(); // Infinity
+    expect(parsePresenceEvent({ type: 'emote', e: 'dance' })).toBeNull();
+    expect(parsePresenceEvent({ type: 'teleport' })).toBeNull();
+    expect(parsePresenceEvent('not json')).toBeNull();
+    expect(parsePresenceEvent(`{"type":"hello","name":"${'x'.repeat(5000)}"}`)).toBeNull(); // too long to bother parsing
   });
 
   it('cleans names and labels on the way in', () => {
-    expect(parseClientMessage({ t: 'hello', name: `  ${'N'.repeat(60)}\u0000`, color: 'blue' })).toEqual({ t: 'hello', name: 'N'.repeat(NAME_MAX), color: '#ef476f' });
-    expect(parseClientMessage({ t: 'ping', x: 1, y: 99, z: 2, label: ' the\nwhiteboard ' })).toEqual({ t: 'ping', x: 1, y: 5, z: 2, label: 'the whiteboard' });
+    expect(parsePresenceEvent({ type: 'hello', name: `  ${'N'.repeat(60)}\u0000`, color: 'blue' })).toEqual({ type: 'hello', name: 'N'.repeat(NAME_MAX), color: '#ef476f' });
+    expect(parsePresenceEvent({ type: 'ping', x: 1, y: 99, z: 2, label: ' the\nwhiteboard ' })).toEqual({ type: 'ping', x: 1, y: 5, z: 2, label: 'the whiteboard' });
   });
 
   it('clamps the demo fakes count', () => {
-    expect(parseClientMessage({ t: 'fakes', n: 999 })).toEqual({ t: 'fakes', n: 16 });
-    expect(parseClientMessage({ t: 'fakes', n: -3 })).toEqual({ t: 'fakes', n: 0 });
-    expect(parseClientMessage({ t: 'fakes', n: 'lots' })).toBeNull();
+    expect(parsePresenceEvent({ type: 'fakes', n: 999 })).toEqual({ type: 'fakes', n: 16 });
+    expect(parsePresenceEvent({ type: 'fakes', n: -3 })).toEqual({ type: 'fakes', n: 0 });
+    expect(parsePresenceEvent({ type: 'fakes', n: 'lots' })).toBeNull();
   });
 });

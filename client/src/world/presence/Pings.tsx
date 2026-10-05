@@ -9,8 +9,8 @@ import { useCanvasTexture } from '../interact';
 import { activePings, ping, presenceVersion, subscribePresence, type Ping } from './presenceState';
 import { pingNoun } from './presenceMath';
 
-// Pings: "look here". Middle-click (or Q) drops a short-lived marker where you aim, on a spot or a thing; everyone on
-// the floor sees it, through walls, with who dropped it and what it is ("look here: the whiteboard").
+// Pings: "look here". Middle-click (or the ping key, X) drops a short-lived marker where you aim, on a spot or a
+// thing; everyone on the floor sees it through walls, with who dropped it and what it is ("look here: the whiteboard").
 
 const LIFE_MS = 5000;
 const noRaycast = () => undefined;

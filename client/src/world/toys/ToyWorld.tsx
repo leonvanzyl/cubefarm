@@ -6,17 +6,20 @@ import { useStore } from '../../store';
 import { useInteractable } from '../interact';
 import { DOOR_PASSABLE, doorOpen } from '../doors';
 import { BALCONY_OUT, BALCONY_TOP, HALF_D, HALF_W, PLAYER_RADIUS, SIDES, WALL_H, elevatorDoorway, lobbyColliders, officeColliders, sideDoorway, type Rect } from '../layout';
+import { playerAt } from '../camera/rig';
 import { bodyState } from '../people';
 import { BALLS, BallLook, escaped, type BallDef, type ToyFloor } from './balls';
 import { boardThud, bounce, grabSound, rimClank } from './ballSounds';
 import { Blasters } from './Blasters';
+import { DecorColliders } from '../decor/DecorColliders';
+import { Dog } from './Dog';
 import { chargePower, dropHeld, takeThrow, walk } from './hands';
 import { HitTargets } from './HitTargets';
 import { Hoop } from './Hoop';
 import { hoopRim, hoopSquare } from './hoopScore';
 import { hoopPart, impactLevel, offCooldown } from './impacts';
 import { Mugs } from './MugToys';
-import { npcGrips, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
+import { npcGrips, npcStance, playerTook, released, setNpcBalls, takeRelease, type NpcBall } from './npc';
 import { npcHoldPoint, npcView, type NpcAim } from './npcAim';
 import { setToySource } from './probe';
 import { Roomba } from './Roomba';
@@ -35,7 +38,8 @@ const TOY_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.pusher, G
 // A ball in (or just out of) your hands: everything but you.
 const HELD_GROUPS = interactionGroups(G.toys, [G.building, G.doorway, G.toys]);
 const BUILDING_GROUPS = interactionGroups(G.building, [G.pusher, G.toys]);
-// The roomba steers itself round the building (roombaBrain.ts) and never shoves the player's pusher: it only touches toys.
+// The roomba and the dog steer themselves round the building (roombaBrain.ts, dogBrain.ts) and never shove the player's
+// pusher: they only touch toys.
 const ROOMBA_GROUPS = interactionGroups(G.toys, [G.toys]);
 // Sensors round seated people (HitTargets.tsx) only notice toys.
 const SEATED_GROUPS = interactionGroups(G.toys, [G.toys]);
@@ -99,15 +103,14 @@ function Building({ floor }: { floor: ToyFloor }) {
 const ZERO = { x: 0, y: 0, z: 0 };
 const STILL = { x: 0, z: 0 };
 
-// The player as the physics world sees them: a capsule from just above the floor to head height that chases the
-// camera. It shoves balls (harder when running, because it moves faster) but nothing ever pushes back on the
+// The player as the physics world sees them: a capsule from just above the floor to head height that chases where
+// they stand (the camera, unless another view has it). It shoves balls (harder when running, because it moves faster) but nothing ever pushes back on the
 // player, who keeps moving with collide() exactly as before.
 // It's a dynamic body steered with force-limited impulses rather than a kinematic one: a kinematic body always
 // wins, so pinning a ball against a wall would squeeze the ball into the wall. This one gives way instead.
 const PUSHER = { half: 0.62, y: 0.95, mass: 4, maxSpeed: 12, maxImpulse: 600 * STEP, teleport: 1.5 };
 
 function Pusher() {
-  const camera = useThree((s) => s.camera);
   const body = useRef<RapierRigidBody>(null);
   const at = useMemo(() => ({ x: 0, y: PUSHER.y, z: 0 }), []);
   const push = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
@@ -115,7 +118,7 @@ function Pusher() {
   useBeforePhysicsStep(() => {
     const b = body.current;
     if (!b) return;
-    const { x, z } = camera.position;
+    const { x, z } = playerAt;
     const l = last.current;
     const still = x === l.x && z === l.z;
     l.x = x;
@@ -155,7 +158,7 @@ function Pusher() {
     <RigidBody
       ref={body}
       colliders={false}
-      position={[camera.position.x, PUSHER.y, camera.position.z]}
+      position={[playerAt.x, PUSHER.y, playerAt.z]}
       gravityScale={0}
       enabledTranslations={[true, false, true]}
       lockRotations
@@ -395,7 +398,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       let i = -1;
       for (let j = 0; j < defs.length; j++) if (defs[j].id === g.ball) i = j;
       const b = i >= 0 ? bodies.current[i] : null;
-      const st = bodyState(who);
+      const st = bodyState(who) ?? npcStance(who);
       if (!b || !st || i === holding.current) {
         released(who, i === holding.current ? 'taken' : 'stuck');
         continue;
@@ -461,7 +464,7 @@ function Balls({ floor }: { floor: ToyFloor }) {
       const b = bodies.current[j];
       if (!b) continue;
       const p = b.translation();
-      if (now > until || Math.hypot(p.x - camera.position.x, p.z - camera.position.z) > defs[j].r + PLAYER_RADIUS + 0.15) {
+      if (now > until || Math.hypot(p.x - playerAt.x, p.z - playerAt.z) > defs[j].r + PLAYER_RADIUS + 0.15) {
         grace.current[j] = 0;
         b.collider(0).setCollisionGroups(TOY_GROUPS);
       }
@@ -541,6 +544,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
   return (
     <Physics timeStep={STEP} paused={paused} numSolverIterations={8}>
       <Building floor={floor} />
+      {floor === 'office' && <DecorColliders groups={BUILDING_GROUPS} />}
       <Pusher />
       <Balls floor={floor} />
       <Hoop floor={floor} groups={BUILDING_GROUPS} />
@@ -548,6 +552,7 @@ function ToyWorld({ floor }: { floor: ToyFloor }) {
       <Blasters floor={floor} groups={HELD_GROUPS} />
       <Mugs groups={HELD_GROUPS} />
       <HitTargets floor={floor} groups={SEATED_GROUPS} />
+      <Dog floor={floor} groups={ROOMBA_GROUPS} />
     </Physics>
   );
 }

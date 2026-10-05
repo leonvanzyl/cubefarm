@@ -1,12 +1,12 @@
 // Shared presence (#223): everyone viewing the office appears in it as a visitor. Each /ws client that entered the 3D
-// office sends its pose, emotes and pings (cleaned by shared/presence.ts); the hub relays them to the others on the same
-// floor, at most FLOOR_CAP visitors a floor, and keeps nothing on disk. Who hears whom (the interest rules) and how
-// often are the pure functions at the top, tested in presence.test.ts. In the demo, fake visitors (demoVisitors.ts)
-// wander the floor the last real visitor is on.
+// office sends its pose, emotes and pings (cleaned by shared/presence.ts); the hub relays them to the others on the
+// same floor, at most FLOOR_CAP visitors a floor, and keeps nothing on disk. Who hears whom (the interest rules) and
+// how often are the pure functions at the top, tested in presence.test.ts. In the demo, fake visitors
+// (demoVisitors.ts) wander the floor the last real visitor is on.
 
 import crypto from 'node:crypto';
 import type { WebSocket } from 'ws';
-import { DEMO_FAKES, FLOOR_CAP, MAX_FAKES, MAX_MESSAGE, cleanName, parseClientMessage } from '../shared/presence.ts';
+import { DEMO_FAKES, FLOOR_CAP, MAX_FAKES, MAX_MESSAGE, cleanName, parsePresenceEvent } from '../shared/presence.ts';
 import type { ServerEvent, VisitorPose, VisitorView } from '../shared/types.ts';
 import { fakeProfile, newWalker, poseOf, stepWalker, type Walker } from './demoVisitors.ts';
 
@@ -126,10 +126,10 @@ export class PresenceHub {
 
   /** A message from a browser (anything: it's parsed and cleaned here). */
   receive(peer: Peer, raw: unknown) {
-    const msg = parseClientMessage(raw);
+    const msg = parsePresenceEvent(raw);
     if (!msg || !this.peers.has(peer.id)) return;
     const now = this.now();
-    switch (msg.t) {
+    switch (msg.type) {
       case 'hello':
         if (peer.name === msg.name && peer.color === msg.color) return;
         peer.name = msg.name;
@@ -137,7 +137,7 @@ export class PresenceHub {
         if (peer.mode === 'visible') this.broadcastRoster();
         return;
       case 'pose': {
-        const { t: _t, ...pose } = msg;
+        const { type: _type, ...pose } = msg;
         this.liveFloor = pose.f;
         this.move(peer, 'visible', pose.f, pose);
         return;

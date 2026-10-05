@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { markBloom, type BloomWhen } from './gfx/bloomMarks';
 
 // Three-step ramp gives the flat, cel-shaded cartoon look.
 const ramp = new THREE.DataTexture(new Uint8Array([110, 190, 255]), 3, 1, THREE.RedFormat);
@@ -37,11 +38,12 @@ export function toonMap(key: string, map: THREE.Texture) {
   return m;
 }
 
-export function glow(color: string) {
-  const key = `glow|${color}`;
+/** A flat, unlit colour that blooms on Medium and High: status lights, LEDs, lamps ('night': only after dusk). */
+export function glow(color: string, when: BloomWhen = 'always') {
+  const key = `glow|${color}|${when}`;
   let m = cache.get(key);
   if (!m) {
-    m = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+    m = markBloom(new THREE.MeshBasicMaterial({ color, toneMapped: false }), when);
     cache.set(key, m);
   }
   return m;

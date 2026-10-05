@@ -25,21 +25,34 @@ import { sendBackPatch } from './sendBack.ts';
 import { checkTriageTarget, triageStep, type TriagePr } from './triage.ts';
 import { DEFAULT_PREVIEW, Previews, parsePreviewPatch } from './previews.ts';
 import { PREVIEW_SLUG } from './previewRunner.ts';
+import { pruneQaShots, qaShotsDir, readQaShot, removeQaShots, saveQaShots } from './qaShots.ts';
 import { ceoPromptPreview, devBranch, devPromptPreview, devSystemPrompt, failedLogLines, noPushNudge, ownPrLine, qaBranch, qaPromptPreview, qaSystemPrompt } from './prompts.ts';
 import { QA_RESUME_PROMPT, qaRetry } from './qaRetry.ts';
 import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type LastUpdate } from './officeUpdate.ts';
-import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, usageLabel, usageView, type UsageWarning, type WorkKind } from './pacing.ts';
+import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, resumeRefusal, usageLabel, usageView, waived, warningView, type UsageWarning, type Waiver, type WorkKind } from './pacing.ts';
+import { emptyHistory, loadHistory, opsView, recordChecks, recordCost, recordMerges, recordQa, type OpsFloorState, type OpsHistory } from './metrics.ts';
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
 import { isCli } from './clis.ts';
+import { envSecrets, Journal } from './journal.ts';
+import { sampleDay, seeded } from './journalSample.ts';
+import { addTenure, apply as applyLedger, buy as buyDecor, emptyLedger, grant as grantCoins, loadLedger, place as placeDecor, progressView, type CommandResult, type Effects, type LedgerEvent, type LedgerState } from './ledger.ts';
 import { AgentTerminal } from './terminal.ts';
-import { DEFAULT_VOICE, speaks, Voice, voiceSettings } from './voice.ts';
+import { Ticker } from './ticker.ts';
+import { DEFAULT_LISTEN, DEFAULT_VOICE, listenSettings, speaks, Voice, voiceSettings } from './voice.ts';
 import { Notifier } from './notifier.ts';
 import { clip, plainText, stuckAgents } from './notify.ts';
 import { DEFAULT_NOTIFY, notifySettings, officeUrl } from '../shared/notify.ts';
+import { agentActivity, lineActivity, sameActivity, type SeenActivity } from '../shared/activity.ts';
+import { WeatherService } from './weather.ts';
 import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issues.ts';
+import { dayKey, journalFrame } from '../shared/journal.ts';
+import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
+import { achievementDef, type ProgressView } from '../shared/progress.ts';
 import { effectiveModel } from '../shared/models.ts';
-import { CEO_ID, INSTALL_STEP } from '../shared/types.ts';
+import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, weatherSettings, worldEventSettings } from '../shared/outside.ts';
+import { CEO_ID, DEFAULT_DOG_NAME, INSTALL_STEP } from '../shared/types.ts';
 import type {
+  AgentActivity,
   AgentCli,
   AgentLook,
   AgentPromptView,
@@ -49,14 +62,17 @@ import type {
   AgentView,
   CeoInfo,
   CliView,
+  ClientEvent,
   EffortLevel,
   HireRequestView,
   IssueInfo,
   LogLine,
   OfficeUpdateView,
+  OpsView,
   PhoneMessage,
   PreviewConfig,
   PreviewView,
+  PrPreviewView,
   ProjectFolderView,
   PullInfo,
   QaCheck,
@@ -64,6 +80,8 @@ import type {
   RepoView,
   ServerEvent,
   SwarmSettings,
+  UsageView,
+  UsageWarningView,
   WorldSnapshot,
 } from '../shared/types.ts';
 
@@ -104,6 +122,7 @@ interface PersistedAgent {
   color: string;
   hair: string;
   skin: string;
+  style: AgentStyle | null; // the look editor's picks (null: seeded from the id)
   model: string;
   effort: EffortLevel | '';
   cli: AgentCli | ''; // '' = the office's default CLI
@@ -181,7 +200,9 @@ interface Persisted {
   messages: PhoneMessage[];
   phoneReadAt: number;
   prLimits: number; // the PR budgets (PR_LIMITS_VERSION) needs-human records were judged by
+  ops: OpsHistory; // mission control's rolling week of merges, QA verdicts, check runs and costs
   held: HeldIssue[];
+  progress: LedgerState; // coins, decorations, achievements and careers (ledger.ts)
 }
 
 interface Shot {
@@ -233,8 +254,8 @@ interface QaReport {
 
 const FLOOR_COLORS = ['#ff8a5b', '#4fb3e8', '#8fd14f', '#c77dff', '#ffc93c', '#ff6fb5', '#2ec4b6', '#f25f5c'];
 const SHIRTS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#f15bb5', '#00bbf9', '#06d6a0', '#ffbe0b', '#8338ec', '#fb5607', '#3a86ff'];
-const HAIR = ['#2b2118', '#6b4226', '#c68642', '#f2d16b', '#d94f30', '#1c1c1c', '#8e8e8e', '#5b3cc4', '#e76f51'];
-const SKIN = ['#ffdbac', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffe0bd'];
+const HAIR = HAIR_COLORS;
+const SKIN = SKIN_TONES;
 const DEV_NAMES = [
   'Ada', 'Linus', 'Grace', 'Alan', 'Margaret', 'Dennis', 'Barbara', 'Ken', 'Radia', 'Guido', 'Hedy', 'Tim', 'Katherine',
   'Bjarne', 'Frances', 'Edsger', 'Anita', 'Donald', 'Sophie', 'Yukihiro', 'Jean', 'Niklaus', 'Karen', 'Brendan',
@@ -288,6 +309,11 @@ const MAX_ISSUE_FAILURES = 2;
 const MAX_QA_FAILURES = 2;
 // How long the office waits after Claude's usage limit is hit when Claude doesn't say when it resets.
 const LIMIT_PAUSE_MS = 15 * 60_000;
+// Everyone on a floor this size or bigger busy at once is a full house (an achievement).
+const FULL_HOUSE = 4;
+// Mission control's numbers are recomputed after these events (debounced), and every half minute for the clock's sake.
+const OPS_EVENTS = new Set<ServerEvent['type']>(['repo', 'repoRemoved', 'agent', 'agentRemoved', 'qa', 'qaRemoved', 'ceo']);
+const OPS_TICK_MS = 30_000;
 const oneLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split(/\r?\n/)[0].slice(0, 200);
 
 // The latest browser screenshot per agent is kept on disk so monitors survive a server restart.
@@ -307,6 +333,9 @@ async function loadScreen(agentId: string): Promise<{ data: Buffer; mime: string
   }
   return null;
 }
+
+// QA's screenshots of each PR's latest round, for the app viewer's QA panel (qaShots.ts).
+const QA_SHOTS_DIR = path.join(HOME_DIR, 'qa-shots');
 
 async function removeScreens(agentId: string) {
   await Promise.all(Object.values(MIME_EXT).map((ext) => fs.rm(path.join(SCREENS_DIR, `${agentId}.${ext}`), { force: true })));
@@ -387,6 +416,16 @@ function parseReport(result: SessionResult): QaReport | null {
 }
 
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+
+/** A tab's message on /ws asking for the live office again (ClientEvent 'resync'). */
+function isResync(raw: unknown): boolean {
+  try {
+    return (JSON.parse(String(raw)) as Partial<ClientEvent> | null)?.type === 'resync';
+  } catch {
+    return false;
+  }
+}
+
 const ICON = { pass: '✅', fail: '❌', skip: '⏭️' } as const;
 
 export { HttpError };
@@ -404,6 +443,7 @@ export class Swarm {
       ceoHeartbeatMin: 60,
       managerName: '',
       companyName: '',
+      dogName: DEFAULT_DOG_NAME,
       projectsDir: DEFAULT_PROJECTS_DIR,
       setupDone: false,
       tutorialStep: 0,
@@ -411,6 +451,9 @@ export class Swarm {
       pacingSessions: DEFAULT_PACING_SESSIONS,
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
+      weather: { ...DEFAULT_WEATHER },
+      worldEvents: { ...DEFAULT_WORLD_EVENTS },
+      listen: { ...DEFAULT_LISTEN },
       notify: notifySettings(DEFAULT_NOTIFY, {}),
     },
     repos: [],
@@ -421,7 +464,9 @@ export class Swarm {
     messages: [],
     phoneReadAt: 0,
     prLimits: PR_LIMITS_VERSION,
+    ops: emptyHistory(),
     held: [],
+    progress: emptyLedger(),
   };
   /**
    * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
@@ -448,6 +493,12 @@ export class Swarm {
   private ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB); // issues filed during the current CEO job
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
+  private seenActivity = new Map<string, SeenActivity>(); // agent id -> their latest action in the log
+  private shownActivity = new Map<string, AgentActivity | null>(); // agent id -> the activity clients last heard
+  private ticker = new Ticker({
+    name: (id) => this.state.agents.find((a) => a.id === id)?.name ?? null,
+    author: (repoId, pr) => this.state.agents.find((a) => a.repoId === repoId && a.role === 'dev' && a.prNumber === pr)?.name ?? null,
+  });
   private repoRt = new Map<string, RepoRuntime>();
   private issueAges = new IssueAges(); // when the issues behind recent merges were filed, for the whiteboard
   private deskAlerts = new Map<string, string>(); // agent id -> the desk setup error the manager was last told about
@@ -476,21 +527,39 @@ export class Swarm {
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
   /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
   readonly voice: Voice;
+  /** The real local weather (Settings → Weather), read by the server so it's cached and survives a restart. */
+  readonly weather: WeatherService;
+  /** What the office looked like over the last week, for the time-lapse replay. The demo keeps its own. */
+  readonly journal: Journal;
+  private readonly envSecrets = envSecrets(process.env);
   /** Notifications to the manager's devices and chat apps (docs/pocket.md). The demo's only log what they'd send. */
   readonly notifier: Notifier;
   private toldStuck = new Set<string>(); // `${agentId}:${endedAt}`: agents in an error the manager was notified about
 
   constructor(private backend: Backend) {
+    this.weather = new WeatherService({
+      api: backend.weather,
+      file: path.join(HOME_DIR, backend.demo ? 'demo-weather.json' : 'weather.json'),
+      settings: () => this.state.settings.weather,
+      changed: (weather) => this.broadcast({ type: 'weather', weather }),
+      log: (line) => console.log(line),
+    });
     this.voice = new Voice({
       api: backend.voice,
       secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
       cacheDir: path.join(HOME_DIR, backend.demo ? 'demo-voice' : 'voice'),
       settings: () => this.state.settings.voice,
+      listen: () => this.state.settings.listen,
       messages: () => this.state.messages,
       officeNote: (text) => this.postMessage('office', text),
       keyChanged: (view) => this.broadcast({ type: 'voiceKey', ...view }),
       cacheChanged: (voiceCache) => this.broadcast({ type: 'voiceCache', voiceCache }),
       log: (line) => console.log(line),
+    });
+    this.journal = new Journal({
+      dir: path.join(HOME_DIR, backend.demo ? 'demo-journal' : 'journal'),
+      frame: () => journalFrame(this.snapshot(), this.secrets()),
+      secrets: () => this.secrets(),
     });
     this.notifier = new Notifier({
       transport: backend.notify,
@@ -507,6 +576,9 @@ export class Swarm {
         if (r && this.repoRt.has(id)) this.emitRepo(r);
       },
       pulls: (id) => this.repoRt.get(id)?.pulls ?? [],
+      emitPr: (preview) => this.broadcast({ type: 'prPreview', preview }),
+      prRemoved: (repoId, pr) => this.broadcast({ type: 'prPreviewRemoved', repoId, pr }),
+      note: (text) => this.toast('info', text),
     });
   }
 
@@ -537,6 +609,7 @@ export class Swarm {
           brief: a.brief ?? '',
           hiredBy: a.hiredBy ?? 'manager',
           look: a.look ?? lookFor(a.name),
+          style: cleanStyle(a.style),
           task: a.task ?? (a.issueNumber ? 'issue' : null),
           cli: isCli(a.cli) ? a.cli : '',
           sessionCli: a.sessionCli ?? (a.sessionId ? 'claude' : null),
@@ -566,7 +639,9 @@ export class Swarm {
         messages: loaded.messages ?? [],
         phoneReadAt: loaded.phoneReadAt ?? 0,
         prLimits: loaded.prLimits ?? 1,
+        ops: loadHistory(loaded.ops, Date.now()),
         held: loaded.held ?? [],
+        progress: loadLedger(loaded.progress),
       };
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
@@ -582,6 +657,9 @@ export class Swarm {
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
+      this.state.settings.weather = weatherSettings(DEFAULT_WEATHER, loaded.settings?.weather);
+      this.state.settings.worldEvents = worldEventSettings(DEFAULT_WORLD_EVENTS, loaded.settings?.worldEvents);
+      this.state.settings.listen = listenSettings(DEFAULT_LISTEN, loaded.settings?.listen);
       this.state.settings.notify = notifySettings(DEFAULT_NOTIFY, loaded.settings?.notify);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
@@ -591,6 +669,7 @@ export class Swarm {
       // first run
     }
     await this.voice.init();
+    await this.weather.init();
     await this.notifier.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
@@ -643,9 +722,13 @@ export class Swarm {
         for (let i = 0; i < (repo.floor === 1 ? 5 : 3); i++) this.hireAgent(repo.id, {});
         this.updateRepo(repo.id, { autoAssign: true });
       }
+      // Mission control opens on a week that already happened.
+      this.state.ops = this.backend.seedOps?.(this.state.repos.map((r) => r.id), Date.now()) ?? this.state.ops;
     }
     for (const r of this.state.repos) this.ensureQaTester(r);
     this.ensureCeo(interrupted);
+    // Agents from before the ledger start their careers now.
+    for (const a of this.state.agents) if (a.role !== 'ceo') applyLedger(this.state.progress, { kind: 'hired', agentId: a.id, at: Date.now() });
 
     for (const r of this.state.repos) void this.cloneRepo(r.id);
     await Promise.all(this.state.repos.map((r) => this.syncRepo(r.id)));
@@ -660,6 +743,7 @@ export class Swarm {
       this.previews.clearOrphans(this.state.repos),
     ]);
     for (const r of this.state.repos) void this.previews.refreshDefault(r);
+    void pruneQaShots(QA_SHOTS_DIR, new Set(this.state.qa.map((q) => `${q.repoId}#${q.prNumber}`)));
     this.recover(interrupted, preparing);
     // A PR the restart left in "testing" with nobody on it: test it again (the result, if any, was lost).
     for (const rec of orphanedQa(this.state.qa, this.state.agents, BUSY)) this.setQa(rec, { status: 'queued', qaAgentId: null });
@@ -669,13 +753,16 @@ export class Swarm {
     if (updated) await this.reportUpdate(updated);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.syncRepo(r.id), i * 1500)), SYNC_INTERVAL_MS);
     setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
+    setInterval(() => this.previews.sweepPrs(), 15_000);
     setInterval(() => void this.saveTerminals(), TERMINAL_SAVE_MS);
     // Every minute in the demo, so a short idle time shows its phone message soon.
     setInterval(() => {
       void this.trimIdleDesks();
       void this.voice.prune();
+      void this.journal.prune().catch((err) => console.warn('could not prune the journal', err));
     }, this.backend.demo ? 60_000 : TRIM_SWEEP_MS);
     setInterval(() => this.state.repos.forEach((r, i) => setTimeout(() => void this.sweepFloor(r.id), i * 1500)), DESK_SWEEP_INTERVAL_MS);
+    setInterval(() => this.emitOps(), OPS_TICK_MS); // the clock moves the numbers too: the last hour, today, errors turning into alarms
     setInterval(() => this.notifyStuck(), 60_000);
     void this.backend
       .detectClis()
@@ -684,6 +771,9 @@ export class Swarm {
         this.broadcast({ type: 'clis', clis });
       })
       .catch((err) => console.warn('could not look for agent CLIs', err));
+    await this.journal.start();
+    // A fresh demo office has yesterday to replay too.
+    if (this.backend.demo) void this.journal.hasPastDays().then((has) => (has ? undefined : this.journalSample())).catch((err) => console.warn('could not write the sample day', err));
     this.save();
     setTimeout(() => this.schedule(), 1000);
   }
@@ -774,6 +864,7 @@ export class Swarm {
       color: a.color,
       hair: a.hair,
       skin: a.skin,
+      style: a.style,
       model: a.model,
       effort: a.effort,
       cli: a.cli,
@@ -793,8 +884,18 @@ export class Swarm {
       hasScreenshot: !!rt.screenshot,
       screenshotAt: rt.screenshot?.at ?? null,
       lastError: a.lastError,
+      career: a.role === 'ceo' ? null : (this.state.progress.careers[a.id] ?? null),
       log: withLog ? rt.log : [],
+      activity: this.activityOf(a),
     };
+  }
+
+  /** What the sign over their head says (shared/activity.ts): from their status and latest action, never raw input. */
+  private activityOf(a: PersistedAgent): AgentActivity | null {
+    const chat = a.role === 'ceo' && this.state.ceo.job?.kind === 'chat';
+    const { status, task, issueNumber, prNumber, startedAt } = a;
+    const currentTool = this.agentRt.get(a.id)?.currentTool ?? null;
+    return agentActivity({ status, task, currentTool, issueNumber, prNumber, startedAt }, this.seenActivity.get(a.id) ?? null, chat);
   }
 
   private qaView(q: QaRecord): QaView {
@@ -811,6 +912,7 @@ export class Swarm {
       mergeNote: q.mergeNote,
       ceoLooking: q.status === 'needs-human' && !q.escalated && this.triageJob(q) != null,
       updatedAt: q.updatedAt,
+      shots: q.shots ?? [],
     };
   }
 
@@ -825,17 +927,22 @@ export class Swarm {
       repos: this.state.repos.map((r) => this.repoView(r)),
       agents: this.state.agents.map((a) => this.agentView(a, true)),
       qa: this.state.qa.map((q) => this.qaView(q)),
+      prPreviews: this.previews.prViews(),
       requests: this.state.requests,
       ceo: this.ceoInfo(),
       messages: this.state.messages.slice(-100),
       phoneReadAt: this.state.phoneReadAt,
       usage: this.usageNow(),
+      ops: this.opsNow(),
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
+      weather: this.weather.current(),
+      ticker: this.ticker.recent(),
       notifyChannels: this.notifier.channelsView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
+      progress: this.progressView(),
     };
   }
 
@@ -855,6 +962,10 @@ export class Swarm {
   addClient(ws: WebSocket) {
     this.clients.add(ws);
     ws.on('close', () => this.clients.delete(ws));
+    // A tab back from the time-lapse asks for the live office again.
+    ws.on('message', (raw) => {
+      if (isResync(raw)) this.send(ws, { type: 'snapshot', data: this.snapshot() });
+    });
     this.send(ws, { type: 'snapshot', data: this.snapshot() });
   }
 
@@ -865,6 +976,24 @@ export class Swarm {
   private broadcast(ev: ServerEvent) {
     const msg = JSON.stringify(ev);
     for (const ws of this.clients) if (ws.readyState === ws.OPEN) ws.send(msg);
+    for (const item of this.ticker.observe(ev)) this.broadcast({ type: 'ticker', item });
+    if (OPS_EVENTS.has(ev.type)) this.opsSoon();
+    this.journal.record(ev);
+  }
+
+  /** Values the journal must never write: the ElevenLabs key and secret-looking environment variables. */
+  private secrets(): string[] {
+    const key = this.voice.secret();
+    return key ? [...this.envSecrets, key] : this.envSecrets;
+  }
+
+  /** POST /api/journal/sample (demo only): writes a made-up working day as yesterday's journal, to replay. */
+  async journalSample(): Promise<{ day: string }> {
+    if (!this.backend.demo) throw new HttpError(400, 'Sample days are only for the demo office');
+    const today = new Date();
+    const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).getTime();
+    const day = await this.journal.writeDay(sampleDay(journalFrame(this.snapshot(), this.secrets()), midnight, seeded(Number(dayKey(midnight).replace(/-/g, '')))));
+    return { day };
   }
 
   private toast(level: 'info' | 'success' | 'error', text: string) {
@@ -879,6 +1008,7 @@ export class Swarm {
     // A session can finish after its agent was let go (their floor disconnected mid-task); they're gone, so say nothing.
     if (!this.agentRt.has(a.id)) return;
     const { log: _log, ...rest } = this.agentView(a, false);
+    this.shownActivity.set(a.id, rest.activity ?? null);
     this.broadcast({ type: 'agent', agent: rest });
   }
 
@@ -887,6 +1017,7 @@ export class Swarm {
     Object.assign(rec, patch, { updatedAt: Date.now() });
     if (!this.state.qa.includes(rec)) return; // it left QA (its PR closed) while a session on it was still wrapping up
     if (rec.status !== 'needs-human') rec.escalated = false;
+    else this.ledger({ kind: 'needs-human', repoId: rec.repoId, pr: rec.prNumber });
     this.broadcast({ type: 'qa', qa: this.qaView(rec) });
     this.save();
     // Every way a PR reaches the manager (escalated by the CEO, or straight to them) passes here.
@@ -901,6 +1032,8 @@ export class Swarm {
       const line: LogLine = { id: this.logSeq++, t, kind: e.kind, text: e.text, tool: e.tool };
       rt.log.push(line);
       rt.pending.push(line);
+      const act = lineActivity(line);
+      if (act) this.seenActivity.set(a.id, { ...act, at: t });
     }
     if (rt.log.length > LOG_BUFFER) rt.log.splice(0, rt.log.length - LOG_BUFFER);
     if (!this.flushTimer) this.flushTimer = setTimeout(() => this.flushLogs(), 120);
@@ -912,6 +1045,9 @@ export class Swarm {
       if (rt.pending.length === 0) continue;
       this.broadcast({ type: 'log', agentId, lines: rt.pending });
       rt.pending = [];
+      // A new action changes the sign over their head; tool changes already sent most of them.
+      const a = this.state.agents.find((x) => x.id === agentId);
+      if (a && !sameActivity(this.activityOf(a), this.shownActivity.get(agentId))) this.emitAgent(a);
     }
     this.save();
   }
@@ -1079,7 +1215,10 @@ export class Swarm {
     for (const a of this.state.agents.filter((x) => x.repoId === id)) this.fireAgent(a.id, true);
     void this.previews.remove({ ...repo });
     this.state.repos = this.state.repos.filter((r) => r.id !== id);
-    for (const q of this.state.qa.filter((x) => x.repoId === id)) this.broadcast({ type: 'qaRemoved', repoId: id, prNumber: q.prNumber });
+    for (const q of this.state.qa.filter((x) => x.repoId === id)) {
+      this.broadcast({ type: 'qaRemoved', repoId: id, prNumber: q.prNumber });
+      void removeQaShots(qaShotsDir(QA_SHOTS_DIR, id, q.prNumber)).catch(() => undefined);
+    }
     this.state.qa = this.state.qa.filter((q) => q.repoId !== id);
     this.state.held = this.state.held.filter((h) => h.repoId !== id);
     for (const r of this.state.repos) r.links = r.links.filter((l) => l !== id);
@@ -1302,7 +1441,7 @@ export class Swarm {
       const pulls = rt.lastSync ? rt.pulls : await this.backend.listPulls(repo.fullName);
       const agents = this.state.agents.filter((a) => a.repoId === repo.id);
       const keep = {
-        desks: [...agents.map((a) => this.agentSlug(a)), PREVIEW_SLUG],
+        desks: [...agents.map((a) => this.agentSlug(a)), PREVIEW_SLUG, ...this.previews.prSlugs(repo)],
         branches: [...agents.flatMap((a) => (a.branch ? [a.branch] : [])), ...pulls.filter((p) => p.state === 'OPEN').map((p) => p.headRefName)],
       };
       const r = await this.backend.sweepDesks(repo.fullName, keep);
@@ -1331,12 +1470,42 @@ export class Swarm {
     return this.previews.stop(this.repo(id));
   }
 
+  /** The PR theatre: run an open PR beside the floor's main preview (kept when it's already up, unless restart). */
+  startPrPreview(id: string, pr: number, restart = false): Promise<PrPreviewView> {
+    const repo = this.repo(id);
+    return this.previews.startPr(repo, pr, `${repo.fullName.split('/')[1]} app`, restart);
+  }
+
+  stopPrPreview(id: string, pr: number): Promise<void> {
+    return this.previews.stopPr(this.repo(id), pr);
+  }
+
+  /** An open app viewer's heartbeat: the PR preview it has on screen (null: none). */
+  watchPreview(viewer: string, repoId: string | null, pr: number | null) {
+    if (repoId) this.repo(repoId);
+    this.previews.watch(viewer, repoId, pr);
+  }
+
+  /** The address of a sync proxy in front of the floor's app (pr null) or a PR preview, for compare mode's synced scrolling. */
+  async previewSyncUrl(id: string, pr: number | null): Promise<{ url: string }> {
+    return { url: await this.previews.syncUrl(this.repo(id), pr) };
+  }
+
+  /** One of QA's screenshots from a PR's latest round. */
+  async qaShot(repoId: string, pr: number, index: number): Promise<{ data: Buffer; mime: string } | null> {
+    const shot = this.state.qa.find((q) => q.repoId === repoId && q.prNumber === pr)?.shots?.[index];
+    if (!shot) return null;
+    const data = await readQaShot(qaShotsDir(QA_SHOTS_DIR, repoId, pr), index, shot.mime);
+    return data && { data, mime: shot.mime };
+  }
+
   /**
    * Server shutdown: stop every floor's app so nothing is left holding a preview port. Agents' CLIs keep working
    * through a restart (the terminal keeper holds them for the next start) and stop when the office quits.
    */
   async shutdown(restart = false): Promise<void> {
     await this.writeState().catch((err) => console.warn('could not save the state', err));
+    await this.journal.close().catch((err) => console.warn('could not write the journal', err));
     await this.backend.releaseClis(restart); // before the terminals are saved: whatever they print next waits in the keeper
     await this.saveTerminals(true);
     await this.previews.stopAll(this.state.repos);
@@ -1381,7 +1550,9 @@ export class Swarm {
       await this.askGitHub(repo, rt);
       if (!this.repoRt.has(id)) return; // disconnected meanwhile
       this.settleLearned(rt);
+      this.ledgerPulls(repo, rt.pulls); // while the QA records still say who wrote what
       this.cleanUpClosed(repo);
+      this.recordSync(repo, rt.pulls);
       this.reconcilePulls(repo, rt.pulls);
       // Something was merged since the last look (by the office or anyone else): bring the folder up to date.
       const newest = pulls.reduce<string | null>((m, p) => (p.mergedAt && (!m || p.mergedAt > m) ? p.mergedAt : m), null);
@@ -1407,6 +1578,19 @@ export class Swarm {
     if (!rt) return;
     this.issueAges.stamp(repo.id, rt.pulls);
     this.emitRepo(repo);
+  }
+
+  /** Tell the ledger what a sync saw: open PRs (and their checks), merges, and which PRs went away. */
+  private ledgerPulls(repo: PersistedRepo, pulls: PullInfo[]) {
+    const now = Date.now();
+    for (const pr of pulls) {
+      if (pr.state === 'OPEN') this.ledger({ kind: 'pr-open', repoId: repo.id, pr: pr.number, title: pr.title, author: this.prAuthor(repo, pr), checks: pr.checks, at: now });
+      else if (pr.state === 'MERGED') {
+        const at = pr.mergedAt ? Date.parse(pr.mergedAt) : now;
+        this.ledger({ kind: 'merged', repoId: repo.id, repoName: repo.fullName, pr: pr.number, title: pr.title, author: this.prAuthor(repo, pr), at: Number.isFinite(at) ? Math.min(at, now) : now });
+      }
+    }
+    this.ledger({ kind: 'listed', repoId: repo.id, numbers: pulls.map((p) => p.number), at: now });
   }
 
   /**
@@ -1522,6 +1706,9 @@ export class Swarm {
       this.emitRepo(repo);
     }
     const closures = closuresHeld(this.holders(repo), this.state.qa.filter((q) => q.repoId === repo.id), f);
+    // PR previews of PRs that merged or closed stop too, held by anyone or not; what the office learned first counts.
+    // Not before the first sync: an empty list would read as every PR gone.
+    if (rt.lastSync) this.previews.pullsChanged(repo, [...rt.pulls.filter((p) => !rt.closedPulls.has(p.number)), ...rt.closedPulls.values()]);
     return closures.flatMap((c) => this.applyClosure(repo, c));
   }
 
@@ -1575,6 +1762,7 @@ export class Swarm {
     if (!rec) return;
     this.state.qa = this.state.qa.filter((q) => q !== rec);
     this.broadcast({ type: 'qaRemoved', repoId: repo.id, prNumber });
+    void removeQaShots(qaShotsDir(QA_SHOTS_DIR, repo.id, prNumber)).catch(() => undefined);
     this.clearPrepStrikes(repo.id, prNumber);
     this.fixNudged.delete(`${repo.id}#${prNumber}`);
     this.save();
@@ -1639,6 +1827,8 @@ export class Swarm {
       cli?: string;
       hiredBy?: 'manager' | 'ceo';
       appearance?: { color: string; hair: string; skin: string };
+      /** Their id, when it's known before they're hired (a proposal's): their look is seeded from it. */
+      id?: string;
     },
   ) {
     const repo = this.repo(repoId);
@@ -1651,7 +1841,7 @@ export class Swarm {
     }
     const name = opts.name?.trim() || this.freeName(role);
     const agent: PersistedAgent = {
-      id: crypto.randomUUID(),
+      id: opts.id && !this.state.agents.some((a) => a.id === opts.id) ? opts.id : crypto.randomUUID(),
       name,
       repoId: repo.id,
       role,
@@ -1665,6 +1855,7 @@ export class Swarm {
       color: opts.appearance?.color ?? pick(SHIRTS),
       hair: opts.appearance?.hair ?? pick(HAIR),
       skin: opts.appearance?.skin ?? pick(SKIN),
+      style: null,
       model: opts.model ?? '',
       effort: EFFORTS.includes(opts.effort as EffortLevel) ? (opts.effort as EffortLevel) : '',
       cli: isCli(opts.cli) ? opts.cli : '',
@@ -1684,6 +1875,7 @@ export class Swarm {
       logTail: [],
     };
     this.state.agents.push(agent);
+    applyLedger(this.state.progress, { kind: 'hired', agentId: agent.id, at: Date.now() });
     this.agentRt.set(agent.id, { log: [], pending: [], session: null, currentTool: null, browserUrl: null, screenshot: null, shots: [], terminal: null });
     this.appendLog(agent, [
       { kind: 'system', text: role === 'qa' ? `🔍 ${name} joined the QA lab on floor ${repo.floor} (${repo.fullName}).` : `👋 ${name} joined floor ${repo.floor} (${repo.fullName}).` },
@@ -1710,7 +1902,7 @@ export class Swarm {
 
   updateAgent(
     id: string,
-    patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; title?: string; specialty?: string; brief?: string; color?: string; hair?: string },
+    patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; title?: string; specialty?: string; brief?: string; color?: string; hair?: string; style?: unknown },
   ) {
     const a = this.agent(id);
     if (patch.cli !== undefined && a.role !== 'ceo') a.cli = isCli(patch.cli) ? patch.cli : '';
@@ -1721,6 +1913,7 @@ export class Swarm {
     if (LOOKS.includes(patch.look as AgentLook)) a.look = patch.look as AgentLook;
     if (patch.color && /^#[0-9a-f]{6}$/i.test(patch.color)) a.color = patch.color;
     if (patch.hair && /^#[0-9a-f]{6}$/i.test(patch.hair)) a.hair = patch.hair;
+    if (patch.style !== undefined) a.style = cleanStyle(patch.style); // null: back to the seeded look
     if (patch.model !== undefined) a.model = String(patch.model).trim();
     if (patch.effort !== undefined) a.effort = EFFORTS.includes(patch.effort as EffortLevel) ? (patch.effort as EffortLevel) : '';
     if (a.role !== 'ceo') {
@@ -1763,7 +1956,10 @@ export class Swarm {
         .then(() => this.sweepFloor(repo.id));
     }
     this.state.agents = this.state.agents.filter((x) => x.id !== id);
+    applyLedger(this.state.progress, { kind: 'let-go', agentId: id });
     this.agentRt.delete(id);
+    this.seenActivity.delete(id);
+    this.shownActivity.delete(id);
     this.save();
     this.broadcast({ type: 'agentRemoved', agentId: id });
   }
@@ -2162,6 +2358,8 @@ export class Swarm {
     a.endedAt = Date.now();
     a.costUsd += result.costUsd;
     a.turns += result.turns;
+    recordCost(this.state.ops, repo.id, result.costUsd, a.endedAt);
+    this.ledger({ kind: 'session', agentId: a.id, key: `${a.id}:${a.startedAt}:${a.endedAt}`, costUsd: result.costUsd, turns: result.turns }, false); // emitted below
     // Dev servers the agent forgot to stop would otherwise keep its port and lock its desk folder.
     void this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a)).catch(() => undefined);
     if (result.interrupted) this.interrupted(a);
@@ -2209,6 +2407,10 @@ export class Swarm {
     }
     this.issueFailures.delete(`${repo.id}#${a.issueNumber}`);
     a.status = 'done';
+    if (a.prNumber) {
+      const labels = this.repoRt.get(repo.id)?.issues.find((i) => i.number === a.issueNumber)?.labels ?? [];
+      this.ledger({ kind: 'opened', repoId: repo.id, pr: a.prNumber, title: a.issueTitle ?? '', author: a.id, specialty: issueSpecialty(labels), at: Date.now() }, false);
+    }
     this.appendLog(a, [{ kind: 'done', text: `✔ Finished in ${this.minutes(a)}m · ${a.turns} turns${a.prNumber ? ` · PR #${a.prNumber}` : ' · no PR found'}` }]);
     const failedEarly = a.prNumber ? this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === a.prNumber && q.status === 'failed') : undefined;
     if (failedEarly) {
@@ -2337,6 +2539,7 @@ export class Swarm {
 
   private async runQa(a: PersistedAgent, repo: PersistedRepo, rec: QaRecord) {
     const branch = qaBranch(rec.prNumber, slugify(a.name));
+    this.qaWaits.set(`${repo.id}#${rec.prNumber}`, Date.now() - rec.updatedAt); // queued since its last change
     this.setQa(rec, { status: 'testing', qaAgentId: a.id });
     this.beginTask(
       a,
@@ -2469,11 +2672,22 @@ export class Swarm {
 
     a.status = 'done';
     const pass = report.verdict === 'pass';
+    if (rec) this.ledger({ kind: 'qa', repoId: repo.id, pr: rec.prNumber, round: rec.round, pass, tester: a.id, author: rec.devAgentId, at: Date.now() });
     this.appendLog(a, [{ kind: pass ? 'done' : 'error', text: `${pass ? '✅ QA passed' : '❌ QA failed'} PR #${a.prNumber} · ${report.checks.length} checks · ${rt.shots.length} screenshots` }]);
 
     // Evidence + comment on the PR
     let commentUrl: string | null = null;
     if (rec) {
+      const shots = await saveQaShots(
+        qaShotsDir(QA_SHOTS_DIR, repo.id, rec.prNumber),
+        rt.shots.map((s, i) => ({ data: s.data, mime: s.mime, page: s.url, caption: report.screenshots[i] ?? `Screenshot ${i + 1}` })),
+      ).catch((err) => {
+        console.warn(`could not keep QA's screenshots of PR #${rec.prNumber}: ${oneLine(err)}`);
+        return [];
+      });
+      const key = `${repo.id}#${rec.prNumber}`;
+      recordQa(this.state.ops, repo.id, pass, this.qaWaits.get(key) ?? null, Date.now());
+      this.qaWaits.delete(key);
       // On a fail: a conflict with the default branch is the merge gate's job, not the manager's (on QA's last round),
       // and the checks are recorded so a re-run of a red one can count as the fix.
       const pull = !pass ? await this.backend.prDetails(repo.fullName, rec.prNumber).catch(() => null) : null;
@@ -2504,6 +2718,7 @@ export class Swarm {
         mergeRetryAt: null,
         alerted: false,
         qaChecks: pull?.checks ?? null,
+        shots,
       });
       // QA's findings travel with the merge fix; the developer's push then gets one more QA round.
       if (next === 'conflict') this.sendBack(repo, rec, 'conflict', conflictFixInstructions(fixInstructions, repo.defaultBranch), false);
@@ -2570,6 +2785,7 @@ export class Swarm {
     const qaAgent = rec.qaAgentId ? this.state.agents.find((x) => x.id === rec.qaAgentId) : null;
     this.fixNudged.delete(`${repo.id}#${rec.prNumber}`);
     const author = rec.devAgentId;
+    this.ledger({ kind: 'fix', repoId: repo.id, pr: rec.prNumber, key: `${rec.round}:${rec.mergeFixes}`, at: Date.now() });
     this.setQa(rec, { status: 'fixing', devAgentId: dev.id });
     this.beginTask(
       dev,
@@ -2776,6 +2992,7 @@ export class Swarm {
     if (patch.ceoHeartbeatMin !== undefined) s.ceoHeartbeatMin = Math.max(0, Math.min(1440, Math.round(Number(patch.ceoHeartbeatMin)) || 0));
     if (typeof patch.managerName === 'string') s.managerName = patch.managerName.trim().slice(0, 40);
     if (typeof patch.companyName === 'string') s.companyName = patch.companyName.trim().slice(0, 60);
+    if (typeof patch.dogName === 'string') s.dogName = patch.dogName.trim().slice(0, 24) || DEFAULT_DOG_NAME;
     if (typeof patch.projectsDir === 'string' && patch.projectsDir.trim()) s.projectsDir = path.resolve(patch.projectsDir.trim());
     if (typeof patch.setupDone === 'boolean') s.setupDone = patch.setupDone;
     if (patch.tutorialStep !== undefined) s.tutorialStep = Math.max(-1, Math.round(Number(patch.tutorialStep)) || 0);
@@ -2790,6 +3007,12 @@ export class Swarm {
       s.voice = voiceSettings(s.voice, patch.voice);
       if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
     }
+    if (patch.weather !== undefined) {
+      s.weather = weatherSettings(s.weather, patch.weather);
+      this.weather.settingsChanged();
+    }
+    if (patch.worldEvents !== undefined) s.worldEvents = worldEventSettings(s.worldEvents, patch.worldEvents);
+    if (patch.listen !== undefined) s.listen = listenSettings(s.listen, patch.listen);
     if (patch.notify !== undefined) {
       const url = (patch.notify as { officeUrl?: unknown } | null)?.officeUrl;
       if (url !== undefined && officeUrl(url) === null) throw new HttpError(400, 'The office URL must be an http(s) address, e.g. https://office.your-tailnet.ts.net');
@@ -2834,6 +3057,9 @@ export class Swarm {
   private fixNudged = new Set<string>(); // `${repoId}#${pr}`: its fix session was asked once to push or say why not
   private pausedUntil = 0; // Claude's usage limit was hit: nothing new starts before this
   private pacingUntil = 0; // Claude warned about usage: new issues are paced until this
+  private pacingLimit: string | null = null; // which of Claude's limits the pacing is for
+  private lastWarning: UsageWarningView | null = null; // the latest usage warning, for the usage meter
+  private waiver: Waiver | null = null; // pacing the manager cleared with "Resume full speed"
   private lastUsage = '';
 
   /** Backlog issues that can start now, most urgent first: the ones holding up the longest chain of other issues, then the oldest. */
@@ -2956,12 +3182,42 @@ export class Swarm {
   /** Claude warned that usage is getting high: pace new issues until the window resets, rather than run into the limit. */
   private paceForWarning(info: UsageWarning) {
     const now = Date.now();
+    this.lastWarning = warningView(info, now);
     const until = info.resetsAt && info.resetsAt > now ? info.resetsAt : now + PACING_MS;
-    if (until <= this.pacingUntil) return;
+    // The manager already resumed full speed for this window: they topped up, or their usage was reset.
+    if (until <= this.pacingUntil || waived(info, this.waiver, now)) return this.emitUsage();
     const fresh = now >= this.pacingUntil;
     this.pacingUntil = until;
+    this.pacingLimit = info.rateLimitType;
     if (fresh) this.postMessage('office', pacingMessage(info, until, this.state.settings.pacingSessions, now));
     this.emitUsage();
+  }
+
+  /** The manager's "Resume full speed" (they topped up, or their usage was reset): pacing ends now. A hard pause never does. */
+  resumeFullSpeed(): UsageView {
+    const now = Date.now();
+    const refused = resumeRefusal({ now, pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil });
+    if (refused) throw new HttpError(409, refused);
+    this.waiver = { until: this.pacingUntil, limit: this.pacingLimit };
+    this.pacingUntil = 0;
+    this.postMessage('office', '⏩ You resumed full speed: new issues start as usual again. If Claude turns a session away at the limit, the office still pauses until it resets.');
+    this.emitUsage();
+    setTimeout(() => this.schedule(), 200);
+    return this.usageNow();
+  }
+
+  /** The demo's stand-in for Claude's usage warning or limit (POST /api/usage/simulate), so pacing and the pause can be tried. */
+  simulateUsage(kind: unknown): UsageView {
+    const fake = this.backend.simulateUsage;
+    if (!fake) throw new HttpError(404, 'Usage can only be simulated in the demo office.');
+    if (kind !== 'warning' && kind !== 'limit') throw new HttpError(400, 'kind must be "warning" or "limit"');
+    const usage = fake(kind, Date.now());
+    if ('limitResetsAt' in usage) this.pauseForLimit(usage.limitResetsAt);
+    else {
+      this.waiver = null; // a simulated warning always paces, even after Resume full speed
+      this.paceForWarning(usage);
+    }
+    return this.usageNow();
   }
 
   /** May work of this kind start now, as far as Claude's usage goes? */
@@ -2970,7 +3226,7 @@ export class Swarm {
   }
 
   private usageNow() {
-    return usageView({ now: Date.now(), pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil });
+    return usageView({ now: Date.now(), pausedUntil: this.pausedUntil, pacingUntil: this.pacingUntil }, this.lastWarning);
   }
 
   private emitUsage() {
@@ -2996,6 +3252,54 @@ export class Swarm {
     this.emitUsage();
   }
 
+  // ---------- mission control ----------
+
+  private opsTimer: NodeJS.Timeout | null = null;
+  private lastOps = '';
+  private qaWaits = new Map<string, number>(); // `${repoId}#${pr}` -> how long its QA run in progress waited for a tester
+
+  /** A sync's merges (stamped with their issues' ages) and finished check runs go into mission control's history. */
+  private recordSync(repo: PersistedRepo, pulls: PullInfo[]) {
+    const now = Date.now();
+    if (recordMerges(this.state.ops, repo.id, pulls, now) + recordChecks(this.state.ops, repo.id, pulls, now) > 0) this.save();
+  }
+
+  /** Every floor as mission control sees it now. */
+  private opsNow(): OpsView {
+    const floors: OpsFloorState[] = this.state.repos.map((r) => {
+      const rt = this.repoRt.get(r.id);
+      return {
+        repoId: r.id,
+        floor: r.floor,
+        ready: rt?.lastSync ? this.readyIssues(r).length : 0,
+        agents: this.state.agents.filter((a) => a.repoId === r.id),
+        prs: (rt?.pulls ?? [])
+          .filter((p) => p.state === 'OPEN')
+          .map((p) => {
+            const q = this.state.qa.find((x) => x.repoId === r.id && x.prNumber === p.number);
+            return { number: p.number, qa: q ? this.qaView(q) : null, why: q?.stuckWhy ?? q?.mergeNote ?? null };
+          }),
+      };
+    });
+    return opsView(floors, this.state.ops, Date.now());
+  }
+
+  /** Recompute mission control shortly: changes usually come several at a time. */
+  private opsSoon() {
+    this.opsTimer ??= setTimeout(() => this.emitOps(), 400);
+  }
+
+  /** Broadcast mission control's numbers, but only when they changed: the wall repaints only then. */
+  private emitOps() {
+    if (this.opsTimer) clearTimeout(this.opsTimer);
+    this.opsTimer = null;
+    const ops = this.opsNow();
+    const key = JSON.stringify(ops);
+    if (key === this.lastOps) return;
+    this.lastOps = key;
+    this.broadcast({ type: 'ops', ops });
+  }
+
   /** A failed session releases its issue for someone else; an issue that keeps failing waits for the manager. */
   private issueFailed(repo: PersistedRepo, n: number | null) {
     if (n == null || this.limited()) return; // the usage limit isn't the issue's fault
@@ -3014,6 +3318,7 @@ export class Swarm {
    */
   private schedule() {
     this.tickUsage();
+    this.progressTick();
     if (this.officeUpdateTick()) return; // draining for the office's own update
     if (this.limited()) return;
     // Management first: the CEO's jobs are short and shape everyone else's work.
@@ -3194,6 +3499,7 @@ export class Swarm {
         color: '#e63946',
         hair: '#2b2118',
         skin: pick(SKIN),
+        style: null,
         model: CEO_MODEL,
         effort: CEO_EFFORT,
         cli: 'claude',
@@ -3374,6 +3680,7 @@ export class Swarm {
     a.endedAt = Date.now();
     a.costUsd += result.costUsd;
     a.turns += result.turns;
+    recordCost(this.state.ops, '', result.costUsd, a.endedAt);
     const job = this.state.ceo.job;
     this.state.ceo.job = null;
     if (job?.kind === 'triage') this.endTriage(job);
@@ -3667,6 +3974,96 @@ export class Swarm {
     }
   }
 
+  // ---------- progress: coins, decorations, achievements and careers (#210, #226) ----------
+
+  /** Tell the ledger something happened; send on whatever it changed. emitAgents false: the caller emits them. */
+  private ledger(ev: LedgerEvent, emitAgents = true) {
+    this.fanout(applyLedger(this.state.progress, ev), emitAgents);
+  }
+
+  private fanout(fx: Effects, emitAgents = true) {
+    if (!fx.changed) return;
+    if (fx.reward) this.broadcast({ type: 'reward', reward: fx.reward });
+    if (emitAgents) {
+      for (const id of fx.careers) {
+        const a = this.state.agents.find((x) => x.id === id);
+        if (a) this.emitAgent(a);
+      }
+    }
+    for (const u of fx.unlocked) {
+      const def = achievementDef(u.id);
+      if (!def) continue;
+      this.postMessage('office', `🏆 Achievement unlocked: ${def.icon} ${def.name}. ${def.blurb} (${u.detail}). Its trophy is on the lobby's shelf.`);
+      this.toast('success', `🏆 Achievement unlocked: ${def.icon} ${def.name}`);
+    }
+    if (fx.progress) this.broadcast({ type: 'progress', progress: this.progressView() });
+    this.save();
+  }
+
+  private progressView(): ProgressView {
+    return progressView(this.state.progress, this.state.repos.map((r) => r.id));
+  }
+
+  /** Who wrote a PR, as far as the office knows: its QA record's developer, the one holding it, or the one its branch is named after. */
+  private prAuthor(repo: PersistedRepo, pr: PullInfo): string | null {
+    const devs = this.state.agents.filter((a) => a.repoId === repo.id && a.role === 'dev');
+    const rec = this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === pr.number);
+    if (rec?.devAgentId && devs.some((a) => a.id === rec.devAgentId)) return rec.devAgentId;
+    const holder = devs.find((a) => a.task !== 'qa' && (a.prNumber === pr.number || a.branch === pr.headRefName));
+    if (holder) return holder.id;
+    const m = /^swarm\/issue-\d+-(.+)$/i.exec(pr.headRefName);
+    return m ? (devs.find((a) => slugify(a.name) === m[1].toLowerCase())?.id ?? null) : null;
+  }
+
+  /** The scheduler's beat: a new day for the ledger, and a full house when everyone on a floor is busy at once. */
+  private progressTick() {
+    const now = Date.now();
+    this.ledger({ kind: 'tick', at: now });
+    for (const r of this.state.repos) {
+      const team = this.state.agents.filter((a) => a.repoId === r.id);
+      if (team.length >= FULL_HOUSE && team.every((a) => BUSY.includes(a.status))) this.ledger({ kind: 'full-house', repoName: r.fullName, people: team.length, at: now });
+    }
+  }
+
+  private command(r: CommandResult): ProgressView {
+    if ('error' in r) throw new HttpError(409, r.error);
+    this.fanout(r.effects);
+    return this.progressView();
+  }
+
+  /** The lobby kiosk's Buy: a decoration for a floor, paid with its coins. It waits in the floor's decor box. */
+  buyDecoration(repoId: string, item: unknown): ProgressView {
+    return this.command(buyDecor(this.state.progress, this.repo(repoId).id, item));
+  }
+
+  /** Put a decoration in one of a floor's slots, move it to another, or (slot null) back in the floor's decor box. */
+  placeDecoration(repoId: string, body: { item?: unknown; slot?: unknown; from?: unknown }): ProgressView {
+    const repo = this.repo(repoId);
+    const spot = (v: unknown) => (v === null || v === undefined ? null : typeof v === 'string' ? v : undefined);
+    const slot = spot(body.slot);
+    const from = spot(body.from);
+    if (slot === undefined || from === undefined) throw new HttpError(400, 'slot and from are decoration spots (or null)');
+    return this.command(placeDecor(this.state.progress, repo.id, repo.fullName, { item: body.item, slot, from }, Date.now()));
+  }
+
+  /** The player finished a coffee; `id` is the browser's own for it, so a retried report counts once. */
+  drankCoffee(id: unknown) {
+    if (typeof id !== 'string' || !/^[\w-]{4,80}$/.test(id)) throw new HttpError(400, 'A coffee needs an id');
+    this.ledger({ kind: 'coffee', id, at: Date.now() });
+    return { coffees: this.state.progress.coffees };
+  }
+
+  /** Demo only, for QA: coins for a floor (`coins`), or more time on the team (`tenure`, everyone without an agent id). */
+  demoProgress(body: { action?: unknown; repoId?: unknown; coins?: unknown; agentId?: unknown; days?: unknown }): ProgressView {
+    if (!this.backend.demo) throw new HttpError(403, 'Only the demo office hands out coins and tenure');
+    if (body.action === 'coins') return this.command(grantCoins(this.state.progress, this.repo(String(body.repoId ?? '')).id, Number(body.coins)));
+    if (body.action === 'tenure') {
+      const agentId = typeof body.agentId === 'string' && body.agentId ? this.agent(body.agentId).id : undefined;
+      return this.command(addTenure(this.state.progress, Number(body.days), agentId));
+    }
+    throw new HttpError(400, 'action is "coins" or "tenure"');
+  }
+
   // ---------- the phone ----------
 
   private postMessage(from: PhoneMessage['from'], text: string, requestId?: string) {
@@ -3735,11 +4132,14 @@ export class Swarm {
     this.save();
   }
 
-  approveRequest(id: string, overrides: { name?: string; model?: string; effort?: string } = {}, by: 'manager' | 'auto' = 'manager') {
+  approveRequest(id: string, overrides: { name?: string; model?: string; effort?: string; note?: string } = {}, by: 'manager' | 'auto' = 'manager') {
     const req = this.state.requests.find((r) => r.id === id);
     if (!req) throw new HttpError(404, 'That proposal no longer exists');
     if (req.status !== 'pending') throw new HttpError(409, `That proposal was already ${req.status}`);
     const repo = this.repo(req.repoId);
+    // The manager's note (from the interview card) reaches the CEO as managerNote, as a decline's does.
+    const note = (overrides.note ?? '').trim().slice(0, 400);
+    const quoted = note ? ` Your note: "${note}"` : '';
     if (req.kind === 'hire') {
       const name = overrides.name?.trim() || req.name;
       const agent = this.hireAgent(repo.id, {
@@ -3753,20 +4153,22 @@ export class Swarm {
         brief: req.brief,
         hiredBy: 'ceo',
         appearance: { color: req.color, hair: req.hair, skin: req.skin },
+        // the proposal's id: the candidate waiting in the lobby was drawn from it, so they look the same at their desk
+        id: req.id,
       });
       req.agentId = agent.id;
       req.name = agent.name;
-      this.decide(req, { status: 'approved', note: '', decidedBy: by });
+      this.decide(req, { status: 'approved', note, decidedBy: by });
       this.postMessage(
         'office',
-        by === 'auto' ? `🤖 Auto-approved: ${agent.name} joined floor ${repo.floor} as ${req.title}.` : `✅ You hired ${agent.name} as ${req.title} on floor ${repo.floor}.`,
+        by === 'auto' ? `🤖 Auto-approved: ${agent.name} joined floor ${repo.floor} as ${req.title}.` : `✅ You hired ${agent.name} as ${req.title} on floor ${repo.floor}.${quoted}`,
         req.id,
       );
       this.toast('success', `${agent.name} (${req.title}) joined floor ${repo.floor}`);
       return;
     }
     const a = req.agentId ? this.state.agents.find((x) => x.id === req.agentId) : undefined;
-    this.decide(req, { status: 'approved', note: a ? '' : 'They had already left.', decidedBy: by });
+    this.decide(req, { status: 'approved', note: a ? note : 'They had already left.', decidedBy: by });
     if (a) {
       try {
         this.fireAgent(a.id);
@@ -3775,7 +4177,7 @@ export class Swarm {
         throw err;
       }
     }
-    this.postMessage('office', `👋 ${req.name} left floor ${repo.floor}${by === 'auto' ? ' (auto-approved)' : ''}.`, req.id);
+    this.postMessage('office', `👋 ${req.name} left floor ${repo.floor}${by === 'auto' ? ' (auto-approved)' : ''}.${a ? quoted : ''}`, req.id);
   }
 
   rejectRequest(id: string, note = '') {
@@ -3785,6 +4187,47 @@ export class Swarm {
     this.decide(req, { status: 'rejected', note: note.trim().slice(0, 400), decidedBy: 'manager' });
     const what = req.kind === 'hire' ? `${req.name} (${req.title})` : `letting ${req.name} go`;
     this.postMessage('office', `✋ You declined ${what}${req.note ? `: "${req.note}"` : '.'}`, req.id);
+  }
+
+  /**
+   * Demo only: the CEO proposes a hire for a free desk, or letting an idle developer go, right now (the demo office's
+   * Hires tab and __swarmHiring). It goes through the CEO's own proposal path: same checks, phone message and auto mode.
+   */
+  demoPropose(kind: unknown, floor?: unknown) {
+    const candidate = this.backend.demoCandidate;
+    if (!this.backend.demo || !candidate) throw new HttpError(404, 'Only the demo office makes up proposals');
+    if (kind !== 'hire' && kind !== 'let-go') throw new HttpError(400, 'kind must be "hire" or "let-go"');
+    const floors = [...this.state.repos].sort((x, y) => x.floor - y.floor).filter((r) => floor === undefined || floor === null || r.floor === Number(floor));
+    if (!floors.length) throw new HttpError(404, floor === undefined || floor === null ? 'There are no floors yet' : `There is no floor ${floor}`);
+    const pending = this.state.requests.filter((r) => r.status === 'pending');
+    const refuse = (err: unknown) => new HttpError(409, (err as Error).message);
+    if (kind === 'hire') {
+      for (const r of floors) {
+        const devs = this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev');
+        const hires = pending.filter((p) => p.kind === 'hire' && p.repoId === r.id);
+        if (devs.length + hires.filter((p) => p.role === 'dev').length >= MAX_DESKS.dev) continue;
+        const c = candidate(r.fullName, [...devs.map((a) => a.specialty), ...hires.map((p) => p.specialty)]);
+        if (!c) continue;
+        try {
+          return { text: this.proposeHire({ floor: r.floor, role: 'dev', ...c }) };
+        } catch (err) {
+          throw refuse(err);
+        }
+      }
+      throw new HttpError(409, 'No floor has both a free desk and a made-up candidate left');
+    }
+    for (const r of floors) {
+      const devs = this.state.agents.filter((a) => a.repoId === r.id && a.role === 'dev');
+      const idle = devs.filter((a) => FREE.includes(a.status) && !pending.some((p) => p.kind === 'let-go' && p.agentId === a.id));
+      const who = idle.sort((x, y) => y.desk - x.desk)[0];
+      if (!who) continue;
+      try {
+        return { text: this.proposeLetGo({ agent_id: who.id, reason: `Floor ${r.floor} has ${devs.length} developers and ${this.repoRt.get(r.id)?.issues.length ?? 0} open issues; ${who.name} has nothing on.` }) };
+      } catch (err) {
+        throw refuse(err);
+      }
+    }
+    throw new HttpError(409, 'Nobody idle to let go');
   }
 
   // ---------- the CEO's office tools ----------

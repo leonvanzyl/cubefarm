@@ -1,15 +1,19 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import type { Backend } from './backend.ts';
+import type { Backend, DemoHire } from './backend.ts';
 import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { CLIS } from './clis.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR } from './config.ts';
+import { DAY_MS, emptyHistory, HOUR_MS, prune, startOfDay, type OpsHistory } from './metrics.ts';
 import { takeLastUpdate, underLauncher, type OfficeHost } from './officeUpdate.ts';
+import type { UsageWarning } from './pacing.ts';
 import { VoiceApiError, type VoiceApi } from './voice.ts';
+import type { WeatherApi } from './weather.ts';
 import type { NotifyTransport } from './notifier.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
@@ -37,15 +41,45 @@ const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by 
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
+// GitHub never gives two PRs the same number, and the office's ledger (coins, careers) counts each PR once by it, so
+// the fake's numbers carry on across restarts (the issues and PRs themselves start over).
+const NUMBERS_FILE = path.join(HOME_DIR, 'demo-github.json');
+
+function restoreNumbers() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(NUMBERS_FILE, 'utf8')) as Record<string, number>;
+    for (const r of repos.values()) if (Number.isInteger(saved[r.fullName])) r.nextNumber = Math.max(r.nextNumber, saved[r.fullName]);
+  } catch {
+    // first run
+  }
+}
+
+/** The repo's next issue or PR number, remembered for the next start. */
+function takeNumber(r: FakeRepo) {
+  const n = r.nextNumber++;
+  try {
+    fs.mkdirSync(HOME_DIR, { recursive: true });
+    fs.writeFileSync(`${NUMBERS_FILE}.tmp`, JSON.stringify(Object.fromEntries([...repos.values()].map((x) => [x.fullName, x.nextNumber]))));
+    fs.renameSync(`${NUMBERS_FILE}.tmp`, NUMBERS_FILE);
+  } catch (err) {
+    console.warn('could not save the demo PR numbers', err);
+  }
+  return n;
+}
+
 let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
-/** Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. */
+/**
+ * Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. They say they
+ * took a few minutes, like real CI, though the demo doesn't make you wait that long.
+ */
 function runChecks(pr: PullInfo, fail = Math.random() < 0.2) {
-  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [] });
+  Object.assign(pr, { checks: 'pending', pendingChecks: ['CI / build', 'Vercel'], failedChecks: [], checkRun: null });
   setTimeout(() => {
     Object.assign(pr, {
       checks: fail ? 'failing' : 'passing',
       pendingChecks: [],
       failedChecks: fail ? [{ name: 'CI / build', url: `${pr.url.replace(/\/pull\/\d+$/, '')}/actions/runs/${++runSeq}/job/1` }] : [],
+      checkRun: { ms: Math.round((2.5 + Math.random() * 5) * 60_000), doneAt: Date.now() },
     });
   }, 12_000 + Math.random() * 10_000);
 }
@@ -115,12 +149,14 @@ function devScript(opts: SessionOptions, cb: SessionCallbacks, issueNumber: numb
       { kind: 'result', text: '  ⎿ ✓ src/__tests__/feature.test.ts (4 tests) 38ms' },
       { kind: 'result', text: '    Test Files  7 passed (7)' },
     ],
+    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run typecheck' }, { kind: 'result', text: '  ⎿ (no output)' }],
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ npm run dev -- --port ${port} &` }, { kind: 'result', text: '  ⎿ VITE ready in 412 ms' }],
     () => cb.browserUrl(`http://localhost:${port}/`),
     [{ kind: 'tool', tool: 'mcp__playwright__browser_navigate', text: `⏺ 🌐 navigate http://localhost:${port}/` }, { kind: 'result', text: `  ⎿ Page URL: http://localhost:${port}/` }],
     () => cb.screenshot(Buffer.from(screenshotSvg(issueTitle, `localhost:${port}`, hue)), 'image/svg+xml'),
     [{ kind: 'tool', tool: 'mcp__playwright__browser_take_screenshot', text: '⏺ 🌐 take_screenshot' }, { kind: 'result', text: '  ⎿ Took a screenshot of the current page' }],
-    [{ kind: 'text', text: '● Looks right in the browser. Committing and opening a PR.' }],
+    [{ kind: 'text', text: '● Looks right in the browser. A production build, then the PR.' }],
+    [{ kind: 'tool', tool: 'Bash', text: '⏺ $ npm run build' }, { kind: 'result', text: '  ⎿ ✓ built in 1.62s' }],
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ git commit -am "feat: ${issueTitle.toLowerCase()}"` }, { kind: 'result', text: `  ⎿ [${branch} 3f2a91c] feat: ${issueTitle.toLowerCase()}` }],
     [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git push -u origin HEAD' }, { kind: 'result', text: '  ⎿ branch set up to track origin' }],
     [{ kind: 'tool', tool: 'Bash', text: `⏺ $ gh pr create --title "${issueTitle}" --body "Closes #${issueNumber}"` }],
@@ -179,6 +215,7 @@ function fixScript(pr: number, pushes: boolean, nudged: boolean): Step[] {
     pushes
       ? [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git commit -am "fix: wrap toolbar on narrow screens" && git push origin HEAD' }, { kind: 'result', text: '  ⎿ pushed' }]
       : [{ kind: 'tool', tool: 'Bash', text: '⏺ $ git status --short' }, { kind: 'result', text: '  ⎿  M src/styles.css' }],
+    ...(pushes ? [[{ kind: 'tool', tool: 'Bash', text: `⏺ $ gh pr checks ${pr} --watch` }, { kind: 'result', text: '  ⎿ All checks were successful' }] as LogEntry[]] : []),
   ];
 }
 
@@ -268,7 +305,7 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     const repo = repos.get(fullName);
     let url = '';
     if (repo && number) {
-      const n = repo.nextNumber++;
+      const n = takeNumber(repo);
       url = `https://github.com/${fullName}/pull/${n}`;
       repo.pulls.unshift({
         number: n,
@@ -401,6 +438,51 @@ function inTerminal(opts: SessionOptions, cb: SessionCallbacks, start: (cb: Sess
   return handle;
 }
 
+/**
+ * Claude's usage on demand (the manager's console → Mission control, in the demo): a weekly-limit warning at 91% that
+ * resets at midnight, or the 5-hour limit reached for 3 minutes.
+ */
+export function demoUsage(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number } {
+  if (kind === 'limit') return { limitResetsAt: now + 3 * 60_000 };
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  return { resetsAt: midnight.getTime(), rateLimitType: 'seven_day', utilization: 0.91 };
+}
+
+/**
+ * A believable past week for mission control: each floor merged a few PRs every working day (the first floor more),
+ * most QA rounds and check runs passed, and sessions cost around a dollar. `rand` is there for the tests.
+ */
+export function demoPastWeek(repos: string[], now: number, rand: () => number = Math.random): OpsHistory {
+  const h = emptyHistory();
+  const min = 60_000;
+  let n = 0;
+  repos.forEach((repo, floor) => {
+    const pace = floor === 0 ? 1 : 0.6;
+    for (let day = 6; day >= 0; day--) {
+      const midnight = startOfDay(now) - day * DAY_MS;
+      const merges = Math.round((3 + rand() * 4) * pace);
+      for (let k = 0; k < merges; k++) {
+        const at = midnight + (9 + rand() * 9) * HOUR_MS; // working hours
+        const rounds = rand() < 0.3 ? 2 : 1; // now and then QA failed it once first
+        h.merges.push([at, repo, 0, Math.round((25 + rand() * 200) * min)]);
+        for (let r = 0; r < rounds; r++) {
+          const before = (rounds - r) * 20 * min;
+          h.qa.push([at - before, repo, r === rounds - 1, Math.round((1 + rand() * 14) * min)]);
+          h.checks.push([at - before - 6 * min, repo, `past${String(n++).padStart(4, '0')}`, rand() > 0.12, Math.round((2.5 + rand() * 5) * min)]);
+          h.cost.push([at - before, repo, Math.round((0.3 + rand()) * 100) / 100], [at - before - 40 * min, repo, Math.round((0.4 + rand() * 1.2) * 100) / 100]);
+        }
+      }
+      for (const hour of [10, 15]) h.cost.push([midnight + hour * HOUR_MS, '', Math.round((0.5 + rand() * 0.8) * 100) / 100]); // the CEO's reviews
+    }
+  });
+  for (const list of [h.merges, h.qa, h.checks, h.cost] as [number, ...unknown[]][][]) {
+    for (let i = list.length - 1; i >= 0; i--) if (list[i][0] > now) list.splice(i, 1); // nothing from later today
+  }
+  prune(h, now);
+  return h;
+}
+
 // Claude's usage warning, faked once so the office can be seen pacing new work: the 4th session gets it, and the
 // window "resets" 5 minutes later.
 const USAGE_WARNING_AT = 4;
@@ -416,6 +498,7 @@ function fakeUsageWarning(cb: SessionCallbacks) {
 }
 
 export function createDemoBackend(): Backend {
+  restoreNumbers();
   // Tie each fake session back to its repo via the desk directory name.
   const deskRepo = new Map<string, string>();
   // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
@@ -434,6 +517,7 @@ export function createDemoBackend(): Backend {
     if (!repos.has(fullName)) {
       repos.set(fullName, { fullName, description, issues: [], pulls: [], nextNumber: 1 });
       bareRepos.add(fullName);
+      restoreNumbers();
     }
     addFolder(name, fullName);
     return fullName;
@@ -473,7 +557,7 @@ export function createDemoBackend(): Backend {
     createIssue: async (fullName, title, body, labels = []) => {
       const r = repos.get(fullName);
       if (!r) throw new Error('Unknown repo');
-      const n = r.nextNumber++;
+      const n = takeNumber(r);
       r.issues.push(issue(n, title, body, fullName, labels));
       return n;
     },
@@ -618,7 +702,11 @@ export function createDemoBackend(): Backend {
     previews: demoPreviews,
     office: demoOffice,
     voice: demoVoice,
+    weather: demoWeather,
     notify: demoNotify,
+    seedOps: (ids, at) => demoPastWeek(ids, at),
+    simulateUsage: demoUsage,
+    demoCandidate,
   };
 }
 
@@ -650,24 +738,40 @@ const demoOffice: OfficeHost = {
 
 // ---------- the demo preview ----------
 
-function placeholderPage(title: string, hue: number) {
-  const safe = title.replace(/[<>&"]/g, '');
+/**
+ * The demo's stand-in for a floor's app: a page per path (Home and About link to each other), long enough to scroll.
+ * A PR's build says so and shows its change, so main and the PR look different side by side.
+ */
+function placeholderPage(title: string, hue: number, at: string, pr: { number: number; title: string } | null) {
+  const safe = (s: string) => s.replace(/[<>&"]/g, '');
+  const rows = Array.from({ length: 24 }, (_, i) => `<li>Todo ${i + 1}: ${['water the plants', 'reply to Sam', 'book the dentist', 'buy coffee', 'fix the bike', 'plan the trip'][i % 6]}</li>`);
+  if (pr) rows.splice(2, 0, `<li class="new">✨ New in PR #${pr.number}: ${safe(pr.title)}</li>`);
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe}</title><link rel="icon" href="data:,">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe(title)}</title><link rel="icon" href="data:,">
 <style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
-  main { text-align: center; padding: 32px 40px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
+  body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: hsl(${hue},60%,96%); color: #222; }
+  nav { position: sticky; top: 0; display: flex; gap: 18px; align-items: center; padding: 12px 24px; background: hsl(${hue},70%,55%); color: #fff; }
+  nav a { color: #fff; font-weight: 600; }
+  nav .at { margin-left: auto; font-family: Consolas, monospace; font-size: 14px; opacity: .9; }
+  .pr { margin: 18px auto 0; max-width: 560px; padding: 10px 16px; border-radius: 12px; background: #fff3c4; border: 2px dashed hsl(${hue},60%,45%); font-weight: 600; }
+  main { margin: 22px auto; max-width: 560px; padding: 28px 36px; background: #fff; border-radius: 18px; box-shadow: 0 8px 30px hsla(${hue},50%,40%,.18); }
   h1 { margin: 0 0 6px; font-size: 26px; color: hsl(${hue},60%,38%); }
-  p { margin: 0 0 22px; color: #666; }
+  p { margin: 0 0 18px; color: #666; }
   button { font: inherit; font-size: 18px; padding: 10px 26px; border: 0; border-radius: 999px; background: hsl(${hue},70%,55%); color: #fff; cursor: pointer; }
   button:active { transform: scale(.97); }
   #count { display: block; margin-top: 16px; font-size: 15px; color: #444; }
+  ol { margin: 22px 0 0; padding-left: 22px; line-height: 2.2; }
+  li.new { font-weight: 700; color: hsl(${hue},60%,32%); background: #fff3c4; border-radius: 6px; padding: 0 6px; }
 </style></head>
-<body><main>
-  <h1>${safe}</h1>
-  <p>A placeholder app served by the demo office.</p>
+<body>
+<nav><a href="/">Home</a><a href="/about">About</a><span class="at">${safe(at)}</span></nav>
+${pr ? `<div class="pr">🧪 This is PR #${pr.number}'s build: ${safe(pr.title)}</div>` : ''}
+<main>
+  <h1>${safe(title)}</h1>
+  <p>${at === '/about' ? 'About this app: a placeholder served by the demo office.' : 'A placeholder app served by the demo office.'}</p>
   <button id="btn" type="button">Click me</button>
   <span id="count">Clicked 0 times</span>
+  <ol>${rows.join('')}</ol>
 </main>
 <script>
   let n = 0;
@@ -694,8 +798,9 @@ const demoPreviews: PreviewBackend = {
     let server: http.Server | null = null;
     const timers: NodeJS.Timeout[] = [];
     const later = (ms: number, fn: () => void) => timers.push(setTimeout(() => !stopped && fn(), ms));
-    const hue = [...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-    const sha = (job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr)?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
+    const pull = job.pr ? repos.get(job.fullName)?.pulls.find((p) => p.number === job.pr) : undefined;
+    const hue = ([...job.fullName].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7) + (job.pr ? 150 : 0)) % 360;
+    const sha = (job.pr ? pull?.headRefName ?? String(job.pr) : job.fullName + job.defaultBranch)
       .split('')
       .reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381)
       .toString(16)
@@ -727,9 +832,10 @@ const demoPreviews: PreviewBackend = {
         return;
       }
       server = http.createServer((req, res) => {
-        if (req.url !== '/' && !req.url?.startsWith('/?')) return void res.writeHead(404).end('Not found');
+        const at = new URL(req.url ?? '/', 'http://localhost').pathname;
+        if (at.includes('.')) return void res.writeHead(404).end('Not found');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(placeholderPage(job.title, hue));
+        res.end(placeholderPage(job.title, hue, at, job.pr ? { number: job.pr, title: pull?.title ?? `PR #${job.pr}` } : null));
       });
       server.once('error', (err) => {
         if (stopped) return;
@@ -827,6 +933,52 @@ const GENERIC: Profile = {
     },
   ],
 };
+
+/** More people the demo CEO can propose on demand (asked on the phone, or the demo's own button), after a floor's own. */
+const CANDIDATES: DemoHire[] = [
+  {
+    title: 'HTML/CSS front-end developer',
+    specialty: 'css',
+    job_description: 'You own the markup and the styles: semantic HTML, a tidy CSS layer and layouts that hold up from **375px to 1440px**.',
+    reason: 'Half the open issues are layout and styling work, and the developers who have them keep stopping to fight the CSS.',
+  },
+  {
+    title: 'Test automation engineer',
+    specialty: 'testing',
+    job_description: 'You write the tests nobody else gets to: end-to-end flows in Playwright, flaky tests made reliable, and coverage on the risky parts.',
+    reason: 'QA keeps finding the same regressions round after round; tests that catch them first would save every PR a trip.',
+  },
+  {
+    title: 'DevOps engineer',
+    specialty: 'devops',
+    job_description: 'You own the pipeline: CI that stays green and fast, preview deploys, and the scripts everyone else runs.',
+    reason: 'CI runs are slow, and a red check sends a PR back to a developer every few hours.',
+  },
+  {
+    title: 'Database engineer',
+    specialty: 'data',
+    job_description: 'You own the schema and the queries: migrations that run both ways, indexes where they matter, and no N+1s.',
+    reason: 'The next milestone adds sync and history, and nobody on the floor has designed a schema for that before.',
+  },
+  {
+    title: 'Technical writer',
+    specialty: 'docs',
+    job_description: 'You keep the README, the API reference and the in-app help in step with what actually ships.',
+    reason: "Features are shipping faster than the docs: the README still describes last month's app.",
+  },
+  {
+    title: 'Performance engineer',
+    specialty: 'perf',
+    job_description: 'You measure first: bundle size, load time and slow renders, with a budget in CI so they stay fixed.',
+    reason: 'The app got noticeably slower over the last few merges, and nobody owns its speed.',
+  },
+];
+
+/** The next made-up candidate for a floor: its project's own hires first, then the shared ones; null when all are taken. */
+export function demoCandidate(fullName: string, taken: readonly string[]): DemoHire | null {
+  const own = (PROFILES[fullName.split('/')[1] ?? ''] ?? GENERIC).hires;
+  return [...own, ...CANDIDATES].find((c) => !taken.includes(c.specialty)) ?? null;
+}
 
 interface DemoFloor {
   floor: number;
@@ -994,6 +1146,19 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
         const out = await use('close_issue', { floor: closeFloor.floor, number: Number(close[1]), reason });
         return out.startsWith('Refused') ? `I couldn't close #${close[1]}: ${out.replace(/^Refused: /, '')}` : `Done: ${out} I left "${short(reason, 80)}" on it as a comment.`;
       }
+      // Asked whether anyone new is needed: a candidate for the first floor with a free desk, through the real tool.
+      if (/\b(hire|hiring|anyone new|candidates?|recruit)\b/i.test(text)) {
+        const proposed = s.pendingProposals as { floor: number | null; specialty: string | null }[];
+        for (const f of s.floors.filter((x) => x.seats.dev.free > 0)) {
+          const taken = [...f.team.map((a) => a.specialty ?? ''), ...proposed.filter((p) => p.floor === f.floor).map((p) => p.specialty ?? '')];
+          const c = demoCandidate(f.repo, taken);
+          if (!c) continue;
+          const out = await use('propose_hire', { floor: f.floor, role: 'dev', ...c });
+          if (out.startsWith('Refused')) return `I wanted to propose a ${c.title} for floor ${f.floor}, but the office said no: ${out.replace(/^Refused: /, '')}`;
+          return `Yes: a **${c.title}** for floor ${f.floor}. ${c.reason} They're waiting in the lobby to meet you, or you can decide in Hires.`;
+        }
+        return "Not right now: every floor either has no free desk or already has the people I'd hire.";
+      }
       const people = s.floors.reduce((n, f) => n + f.team.length, 0);
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const pending = s.pendingProposals.length;
@@ -1119,7 +1284,10 @@ const demoVoices = [
   { id: 'demoVoiceCleo000003', name: 'Cleo', category: 'premade', labels: { accent: 'australian', gender: 'female', age: 'young', description: 'friendly', use_case: 'conversational' }, previewUrl: null },
 ];
 
-/** No network: any key works except one containing "bad", three voices, and a chime for every message. */
+/** What the demo's Speech to Text hears in any recording (docs/voice.md). */
+export const DEMO_TRANSCRIPT = "What's everyone working on?";
+
+/** No network: any key works except one containing "bad", three voices, a chime for every message, and one fixed transcript. */
 const demoVoice: VoiceApi = {
   checkKey: async (key) => {
     if (/bad/i.test(key)) throw new VoiceApiError(401, '401: invalid_api_key (demo)');
@@ -1128,6 +1296,10 @@ const demoVoice: VoiceApi = {
   synthesize: async (_key, { text, voiceId }) => {
     await new Promise((r) => setTimeout(r, 300));
     return demoChime(text.length, voiceId);
+  },
+  transcribe: async () => {
+    await new Promise((r) => setTimeout(r, 400));
+    return DEMO_TRANSCRIPT;
   },
 };
 
@@ -1148,5 +1320,44 @@ const demoNotify: NotifyTransport = {
     const ok = !/bad/i.test(url);
     console.log(`🔔 demo ${channel}${ok ? '' : ' (fails: "bad" address)'} would get: ${text.replace(/\n/g, ' ⏎ ')}`);
     return ok ? 200 : 404;
+  },
+};
+
+// ---------- weather ----------
+
+/** A weather word in the demo's city ("Rainytown", "Snow Hill") picks that weather: these WMO codes. */
+const DEMO_SKIES: [RegExp, number][] = [
+  [/storm|thunder/i, 95],
+  [/snow/i, 75],
+  [/fog|mist/i, 45],
+  [/heavy|pour/i, 65],
+  [/rain|drizzle/i, 61],
+  [/cloud|grey|gray/i, 3],
+  [/sun|clear/i, 0],
+];
+/** Any other city gets these in turn, a new one every 15 minutes. */
+const DEMO_ROTATION = [0, 2, 61, 3, 45, 63, 95, 1, 71];
+const demoPlaces = new Map<string, { code: number | null; offline: boolean }>();
+
+/**
+ * No network: any city is found ("Atlantis" and "Nowhere" aren't), at made-up coordinates. A weather word in its name
+ * picks the weather; "offline" in it makes every reading fail, to see the office fall back to the calm cycle.
+ */
+const demoWeather: WeatherApi = {
+  geocode: async (city) => {
+    await new Promise((r) => setTimeout(r, 200));
+    if (/atlantis|nowhere/i.test(city)) return null;
+    const h = [...city.toLowerCase()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+    const lat = Math.round(((h % 12000) / 100 - 60) * 100) / 100;
+    const lon = Math.round((((h >>> 8) % 34000) / 100 - 170) * 100) / 100;
+    demoPlaces.set(`${lat},${lon}`, { code: DEMO_SKIES.find(([re]) => re.test(city))?.[1] ?? null, offline: /offline/i.test(city) });
+    return { name: `${city} (demo)`, lat, lon };
+  },
+  current: async (lat, lon) => {
+    const p = demoPlaces.get(`${lat},${lon}`);
+    if (p?.offline) throw Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } });
+    if (p?.code != null) return { code: p.code, wind: p.code === 95 ? 55 : 12 };
+    const slot = Math.floor(Date.now() / (15 * 60_000)) + Math.abs(Math.round(lat + lon));
+    return { code: DEMO_ROTATION[slot % DEMO_ROTATION.length], wind: 10 };
   },
 };

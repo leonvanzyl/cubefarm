@@ -1,12 +1,12 @@
 // The outside ambience's pure decisions (no WebAudio, so they're unit tested): how loud and how muffled the outside is
-// from where you stand (out on a balcony, inside near an open side door, or deep in the office), which layers the time
-// of day brings (birds by day, the city at dusk, crickets at night), how often its bursts may come, and the shape of
-// each bird call and cricket phrase. outsideSfx.ts plays them.
+// from where you stand (out on a balcony or up on the roof, inside near an open side door, or deep in the office), which
+// layers the time of day brings (birds by day, the city at dusk, crickets at night, more wind on the roof), how often its
+// bursts may come, and the shape of each bird call and cricket phrase. outsideSfx.ts plays them.
 
-import { BALCONY, HALF_W, SIDE_OPENINGS, SIDES, WALL_T, sideSign, type Side } from '../world/layout';
+import { BALCONY, HALF_D, HALF_W, SIDE_OPENINGS, SIDES, WALL_T, sideSign, type Side } from '../world/layout';
 import { nightFactor } from '../world/sky/time';
 
-type FloorKind = 'office' | 'lobby';
+type FloorKind = 'office' | 'lobby' | 'roof';
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const smoothstep = (a: number, b: number, x: number) => {
@@ -30,6 +30,8 @@ export const MUFFLED_HZ = 320;
 export const OPEN_HZ = 14000;
 /** Bursts (bird calls, cars, crickets) are only scheduled above this level: deep inside, just the faint bed. */
 export const BURST_LEVEL = 0.08;
+/** How much windier it is up on the roof than on a balcony. */
+export const ROOF_WIND = 1.6;
 
 const BALCONY_IN = HALF_W + WALL_T;
 
@@ -51,6 +53,8 @@ export interface OutsideHearing {
  * through an open door, quiet and muffled, fading with distance from it; deep inside it's almost silent.
  */
 export function outsideHearing(kind: FloorKind, x: number, z: number, open: Readonly<Record<Side, number>>): OutsideHearing {
+  // The roof is all outside, but for the elevator cabin, where it comes in through the doorway.
+  if (kind === 'roof') return z > HALF_D ? { level: DOOR_LEVEL, clarity: DOOR_CLARITY, from: { x: 0, z: HALF_D } } : { level: 1, clarity: 1, from: null };
   let level = LEAK;
   let clarity = 0;
   let from: OutsideHearing['from'] = null;
@@ -81,7 +85,7 @@ export const cutoffHz = (clarity: number) => MUFFLED_HZ * (OPEN_HZ / MUFFLED_HZ)
 // ---------- what time of day it is ----------
 
 export interface OutsideLayers {
-  /** 0-1 levels of each layer. */
+  /** 0-1 levels of each layer (the wind goes over 1 on the roof). */
   wind: number;
   city: number;
   birds: number;
@@ -92,14 +96,17 @@ export interface OutsideLayers {
   carsPerMin: number;
 }
 
-/** The layers at day phase t (0 midnight, 0.5 noon): birds by day with a dawn chorus, the city loudest at dusk, crickets and a quieter, deeper city at night. */
-export function outsideLayers(t: number): OutsideLayers {
+/**
+ * The layers at day phase t (0 midnight, 0.5 noon): birds by day with a dawn chorus, the city loudest at dusk, crickets
+ * and a quieter, deeper city at night; on the roof, more wind.
+ */
+export function outsideLayers(t: number, kind: FloorKind = 'office'): OutsideLayers {
   const night = nightFactor(t);
   const x = t - Math.floor(t);
   const dusk = 1 - smoothstep(0.015, 0.06, Math.abs(x - 0.765));
   const dawn = 1 - smoothstep(0.01, 0.05, Math.abs(x - 0.27));
   return {
-    wind: lerp(1, 0.8, night),
+    wind: lerp(1, 0.8, night) * (kind === 'roof' ? ROOF_WIND : 1),
     city: clamp01(lerp(0.75, 0.45, night) + 0.25 * dusk),
     birds: clamp01((1 - night) * (1 - 0.6 * dusk) + 0.3 * dawn),
     crickets: smoothstep(0.35, 1, night),

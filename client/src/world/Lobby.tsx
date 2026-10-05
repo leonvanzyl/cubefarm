@@ -1,21 +1,25 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { Billboard } from '@react-three/drei';
-import { floorPrCounts, pendingRequests, useStore, type Agent } from '../store';
-import { CEO_ID, type HireRequestView } from '../../../shared/types';
-import { Character } from './Character';
+import { floorPrCounts, pendingRequests, useStore } from '../store';
+import { useKeyName } from '../ui/controls';
+import { CEO_ID } from '../../../shared/types';
+import { ActivityIcon } from './ActivityIcon';
+import { WaitingRoom } from './Candidates';
 import { Desk } from './Desk';
-import { drawCandidateTag, drawSign, roundRect, SANS } from './draw';
+import { Kiosk, TrophyShelf } from './decor/RewardsCorner';
+import { drawSign, roundRect, SANS } from './draw';
 import { Elevator } from './Elevator';
 import { ErrandDirector } from './ErrandDirector';
 import { useCanvasTexture, useInteractable } from './interact';
 import { Jukebox } from './Jukebox';
-import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION, WAITING, WAITING_ROTATION } from './layout';
+import { MissionControl } from './MissionControl';
+import { CEO_DESK, CEO_ROOM, COFFEE_CORNER, HALF_D, HALF_W, JUKEBOX, LOBBY_RUG, MANAGER_DESK, MANAGER_ROOM, RECEPTION } from './layout';
 import { glow, shade } from './materials';
 import { WallSign } from './OfficeFloor';
 import { Bookshelf, CoffeeCorner, Couch, CoffeeTable, GlassWall, Plant, Rug, WallClock } from './Props';
 import { LobbyRituals } from './Rituals';
 import { Shell } from './Shell';
+import { TimeLapseScreen } from './TimeLapseScreen';
 import { Ball, Box, Cyl } from './Toon';
 import { Toys } from './toys';
 
@@ -52,6 +56,7 @@ function useOfficeStats() {
 }
 
 function ManagerComputer() {
+  const use = useKeyName('interact');
   const stats = useOfficeStats();
   const ref = useInteractable<THREE.Group>({ id: 'manager-console', label: "Open the manager's console", action: { kind: 'manager' } }, 3.2);
   const tex = useCanvasTexture(
@@ -91,9 +96,9 @@ function ManagerComputer() {
       });
       ctx.fillStyle = '#7CFFB2';
       ctx.font = `600 32px ${SANS}`;
-      ctx.fillText('Press E or click to manage floors, team & issues', 50, 592);
+      ctx.fillText(`Press ${use} or click to manage floors, team & issues`, 50, 592);
     },
-    [stats.repos, stats.agents, stats.working, stats.max, stats.issues, stats.inQa, stats.readyToMerge, stats.pending],
+    [stats.repos, stats.agents, stats.working, stats.max, stats.issues, stats.inQa, stats.readyToMerge, stats.pending, use],
   );
   return (
     <group ref={ref} position={[MANAGER_DESK.x, 0, MANAGER_DESK.z]}>
@@ -273,109 +278,10 @@ function CeoOffice() {
         deps={[ceo?.name]}
       />
       {ceo && <Desk agent={ceo} accent={CEO_ACCENT} repoId="" position={CEO_DESK_AT} />}
+      {ceo && <ActivityIcon agent={ceo} />}
       <CeoBoard />
       <Plant position={[c.maxX - 0.7, 0, c.maxZ - 0.7]} scale={1.1} pot={CEO_ACCENT} />
       <Plant position={[c.minX + 0.6, 0, c.maxZ - 0.6]} scale={0.9} />
-    </group>
-  );
-}
-
-/** A pending hire as a person: the look they'll have once hired, sitting in the waiting room. */
-function candidateAgent(r: HireRequestView): Agent {
-  return {
-    id: r.id,
-    name: r.name,
-    repoId: r.repoId,
-    role: r.role,
-    title: r.title,
-    specialty: r.specialty,
-    brief: r.brief,
-    hiredBy: 'ceo',
-    look: r.look,
-    task: null,
-    desk: 0,
-    color: r.color,
-    hair: r.hair,
-    skin: r.skin,
-    model: r.model,
-    effort: r.effort,
-    cli: '',
-    terminal: false,
-    status: 'idle',
-    issueNumber: null,
-    issueTitle: null,
-    branch: null,
-    prNumber: null,
-    prUrl: null,
-    currentTool: null,
-    startedAt: null,
-    endedAt: null,
-    costUsd: 0,
-    turns: 0,
-    browserUrl: null,
-    hasScreenshot: false,
-    screenshotAt: null,
-    lastError: null,
-  };
-}
-
-function CandidateTag({ req }: { req: HireRequestView }) {
-  const floor = useStore((s) => s.repos.find((r) => r.id === req.repoId)?.floor ?? null);
-  const tex = useCanvasTexture(512, 128, (ctx) => drawCandidateTag(ctx, 512, 128, req.name, req.title, floor, req.color), [req.name, req.title, floor, req.color]);
-  return (
-    <Billboard position={[0, 1.95, -0.1]}>
-      <mesh>
-        <planeGeometry args={[1.15, 0.29]} />
-        <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
-      </mesh>
-    </Billboard>
-  );
-}
-
-function WaitingChair({ z, req }: { z: number; req: HireRequestView | null }) {
-  const ref = useInteractable<THREE.Group>(
-    req ? { id: `candidate-${req.id}`, label: `Read ${req.name}'s resume (${req.title})`, action: { kind: 'phone', tab: 'hires', requestId: req.id } } : null,
-    3.2,
-  );
-  const agent = useMemo(() => (req ? candidateAgent(req) : null), [req]);
-  const seat = '#06d6a0';
-  return (
-    <group ref={ref} position={[WAITING.x, 0, z]} rotation={[0, WAITING_ROTATION, 0]}>
-      <Box size={[0.52, 0.08, 0.5]} position={[0, 0.44, 0]} color={seat} outline />
-      <Box size={[0.48, 0.42, 0.07]} position={[0, 0.72, 0.28]} color={seat} outline />
-      {[
-        [-0.22, -0.2],
-        [0.22, -0.2],
-        [-0.22, 0.2],
-        [0.22, 0.2],
-      ].map(([x, zz]) => (
-        <Box key={`${x}${zz}`} size={[0.05, 0.42, 0.05]} position={[x, 0.2, zz]} color="#444a5c" />
-      ))}
-      {agent && <Character agent={agent} />}
-      {req && <CandidateTag req={req} />}
-    </group>
-  );
-}
-
-function WaitingRoom() {
-  const requests = useStore((s) => s.requests);
-  const waiting = useMemo(() => pendingRequests(requests).filter((r) => r.kind === 'hire'), [requests]);
-  const n = waiting.length;
-  return (
-    <group>
-      {WAITING.seats.map((z, i) => (
-        <WaitingChair key={z} z={z} req={waiting[i] ?? null} />
-      ))}
-      <WallSign
-        position={[HALF_W - 0.03, 2.5, (WAITING.seats[0] + WAITING.seats[WAITING.seats.length - 1]) / 2]}
-        rotationY={-Math.PI / 2}
-        size={[3.6, 0.62]}
-        px={[864, 150]}
-        draw={(ctx) =>
-          drawSign(ctx, 864, 150, [{ text: n ? `🪑 Waiting room · ${n} candidate${n === 1 ? '' : 's'}${n > WAITING.seats.length ? ` (${n - WAITING.seats.length} more outside)` : ''}` : '🪑 Waiting room', size: 50 }], '#06a77d')
-        }
-        deps={[n]}
-      />
     </group>
   );
 }
@@ -459,12 +365,16 @@ export function Lobby() {
         deps={[company]}
       />
 
+      <MissionControl />
       <CeoOffice />
       <WaitingRoom />
       <Elevator floorLabel="▲ G · Lobby" accent={ACCENT} />
       <Toys floor="lobby" />
       <Directory />
+      <TimeLapseScreen />
       <TrophyCabinet />
+      <Kiosk />
+      <TrophyShelf />
       <WallClock position={[8.4, 2.8, -HALF_D + 0.05]} />
       <Couch position={[11.5, 0, 4]} rotationY={Math.PI} color="#4cc9f0" />
       <CoffeeTable position={[11.5, 0, 6.2]} />

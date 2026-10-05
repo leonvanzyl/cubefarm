@@ -10,7 +10,7 @@ interface Pt {
   z: number;
 }
 
-/** Loops through open floor: no desks, walls or furniture on the way (demoVisitors.test.ts checks them against layout.ts). */
+/** Loops through open floor: no desks, walls or furniture on the way (demoVisitors.test.ts checks against layout.ts). */
 export const ROUTES: { office: Pt[]; lobby: Pt[] } = {
   office: [
     { x: 0, z: 9.5 },
@@ -99,9 +99,13 @@ export interface WalkerStep {
   ping: { x: number; y: number; z: number; label: string } | null;
 }
 
-/** Advances a walker by dt seconds towards the floor real visitors are on (`target`; null: nobody yet). Mutates `w`. */
-export function stepWalker(w: Walker, dt: number, target: number | null, rand: () => number): WalkerStep {
+/**
+ * Advances a walker by dt seconds towards the floor real visitors are on (`target`; null: nobody yet). They keep to the
+ * office floors and the lobby: nobody follows you up to the roof. Mutates `w`.
+ */
+export function stepWalker(w: Walker, dt: number, floor: number | null, rand: () => number): WalkerStep {
   const out: WalkerStep = { moved: false, emote: null, ping: null };
+  const target = floor !== null && floor >= 0 ? floor : w.floor;
   if (w.floor === null) {
     if (target === null) return out;
     place(w, target);

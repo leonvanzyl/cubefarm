@@ -1,7 +1,7 @@
 import type { RepoView } from '../../../shared/types';
 import { useStore } from '../store';
-import { useFollow } from '../world/presence/follow';
-import { followVisitor, stopFollowing } from '../world/presence/presenceState';
+import { useCameraView } from '../world/camera/rig';
+import { followVisitor, following, stopFollowing } from '../world/presence/presenceState';
 import { useProfile } from '../world/presence/profile';
 import { VisitorRow } from './VisitorRow';
 
@@ -14,7 +14,7 @@ export function VisitorsList() {
   const visitors = useStore((s) => s.visitors);
   const repos = useStore((s) => s.repos);
   const floor = useStore((s) => s.floor);
-  const followingId = useFollow((s) => s.id);
+  const followingId = useCameraView((s) => (s.mode === 'follow' ? following() : null));
   const { name, appear } = useProfile();
   if (!visitors.length) return null;
   // the ones on your floor first

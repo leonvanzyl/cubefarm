@@ -3,14 +3,14 @@ import { create } from 'zustand';
 import { EMOTE_EMOJI, EMOTE_LABEL } from '../../../shared/presence';
 import type { EmoteId } from '../../../shared/types';
 import { useStore } from '../store';
-import { useFollow } from '../world/presence/follow';
-import { emote, myLastEmote, presenceVersion, stopFollowing, subscribePresence } from '../world/presence/presenceState';
+import { cameraMode } from '../world/camera/rig';
+import { emote, myLastEmote, presenceVersion, subscribePresence } from '../world/presence/presenceState';
 import { EMOTE_MS, WHEEL, wheelPick, wheelSpot } from '../world/presence/presenceMath';
 import { isConfirmOpen } from './Confirm';
+import { isKey, useKeyName } from './controls';
 
-// The social bits of shared presence on the HUD: the emote wheel (hold T, point, let go; a quick tap waves; 1–5 pick
-// straight away), your own emote popping up so you know it went, and the "Following …" chip while the view trails
-// someone.
+// The social bits of shared presence on the HUD: the emote wheel (hold its key, T unless rebound: point and let go; a
+// quick tap waves; 1–5 pick straight away) and your own emote popping up, so you know it went.
 
 const TAP_MS = 250;
 const RADIUS = 92;
@@ -25,7 +25,7 @@ const drag = { x: 0, y: 0, at: 0 };
 
 function ready() {
   const s = useStore.getState();
-  return s.started && !s.overlay && !s.travel && !isConfirmOpen();
+  return s.started && !s.overlay && !s.travel && !s.replaying && cameraMode() === 'first' && !isConfirmOpen();
 }
 
 const typing = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]');
@@ -36,7 +36,7 @@ function close(play: EmoteId | null) {
   if (play) emote(play);
 }
 
-/** Listens for T while the office is up. */
+/** Listens for the emote key while you're on foot in the office. */
 function useWheelKeys() {
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
@@ -46,18 +46,18 @@ function useWheelKeys() {
         close(WHEEL[Number(e.code.slice(5)) - 1]);
         return;
       }
-      if (e.code !== 'KeyT' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e) || !ready()) return;
+      if (!isKey('emote', e.code) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e) || !ready()) return;
       drag.x = drag.y = 0;
       drag.at = performance.now();
       useWheel.setState({ open: true, pick: null });
     };
     const onUp = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyT') return;
+      if (!isKey('emote', e.code)) return;
       const { open, pick } = useWheel.getState();
       if (!open) return;
       close(pick ?? (performance.now() - drag.at < TAP_MS ? 'wave' : null));
     };
-    // While the wheel is open the mouse points at a slice instead of turning your head: caught before Player.tsx sees it.
+    // While the wheel is open the mouse points at a slice instead of turning your head: caught before Player.tsx.
     const onMove = (e: MouseEvent) => {
       if (!useWheel.getState().open) return;
       if (document.pointerLockElement) {
@@ -96,10 +96,11 @@ function useWheelKeys() {
 
 function EmoteWheel() {
   const { open, pick } = useWheel();
+  const key = useKeyName('emote');
   if (!open) return null;
   return (
     <div className="emote-wheel" role="menu" aria-label="Emotes">
-      <div className="emote-hub">{pick ? EMOTE_LABEL[pick] : 'Point, then let go of T'}</div>
+      <div className="emote-hub">{pick ? EMOTE_LABEL[pick] : `Point, then let go of ${key}`}</div>
       {WHEEL.map((e, i) => {
         const at = wheelSpot(i, RADIUS);
         return (
@@ -139,16 +140,6 @@ function MyEmote() {
   );
 }
 
-function FollowChip() {
-  const name = useFollow((s) => s.following);
-  if (!name) return null;
-  return (
-    <button className="follow-chip" onClick={() => stopFollowing()} title="Stop following (WASD or Esc)">
-      👀 Following <b>{name}</b> · <kbd>WASD</kbd> / <kbd>Esc</kbd> to stop
-    </button>
-  );
-}
-
 export function PresenceHud() {
   useWheelKeys();
   const started = useStore((s) => s.started);
@@ -157,7 +148,6 @@ export function PresenceHud() {
     <>
       <EmoteWheel />
       <MyEmote />
-      <FollowChip />
     </>
   );
 }

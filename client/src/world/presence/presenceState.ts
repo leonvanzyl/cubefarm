@@ -1,10 +1,10 @@
 // The browser's side of shared presence (#223; the server's is server/presence.ts): who else is in the office and
-// where (eased a little behind their latest poses: presenceMath.ts), what they hold, their emotes and pings, and what this tab tells
-// the others about itself. Plain module state read every frame by Presence.tsx, so a pose never re-renders React; the
-// store keeps only the list (store.visitors) for the HUD. window.__swarmPresence is the probe.
+// where (eased a little behind their latest poses: presenceMath.ts), what they hold, their emotes and pings, and what
+// this tab tells the others about itself. Plain module state read every frame by Presence.tsx, so a pose never
+// re-renders React; the store keeps only the list (store.visitors) for the HUD. window.__swarmPresence is the probe.
 
 import { EMOTE_EMOJI, FLOOR_CAP } from '../../../../shared/presence';
-import type { ClientMessage, EmoteId, ServerEvent, VisitorHeld, VisitorPose } from '../../../../shared/types';
+import type { EmoteId, PresenceEvent, ServerEvent, VisitorHeld, VisitorPose } from '../../../../shared/types';
 import { sendWs, wsOpens, wsTraffic } from '../../net';
 import { HALF_D, SPAWN } from '../layout';
 import { EMOTE_MS, RateMeter, heldKey, newClock, poseTime, pruneSamples, pushSample, renderDelay, sampleAt, shouldSend, type PoseClock, type Sample } from './presenceMath';
@@ -50,7 +50,7 @@ export interface Ping {
 const remotes = new Map<string, Remote>();
 let order: string[] = []; // the server's list order (join order): the first FLOOR_CAP on a floor are drawn
 let you = '';
-let floorHere = -1;
+let floorHere = Number.NaN; // the floor this tab shows (-1 is the roof, so nothing yet is NaN)
 let drawn: string[] = [];
 let pings: Ping[] = [];
 let pingSeq = 0;
@@ -265,13 +265,13 @@ const out = {
   socket: 0,
   hello: '',
   mode: '' as '' | 'away' | 'watch' | 'pose',
-  watching: -1,
-  floor: -1,
+  watching: Number.NaN,
+  floor: Number.NaN,
   floorAt: 0,
   last: null as { pose: VisitorPose; at: number } | null,
 };
 
-const send = (msg: ClientMessage) => sendWs(msg);
+const send = (msg: PresenceEvent) => sendWs(msg);
 
 /** This tab as it stands: in the office or not, on which floor, and where (null while it can't say). */
 export interface SelfState {
@@ -293,18 +293,18 @@ export function syncSelf(s: SelfState, now: number) {
     out.last = null;
   }
   if (!s.started) {
-    if ((out.mode === 'pose' || out.mode === 'watch') && send({ t: 'away' })) out.mode = 'away';
+    if ((out.mode === 'pose' || out.mode === 'watch') && send({ type: 'away' })) out.mode = 'away';
     return;
   }
   const { name, color, appear } = useProfile.getState();
   const hello = `${name}\n${color}`;
-  if (hello !== out.hello && send({ t: 'hello', name, color })) out.hello = hello;
+  if (hello !== out.hello && send({ type: 'hello', name, color })) out.hello = hello;
   if (s.floor !== out.floor) {
     out.floor = s.floor;
     out.floorAt = now;
   }
   if (!appear) {
-    if ((out.mode !== 'watch' || out.watching !== s.floor) && send({ t: 'watch', f: s.floor })) {
+    if ((out.mode !== 'watch' || out.watching !== s.floor) && send({ type: 'watch', f: s.floor })) {
       out.mode = 'watch';
       out.watching = s.floor;
       out.last = null;
@@ -315,7 +315,7 @@ export function syncSelf(s: SelfState, now: number) {
   if (now - out.floorAt < 150 || !s.pose) return;
   if (out.mode !== 'pose') out.last = null;
   if (!shouldSend(out.last, s.pose, now)) return;
-  if (!send({ t: 'pose', ...s.pose })) return;
+  if (!send({ type: 'pose', ...s.pose })) return;
   out.mode = 'pose';
   out.last = { pose: s.pose, at: now };
   meters.posesOut.add(1, now);
@@ -325,7 +325,7 @@ export function syncSelf(s: SelfState, now: number) {
 export function emote(e: EmoteId) {
   myEmote = { e, at: performance.now() };
   lastEmote = { id: you || 'me', name: useProfile.getState().name, e, at: Date.now() };
-  if (useProfile.getState().appear) send({ t: 'emote', e });
+  if (useProfile.getState().appear) send({ type: 'emote', e });
   bump();
 }
 
@@ -333,7 +333,7 @@ export function emote(e: EmoteId) {
 export function ping(x: number, y: number, z: number, label: string) {
   const { name, color, appear } = useProfile.getState();
   addPing({ name, color, x, y, z, label, mine: true });
-  if (appear) send({ t: 'ping', x, y, z, label });
+  if (appear) send({ type: 'ping', x, y, z, label });
 }
 
 // ---------- the probe ----------
@@ -392,7 +392,7 @@ if (typeof window !== 'undefined') {
     /** Settings → Profile's "Appear to others". */
     appear: (on: boolean) => useProfile.getState().set({ appear: on }),
     /** The demo's fake visitors: how many wander about (0–16). */
-    fakes: (n: number) => send({ t: 'fakes', n }),
+    fakes: (n: number) => send({ type: 'fakes', n }),
     emote: (e: EmoteId) => emote(e),
     ping: (x: number, y: number, z: number, label = '') => ping(x, y, z, label),
     follow: (id: string) => followVisitor(id),

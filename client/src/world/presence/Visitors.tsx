@@ -60,6 +60,8 @@ const BASE: Agent = {
   hasScreenshot: false,
   screenshotAt: null,
   lastError: null,
+  style: null,
+  career: null,
 };
 
 /** A visitor as Character.tsx draws people: their colour on the shirt, a face and hair from their id. */
@@ -147,10 +149,11 @@ function VisitorFigure({ id }: { id: string }) {
     const st = bodyState(vid);
     const target = bodyTarget(vid);
     const g = extras.current;
-    if (!rr || !st || !target || !g) return;
+    if (!rr || !st || !target || !g || !root.current) return;
     const now = performance.now();
     const at = poseNow(rr, now, m.at);
-    g.visible = !!at;
+    // no pose yet (just arrived on this floor, waiting for where they are), or gone into the elevator: not drawn
+    root.current.visible = !!at;
     if (!at) {
       st.speed = 0;
       return;
@@ -205,7 +208,7 @@ function VisitorFigure({ id }: { id: string }) {
       <Character agent={agent} carrying={<Carried held={held} />}>
         <VisitorTag name={name} color={color} />
       </Character>
-      <group ref={extras} visible={false}>
+      <group ref={extras}>
         <group ref={lanyard} scale={height}>
           <Lanyard color={color} />
         </group>
@@ -290,7 +293,7 @@ function glowTexture() {
 const glows = new Map<string, THREE.Material>();
 const noRaycast = () => undefined;
 
-/** A soft pool of their colour on the floor round their feet: it marks a visitor out, and grounds them without a shadow. */
+/** A soft pool of their colour round their feet: it marks a visitor out, and grounds them without a shadow. */
 function Glow({ color }: { color: string }) {
   let m = glows.get(color);
   if (!m) {

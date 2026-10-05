@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Held } from '../store';
 import { ammoLabel, reloadProgress } from '../world/toys/darts';
+import { Key } from './Key';
 
 /** With a blaster in hand: the controls, and the darts left ("Darts 9/12") with a bar while reloading. */
 export function BlasterHud({ held }: { held: Extract<Held, { kind: 'blaster' }> }) {
@@ -21,7 +22,7 @@ export function BlasterHud({ held }: { held: Extract<Held, { kind: 'blaster' }> 
   return (
     <>
       <div className="hud-hint hud-held">
-        <kbd>Click</kbd> / <kbd>F</kbd> fire · <kbd>R</kbd> reload · <kbd>G</kbd> drop
+        <kbd>Click</kbd> / <Key action="throw" /> fire · <Key action="reload" /> reload · <Key action="drop" /> drop
       </div>
       <div className={`hud-ammo ${empty ? 'hud-ammo-empty' : ''}`}>
         <span className="hud-ammo-count">🎯 {ammoLabel(held, performance.now())}</span>

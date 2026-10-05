@@ -2,7 +2,7 @@
 // the cleaning applied to everything a browser sends over /ws: the server never trusts a name, colour or number it's
 // given, and the client cleans what it shows again. Names are only ever drawn as text (React, canvas), never as HTML.
 
-import type { ClientMessage, EmoteId, VisitorHeld, VisitorPose } from './types.ts';
+import type { EmoteId, PresenceEvent, VisitorHeld, VisitorPose } from './types.ts';
 
 /** Longest name, in characters (code points). */
 export const NAME_MAX = 24;
@@ -28,8 +28,8 @@ export const EMOTES: readonly EmoteId[] = ['wave', 'thumbs', 'clap', 'point', 'l
 export const EMOTE_EMOJI: Record<EmoteId, string> = { wave: '👋', thumbs: '👍', clap: '👏', point: '👉', laugh: '😂' };
 export const EMOTE_LABEL: Record<EmoteId, string> = { wave: 'Wave', thumbs: 'Thumbs up', clap: 'Clap', point: 'Point', laugh: 'Laugh' };
 
-/** Where on a floor anyone can be: the floor, its balconies and the elevator cabin, with room to spare. */
-export const BOUNDS = { x: 24, zMin: -16, zMax: 18, yMin: -1, yMax: 5, floorMax: 200 };
+/** Where anyone can be: a floor, its balconies and the elevator cabin, with room to spare. Floor -1 is the roof. */
+export const BOUNDS = { x: 24, zMin: -16, zMax: 18, yMin: -1, yMax: 5, floorMin: -1, floorMax: 200 };
 
 const HELD_KINDS: readonly VisitorHeld['k'][] = ['ball', 'mug', 'blaster'];
 
@@ -71,7 +71,7 @@ export function wrapAngle(a: number) {
   return t > Math.PI ? t - Math.PI * 2 : t <= -Math.PI ? t + Math.PI * 2 : t;
 }
 
-export const isFloor = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= BOUNDS.floorMax;
+export const isFloor = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= BOUNDS.floorMin && (v as number) <= BOUNDS.floorMax;
 
 /** What a visitor holds, if it's a kind others can draw; anything else is "nothing". */
 export function cleanHeld(raw: unknown): VisitorHeld | null {
@@ -97,8 +97,8 @@ export function cleanPose(raw: { ts?: unknown; f?: unknown; x?: unknown; z?: unk
   };
 }
 
-/** A /ws message from a browser, validated and cleaned; null for anything else (ignored). */
-export function parseClientMessage(raw: unknown): ClientMessage | null {
+/** A presence message from a browser on /ws, validated and cleaned; null for anything else (ignored here). */
+export function parsePresenceEvent(raw: unknown): PresenceEvent | null {
   let m: unknown = raw;
   if (typeof raw === 'string') {
     if (raw.length > MAX_MESSAGE) return null;
@@ -110,23 +110,23 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
   }
   if (!m || typeof m !== 'object') return null;
   const r = m as Record<string, unknown>;
-  switch (r.t) {
+  switch (r.type) {
     case 'hello':
-      return { t: 'hello', name: cleanName(r.name), color: cleanColor(r.color) };
+      return { type: 'hello', name: cleanName(r.name), color: cleanColor(r.color) };
     case 'pose': {
       const pose = cleanPose(r);
-      return pose && { t: 'pose', ...pose };
+      return pose && { type: 'pose', ...pose };
     }
     case 'watch':
-      return isFloor(r.f) ? { t: 'watch', f: r.f } : null;
+      return isFloor(r.f) ? { type: 'watch', f: r.f } : null;
     case 'away':
-      return { t: 'away' };
+      return { type: 'away' };
     case 'emote':
-      return EMOTES.includes(r.e as EmoteId) ? { t: 'emote', e: r.e as EmoteId } : null;
+      return EMOTES.includes(r.e as EmoteId) ? { type: 'emote', e: r.e as EmoteId } : null;
     case 'ping': {
       if (!finite(r.x) || !finite(r.y) || !finite(r.z)) return null;
       return {
-        t: 'ping',
+        type: 'ping',
         x: round(clamp(r.x, -BOUNDS.x, BOUNDS.x), 2),
         y: round(clamp(r.y, BOUNDS.yMin, BOUNDS.yMax), 2),
         z: round(clamp(r.z, BOUNDS.zMin, BOUNDS.zMax), 2),
@@ -134,7 +134,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       };
     }
     case 'fakes':
-      return Number.isInteger(r.n) ? { t: 'fakes', n: clamp(r.n as number, 0, MAX_FAKES) } : null;
+      return Number.isInteger(r.n) ? { type: 'fakes', n: clamp(r.n as number, 0, MAX_FAKES) } : null;
     default:
       return null;
   }

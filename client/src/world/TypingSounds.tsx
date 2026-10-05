@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { useStore } from '../store';
 import { keyboardFor } from '../ui/keyboards';
+import { listenerAt } from '../ui/sfx';
 import { TYPING_CHANNELS, TYPING_RANGE, placeTypingChannel, typingGeneration, typingSound } from '../ui/typingSfx';
 import { isCelebrating } from './gongState';
 import { isSeated } from './people';
@@ -42,7 +43,6 @@ interface Person {
 }
 
 export function TypingSounds() {
-  const camera = useThree((s) => s.camera);
   const st = useMemo(
     () => ({
       people: new Map<string, Person>(),
@@ -66,7 +66,7 @@ export function TypingSounds() {
     if (s.floor !== 0) for (const r of s.repos) if (r.floor === s.floor) repoId = r.id;
     let n = 0;
     if (!s.travel && (s.floor === 0 || repoId)) {
-      const cam = camera.position;
+      const cam = listenerAt();
       for (const id in s.agents) {
         const a = s.agents[id];
         if (s.floor === 0 ? a.role !== 'ceo' : a.role === 'ceo' || a.repoId !== repoId) continue;

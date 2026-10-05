@@ -10,7 +10,7 @@ import { officeState } from '../ui/scoreMood';
 // with it; the score is quiet behind a panel or the phone and while the elevator travels, like the jukebox. Set here
 // rather than in the frame loop, which stops while the view is paused.
 
-export function Soundscape({ kind, repoId }: { kind: 'office' | 'lobby'; repoId: string | null }) {
+export function Soundscape({ kind, repoId }: { kind: 'office' | 'lobby' | 'roof'; repoId: string | null }) {
   const paused = useRenderPaused();
   const away = useStore((s) => s.travel !== null || s.overlay !== null);
   useEffect(() => setScoreQuiet(paused || away), [paused, away]);
