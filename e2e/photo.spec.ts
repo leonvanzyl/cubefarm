@@ -27,8 +27,10 @@ test('K freezes the office for a 2× shot and K again puts everything back', asy
   await expect(phoneButton(page)).toBeHidden(); // the HUD steps aside
   expect(await page.evaluate(() => __swarmPhoto.frozen)).toBe(true);
 
-  // frozen: nobody moves, and nothing is redrawn while the camera stands still
-  const people = () => page.evaluate(() => JSON.stringify(__swarmPeople.list().map((p) => [p.id, p.x, p.z, p.heading])));
+  // frozen: nobody moves, and nothing is redrawn while the camera stands still. The office's own people, that is:
+  // visitors (other tabs, and the demo's fake ones that follow them between floors) still come and go, unseen until
+  // the next redraw.
+  const people = () => page.evaluate(() => JSON.stringify(__swarmPeople.list().filter((p) => !p.id.startsWith('visitor:')).map((p) => [p.id, p.x, p.z, p.heading])));
   const frames = () => page.evaluate(() => __swarmPhoto.state?.frames ?? 0);
   const still = await people();
   const drawn = await frames();
