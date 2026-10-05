@@ -6,6 +6,8 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { bindings } from '../ui/controls';
+import { anyHeld, isBound, type ActionId } from '../ui/keymap';
 import type { Pipeline } from '../world/gfx/pipeline';
 import { effectiveTier, useGfx } from '../world/gfx/useGraphics';
 import { BOARD, GONG } from '../world/layout';
@@ -36,7 +38,10 @@ import {
 import { PhotoPost, type PostOptions } from './post';
 import { shotSize, tiles, type ShotScale } from './shots';
 
-const FLY_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyC', 'KeyQ', 'KeyE', 'ShiftLeft', 'ShiftRight']);
+/** The player's own movement keys fly the camera (Help → Controls), the overview's turn keys roll it; Space and C rise and sink. */
+const FLY_ACTIONS: readonly ActionId[] = ['forward', 'back', 'left', 'right', 'run', 'rotateLeft', 'rotateRight'];
+const UP = 'Space';
+const DOWN = 'KeyC';
 
 /** Text fields keep their keys; on a slider, button or checkbox the arrows, Space and Enter stay theirs too. */
 function keyTarget(e: KeyboardEvent): 'text' | 'control' | 'view' {
@@ -242,11 +247,12 @@ export default function PhotoScene() {
       rt.delta = dt;
       const k = rt.keys;
       const i = rt.input;
-      i.forward = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-      i.right = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-      i.up = (k.has('Space') ? 1 : 0) - (k.has('KeyC') ? 1 : 0);
-      i.roll = (k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0);
-      i.fast = k.has('ShiftLeft') || k.has('ShiftRight');
+      const b = bindings();
+      i.forward = (anyHeld(b, 'forward', k) ? 1 : 0) - (anyHeld(b, 'back', k) ? 1 : 0);
+      i.right = (anyHeld(b, 'right', k) ? 1 : 0) - (anyHeld(b, 'left', k) ? 1 : 0);
+      i.up = (k.has(UP) ? 1 : 0) - (k.has(DOWN) ? 1 : 0);
+      i.roll = (anyHeld(b, 'rotateRight', k) ? 1 : 0) - (anyHeld(b, 'rotateLeft', k) ? 1 : 0);
+      i.fast = anyHeld(b, 'run', k);
       const orbit = usePhoto.getState().orbit;
       let moved = false;
       if (orbit !== 'free' && targetPoint(orbit, rt.target)) {
@@ -317,8 +323,9 @@ export default function PhotoScene() {
         if (!document.pointerLockElement && performance.now() - rt.unlockedAt > 400) leave();
         return;
       }
-      if (FLY_KEYS.has(c)) {
-        if (on === 'control' && (c.startsWith('Arrow') || c === 'Space')) return;
+      const b = bindings();
+      if (c === UP || c === DOWN || FLY_ACTIONS.some((a) => isBound(b, a, c))) {
+        if (on === 'control' && (c.startsWith('Arrow') || c === UP)) return;
         e.preventDefault();
         keys.add(c);
         return;

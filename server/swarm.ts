@@ -43,11 +43,13 @@ import { Notifier } from './notifier.ts';
 import { clip, plainText, stuckAgents } from './notify.ts';
 import { DEFAULT_NOTIFY, notifySettings, officeUrl } from '../shared/notify.ts';
 import { agentActivity, lineActivity, sameActivity, type SeenActivity } from '../shared/activity.ts';
+import { WeatherService } from './weather.ts';
 import { blockers, holdUps, issueSpecialty, waitsMessage } from '../shared/issues.ts';
 import { dayKey, journalFrame } from '../shared/journal.ts';
 import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
 import { achievementDef, type ProgressView } from '../shared/progress.ts';
 import { effectiveModel } from '../shared/models.ts';
+import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, weatherSettings, worldEventSettings } from '../shared/outside.ts';
 import { CEO_ID, DEFAULT_DOG_NAME, INSTALL_STEP } from '../shared/types.ts';
 import type {
   AgentActivity,
@@ -449,6 +451,8 @@ export class Swarm {
       pacingSessions: DEFAULT_PACING_SESSIONS,
       trimIdleDesksMin: DEFAULT_TRIM_IDLE_MIN,
       voice: { ...DEFAULT_VOICE },
+      weather: { ...DEFAULT_WEATHER },
+      worldEvents: { ...DEFAULT_WORLD_EVENTS },
       listen: { ...DEFAULT_LISTEN },
       notify: notifySettings(DEFAULT_NOTIFY, {}),
     },
@@ -523,6 +527,8 @@ export class Swarm {
   private clis: CliView[] = []; // coding-agent CLIs found on this machine (detected at startup)
   /** Phone messages read aloud. The demo keeps its own key and clips, so it never touches the real ones. */
   readonly voice: Voice;
+  /** The real local weather (Settings → Weather), read by the server so it's cached and survives a restart. */
+  readonly weather: WeatherService;
   /** What the office looked like over the last week, for the time-lapse replay. The demo keeps its own. */
   readonly journal: Journal;
   private readonly envSecrets = envSecrets(process.env);
@@ -531,6 +537,13 @@ export class Swarm {
   private toldStuck = new Set<string>(); // `${agentId}:${endedAt}`: agents in an error the manager was notified about
 
   constructor(private backend: Backend) {
+    this.weather = new WeatherService({
+      api: backend.weather,
+      file: path.join(HOME_DIR, backend.demo ? 'demo-weather.json' : 'weather.json'),
+      settings: () => this.state.settings.weather,
+      changed: (weather) => this.broadcast({ type: 'weather', weather }),
+      log: (line) => console.log(line),
+    });
     this.voice = new Voice({
       api: backend.voice,
       secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-secrets.json' : 'secrets.json'),
@@ -644,6 +657,8 @@ export class Swarm {
       }
       delete old.permissionMode; // the office's rules are instructions now, not a permission mode
       this.state.settings.voice = voiceSettings(DEFAULT_VOICE, loaded.settings?.voice);
+      this.state.settings.weather = weatherSettings(DEFAULT_WEATHER, loaded.settings?.weather);
+      this.state.settings.worldEvents = worldEventSettings(DEFAULT_WORLD_EVENTS, loaded.settings?.worldEvents);
       this.state.settings.listen = listenSettings(DEFAULT_LISTEN, loaded.settings?.listen);
       this.state.settings.notify = notifySettings(DEFAULT_NOTIFY, loaded.settings?.notify);
       // Offices that were set up before the setup wizard existed skip it.
@@ -654,6 +669,7 @@ export class Swarm {
       // first run
     }
     await this.voice.init();
+    await this.weather.init();
     await this.notifier.init();
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
@@ -921,6 +937,7 @@ export class Swarm {
       clis: this.clis,
       ...this.voice.keyView(),
       voiceCache: this.voice.cacheInfo(),
+      weather: this.weather.current(),
       ticker: this.ticker.recent(),
       notifyChannels: this.notifier.channelsView(),
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
@@ -2990,6 +3007,11 @@ export class Swarm {
       s.voice = voiceSettings(s.voice, patch.voice);
       if (s.voice.keepDays !== keepDays) setTimeout(() => void this.voice.prune(), 500);
     }
+    if (patch.weather !== undefined) {
+      s.weather = weatherSettings(s.weather, patch.weather);
+      this.weather.settingsChanged();
+    }
+    if (patch.worldEvents !== undefined) s.worldEvents = worldEventSettings(s.worldEvents, patch.worldEvents);
     if (patch.listen !== undefined) s.listen = listenSettings(s.listen, patch.listen);
     if (patch.notify !== undefined) {
       const url = (patch.notify as { officeUrl?: unknown } | null)?.officeUrl;

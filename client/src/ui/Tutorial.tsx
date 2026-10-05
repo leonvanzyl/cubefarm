@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { CEO_ID } from '../../../shared/types';
+import { Key, MoveKeys } from './Key';
 
 // The first-run tour: a coach card in the corner that moves on by itself as you try each thing,
 // with Next and Skip always there. Progress lives in settings.tutorialStep, so a refresh resumes it.
@@ -26,7 +27,8 @@ const STEPS: Step[] = [
     title: 'Look around',
     body: () => (
       <>
-        Click the view to grab the mouse and look around, then walk with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>. Hold <kbd>Shift</kbd> to run. <kbd>Esc</kbd> gives you the mouse back.
+        Click the view to grab the mouse and look around, then walk with <MoveKeys />. Hold <Key action="run" /> to run. <kbd>Esc</kbd> gives you the mouse back. <Key action="overview" /> shows the whole floor
+        from above.
       </>
     ),
     done: (s) => s.locked,
@@ -36,7 +38,7 @@ const STEPS: Step[] = [
     title: 'Pull out your phone',
     body: (c) => (
       <>
-        Press <kbd>P</kbd>. Your phone is how you talk to {c.ceo} from anywhere in the building.
+        Press <Key action="phone" />. Your phone is how you talk to {c.ceo} from anywhere in the building.
       </>
     ),
     done: (s) => s.overlay?.kind === 'phone',
@@ -45,7 +47,7 @@ const STEPS: Step[] = [
     title: 'Your phone',
     body: (c) => (
       <>
-        💬 {c.ceo} texts you here, and you can text back. 📄 <b>Hires</b> shows candidates waiting for your OK. 📊 <b>Company</b> is every project at a glance. Put it away with <kbd>P</kbd>.
+        💬 {c.ceo} texts you here, and you can text back. 📄 <b>Hires</b> shows candidates waiting for your OK. 📊 <b>Company</b> is every project at a glance. Put it away with <Key action="phone" />.
       </>
     ),
     done: (s) => s.overlay?.kind !== 'phone',
@@ -55,7 +57,7 @@ const STEPS: Step[] = [
     title: 'Visit the CEO',
     body: (c) => (
       <>
-        {c.ceo}'s corner office is at the back right of the lobby, under the purple sign. Walk in and press <kbd>E</kbd> or click the desk to see what {c.ceo} is up to.
+        {c.ceo}'s corner office is at the back right of the lobby, under the purple sign. Walk in and press <Key action="interact" /> or click the desk to see what {c.ceo} is up to.
       </>
     ),
     done: (s) => (s.overlay?.kind === 'terminal' && s.overlay.agentId === CEO_ID) || (s.overlay?.kind === 'manager' && s.overlay.tab === 'ceo'),
@@ -64,7 +66,7 @@ const STEPS: Step[] = [
     title: 'Candidates',
     body: (c) => (
       <>
-        When {c.ceo} wants to hire someone, the candidate waits on the green chairs along the east wall. Press <kbd>E</kbd> or click them to read their resume, then hire or decline. It all works from your phone too.
+        When {c.ceo} wants to hire someone, the candidate waits on the green chairs along the east wall. Press <Key action="interact" /> or click them to read their resume, then hire or decline. It all works from your phone too.
       </>
     ),
     done: (s) => s.requests.some((r) => r.status !== 'pending' && r.decidedBy === 'manager'),
@@ -74,7 +76,7 @@ const STEPS: Step[] = [
     body: (c) =>
       c.repo ? (
         <>
-          {c.repo} has its own floor. Walk into the elevator in the middle of the south wall and press <kbd>E</kbd> on its panel, or press <kbd>E</kbd> or click the directory beside it.
+          {c.repo} has its own floor. Walk into the elevator in the middle of the south wall and press <Key action="interact" /> on its panel, or press <Key action="interact" /> or click the directory beside it.
         </>
       ) : (
         <>
@@ -87,7 +89,7 @@ const STEPS: Step[] = [
     title: 'The whiteboard',
     body: () => (
       <>
-        The whiteboard at the front of every floor is its Kanban board. Press <kbd>E</kbd> or click it to hand out issues, send pull requests to QA and merge them.
+        The whiteboard at the front of every floor is its Kanban board. Press <Key action="interact" /> or click it to hand out issues, send pull requests to QA and merge them.
       </>
     ),
     done: (s) => s.overlay?.kind === 'kanban',
@@ -96,7 +98,7 @@ const STEPS: Step[] = [
     title: 'Watch the team',
     body: () => (
       <>
-        Walk up behind anyone to watch their screen, or press <kbd>E</kbd> or click a desk for their full terminal. The testers in lab coats along the east wall check every pull request before you merge.
+        Walk up behind anyone to watch their screen, or press <Key action="interact" /> or click a desk for their full terminal. The testers in lab coats along the east wall check every pull request before you merge.
       </>
     ),
     done: (s) => s.overlay?.kind === 'terminal' && s.overlay.agentId !== CEO_ID,
@@ -105,7 +107,7 @@ const STEPS: Step[] = [
     title: 'Your office',
     body: (c) => (
       <>
-        Your glass office in the lobby (back left) has the manager's console: projects, the team, and the CEO's settings. Press <kbd>H</kbd> any time for help. Enjoy running {c.company}!
+        Your glass office in the lobby (back left) has the manager's console: projects, the team, and the CEO's settings. Press <Key action="help" /> any time for help. Enjoy running {c.company}!
       </>
     ),
   },

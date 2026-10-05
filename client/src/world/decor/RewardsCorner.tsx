@@ -4,6 +4,7 @@ import { memo, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { ACHIEVEMENTS, type AchievementView } from '../../../../shared/progress';
 import { useStore } from '../../store';
+import { useKeyName } from '../../ui/controls';
 import { roundRect, SANS } from '../draw';
 import { useCanvasTexture, useInteractable } from '../interact';
 import { KIOSK, TROPHY_SHELF } from '../layout';
@@ -15,6 +16,7 @@ import { box, cyl, model, torus, vertexToon, type Part } from './parts';
 export function Kiosk() {
   const coins = useStore((s) => Object.values(s.progress.floors).reduce((n, f) => n + f.coins, 0));
   const floors = useStore((s) => s.repos.length);
+  const use = useKeyName('interact');
   const ref = useInteractable<THREE.Group>({ id: 'kiosk', label: 'Browse the decoration catalogue', action: { kind: 'catalogue' } }, 3.5);
   const tex = useCanvasTexture(
     512,
@@ -41,9 +43,9 @@ export function Kiosk() {
       ctx.fillText(`🪙 ${coins}`, 256, 212);
       ctx.fillStyle = '#c9c9ee';
       ctx.font = `500 26px ${SANS}`;
-      ctx.fillText(floors ? `across ${floors} floor${floors === 1 ? '' : 's'} · press E` : 'merges earn coins', 256, 300);
+      ctx.fillText(floors ? `across ${floors} floor${floors === 1 ? '' : 's'} · press ${use}` : 'merges earn coins', 256, 300);
     },
-    [coins, floors],
+    [coins, floors, use],
   );
   return (
     <group ref={ref} position={[KIOSK.x, 0, KIOSK.z]}>

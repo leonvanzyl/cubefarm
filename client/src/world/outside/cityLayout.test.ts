@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { floorElevation } from '../layout';
-import { CAR_RANGE, carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, HOME_FOOTPRINT, MAX_CARS, type CityBox } from './cityLayout';
+import { CAR_RANGE, carPose, carRoutes, CITY, cityLayout, CORRIDOR_HALF, HOME_FOOTPRINT, MAX_CARS, waterTowers, type CityBox } from './cityLayout';
 
 const city = cityLayout();
 const everything = (c = city): CityBox[] => [...c.buildings, ...c.boxes, ...c.cylinders, ...c.cones];
@@ -89,5 +89,19 @@ describe('cars', () => {
     const b = carPose(car, 1, { x: 0, z: 0, yaw: 0 });
     const da = car.axis === 'z' ? b.z - a.z : b.x - a.x;
     expect(da * car.dir).toBeCloseTo(car.speed);
+  });
+});
+
+describe('waterTowers', () => {
+  it('finds every roof water tower, with its stand, tank and hat', () => {
+    const layout = cityLayout();
+    const towers = waterTowers(layout);
+    expect(towers.length).toBeGreaterThan(5);
+    for (const t of towers) {
+      expect(layout.boxes[t.box]).toMatchObject({ x: t.x, z: t.z, y: t.y });
+      expect(layout.cylinders[t.cylinder]).toMatchObject({ x: t.x, z: t.z, y: t.y + 1.6 });
+      expect(layout.cones[t.cone]).toMatchObject({ x: t.x, z: t.z });
+      expect(t.y).toBeGreaterThan(5); // on a roof
+    }
   });
 });

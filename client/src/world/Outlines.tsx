@@ -64,7 +64,8 @@ type OutlineMaterial = THREE.ShaderMaterial & { thickness: number; color: THREE.
 /** An ink outline round the mesh it's placed in, `thickness` in drei's units. */
 export function Outlines({ color = 'black', thickness = 0.05, angle = Math.PI }: { color?: THREE.ColorRepresentation; thickness?: number; angle?: number }) {
   const ref = useRef<THREE.Group>(null);
-  const [material] = useState(() => new OutlinesMaterial({ side: THREE.BackSide }) as OutlineMaterial);
+  // clipping: the overview's cutaway (camera/rig.ts) takes the ink off what it cuts away too
+  const [material] = useState(() => new OutlinesMaterial({ side: THREE.BackSide, clipping: true }) as OutlineMaterial);
   const gl = useThree((s) => s.gl);
   const made = useRef<{ group: THREE.Group; geometry: THREE.BufferGeometry | null; angle: number } | null>(null);
 

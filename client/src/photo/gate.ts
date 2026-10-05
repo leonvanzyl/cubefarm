@@ -1,9 +1,12 @@
-// Photo mode's doorway, the only part in the main bundle: whether it's on and whether the office is frozen, the K
-// (photo mode) and I (save an instant replay) keys, the instant replay setting and window.__swarmPhoto. The camera,
+// Photo mode's doorway, the only part in the main bundle: whether it's on and whether the office is frozen, its keys
+// (K for photo mode and I to save an instant replay, rebindable in Help → Controls), the instant replay setting and
+// window.__swarmPhoto. The camera,
 // filters, panel, recorder and gallery load the first time they're used.
 import { create } from 'zustand';
 import { useStore } from '../store';
 import { isConfirmOpen } from '../ui/Confirm';
+import { bindings } from '../ui/controls';
+import { isBound } from '../ui/keymap';
 
 const REPLAY_KEY = 'cubefarm:replay';
 
@@ -91,10 +94,11 @@ const isTyping = (e: KeyboardEvent) => {
 export function installPhoto(): () => void {
   const onKey = (e: KeyboardEvent) => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping(e)) return;
-    if (e.code === 'KeyK' && (photoActive() || canEnterPhoto())) {
+    const b = bindings();
+    if (isBound(b, 'photo', e.code) && (photoActive() || canEnterPhoto())) {
       e.preventDefault();
       togglePhoto();
-    } else if (e.code === 'KeyI' && usePhotoGate.getState().replay && useStore.getState().started && !useStore.getState().overlay) {
+    } else if (isBound(b, 'saveReplay', e.code) && usePhotoGate.getState().replay && useStore.getState().started && !useStore.getState().overlay) {
       e.preventDefault();
       void saveReplay();
     }

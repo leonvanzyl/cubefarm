@@ -1,5 +1,6 @@
 import { useEffect, useRef, type PointerEvent, type ReactNode } from 'react';
 import { isConfirmOpen } from '../Confirm';
+import { isKey } from '../controls';
 
 // Shared plumbing for the phone games: a canvas that fits the phone and redraws every frame, keyboard input that
 // doesn't leak into the office, and touch buttons that repeat while held.
@@ -86,7 +87,7 @@ export function GameCanvas({ width, height, frame, onPointer, label }: { width: 
 
 /**
  * Keyboard for a game while it's on screen. Listens in the capture phase and swallows the keys the game uses, so
- * they never reach the office (walking, E, Tab, M) or scroll the page; Esc and P still put the phone away.
+ * they never reach the office (walking, E, Tab, M) or scroll the page; Esc and the phone's key still put it away.
  * `handle` returns true for keys it used.
  */
 export function useGameKeys(handle: (e: KeyboardEvent) => boolean) {
@@ -96,7 +97,7 @@ export function useGameKeys(handle: (e: KeyboardEvent) => boolean) {
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || isConfirmOpen() || e.code === 'Escape' || e.code === 'KeyP') return;
+      if (e.ctrlKey || e.metaKey || e.altKey || isConfirmOpen() || e.code === 'Escape' || isKey('phone', e.code)) return;
       if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (ref.current(e)) {
         e.preventDefault();

@@ -26,6 +26,7 @@ import {
 } from './photoMode';
 import { clockTime, formatBytes, SCALES, shotSize } from './shots';
 import { useDayTime } from '../world/sky/useDayTime';
+import { Key, MoveKeys } from '../ui/Key';
 import './photo.css';
 
 /** The overlay as it will be saved, plus the thirds guides, over the live view. */
@@ -149,8 +150,8 @@ export default function PhotoPanel() {
         <aside className="photo-panel" aria-label="Photo mode">
           <header className="photo-head">
             <b>📷 Photo mode</b>
-            <button className="btn btn-small" onClick={leave} title="Back to the office (K or Esc)">
-              Leave <kbd>K</kbd>
+            <button className="btn btn-small" onClick={leave} title="Back to the office (or Esc with the mouse free)">
+              Leave <Key action="photo" />
             </button>
           </header>
           {s.note && (
@@ -308,15 +309,15 @@ export default function PhotoPanel() {
               <input type="checkbox" checked={replay} onChange={(e) => setReplay(e.target.checked)} /> Keep the last 15 s, any time
             </label>
             <p className="muted small">
-              Press <kbd>I</kbd> to save them. Off by default: it records all the time, which takes memory.
+              Press <Key action="saveReplay" /> to save them. Off by default: it records all the time, which takes memory.
             </p>
           </section>
 
           <Gallery />
 
           <p className="photo-keys muted small">
-            Click the view to steer · <kbd>WASD</kbd> fly · <kbd>Space</kbd>/<kbd>C</kbd> up/down · <kbd>Shift</kbd> faster · <kbd>Q</kbd>/<kbd>E</kbd> roll · wheel zoom · <kbd>R</kbd> reset · <kbd>H</kbd> hide panel ·{' '}
-            <kbd>Esc</kbd> frees the mouse, then leaves
+            Click the view to steer · <MoveKeys joined /> fly · <kbd>Space</kbd>/<kbd>C</kbd> up/down · <Key action="run" /> faster · <Key action="rotateLeft" />/<Key action="rotateRight" /> roll · wheel zoom ·{' '}
+            <kbd>R</kbd> reset · <kbd>H</kbd> hide panel · <kbd>Esc</kbd> frees the mouse, then leaves
           </p>
         </aside>
       )}

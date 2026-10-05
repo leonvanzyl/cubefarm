@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { noise, tone, type Vec3 } from '../ui/sfx';
+import { playerAt } from './camera/rig';
 import { PLAYER, type Mug, type Slot } from './coffeeBreak';
 import { BREW, BREW_CUES, EMPTY, canPlace, cuesPassed, level, placeMug, pouring, pressButton, progress, takeMug, tick, type BrewState } from './coffee';
 import { useInteractable } from './interact';
@@ -204,7 +205,6 @@ export function CoffeeMachine({ position }: { position: [number, number, number]
   const stream = useRef<THREE.Mesh>(null);
   const coffee = useRef<THREE.Mesh>(null);
   const located = useRef(false);
-  const camera = useThree((s) => s.camera);
 
   // A fresh floor gets a fresh machine.
   useEffect(() => {
@@ -248,7 +248,7 @@ export function CoffeeMachine({ position }: { position: [number, number, number]
       spot.z = at.z;
     }
 
-    const near = Math.hypot(camera.position.x - spot.x, camera.position.z - spot.z) < 2.6;
+    const near = Math.hypot(playerAt.x - spot.x, playerAt.z - spot.z) < 2.6;
     playerNear = near && heldSips !== null && canPlace(state, heldSips);
 
     if (state.kind === 'brewing') {

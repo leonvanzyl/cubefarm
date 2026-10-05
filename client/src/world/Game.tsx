@@ -5,6 +5,8 @@ import { AdaptiveResolution, FrameWhilePaused, MAX_DPR, StatsProbe, statsEnabled
 import { setOfficeCanvas, usePhotoGate } from '../photo/gate';
 import { repoOnFloor, useStore } from '../store';
 import { ding, whoosh } from '../ui/sfx';
+import { CameraRig } from './camera/CameraRig';
+import { CUT_PLANES } from './camera/rig';
 import { lobbyColliders, officeColliders, ROOF, roofColliders } from './layout';
 import { decorRects } from './decor/decor';
 import { Graphics } from './gfx/Graphics';
@@ -19,6 +21,8 @@ import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
 import { Soundscape } from './Soundscape';
 import { TypingSounds } from './TypingSounds';
+import { Weather } from './weather/Weather';
+import { WorldEvents } from './events/WorldEvents';
 
 // The roof is its own chunk: fetched as the elevator heads up there, never by a floor that doesn't go.
 const loadRoof = () => import('./roof/Roof');
@@ -81,15 +85,19 @@ export function Game() {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.0;
         gl.shadowMap.type = THREE.PCFSoftShadowMap;
+        gl.clippingPlanes = CUT_PLANES; // the overview's cutaway, out of the way until it's used (camera/rig.ts)
       }}
     >
       <DayClock />
+      <Weather kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} />
       <Sky />
       <DayLights />
       <City />
+      <WorldEvents kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} />
       <Suspense fallback={null}>{onRoof ? <Roof top={top} /> : repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       {!onRoof && <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />}
       <Player colliders={colliders} floor={floor} />
+      <CameraRig />
       <Travel />
       <SoundListener />
       <Soundscape kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} repoId={repo?.id ?? null} />
