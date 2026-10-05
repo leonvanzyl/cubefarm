@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import * as github from './github.ts';
 import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
@@ -63,6 +64,8 @@ export interface Backend {
   createProject(root: string, name: string, opts: { visibility: 'private' | 'public'; owner?: string; description?: string }): Promise<{ fullName: string; path: string }>;
   mainDir(fullName: string): string;
   deskDir(fullName: string, agentSlug: string): string;
+  /** The desk folder is there: a session started in a missing one dies at once (Windows exit 267). */
+  deskExists(dir: string): boolean;
   /** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
   prepareDesk(fullName: string, base: workspace.DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string>;
   /** npm ci in a prepared desk unless nothing changed since the last one; never throws (see deps.ts installDesk). */
@@ -103,6 +106,20 @@ export interface Backend {
   demoTeam?(floor: number): { dev: number; qa: number };
   /** The demo only: Claude's usage warning, or its limit, on demand, as a session would report it. */
   simulateUsage?(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number };
+  /** The demo only: the office doctor's scenarios (a restart with desks gone and work finished, a stuck session). */
+  demoDoctor?: DemoDoctor;
+}
+
+/** The demo's fakes for trying the office doctor (#262). */
+export interface DemoDoctor {
+  /** Delete a desk folder behind the office's back. */
+  dropDesk(dir: string): void;
+  /** Close an issue (or merge a PR) on the fake GitHub without the office hearing about it. */
+  finishQuietly(fullName: string, kind: 'issue' | 'pr', n: number): void;
+  /** The agent's fake session goes silent: no more output, and nudges go unanswered. False when it has none. */
+  stall(agentId: string): boolean;
+  /** A merged PR whose issue GitHub never closed; null when the floor has no open issue. */
+  unclosedMerge(fullName: string, mergedAgoMs: number): { issue: number; pr: number } | null;
 }
 
 export const realBackend: Backend = {
@@ -135,6 +152,7 @@ export const realBackend: Backend = {
   createProject: workspace.createProject,
   mainDir: workspace.mainDir,
   deskDir: workspace.deskDir,
+  deskExists: (dir) => existsSync(dir),
   prepareDesk: workspace.prepareDesk,
   installDeps: (dir, cb) => installDesk(dir, cb),
   removeDesk: workspace.removeDesk,

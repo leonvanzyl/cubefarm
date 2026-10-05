@@ -38,6 +38,7 @@ const repos = new Map<string, FakeRepo>();
 const bareRepos = new Set<string>();
 const mergedSinceSync = new Map<string, number>(); // merges the fake project folder hasn't pulled yet
 const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by a merge
+const stalls = new Map<string, () => void>(); // agent id -> silences their running fake session (the office doctor's demo)
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
@@ -291,6 +292,13 @@ export function fixPromptPull(prompt: string): { number: number; title?: string 
 function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: string): SessionHandle {
   const timers: NodeJS.Timeout[] = [];
   let stopped = false;
+  let stalled = false; // stuck: no more output, and messages go unanswered
+  if (opts.agentId) {
+    stalls.set(opts.agentId, () => {
+      stalled = true;
+      timers.forEach(clearTimeout);
+    });
+  }
   const nudged = /^You pushed nothing/.test(opts.prompt); // the office's nudge after a fix that pushed nothing
   const resumedFix = opts.resumeSessionId?.startsWith('demo-fix-') ?? false;
   const kind = opts.role === 'qa' ? 'qa' : nudged || resumedFix || /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
@@ -399,8 +407,11 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
 
   let i = 0;
   const step = () => {
-    if (stopped) return;
-    if (i >= script.length) return finish();
+    if (stopped || stalled) return;
+    if (i >= script.length) {
+      if (opts.agentId) stalls.delete(opts.agentId);
+      return finish();
+    }
     const s = script[i++];
     if (typeof s === 'function') s();
     else {
@@ -416,13 +427,14 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     send(text) {
       timers.push(
         setTimeout(() => {
-          if (stopped) return;
+          if (stopped || stalled) return;
           cb.log([{ kind: 'text', text: `● Got it — "${text.slice(0, 60)}". Adjusting my approach.` }]);
         }, 1500),
       );
     },
     stop() {
       stopped = true;
+      if (opts.agentId) stalls.delete(opts.agentId);
       timers.forEach(clearTimeout);
       cb.finished({ ok: false, text: '', costUsd: 0.1, turns: i, errors: ['Stopped by manager'] });
     },
@@ -724,6 +736,8 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     },
     mainDir: (fullName) => `/demo/${fullName}/main`,
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
+    // The fake desks are the ones set up since the demo started: after a restart, every desk is gone.
+    deskExists: (dir) => deskRepo.has(dir),
     prepareDesk: async (fullName, base, slug, branch, note) => {
       await new Promise((r) => setTimeout(r, 900));
       const dir = `/demo/${fullName}/desks/${slug}`;
@@ -778,6 +792,55 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     demoTeam: (floor) => demoTeam(scale, floor),
     simulateUsage: demoUsage,
     demoCandidate,
+    demoDoctor: {
+      dropDesk: (dir) => {
+        deskRepo.delete(dir);
+        installedDesks.delete(dir);
+        deskBranches.delete(dir);
+      },
+      finishQuietly: (fullName, kind, n) => {
+        const r = repos.get(fullName);
+        if (!r) return;
+        const pr = kind === 'pr' ? r.pulls.find((p) => p.number === n) : undefined;
+        if (pr) Object.assign(pr, { state: 'MERGED', mergedAt: now() });
+        for (const i of kind === 'issue' ? [n] : (pr?.closesIssues ?? [])) {
+          closedIssues.add(`${fullName}#${i}`);
+          r.issues = r.issues.filter((x) => x.number !== i);
+        }
+      },
+      stall: (agentId) => {
+        const stall = stalls.get(agentId);
+        stall?.();
+        return !!stall;
+      },
+      unclosedMerge: (fullName, mergedAgoMs) => {
+        const r = repos.get(fullName);
+        const open = r?.issues[r.issues.length - 1];
+        if (!r || !open) return null;
+        const n = takeNumber(r);
+        r.pulls.unshift({
+          number: n,
+          title: open.title,
+          url: `https://github.com/${fullName}/pull/${n}`,
+          headRefName: `fix/issue-${open.number}`,
+          state: 'MERGED',
+          isDraft: false,
+          mergeable: 'MERGEABLE',
+          reviewDecision: null,
+          closesIssues: [open.number],
+          createdAt: new Date(Date.now() - mergedAgoMs - 3_600_000).toISOString(),
+          mergedAt: new Date(Date.now() - mergedAgoMs).toISOString(),
+          additions: 12,
+          deletions: 3,
+          checks: 'passing',
+          headSha: fakeSha(),
+          mergeState: 'CLEAN',
+          failedChecks: [],
+          pendingChecks: [],
+        });
+        return { issue: open.number, pr: n };
+      },
+    },
   };
 }
 
