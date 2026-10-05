@@ -35,6 +35,8 @@ const AMBIENT_LAMPS = 0.14;
 /** The sun's height (y of its direction) at which the lamps are fully on, and fully off. */
 const LAMPS_FULL = -0.12;
 const LAMPS_OFF = 0.12;
+/** Heavy weather (gloom 1) brings the lamps on this much earlier (sun height) and keeps them a little on all day. */
+const GLOOM_EARLIER = { full: 0.2, off: 0.35, floor: 0.3 };
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const smoothstep = (a: number, b: number, x: number) => {
@@ -54,12 +56,20 @@ export function newIndoorLight(): IndoorLight {
 const palette = {} as SkyPalette;
 const sun: [number, number, number] = [0, 0, 0];
 
-/** The light inside at phase t. */
-export function indoorLight(t: number, out = newIndoorLight()): IndoorLight {
+/** What the weather does indoors (weather/): how gloomy it is (0-1), and its touch on the sky's palette. */
+export interface IndoorWeather {
+  gloom: number;
+  sky(p: SkyPalette): void;
+}
+
+/** The light inside at phase t, under the weather when there is some. */
+export function indoorLight(t: number, out = newIndoorLight(), weather?: IndoorWeather): IndoorLight {
   const p = skyAt(t, palette);
+  weather?.sky(p);
   sunDirection(t, sun);
-  // on as the sun sets (before the sky is dark), off once it's up
-  const lamps = 1 - smoothstep(LAMPS_FULL, LAMPS_OFF, sun[1]);
+  // on as the sun sets (before the sky is dark), off once it's up; earlier, and a little on all day, in heavy weather
+  const g = weather?.gloom ?? 0;
+  const lamps = Math.max(1 - smoothstep(LAMPS_FULL + GLOOM_EARLIER.full * g, LAMPS_OFF + GLOOM_EARLIER.off * g, sun[1]), GLOOM_EARLIER.floor * g);
 
   // the sun by day, the moon opposite it by night, held at least MIN_ELEVATION up
   const s = sun[1] >= 0 ? 1 : -1;

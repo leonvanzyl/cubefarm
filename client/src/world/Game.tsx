@@ -20,6 +20,8 @@ import { DayClock } from './sky/useDayTime';
 import { SoundListener } from './SoundListener';
 import { Soundscape } from './Soundscape';
 import { TypingSounds } from './TypingSounds';
+import { Weather } from './weather/Weather';
+import { WorldEvents } from './events/WorldEvents';
 
 // The roof is its own chunk: fetched as the elevator heads up there, never by a floor that doesn't go.
 const loadRoof = () => import('./roof/Roof');
@@ -80,9 +82,11 @@ export function Game() {
       }}
     >
       <DayClock />
+      <Weather kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} />
       <Sky />
       <DayLights />
       <City />
+      <WorldEvents kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} />
       <Suspense fallback={null}>{onRoof ? <Roof top={top} /> : repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       {!onRoof && <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />}
       <Player colliders={colliders} floor={floor} />

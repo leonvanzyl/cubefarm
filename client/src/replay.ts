@@ -80,6 +80,7 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
     prPreviews: [], // the PR theatre is live-only: off while replaying
     progress: s.progress, // coins and decorations are the office's own, now
     pong: s.pong, // so are the ping-pong leaderboards
+    weather: s.weather, // the real local weather is live, like the settings
     ops: f.ops ?? EMPTY_OPS, // a day from before mission control (or the demo's sample day) shows its screens empty
   };
 }
