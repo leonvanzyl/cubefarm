@@ -514,6 +514,7 @@ export class Swarm {
   private user: string | null = null;
   private ghError: string | undefined;
   private saveTimer: NodeJS.Timeout | null = null;
+  private writing: Promise<void> = Promise.resolve(); // state file writes, one at a time: they share its temp file
   private flushTimer: NodeJS.Timeout | null = null;
   private logSeq = 1;
   private previews: Previews;
@@ -1070,10 +1071,16 @@ export class Swarm {
     this.saveTimer = setTimeout(() => void this.writeState().catch((err) => console.warn('could not save the state', err)), 1500);
   }
 
-  /** Write the state file now, e.g. before the office stops or hands itself to the launcher. */
-  private async writeState() {
+  /** Write the state file now, e.g. before the office stops or hands itself to the launcher. Waits for a write in progress. */
+  private writeState(): Promise<void> {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
+    const next = this.writing.then(() => this.writeStateFile());
+    this.writing = next.catch(() => undefined);
+    return next;
+  }
+
+  private async writeStateFile() {
     for (const a of this.state.agents) a.logTail = (this.agentRt.get(a.id)?.log ?? []).slice(-200);
     await fs.mkdir(path.dirname(STATE_FILE), { recursive: true });
     const tmp = `${STATE_FILE}.tmp`;

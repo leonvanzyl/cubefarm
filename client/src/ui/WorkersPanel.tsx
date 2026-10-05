@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { agentsOnRepo, useStore, type Agent } from '../store';
 import { CEO_ID, INSTALL_STEP, type LogLine, type RepoView } from '../../../shared/types';
+import { VisitorsList } from './VisitorsList';
 import { dialogOpen } from './dialogFocus';
 import { isKey, useKeyName } from './controls';
 import { Key } from './Key';
@@ -162,6 +163,7 @@ export function WorkersPanel() {
       </button>
       {open && (
         <div className="wk-list">
+          <VisitorsList />
           {total === 0 && <div className="wk-empty">Nobody is working right now.</div>}
           {groups.map((g) => {
             const shut = collapsed.has(g.key);

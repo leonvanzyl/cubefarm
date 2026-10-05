@@ -4249,6 +4249,114 @@ input.inline:focus {
   font-weight: 600;
 }
 
+/* ---------- presence: the visitors list, the emote wheel ---------- */
+
+/* like a who's-working row (.wk-row), but not a button: its Follow is */
+.vs-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px 5px 26px;
+  border-radius: 12px;
+  color: var(--ink);
+}
+.vs-head {
+  cursor: default;
+}
+.vs-me {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.vs-follow {
+  white-space: nowrap;
+}
+.vs-follow.vs-on {
+  background: var(--ink);
+  color: var(--paper);
+}
+.emote-wheel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  z-index: 30;
+}
+.emote-hub {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 104px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(20, 22, 34, 0.82);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-align: center;
+  pointer-events: none;
+}
+.emote-slice {
+  position: absolute;
+  left: -32px;
+  top: -32px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 0 3px 0 var(--ink);
+  cursor: pointer;
+  transition: background 0.08s, scale 0.08s;
+}
+.emote-slice.emote-on {
+  background: var(--accent);
+  scale: 1.15;
+}
+.emote-emoji {
+  font-size: 1.7rem;
+  line-height: 1;
+}
+.emote-slice kbd {
+  font-size: 0.6rem;
+  padding: 0 4px;
+}
+.my-emote {
+  position: absolute;
+  bottom: 30%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  box-shadow: 0 4px 0 var(--ink);
+  font-size: 1.6rem;
+  font-weight: 600;
+  pointer-events: none;
+  animation: my-emote-pop 0.25s ease-out;
+}
+.my-emote span {
+  font-size: 0.95rem;
+  vertical-align: middle;
+}
+@keyframes my-emote-pop {
+  from {
+    scale: 0.4;
+  }
+  70% {
+    scale: 1.12;
+  }
+}
 /* ---------- progression: coins, the catalogue and the decor box (#210) ---------- */
 
 .coin-pill {

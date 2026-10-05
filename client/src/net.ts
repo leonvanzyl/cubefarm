@@ -6,7 +6,23 @@ let retry = 0;
 let socket: WebSocket | null = null;
 // Back from the time-lapse: everything waits for the fresh snapshot asked for, so nothing applies on top of the replay.
 let awaitingSnapshot = false;
-const OUTSIDE_REPLAY = new Set<ServerEvent['type']>(['notify', 'notifyChannels', 'settings', 'officeUpdate', 'clis', 'voiceKey', 'voiceCache', 'progress']);
+// Presence too: the other visitors are live people, there in a replay as much as in the live office.
+const OUTSIDE_REPLAY = new Set<ServerEvent['type']>(['notify', 'notifyChannels', 'settings', 'officeUpdate', 'clis', 'voiceKey', 'voiceCache', 'progress', 'visitors', 'visitorPose', 'visitorEmote', 'visitorPing']);
+let opens = 0;
+/** Characters in and out on /ws since the page loaded, and in for presence alone (its probe turns them into rates). */
+export const wsTraffic = { in: 0, out: 0, presence: 0 };
+
+/** Sends a message on /ws; false while disconnected, when it's dropped. */
+export function sendWs(msg: ClientEvent) {
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  const text = JSON.stringify(msg);
+  socket.send(text);
+  wsTraffic.out += text.length;
+  return true;
+}
+
+/** How many times the socket has opened: a new one means the server has forgotten this tab (presence tells it again). */
+export const wsOpens = () => opens;
 
 /** The time-lapse stopped: asks for the live office again (a reconnect brings a snapshot anyway). */
 export function requestSnapshot() {
@@ -43,11 +59,14 @@ export function connect() {
   socket = ws;
   ws.onopen = () => {
     retry = 0;
+    opens++;
     useStore.getState().setConnected(true);
   };
   ws.onmessage = (e) => {
+    wsTraffic.in += typeof e.data === 'string' ? e.data.length : 0;
     try {
       const ev = JSON.parse(e.data) as ServerEvent;
+      if (ev.type.startsWith('visitor')) wsTraffic.presence += e.data.length;
       if (ev.type === 'snapshot' && ev.data.officeCommit && reloadForNewCommit(ev.data.officeCommit)) return;
       // While the time-lapse plays it owns the office; it asks for a fresh snapshot when it stops. What isn't part of
       // the replayed office (notifications, settings, the office's own update…) still applies.

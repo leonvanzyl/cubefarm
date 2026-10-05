@@ -16,9 +16,12 @@ import { underLauncher } from './officeUpdate.ts';
 import { serviceWorkerSource, swVersion } from './pwa.ts';
 import { screenStatus } from './screenReply.ts';
 import { parseSendBackNote } from './sendBack.ts';
+import { PresenceHub } from './presence.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
 const swarm = new Swarm(DEMO ? createDemoBackend() : realBackend);
+// Who else is in the 3D office (shared presence): relayed between tabs over /ws, never saved. The demo adds fake visitors.
+const presence = new PresenceHub({ demo: DEMO });
 // Sessions the office picks back up while it starts need the address their CLIs call back on before it listens.
 if (PORT) setOfficeUrl(`http://127.0.0.1:${PORT}`);
 await swarm.init();
@@ -311,7 +314,10 @@ const server = http.createServer(app);
 // Two sockets: /ws carries the office's state to every tab, /ws/term?agent=<id> one agent's terminal to whoever opened it.
 const wss = new WebSocketServer({ noServer: true });
 const terms = new WebSocketServer({ noServer: true });
-wss.on('connection', (ws) => swarm.addClient(ws));
+wss.on('connection', (ws) => {
+  swarm.addClient(ws);
+  presence.attach(ws);
+});
 terms.on('connection', (ws, req) => swarm.attachTerminal(new URL(req.url ?? '', 'http://localhost').searchParams.get('agent') ?? '', ws));
 server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url ?? '', 'http://localhost');
@@ -335,6 +341,7 @@ const shutdown = (signal: string) => {
   closing = true;
   console.log(`\n  ${signal}: stopping floor previews…`);
   const force = setTimeout(() => process.exit(0), 15_000);
+  presence.stop();
   void swarm
     .shutdown(signal === 'restart')
     .catch((err) => console.error(err))

@@ -352,19 +352,27 @@ function agentFloor(id: string) {
 
 /** "Follow" in an agent's panel: trails them, taking the elevator to their floor first if they're elsewhere. */
 export function followAgent(id: string) {
-  const s = useStore.getState();
-  const a = s.agents[id];
+  const a = useStore.getState().agents[id];
   const floor = agentFloor(id);
   if (!a || floor === null) return;
-  const target = followBody(id, a.name);
+  followOnFloor(floor, followBody(id, a.name));
+}
+
+/** Trails `target` on `floor`: here at once, elsewhere after the elevator ride there (a visitor who rode on, say). */
+export function followOnFloor(floor: number, target: FollowTarget) {
+  const s = useStore.getState();
   if (floor === s.floor) {
     follow(target);
     if (s.overlay) s.openOverlay(null);
     return;
   }
   rig.arrival = { mode: 'follow', target, until: performance.now() + 8000 };
+  rig.waitUntil = rig.arrival.until; // a follow under way doesn't give up on them while the elevator goes
   s.goToFloor(floor);
 }
+
+/** The id of whoever the follow cam trails, or is on its way to trail on another floor; null when nobody. */
+export const followingId = () => (rig.arrival?.mode === 'follow' ? rig.arrival.target.id : rig.mode === 'follow' ? (rig.target?.id ?? null) : null);
 
 /** Flies back to where you were standing and gives you the controls again. */
 export function exitView() {

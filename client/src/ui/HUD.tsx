@@ -9,6 +9,7 @@ import './progressProbe';
 import { eAction } from '../world/toys/sip';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
+import { PresenceHud } from './PresenceHud';
 import { officeUpdateChip } from '../officeUpdate';
 import { useA11y } from './a11y';
 import { useCameraView } from '../world/camera/rig';
@@ -197,8 +198,8 @@ export function HUD() {
       {started && !overlay && !locked && !travel && onFoot && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">
-          <MoveKeys joined /> move · <Key action="run" /> run · <Key action="interact" /> / <kbd>Click</kbd> interact · <Key action="phone" /> phone · <Key action="photo" /> photo · <Key action="overview" /> overview · <Key action="workers" /> workers ·{' '}
-          <Key action="mute" /> mute · <Key action="help" /> help · <kbd>Esc</kbd> free mouse
+          <MoveKeys joined /> move · <Key action="run" /> run · <Key action="interact" /> / <kbd>Click</kbd> interact · <Key action="phone" /> phone · <Key action="emote" /> emote · <Key action="ping" /> ping · <Key action="photo" /> photo ·{' '}
+          <Key action="overview" /> overview · <Key action="workers" /> workers · <Key action="mute" /> mute · <Key action="help" /> help · <kbd>Esc</kbd> free mouse
         </div>
       )}
 
@@ -207,6 +208,7 @@ export function HUD() {
       </div>
 
       <CameraHud />
+      <PresenceHud />
       <PhoneButton />
       <VoiceIndicator />
       <div className="toasts">
