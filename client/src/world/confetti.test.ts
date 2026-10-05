@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PullInfo, QaView, RepoView } from '../../../shared/types';
-import { canBurst, emitMerge, mergeAuthor, mergeBursts, newlyMerged, onMerge, recentQaRecord, rememberQa } from './confetti';
+import { burstKind, canBurst, emitMerge, mergeAuthor, mergeBursts, newlyMerged, onMerge, recentQaRecord, rememberQa } from './confetti';
 
 const pr = (number: number, state: PullInfo['state'], headRefName = `swarm/issue-${number}-ada`) => ({ number, state, headRefName }) as PullInfo;
 const repo = (pulls: PullInfo[]) => ({ id: 'o/r', pulls }) as RepoView;
@@ -61,14 +61,21 @@ describe('mergeBursts', () => {
   });
 });
 
-describe('canBurst', () => {
+describe('burstKind', () => {
   const open = { hidden: false, covered: false, reducedMotion: false };
 
-  it('bursts only while the office is on screen and moving', () => {
+  it('bursts only while the office is on screen, and glows instead with reduced motion', () => {
+    expect(burstKind(open)).toBe('confetti');
+    expect(burstKind({ ...open, hidden: true })).toBeNull();
+    expect(burstKind({ ...open, covered: true })).toBeNull(); // terminal, Kanban or manager's console open
+    expect(burstKind({ ...open, reducedMotion: true })).toBe('glow');
+    expect(burstKind({ ...open, reducedMotion: true, hidden: true })).toBeNull();
+  });
+
+  it('lets other bursts (coins) fly only when confetti would', () => {
     expect(canBurst(open)).toBe(true);
-    expect(canBurst({ ...open, hidden: true })).toBe(false);
-    expect(canBurst({ ...open, covered: true })).toBe(false); // terminal, Kanban or manager's console open
     expect(canBurst({ ...open, reducedMotion: true })).toBe(false);
+    expect(canBurst({ ...open, covered: true })).toBe(false);
   });
 });
 

@@ -2,21 +2,25 @@ import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode, type 
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Outlines } from './Outlines';
-import type { Agent } from '../store';
-import { ACCENTS, appearanceFor } from './appearance';
+import { qaKey, useStore, type Agent } from '../store';
+import { BUILD_SHAPE, appearanceFor } from './appearance';
 import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type Gait, type Gesture } from './body';
 import { PARTS } from './characterParts';
+import { PROUD_FOR, blink, expressionFor, isDrowsy, newFace, prFaceOf, stepFace } from './face';
 import { fidgetProgress, fidgetWeight, newDeskLife, play, stepDeskLife, wake, type Fidget, type Mood } from './fidgets';
+import { FaceGlow } from './gfx/ScreenGlow';
+import { HeadParts, INK, Sleeve, TorsoWear, applyFace, torsoWidth } from './Figure';
 import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
-import { mix, shade, toon } from './materials';
+import { toon } from './materials';
 import { FoodLook } from './food';
-import { bodyTarget, handFood, handMug, isHidden, seatBody, setBody, subscribeMugs, trackBody } from './people';
-import { takeReaction, trackLife } from './reactionFeed';
+import { bodyTarget, forcedExpression, handFood, handMug, isHidden, seatBody, setBody, subscribeMugs, trackBody, trackFace } from './people';
+import { mergedAt, takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
+import { ThemeCostume } from './themes/ThemeCostume';
 import { MugLook, mugColor } from './toys/mugLook';
 import { Ball, Cyl } from './Toon';
-import { TAP_PHASE, burstLevel, handLift, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
+import { TAP_PHASE, burstLevel, handLift, hashString, mouseDip, poseFor, tapSpeed, typingSeed, type PoseName } from './typing';
 import { useHitReaction } from './useHitReaction';
 import { Zzz } from './Zzz';
 import { cheerVoice } from '../ui/cheerRules';
@@ -44,9 +48,10 @@ const POSES: Record<PoseName, Pose> = {
 
 const clone = (p: Pose): Pose => ({ ...p, l: { ...p.l }, r: { ...p.r } });
 const lerp = THREE.MathUtils.lerp;
-const INK = '#1f1d2b';
-// Glasses frames, picked by the same accent index as hats and stripes.
-const FRAMES = ['#1f1d2b', '#7f5539', '#1f1d2b', '#c1121f', '#355070', '#1f1d2b'];
+/** Marks a person's root, so High's contact-shadow bake (gfx/ContactShadows.tsx) can leave people out of it. */
+const PERSON = { person: true };
+// A physics person's ball (chair-space: beside their feet, under the desktop).
+const BALL_AT: [number, number, number] = [-0.5, 0.13, -0.98];
 
 // Hips go from the seat (y 0.5) to the top of straight legs; the knee is `thigh` below the hip (characterParts.ts).
 const HIP = { x: 0.11, seatY: 0.5, seatZ: -0.04, standY: 0.815, thigh: 0.32 };
@@ -81,10 +86,17 @@ const GESTURES: Record<Gesture, { l: Arm | null; r: Arm | null; head: number }> 
   take: { l: null, r: { pitch: 0.75, yaw: -0.3 }, head: 0.1 },
   windup: { l: { pitch: 0.2, yaw: 0.3 }, r: { pitch: 2.1, yaw: 0.05 }, head: 0.1 },
   strike: { l: { pitch: -0.6, yaw: 0.2 }, r: { pitch: -0.25, yaw: 0.25 }, head: 0 },
-  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up
+  // watching something outside (events/watch.ts): pointing up at it, and both hands to the cheeks
+  point: { l: null, r: { pitch: 0.6, yaw: -0.12 }, head: 0.28 },
+  gasp: { l: { pitch: 0.72, yaw: 0.95 }, r: { pitch: 0.72, yaw: 0.95 }, head: 0.18 },
+  // the rituals (Rituals.tsx): clapping hands in front of the chest (below), nodding along, a thumbs-up; a declined
+  // candidate's polite nod is the same (Candidates.tsx)
   clap: { l: { pitch: 0.05, yaw: 0.62 }, r: { pitch: 0.05, yaw: 0.62 }, head: 0.08 },
   nod: { l: null, r: null, head: -0.05 },
   thumbs: { l: null, r: { pitch: 0.45, yaw: 0.25 }, head: 0.12 },
+  call: { l: { pitch: -0.75, yaw: 0.55 }, r: { pitch: 0.62, yaw: 0.8 }, head: 0.06 }, // on the phone (on speaker), the other arm folded
+  // a hired candidate (Candidates.tsx): the right hand out to shake, pumping (below), beaming (joyful, below)
+  shake: { l: null, r: { pitch: -0.12, yaw: 0.15 }, head: 0.08 },
 };
 // A merge party on their floor (gongState.ts) beats any gesture: arms up in a V, standing or walking, mug or not.
 const PARTY_ARMS = { l: POSES.cheer.l, r: POSES.cheer.r, head: POSES.cheer.headPitch };
@@ -204,6 +216,7 @@ export function Character({
   chair,
   mug,
   carrying,
+  standAt = STAND,
   scale = 1,
   children,
 }: {
@@ -212,6 +225,8 @@ export function Character({
   /** The desk mug they sip from (moved into their hand and back). */
   mug?: RefObject<THREE.Object3D | null>;
   carrying?: ReactNode;
+  /** Where they step out to when they get up, in chair space (default: beside the chair). */
+  standAt?: { x: number; z: number };
   /** Drawn smaller or bigger than life (the rituals' pizza courier). */
   scale?: number;
   children?: ReactNode;
@@ -224,7 +239,7 @@ export function Character({
   // From the id, so the typing sounds tap in time with these hands.
   const seed = useMemo(() => typingSeed(agent.id), [agent.id]);
   const lastTool = useRef({ name: null as string | null, at: 0 });
-  const look = useMemo(() => appearanceFor(agent), [agent.id, agent.look, agent.role]);
+  const look = useMemo(() => appearanceFor(agent), [agent.id, agent.look, agent.role, agent.specialty, agent.title, agent.hair, agent.skin, agent.style]);
   const root = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const seatedLegs = useRef<THREE.Group>(null);
@@ -268,6 +283,13 @@ export function Character({
   const phone = useRef<THREE.Group>(null);
   const grip = useRef<THREE.Group>(null);
   const hit = useHitReaction(agent.id, body);
+  // The face (face.ts): their open PR's mood, the blended expression, the meshes it drives and what the probe shows.
+  const prMood = useStore((s) => prFaceOf(agent, s.repos, agent.prNumber != null ? s.qa[qaKey(agent.repoId, agent.prNumber)] : undefined));
+  const face = useMemo(() => ({ s: newFace(), seed: hashString(agent.id) % 10007 }), [agent.id]);
+  const faceMesh = useRef<THREE.Mesh>(null);
+  const faceInfo = useMemo(() => ({ expression: face.s.expression, lid: 0, look }), [face]);
+  faceInfo.look = look;
+  useEffect(() => trackFace(agent.id, faceInfo), [agent.id, faceInfo]);
   if (agent.currentTool) lastTool.current = { name: agent.currentTool, at: performance.now() };
   useEffect(() => trackBody(agent.id, move.s), [agent.id, move]);
   useEffect(() => trackLife(agent.id, life.s), [agent.id, life]);
@@ -306,8 +328,8 @@ export function Character({
       st.seatX = te[12];
       st.seatZ = te[14];
       st.seatHeading = Math.atan2(te[8], te[10]);
-      st.standX = te[0] * STAND.x + te[8] * STAND.z + te[12];
-      st.standZ = te[2] * STAND.x + te[10] * STAND.z + te[14];
+      st.standX = te[0] * standAt.x + te[8] * standAt.z + te[12];
+      st.standZ = te[2] * standAt.x + te[10] * standAt.z + te[14];
       stepBody(st, goal ?? null, dt);
       const b = body.current;
       if (b && st.stage === 'seated') {
@@ -328,6 +350,7 @@ export function Character({
       if (g.l) Object.assign(move.l, g.l);
       if (g.r) Object.assign(move.r, g.r);
       if (gesture === 'wave') move.r.yaw += Math.sin(t * 9) * 0.4;
+      if (gesture === 'shake') move.r.pitch += Math.sin(t * 11) * 0.13;
       if (gesture === 'talk') {
         move.r.pitch += Math.sin(t * 4.3) * 0.18;
         move.r.yaw += Math.sin(t * 2.6) * 0.2;
@@ -435,7 +458,25 @@ export function Character({
     // browsing: lean in closer to the screen, slowly
     life.browse += ((name === 'browsing' ? 1 : 0) - life.browse) * (1 - Math.exp(-dt * 1.2));
     asleep.current = seated && ls.fidget === 'doze' && fw > 0.5;
-    if (phone.current) phone.current.visible = seated && ls.fidget === 'phone' && fw > 0.35;
+    // the face: an expression for their state, eased in, with blinks; joyful too while shaking hands on a new job or
+    // cheering it (a hired candidate, Candidates.tsx)
+    const greeting = st.stage === 'up' && (goal?.gesture === 'shake' || goal?.gesture === 'cheer');
+    const expression =
+      forcedExpression(agent.id, now) ??
+      expressionFor({
+        status: agent.status,
+        hit: h.w > 0,
+        cheering: cheering || greeting,
+        asleep: asleep.current,
+        drowsy: isDrowsy(ls.mood === 'idle' ? sec - ls.moodSince : 0, !busy && agent.endedAt != null ? (Date.now() - agent.endedAt) / 1000 : 0),
+        pr: prMood,
+        justMerged: Date.now() - mergedAt(agent.id) < PROUD_FOR * 1000,
+      });
+    stepFace(face.s, expression, dt);
+    faceInfo.expression = expression;
+    faceInfo.lid = asleep.current ? 1 : blink(t, face.seed);
+    applyFace(faceMesh, face.s, faceInfo.lid);
+    if (phone.current) phone.current.visible = (seated && ls.fidget === 'phone' && fw > 0.35) || (st.stage === 'up' && goal?.gesture === 'call');
     if (seated && body.current) body.current.rotation.y = o.spin * fw;
     if (chair?.current) chair.current.rotation.y = seated ? o.spin * fw : 0;
 
@@ -522,35 +563,18 @@ export function Character({
     }
   });
 
-  const skin = toon(agent.skin);
-  const isQa = agent.role === 'qa';
-  const isCeo = agent.role === 'ceo';
-  const feminine = agent.look === 'feminine';
   const busy = agent.status === 'working' || agent.status === 'preparing';
-  // QA testers wear a white lab coat; their personal colour shows on the collar and badge.
-  // The CEO wears a navy suit; their colour is the tie.
-  const shirt = toon(isQa ? '#f8f9fa' : isCeo ? '#2b2d42' : agent.color);
-  const hair = toon(look.hair === 'buzz' ? mix(agent.hair, agent.skin, 0.35) : agent.hair);
   const dark = toon(INK);
   const pants = toon('#3d4a6b');
-  const accent = ACCENTS[look.accent];
-  const sad = agent.status === 'error';
-  const hairGeo = PARTS.hair[look.hair];
-  const facialGeo = PARTS.facialHair[look.facialHair];
-  const glassesGeo = PARTS.glasses[look.glasses];
-  const hatGeo = PARTS.headwear[look.headwear];
-  const outfit = PARTS.outfit[look.outfit];
-  const outlinedHair = look.hair !== 'buzz' && look.hair !== 'bald';
-  const clip = feminine && look.headwear === 'none' && ['long', 'ponytail', 'bun', 'sidePart', 'curls'].includes(look.hair);
-  const phones = look.headphones && (
-    <>
-      <mesh geometry={PARTS.headphones.shell} material={toon('#2b2d42')} castShadow />
-      <mesh geometry={PARTS.headphones.covers} material={toon(shade(agent.color, 0.12))} />
-    </>
-  );
 
   return (
-    <group ref={root}>
+    <group ref={root} userData={PERSON}>
+      {look.accessory === 'ball' && chair && (
+        // under the desk, where it stays when they get up
+        <mesh position={BALL_AT} geometry={PARTS.ball} material={toon('#e76f51')} castShadow>
+          <Outlines thickness={0.012} color={INK} angle={0} />
+        </mesh>
+      )}
       <group ref={body} scale={scale}>
         <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />
@@ -581,38 +605,9 @@ export function Character({
         </group>
 
         <group ref={torso} position={[0, 0.5, -(look.height - 1) * 0.25]} scale={look.height}>
-          <group scale={[look.shoulders, 1, 1]}>
-            <mesh position={[0, 0.3, 0]} geometry={PARTS.torso} material={shirt} castShadow>
-              <Outlines thickness={0.015} color={INK} angle={0} />
-            </mesh>
-            {look.outfit !== 'sweater' && (
-              <mesh position={[0, 0.5, -0.02]} rotation={[Math.PI / 2, 0, 0]} geometry={PARTS.collar} material={toon(isCeo ? '#f8f9fa' : shade(agent.color, -0.15))} />
-            )}
-            {outfit.main && <mesh geometry={outfit.main} material={toon(shade(agent.color, -0.08))} castShadow />}
-            {outfit.trim && (
-              <mesh geometry={outfit.trim} material={toon(look.outfit === 'stripe' ? accent : look.outfit === 'hoodie' ? '#f8f9fa' : shade(agent.color, -0.14))} />
-            )}
-            {isCeo && (
-              <>
-                {/* white shirt front, tie and knot */}
-                <mesh position={[0, 0.36, -0.192]} geometry={PARTS.shirtFront} material={toon('#f8f9fa')} />
-                <mesh position={[0, 0.33, -0.206]} geometry={PARTS.tie} material={toon(agent.color)} />
-                <mesh position={[0, 0.445, -0.206]} geometry={PARTS.tieKnot} material={toon(shade(agent.color, -0.2))} />
-              </>
-            )}
-            {isQa && (
-              <>
-                {/* lab coat front opening + badge */}
-                <mesh position={[0, 0.27, -0.196]} geometry={PARTS.coatOpening} material={toon(agent.color)} />
-                <mesh position={[0.1, 0.38, -0.19]} rotation={[0.1, 0, 0]} geometry={PARTS.badge} material={toon('#ffd166')} />
-              </>
-            )}
-            {!busy && phones && (
-              // resting around the neck
-              <group position={[0, 0.49, -0.09]} rotation={[Math.PI / 2 - 0.5, 0, 0]} scale={0.74}>
-                {phones}
-              </group>
-            )}
+          <TorsoWear agent={agent} look={look} busy={busy} />
+          <group scale={[torsoWidth(look), 1, BUILD_SHAPE[look.build].depth]}>
+            <ThemeCostume agent={agent} look={look} part="body" />
           </group>
 
           {/* arms pivot at the shoulders */}
@@ -620,11 +615,8 @@ export function Character({
             { ref: armL, x: -0.25 },
             { ref: armR, x: 0.25 },
           ].map(({ ref, x }) => (
-            <group key={x} ref={ref} position={[x * look.shoulders, 0.44, 0]}>
-              <mesh position={[0, 0, -0.24]} rotation={[Math.PI / 2, 0, 0]} geometry={PARTS.sleeve} material={shirt} castShadow>
-                <Outlines thickness={0.012} color={INK} angle={0} />
-              </mesh>
-              <mesh position={[0, 0, -0.5]} geometry={PARTS.hand} material={skin} castShadow />
+            <group key={x} ref={ref} position={[x * torsoWidth(look), 0.44, 0]}>
+              <Sleeve agent={agent} look={look} />
               {ref === armR && (
                 <>
                   {/* where a mug sits in the hand, and the phone they check */}
@@ -657,37 +649,9 @@ export function Character({
           ))}
 
           <group ref={head} position={[0, 0.66, 0]}>
-            <mesh geometry={PARTS.head} material={skin} castShadow>
-              <Outlines thickness={0.015} color={INK} angle={0} />
-            </mesh>
-            {hairGeo && (
-              <mesh geometry={hairGeo} material={hair} castShadow={outlinedHair}>
-                {outlinedHair && <Outlines thickness={0.012} color={INK} angle={0} />}
-              </mesh>
-            )}
-            <mesh geometry={PARTS.ears} material={skin} />
-            <mesh geometry={PARTS.eyes} material={dark} />
-            <mesh position={[0, -0.02, -0.2]} geometry={PARTS.nose} material={toon(shade(agent.skin, -0.08))} />
-            <mesh position={[0, sad ? -0.1 : -0.075, -0.175]} rotation={[0.25, 0, sad ? 0 : Math.PI]} geometry={PARTS.mouth} material={dark} />
-            {facialGeo && <mesh geometry={facialGeo} material={toon(look.facialHair === 'stubble' ? mix(agent.skin, agent.hair, 0.3) : agent.hair)} />}
-            {feminine && (
-              <>
-                <mesh geometry={PARTS.lashes} material={dark} />
-                <mesh geometry={PARTS.cheeks} material={toon('#ff9aa2')} />
-              </>
-            )}
-            {clip && (
-              <mesh position={[0.15, 0.13, -0.08]} rotation={[0, 0, 0.5]} geometry={PARTS.hairClip} material={toon(isQa ? '#ff9f68' : shade(agent.color, 0.15))} />
-            )}
-            {/* QA's round inspector glasses stay part of the uniform */}
-            {isQa && <mesh geometry={PARTS.inspectorGlasses} material={dark} />}
-            {glassesGeo && <mesh geometry={glassesGeo} material={toon(FRAMES[look.accent])} />}
-            {hatGeo && (
-              <mesh geometry={hatGeo} material={toon(look.accent === 0 ? shade(agent.color, -0.2) : accent)} castShadow>
-                <Outlines thickness={0.012} color={INK} angle={0} />
-              </mesh>
-            )}
-            {busy && phones}
+            <HeadParts agent={agent} look={look} busy={busy} face={faceMesh} />
+            <ThemeCostume agent={agent} look={look} part="head" />
+            {chair && <FaceGlow id={agent.id} geometry={PARTS.head} />}
           </group>
           {carrying && (
             <group ref={held} visible={false}>

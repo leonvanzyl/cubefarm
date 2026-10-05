@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import { ELEVATOR, HALF_D, HALF_W, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, sideSign, type Side } from './layout';
 import { drawGlass } from './draw';
 import { glow, shade, toon } from './materials';
@@ -121,7 +121,7 @@ function CeilingLight({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
       <Box size={[1.4, 0.06, 0.5]} position={[0, 0, 0]} color="#e9ecef" shadow={false} />
-      <mesh position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} material={glow('#fffbe8')}>
+      <mesh position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} material={glow('#fffbe8', 'night')}>
         <planeGeometry args={[1.25, 0.38]} />
       </mesh>
     </group>

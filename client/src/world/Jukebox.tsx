@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Outlines } from '@react-three/drei';
+import { Outlines } from './Outlines';
 import * as THREE from 'three';
 import { useRenderPaused } from '../perf';
 import { useStore } from '../store';
 import { musicDucked, musicNodes, musicTime, nowPlaying, playTrack, setMusicLevel, setMusicQuiet, stopMusic } from '../ui/music';
 import { clampMusicLevel, MAX_MUSIC_LEVEL } from '../ui/musicMix';
 import { noise, tone, type Vec3 } from '../ui/sfx';
+import { useKeyName } from '../ui/controls';
 import { roundRect, SANS } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
-import { SONGS, beatAt, beatPulse, firstSongFor, isFocusSong, moodOf, nextSong, noteAge, parseStation, stationSongs, trackFor, type Station } from './jukeboxSongs';
+import { SONGS, beatAt, beatPulse, firstSongFor, holidayTrack, isFocusSong, moodOf, nextSong, noteAge, parseStation, stationSongs, trackFor, type Song, type Station } from './jukeboxSongs';
 import { HALF_D, JUKEBOX } from './layout';
+import { themeSongs } from './themes/active';
+import { markBloom } from './gfx/bloomMarks';
 import { glow, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
 
@@ -43,6 +46,34 @@ const spot: Vec3 = { x: 0, y: 1, z: 0 };
 const listeners = new Set<() => void>();
 
 const songIndex = (floor: number) => songs.get(floor) ?? firstSongFor(floor, stationFor(floor));
+
+// While a holiday theme is on, its songs (themes.ts) take turns with the usual ones on the All station: per floor,
+// whether the theme's song is up next, and which of them.
+const holiday = new Map<number, { turn: boolean; n: number }>();
+
+/** The theme's song this floor plays now, or null (no theme, Focus, or the usual song's turn). */
+function holidayNow(floor: number) {
+  const ids = themeSongs();
+  if (!ids.length || stationFor(floor) !== 'all') return null;
+  let h = holiday.get(floor);
+  if (!h) holiday.set(floor, (h = { turn: true, n: floor }));
+  return h.turn ? holidayTrack(ids, h.n) : null;
+}
+
+/** The song playing on a floor (a holiday one, or the playlist's). */
+const songNow = (floor: number): Song => holidayNow(floor)?.song ?? SONGS[songIndex(floor)];
+
+/** On to the next song: after the theme's, the usual next one; after that, the theme's again while it's on. */
+function advance(floor: number) {
+  const h = holiday.get(floor);
+  if (h?.turn && holidayNow(floor)) {
+    h.turn = false;
+    h.n++;
+    return;
+  }
+  songs.set(floor, nextSong(songIndex(floor), stationFor(floor)));
+  if (h) h.turn = true;
+}
 
 function stationFor(floor: number): Station {
   let s = stations.get(floor);
@@ -80,8 +111,8 @@ function start() {
   if (floor !== null) setMusicLevel(volumeFor(floor));
   if (floor === null || !on) stopMusic();
   else {
-    playTrack(trackFor(songIndex(floor)), spot, () => {
-      songs.set(floor, nextSong(songIndex(floor), stationFor(floor)));
+    playTrack(holidayNow(floor) ?? trackFor(songIndex(floor)), spot, () => {
+      advance(floor);
       start();
     });
   }
@@ -167,7 +198,7 @@ export function jukeboxAction(op: JukeboxOp) {
     return;
   }
   if (op === 'next') {
-    songs.set(floorNow, nextSong(songIndex(floorNow), stationFor(floorNow)));
+    advance(floorNow);
     on = true;
   } else on = !on;
   try {
@@ -207,7 +238,7 @@ if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '_
       const t = nowPlaying();
       const sec = musicTime();
       const index = floorNow === null ? null : songIndex(floorNow);
-      const s = index === null ? null : SONGS[index];
+      const s = floorNow === null ? null : songNow(floorNow);
       const station = floorNow === null ? null : stationFor(floorNow);
       const nodes = musicNodes();
       return {
@@ -249,9 +280,9 @@ const NOTE_LIFE = 3; // beats each note rises for
 const ROT_FRONT: [number, number, number] = [0, Math.PI, 0];
 
 // One jukebox is on screen at a time, so it owns these and recolours them every frame.
-const neonArch = new THREE.MeshBasicMaterial({ color: '#ff5d8f', toneMapped: false });
-const neonSides = new THREE.MeshBasicMaterial({ color: '#4cc9f0', toneMapped: false });
-const noteMats = NOTES.map(() => new THREE.SpriteMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
+const neonArch = markBloom(new THREE.MeshBasicMaterial({ color: '#ff5d8f', toneMapped: false }));
+const neonSides = markBloom(new THREE.MeshBasicMaterial({ color: '#4cc9f0', toneMapped: false }));
+const noteMats = NOTES.map(() => markBloom(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, toneMapped: false })));
 const hsl = { h: 0, s: 0, l: 0 };
 let noteTex: THREE.CanvasTexture | null = null;
 
@@ -278,7 +309,7 @@ function musicNoteTexture() {
 }
 
 function useJukeboxView(floor: number) {
-  const read = () => ({ on, index: floorNow === null ? 0 : songIndex(floorNow), vol: volumeFor(floorNow ?? floor), station: stationFor(floorNow ?? floor) });
+  const read = () => ({ on, index: floorNow === null ? 0 : songIndex(floorNow), song: songNow(floorNow ?? floor), vol: volumeFor(floorNow ?? floor), station: stationFor(floorNow ?? floor) });
   const [view, setView] = useState(read);
   useEffect(() => {
     const fn = () => setView(read());
@@ -311,7 +342,7 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
   }, [x, floor]);
 
   const view = useJukeboxView(floor);
-  const song = SONGS[view.index];
+  const song = view.song;
   const dance = useRef<THREE.Group>(null);
   const record = useRef<THREE.Group>(null);
   const dome = useRef<THREE.Mesh>(null);
@@ -322,6 +353,7 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
   }, [song.color]);
   useMemo(musicNoteTexture, []);
 
+  const use = useKeyName('interact');
   const focus = view.station === 'focus';
   const display = useMemo(
     () => (ctx: CanvasRenderingContext2D) =>
@@ -333,9 +365,9 @@ export function Jukebox({ x, floor }: { x: number; floor: number }) {
           ])
         : drawDisplay(ctx, '#495057', view.vol, [
             { text: 'JUKEBOX', size: 66, weight: 800 },
-            { text: focus ? 'Focus · press E to play' : 'press E to play', size: 40, weight: 600 },
+            { text: focus ? `Focus · press ${use} to play` : `press ${use} to play`, size: 40, weight: 600 },
           ]),
-    [view.on, view.vol, song, focus],
+    [view.on, view.vol, song, focus, use],
   );
 
   const volume = `volume ${view.vol} of ${MAX_MUSIC_LEVEL}`;

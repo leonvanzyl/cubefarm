@@ -2,10 +2,14 @@
 // or the browser's own voice. One at a time and in order, other sounds ducked meanwhile, and one office tab per
 // message (voiceClaim.ts). The phone's ▶ replays a message here too, from its saved clip only (never a new synthesis).
 // The store loads this on the first message to speak, so it isn't in the main bundle. window.__swarmVoice records what was read, for QA and e2e.
+// A CEO message that ends by itself, with nothing else to read, may open the hands-free phone's mic (mic.ts).
+// With captions on, what's said is written out as it's read (captions.ts), in step with the clip or the browser's voice.
 import { speechText } from '../../../shared/speech';
 import type { PhoneMessage, VoiceProvider } from '../../../shared/types';
 import { useStore } from '../store';
 import { sliderGain } from './audioPrefs';
+import { speechClip, speechEnded, speechStarted, speechWord } from './captions';
+import { replyEnded } from './mic';
 import { holdMusicDuck } from './music';
 import { audio, chirp, duckOthers, getAudioPrefs, groupOutput, subscribeAudio } from './sfx';
 import { wonVoice } from './voiceClaim';
@@ -46,16 +50,19 @@ let stopCurrent: (() => void) | null = null;
 let busy = false;
 let replayNext: { message: PhoneMessage; kind: Exclude<ReplayKind, 'gone'> } | null = null;
 let replaying = false;
+let cutShort = false; // the message being read was stopped, not finished
 
 /** The phone's ▶: plays `message` again in this tab, stopping whatever is being read now. */
 export function replayMessage(message: PhoneMessage, kind: Exclude<ReplayKind, 'gone'>) {
   replayNext = { message, kind };
+  cutShort = true;
   stopCurrent?.();
   void pump();
 }
 
 /** Stops the message being read (the HUD's speaking indicator); the next one waiting follows. */
 export function stopSpeaking() {
+  cutShort = true;
   stopCurrent?.();
 }
 
@@ -96,7 +103,11 @@ async function read(m: PhoneMessage, replay?: Exclude<ReplayKind, 'gone'>) {
   const provider = replay ? (replay === 'clip' ? 'elevenlabs' : 'browser') : settings.voice.provider;
   if (provider === 'off') return; // turned off while it waited
   const now: { rec: SpokenRecord | null; unduckMusic?: () => void } = { rec: null };
-  const began = () => {
+  cutShort = false;
+  const words = speechText(m.text);
+  /** `clipMs`: a recording's length (null for the browser's voice), and how many clips the message has. */
+  const began = (clipMs: number | null, parts = 1) => {
+    speechStarted(m.id, words, clipMs, parts);
     now.rec = { id: m.id, provider, start: performance.now(), end: null, volume: level(), ...(replay ? { replay: true as const } : {}) };
     spoken.push(now.rec);
     if (spoken.length > 50) spoken.splice(0, spoken.length - 50);
@@ -105,7 +116,7 @@ async function read(m: PhoneMessage, replay?: Exclude<ReplayKind, 'gone'>) {
     now.unduckMusic = holdMusicDuck();
   };
   try {
-    if (provider === 'browser') await speak(speechText(m.text), voiceName, began);
+    if (provider === 'browser') await speak(words, voiceName, () => began(null), (i) => speechWord(m.id, i));
     else if (replay) await playClip(m.id, began, true);
     else if (!voiceKeySet) throw new Error('no ElevenLabs key is saved');
     else await playClip(m.id, began);
@@ -124,10 +135,12 @@ async function read(m: PhoneMessage, replay?: Exclude<ReplayKind, 'gone'>) {
   } finally {
     stopCurrent = null;
     if (now.rec) {
+      speechEnded(m.id);
       now.rec.end = performance.now();
       duckOthers(false);
       now.unduckMusic?.();
       useStore.setState({ voiceSpeaking: null });
+      if (!replay && !cutShort && m.from === 'ceo' && !queue.length && !replayNext) replyEnded();
     }
   }
 }
@@ -138,7 +151,7 @@ async function read(m: PhoneMessage, replay?: Exclude<ReplayKind, 'gone'>) {
  * Fetches the message's clip and plays it through the 'voice' group, so the master volume, M and its slider apply.
  * `cached`: the phone's ▶, saved clips only (a 404 when they're gone), every part of a long message in order.
  */
-async function playClip(id: number, began: () => void, cached = false) {
+async function playClip(id: number, began: (clipMs: number, parts: number) => void, cached = false) {
   let stopped = false;
   let end: (() => void) | null = null;
   stopCurrent = () => {
@@ -176,7 +189,8 @@ async function playClip(id: number, began: () => void, cached = false) {
         resolve();
       };
       src.start();
-      if (part === 0) began();
+      if (part === 0) began(buffer.duration * 1000, parts);
+      else speechClip(id, part, parts, buffer.duration * 1000);
     });
     end = null;
     src.disconnect();
@@ -196,8 +210,8 @@ async function browserVoices(synth: SpeechSynthesis): Promise<SpeechSynthesisVoi
   return synth.getVoices();
 }
 
-/** Says `text` in the voice called `voiceName` (the browser's default when it's gone). Rejects when it can't. */
-async function speak(text: string, voiceName: string, began: () => void) {
+/** Says `text` in the voice called `voiceName` (the browser's default when it's gone), telling `word` where it is. Rejects when it can't. */
+async function speak(text: string, voiceName: string, began: () => void, word: (charIndex: number) => void) {
   const synth = window.speechSynthesis;
   if (!synth || typeof SpeechSynthesisUtterance === 'undefined') throw new Error("this browser can't speak");
   if (!text) return;
@@ -227,6 +241,7 @@ async function speak(text: string, voiceName: string, began: () => void) {
     };
     stopCurrent = stop;
     u.onstart = began;
+    u.onboundary = (e) => e.name !== 'sentence' && word(e.charIndex);
     u.onend = () => done();
     u.onerror = (e) => done(e.error === 'interrupted' || e.error === 'canceled' ? undefined : `speech failed: ${e.error}`);
     synth.speak(u);

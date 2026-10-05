@@ -1,4 +1,4 @@
-import type { LogLine } from './types.ts';
+import type { LogLine, Watch } from './types.ts';
 
 // Which terminal lines a tab gets (#228). With a big company most of the office's traffic was every agent's log, sent
 // to every tab. Now each tab says what it shows: the floor it's on (the desk monitors and the hover card read the
@@ -6,17 +6,7 @@ import type { LogLine } from './types.ts';
 // latest line). The office sends every line for those and only the latest line for the list. Shared by the client,
 // which reports its watch, and the server, which routes by it.
 
-export interface Watch {
-  /** The floor the tab is on (0: the lobby, where the CEO sits); -1 before it has said. */
-  floor: number;
-  /** Agents whose panel is open (their terminal, the CEO's in the console). */
-  agents: string[];
-  /** The workers list is showing: the latest line of every agent. */
-  workers: boolean;
-}
-
-/** Browser to server on /ws: what this tab is showing. */
-export type ClientMessage = { type: 'watch' } & Watch;
+export type { Watch };
 
 /** A tab that hasn't said yet gets no lines. */
 export const NO_WATCH: Watch = { floor: -1, agents: [], workers: false };

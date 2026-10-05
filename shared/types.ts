@@ -1,4 +1,10 @@
 // Types shared between the swarm server and the 3D client.
+import type { CareerView } from './careers.ts';
+import type { ProgressView, RewardView } from './progress.ts';
+
+import type { WeatherSettings, WeatherView, WorldEventSettings } from './outside.ts';
+import type { ThemeSettings } from './themes.ts';
+import type { AgentStyle } from './looks.ts';
 
 export type AgentStatus =
   | 'idle' // at desk, nothing assigned
@@ -111,6 +117,24 @@ export interface PreviewView {
   logTail: string[]; // the last 40 lines of install / app output
 }
 
+/**
+ * An open PR's app in the PR theatre: run beside the floor's main preview, from a worktree of its own, until nobody
+ * has watched it for a while, its PR merges or closes, or the office stops.
+ */
+export interface PrPreviewView {
+  repoId: string;
+  pr: number;
+  status: PreviewStatus;
+  port: number;
+  url: string | null; // set while running
+  commit: string | null; // short sha of the PR's head
+  startedAt: number;
+  viewedAt: number; // the last time a viewer had it on screen
+  watched: boolean; // a viewer has it on screen now
+  error: string | null;
+  logTail: string[]; // the last 40 lines of install / app output
+}
+
 /** A folder in the manager's projects folder, as offered when adding a floor. */
 export interface ProjectFolderView {
   name: string;
@@ -125,6 +149,9 @@ export type AgentRole = 'dev' | 'qa' | 'ceo';
 
 /** Fixed id of the CEO agent. */
 export const CEO_ID = 'ceo';
+
+/** What the office dog is called until the manager renames it (Settings). */
+export const DEFAULT_DOG_NAME = 'Biscuit';
 
 /** An agent's currentTool while the office installs their desk's dependencies (status 'preparing'). */
 export const INSTALL_STEP = 'Installing dependencies';
@@ -179,6 +206,7 @@ export interface AgentView {
   color: string; // shirt color
   hair: string; // hair color
   skin: string;
+  style: AgentStyle | null; // the manager's picks in the look editor (null: the look seeded from their id)
   model: string; // '' = use the swarm default model, or a model id / alias
   effort: EffortLevel | ''; // '' = use the swarm default effort
   cli: AgentCli | ''; // the CLI they run in the terminal runtime ('' = the office default)
@@ -198,6 +226,7 @@ export interface AgentView {
   hasScreenshot: boolean;
   screenshotAt: number | null;
   lastError: string | null;
+  career: CareerView | null; // their record on the team (#226); null for the CEO
   log: LogLine[]; // the terminal log: hiring answers with it; snapshots leave it empty (tabs get lines by watch, shared/watch.ts)
   activity?: AgentActivity | null; // what they're doing right now, safe to show anyone (null: nothing, e.g. idle)
 }
@@ -264,6 +293,14 @@ export interface QaView {
   mergeNote: string | null; // where auto-merge stands once QA passed, e.g. "waiting for checks: Vercel"
   ceoLooking: boolean; // needs-human, and the CEO has a triage job for it (queued or running) before the manager hears
   updatedAt: number;
+  shots?: QaShotView[]; // QA's screenshots from the latest round (absent: none)
+}
+
+/** A screenshot from QA's latest round on a PR, served at /api/repos/:repo/pulls/:n/qa-shots/:index. */
+export interface QaShotView {
+  caption: string;
+  page: string | null; // the page it shows
+  mime: string;
 }
 
 export interface SwarmSettings {
@@ -277,6 +314,7 @@ export interface SwarmSettings {
   ceoHeartbeatMin: number; // minutes between the CEO's periodic reviews; 0 = off
   managerName: string; // what the office calls you
   companyName: string;
+  dogName: string; // the office dog's name, on its tag and in the hint when you aim at it
   projectsDir: string; // where your project folders live; new projects are created here
   setupDone: boolean; // the first-run setup wizard has been completed or skipped
   tutorialStep: number; // index of the current tutorial step; -1 when finished or skipped
@@ -284,6 +322,10 @@ export interface SwarmSettings {
   pacingSessions: number; // after Claude warns about usage, new issues start only while fewer sessions than this run
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
+  themes: ThemeSettings; // holiday themes: Settings → Themes (shared/themes.ts)
+  weather: WeatherSettings; // Settings → Weather: the calm cycle, off, or the manager's real local weather
+  worldEvents: WorldEventSettings; // Settings → World events: how often something happens outside
+  listen: ListenSettings;
   notify: NotifySettings;
 }
 
@@ -328,6 +370,16 @@ export interface VoiceSettings {
   model: string; // ElevenLabs model id
   speakOffice: boolean; // read the office's own notes too, not just the CEO's messages
   keepDays: number; // saved clips older than this are deleted (1–90; the newest 20 CEO messages' clips always stay)
+}
+
+/** Who turns the manager's speech into text: nobody (no 🎙), the browser's own recognition, or ElevenLabs (with the key). */
+export type ListenProvider = 'off' | 'browser' | 'elevenlabs';
+
+/** Talking instead of typing (docs/voice.md): the 🎙 by every message box, and the phone's hands-free conversation. */
+export interface ListenSettings {
+  provider: ListenProvider;
+  autoSend: boolean; // send once you stop talking (about 1.2 s of quiet), not only when you press Send
+  handsFree: boolean; // after the CEO's spoken reply, the phone listens for up to 8 s and sends what it hears
 }
 
 /** The voice's saved clips: how many and how big, and which phone messages can be replayed from them. */
@@ -486,6 +538,7 @@ export interface WorldSnapshot {
   repos: RepoView[];
   agents: AgentView[];
   qa: QaView[];
+  prPreviews: PrPreviewView[];
   requests: HireRequestView[];
   ceo: CeoInfo;
   messages: PhoneMessage[];
@@ -498,8 +551,10 @@ export interface WorldSnapshot {
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
   notifyChannels: NotifyChannelsView;
+  progress: ProgressView; // coins, decorations and achievements (#210)
 }
 
 /** What changed about an agent since the office last sent it, with its id; every field for one it never sent. */
@@ -524,6 +579,8 @@ export type ServerEvent =
   | { type: 'screen'; agentId: string; url: string | null; at: number }
   | { type: 'qa'; qa: QaView }
   | { type: 'qaRemoved'; repoId: string; prNumber: number }
+  | { type: 'prPreview'; preview: PrPreviewView }
+  | { type: 'prPreviewRemoved'; repoId: string; pr: number }
   | { type: 'settings'; settings: SwarmSettings }
   | { type: 'request'; request: HireRequestView }
   | { type: 'ceo'; ceo: CeoInfo }
@@ -535,10 +592,29 @@ export type ServerEvent =
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'weather'; weather: WeatherView }
   | { type: 'ticker'; item: TickerItem }
   | { type: 'notifyChannels'; notifyChannels: NotifyChannelsView }
   | { type: 'notify'; note: NoteView }
+  | { type: 'progress'; progress: ProgressView }
+  | { type: 'reward'; reward: RewardView }
   | { type: 'toast'; level: 'info' | 'success' | 'error'; text: string };
+
+/** What a tab shows of the agents' terminals, so the office sends it only those lines (shared/watch.ts). */
+export interface Watch {
+  /** The floor the tab is on (0: the lobby, where the CEO sits); -1 before it has said. */
+  floor: number;
+  /** Agents whose panel is open (their terminal, the CEO's in the console). */
+  agents: string[];
+  /** The workers list is showing: the latest line of every agent. */
+  workers: boolean;
+}
+
+/**
+ * Browser to server on /ws. resync: send a fresh snapshot (a tab back from the time-lapse replay); watch: what this
+ * tab shows now.
+ */
+export type ClientEvent = { type: 'resync' } | ({ type: 'watch' } & Watch);
 
 export interface GhRepoSummary {
   nameWithOwner: string;

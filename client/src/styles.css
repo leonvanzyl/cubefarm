@@ -1,7 +1,7 @@
 :root {
   --ink: #1f1d2b;
   --paper: #fffdf6;
-  --muted: #6c7086;
+  --muted: #62667b; /* 4.5:1 or better on every panel, card and code background */
   --good: #2dc653;
   --bad: #ef476f;
   --warn: #ffb703;
@@ -243,6 +243,21 @@ input.inline:focus {
 .pill-demo {
   background: #ffd166;
 }
+.pill-photo {
+  font-family: var(--font);
+  color: var(--ink);
+  cursor: pointer;
+}
+.pill-photo kbd {
+  font-size: 0.7rem;
+  border-bottom-width: 2px;
+}
+.pill-photo-rec {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e63946;
+}
 
 .dot {
   display: inline-block;
@@ -271,33 +286,35 @@ input.inline:focus {
   letter-spacing: 0.03em;
 }
 .status-idle {
-  background: #e9ecef;
+  background: var(--st-idle, #e9ecef);
 }
 .status-preparing {
-  background: #ffe066;
+  background: var(--st-preparing, #ffe066);
 }
 .status-working {
-  background: #74c0fc;
+  background: var(--st-working, #74c0fc);
 }
 .status-done {
-  background: #8ce99a;
+  background: var(--st-done, #8ce99a);
 }
 .status-error {
-  background: #ffa8a8;
+  background: var(--st-error, #ffa8a8);
 }
 .status-stopped {
-  background: #dee2e6;
+  background: var(--st-stopped, #dee2e6);
 }
 /* app preview statuses (preparing, stopped and error share the agent colours) */
-.status-installing,
+.status-installing {
+  background: var(--st-installing, #ffe066);
+}
 .status-starting {
-  background: #ffe066;
+  background: var(--st-starting, #ffe066);
 }
 .status-running {
-  background: #8ce99a;
+  background: var(--st-running, #8ce99a);
 }
 .status-unconfigured {
-  background: #e9ecef;
+  background: var(--st-unconfigured, #e9ecef);
 }
 
 /* ---------- HUD ---------- */
@@ -521,6 +538,38 @@ input.inline:focus {
   bottom: calc(22% - 56px);
   font-size: 0.95rem;
 }
+/* Looking through the roof's telescope: a round eyepiece, dark beyond its rim, with a fine crosshair. */
+.roof-scope {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, transparent 0, transparent 41vmin, rgba(6, 8, 18, 0.88) 43.5vmin, #05060c 47vmin);
+}
+.roof-scope::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84vmin;
+  height: 84vmin;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.14), inset 0 0 50px 12px rgba(0, 0, 0, 0.5);
+}
+.roof-scope-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.6)) center / 1px 100% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.6)) center / 100% 1px no-repeat;
+}
+.roof-scope-hint {
+  bottom: 5%;
+}
 /* Throw charge, just under the crosshair. */
 .charge {
   position: absolute;
@@ -600,6 +649,87 @@ input.inline:focus {
   color: #fff;
   font-weight: 600;
   text-shadow: 0 2px 0 var(--ink), 0 0 6px var(--ink);
+  pointer-events: none;
+}
+/* The camera's HUD (CameraHud.tsx): the overview button on the floor card, the views' toolbars and the follow banner. */
+.cam-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 0 2px 0 var(--ink);
+  cursor: pointer;
+}
+.cam-btn:hover {
+  background: #fff3e6;
+}
+.cam-btn kbd {
+  font-size: 0.7rem;
+}
+.cam-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--ink);
+}
+.cam-bar kbd {
+  font-size: 0.75rem;
+}
+.cam-title {
+  font-weight: 700;
+  margin-right: 4px;
+}
+.cam-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 4px 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 2px 0 var(--ink), 0 0 6px var(--ink);
+  pointer-events: none;
+}
+.cam-follow {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 8px 6px 14px;
+  font-weight: 600;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 0 4px 0 var(--ink);
+}
+.cam-reticle {
   pointer-events: none;
 }
 /* Who's working: top right under the status pills. */
@@ -960,6 +1090,7 @@ input.inline:focus {
   border-bottom: 4px solid var(--ink);
 }
 .panel-title {
+  margin: 0;
   flex: 1;
   font-weight: 700;
   font-size: 1.25rem;
@@ -1036,6 +1167,92 @@ input.inline:focus {
 }
 .day-settings input[type='radio'] {
   accent-color: var(--accent, #ff8a5b);
+}
+
+/* Help → Controls (ControlsSettings.tsx) */
+.controls h3 {
+  margin: 14px 0 6px;
+}
+.controls-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px 10px;
+  align-items: center;
+}
+.controls-row {
+  display: contents;
+}
+.controls-name {
+  font-size: 0.92rem;
+}
+.controls-slot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 96px;
+}
+.key-btn {
+  min-width: 70px;
+  padding: 3px 10px;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 2px 0 var(--ink);
+  cursor: pointer;
+}
+.key-btn:hover {
+  background: #fff3e6;
+}
+.key-btn-empty {
+  color: var(--muted);
+  border-style: dashed;
+  box-shadow: none;
+}
+.key-btn-wait {
+  background: #ffe066;
+  animation: pop 0.25s ease-out;
+}
+.key-btn-clash {
+  background: #ffd6de;
+  border-color: var(--bad);
+}
+.key-clear {
+  padding: 0 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.controls-note {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.controls-clash {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #9d0208;
+  background: #ffe3e3;
+  border: 2px solid var(--bad);
+  border-radius: 10px;
+}
+.controls-reset {
+  margin-top: 14px;
+}
+.pad-status {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.pad-map {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .sound {
@@ -1407,13 +1624,13 @@ input.inline:focus {
   box-shadow: 0 3px 0 rgba(31, 29, 43, 0.8);
 }
 .kcard-warn {
-  background: #fff3d6;
+  background: var(--tone-warn, #fff3d6);
 }
 .kcard-bad {
-  background: #ffe0e6;
+  background: var(--tone-bad, #ffe0e6);
 }
 .kcard-good {
-  background: #e3fbe7;
+  background: var(--tone-good, #e3fbe7);
 }
 .kcard-title {
   font-weight: 500;
@@ -1740,6 +1957,252 @@ input.inline:focus {
 .preview-details .status {
   font-size: 0.68rem;
 }
+/* the PR theatre: a channel per open PR, compare with main, and the PR's checks and QA beside the app */
+.channels {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scrollbar-width: thin;
+}
+.channel {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 4px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.channel-on {
+  background: var(--accent);
+  box-shadow: 0 2px 0 var(--ink);
+}
+.channel:focus-visible {
+  outline: 3px solid #3a56d4;
+  outline-offset: 1px;
+}
+.channels-empty {
+  align-self: center;
+  white-space: nowrap;
+}
+.led {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: #dee2e6;
+}
+.led-live {
+  background: #2dc653;
+}
+.led-busy {
+  background: #ffd166;
+}
+.led-bad {
+  background: #ef476f;
+}
+.btn.btn-on {
+  background: var(--accent);
+}
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-state-compact {
+  padding: 16px 10px;
+}
+.app-state-compact h3 {
+  font-size: 1rem;
+}
+.compare {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.compare-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.compare-path {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 220px;
+  max-width: 420px;
+}
+.compare-path input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+}
+.compare-sides {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.compare-side {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.compare-side .app-stage,
+.compare-side .app-state {
+  flex: 1;
+}
+.compare-label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.compare-synced {
+  margin-left: auto;
+  color: #1b873a;
+  font-weight: 600;
+}
+.qa-side {
+  flex: 0 0 300px;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+}
+.qa-side-title {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+.qa-side-meta,
+.qa-side-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+.qa-failed {
+  margin: 0;
+  padding-left: 4px;
+  list-style: none;
+}
+.qa-badge {
+  padding: 1px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #e9ecef;
+}
+.qa-badge-passed {
+  background: #8ce99a;
+}
+.qa-badge-failed,
+.qa-badge-needs-human {
+  background: #ffa8a8;
+}
+.qa-badge-testing,
+.qa-badge-fixing {
+  background: #ffe066;
+}
+.qa-summary {
+  font-size: 0.88rem;
+}
+.qa-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.86rem;
+}
+.qa-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.35;
+}
+.qa-check-fail b {
+  color: #c92a2a;
+}
+.qa-shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.qa-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ink);
+  text-decoration: none;
+  min-width: 0;
+}
+.qa-shot img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top left;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #f1f3f5;
+}
+.qa-shot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .app-body {
+    flex-direction: column;
+  }
+  .qa-side {
+    flex: 0 0 auto;
+    max-height: 40%;
+  }
+  .compare-sides {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+}
 @media (max-width: 520px) {
   .panel-app .panel-body {
     padding: 10px;
@@ -1776,8 +2239,7 @@ input.inline:focus {
 }
 .tab-on {
   background: var(--accent);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
   box-shadow: 0 3px 0 var(--ink);
 }
 .tab-body {
@@ -1924,10 +2386,22 @@ input.inline:focus {
 }
 
 /* ui/VoiceSettings.tsx: the ElevenLabs voice picker */
-.voice-clips {
+.voice-clips,
+.listen-settings {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px dashed var(--muted);
+}
+.listen-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.listen-settings h4 {
+  margin: 0;
+}
+.listen-settings p {
+  margin: 0;
 }
 .voice-list {
   position: relative; /* rows' offsetTop, for scrolling the chosen one into view */
@@ -2087,8 +2561,7 @@ input.inline:focus {
 }
 .picker-tab-on {
   background: var(--accent);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
   box-shadow: 0 3px 0 var(--ink);
 }
 .picker-mode {
@@ -2190,6 +2663,46 @@ input.inline:focus {
 }
 .agent-setup textarea {
   min-height: 140px;
+}
+.look-editor {
+  margin: 8px 0;
+  padding: 6px 12px 10px;
+  border: 2px solid rgba(31, 29, 43, 0.15);
+  border-radius: 12px;
+}
+.look-editor legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+.look-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+}
+.look-preview {
+  flex: none;
+  border-radius: 12px;
+  border: 2px solid var(--ink);
+  background: radial-gradient(circle at 50% 40%, #fff7e6, #f4d9b8);
+  overflow: hidden;
+}
+.look-fields {
+  flex: 1;
+  min-width: 260px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0 12px;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 3px;
+}
+.look-fields .swatch {
+  width: 20px;
+  height: 20px;
 }
 .prompt-preview {
   margin: 8px 0 4px;
@@ -2467,6 +2980,7 @@ input.inline:focus {
 }
 .phone-hint kbd {
   font-size: 0.7rem;
+  color: var(--ink);
 }
 .phone-scroll {
   flex: 1;
@@ -2547,6 +3061,9 @@ input.inline:focus {
 .bubble-me {
   background: #ffd6a5;
   border-bottom-right-radius: 4px;
+}
+.bubble-me .bubble-time {
+  color: #4d5163; /* --muted is a touch light on the peach bubble */
 }
 .bubble-from {
   font-size: 0.72rem;
@@ -2793,6 +3310,85 @@ input.inline:focus {
   background: #fff;
 }
 
+/* ui/MicButton.tsx: the 🎙 by a message box's Send, and what it's doing */
+.mic {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.mic-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.mic-btn:hover:not(:disabled) {
+  background: #ffe9a8;
+}
+.mic-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.mic-btn:disabled,
+.mic-cant {
+  opacity: 0.4;
+}
+.mic-btn:disabled {
+  cursor: not-allowed;
+}
+.mic-btn.mic-on,
+.mic-btn.mic-on:hover {
+  background: #ffd3c2;
+  box-shadow: 0 0 0 0 rgba(255, 138, 91, 0.7);
+  animation: voice-pulse 1.1s ease-out infinite;
+}
+.mic-busy {
+  cursor: progress;
+}
+.mic-status {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.mic-status kbd {
+  color: var(--ink);
+}
+/* the phone's hands-free switch */
+.hands-free {
+  flex: none;
+  padding: 3px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hands-free:hover {
+  background: #ffe9a8;
+}
+.hands-free-on {
+  background: #c9f2d3;
+}
+
 /* resumes */
 .resume {
   background: #fff;
@@ -2946,6 +3542,155 @@ input.inline:focus {
   .phone-btn-label {
     display: none;
   }
+}
+
+/* ---------- the interview: a proposal face to face, as an office document (ui/Interview.tsx) ---------- */
+
+.interview-overlay {
+  background: rgba(21, 21, 31, 0.22);
+}
+.doc {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 18px 26px 18px;
+  background-color: #fffdf3;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 27px, rgba(58, 86, 212, 0.07) 27px 28px);
+  border: 3px solid var(--ink);
+  border-top: 10px solid #06a77d;
+  border-radius: 6px;
+  box-shadow:
+    0 8px 0 var(--ink),
+    10px 18px 0 rgba(0, 0, 0, 0.12);
+  animation: pop 0.18s ease-out;
+}
+.doc-letgo {
+  border-top-color: #e07a5f;
+  background-color: #fff8f3;
+}
+.doc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4a4e69;
+}
+.doc-who {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.doc-title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+.doc-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+}
+.doc-fields dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+.doc-fields dd {
+  margin: 0;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.doc-h {
+  margin: 14px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px dashed rgba(31, 29, 43, 0.3);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4a4e69;
+}
+.doc-pitch {
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.5;
+}
+.doc-sign {
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.doc-brief {
+  max-height: 170px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(31, 29, 43, 0.12);
+  border-radius: 8px;
+}
+.doc-note {
+  background: rgba(255, 255, 255, 0.85);
+}
+.doc-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+.doc-stamp {
+  position: absolute;
+  top: 62px;
+  right: 64px;
+  padding: 2px 12px;
+  border: 4px solid currentColor;
+  border-radius: 8px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transform: rotate(-12deg);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.doc-stamp-good {
+  color: #1b873a;
+}
+.doc-stamp-bad {
+  color: #c1121f;
+}
+@media (max-width: 520px) {
+  .doc {
+    padding: 14px 16px;
+  }
+  .doc-stamp {
+    right: 16px;
+  }
+}
+
+/* the phone's nudge: candidates waiting in the lobby */
+.phone-nudge {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 10px 0;
+  padding: 8px 10px;
+  background: #d8f3dc;
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 /* ---------- mission control: the HUD's usage chip and the console's Mission control tab ---------- */
@@ -3267,7 +4012,7 @@ input.inline:focus {
   text-align: center;
 }
 .pk-stage-zero {
-  opacity: 0.5;
+  opacity: 0.72;
 }
 .pk-stage-hot {
   border-color: var(--bad);
@@ -3306,8 +4051,7 @@ input.inline:focus {
 }
 .pk-chip-on {
   background: var(--accent);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
 }
 .pk-h {
   display: flex;
@@ -3455,4 +4199,629 @@ input.inline:focus {
 .notify-ok {
   color: #1b873a;
   font-weight: 600;
+}
+
+/* ---------- progression: coins, the catalogue and the decor box (#210) ---------- */
+
+.coin-pill {
+  position: relative;
+  font-family: var(--font);
+  color: var(--ink);
+  background: #ffe8a3;
+  cursor: pointer;
+}
+.coin-gain {
+  position: absolute;
+  right: -4px;
+  top: 100%;
+  margin-top: 2px;
+  font-weight: 700;
+  color: #9a6b00;
+  text-shadow: 0 1px 0 #fff;
+  animation: coin-gain 1.8s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes coin-gain {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1);
+  }
+}
+.catalogue-floors .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.catalogue-floors .floor-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 0.8rem;
+}
+.catalogue-purse {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.catalogue-coins {
+  font-size: 1.6rem;
+  flex: none;
+}
+.catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.catalogue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  background: #fff;
+}
+.catalogue-item .btn {
+  margin-top: auto;
+  align-self: flex-start;
+}
+.catalogue-off {
+  background: #f5f3ee;
+}
+.catalogue-icon {
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+.small-icon {
+  font-size: 1.3rem;
+}
+.decor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.decor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 2px solid rgba(31, 29, 43, 0.12);
+  border-radius: 12px;
+}
+
+/* ---------- careers (#226) ---------- */
+
+.career-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 0 0 10px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-left: 10px solid var(--accent);
+  border-radius: 16px;
+}
+.career-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.career-portrait {
+  flex: none;
+  border: 2.5px solid var(--ink);
+  border-radius: 16px;
+}
+.career-who {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.career-name {
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+.career-title {
+  font-weight: 600;
+  color: var(--muted);
+}
+.career-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.career-badge {
+  padding: 1px 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.career-star {
+  background: #ffd43b;
+}
+.career-known {
+  font-style: italic;
+}
+.career-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+}
+.career-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #fff4e6;
+}
+.career-stat b {
+  font-size: 1.05rem;
+}
+.career-stat span {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.career-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.career-pr {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The card that pops up while you look at a desk: beside the crosshair, never under the mouse. */
+.career-peek {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 40px);
+  transform: translateY(-50%);
+  width: min(380px, calc(50vw - 56px));
+  pointer-events: none;
+}
+.career-peek .career-card {
+  box-shadow: 0 5px 0 var(--ink);
+  margin: 0;
+}
+.career-compact .career-name {
+  font-size: 1.05rem;
+}
+.career-compact .career-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 700px) {
+  .career-peek {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    top: auto;
+    bottom: 16px;
+    transform: none;
+  }
+}
+.team-stats-scroll {
+  overflow-x: auto;
+}
+.stats-table th {
+  text-align: left;
+  padding: 2px 4px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.stats-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sort-btn,
+.link-btn {
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--ink);
+}
+.link-btn {
+  color: #3a56d4;
+}
+
+/* ---------- accessibility (ui/a11y.ts: Settings → Accessibility sets these attributes on <html>) ---------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard focus is always visible; a dialog that holds focus itself (to be read out) doesn't need a ring. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #3a56d4;
+  outline-offset: 2px;
+}
+.panel:focus,
+.phone:focus,
+.confirm:focus {
+  outline: none;
+}
+
+/* captions (ui/CaptionStrip.tsx): above the phone button, over everything, never in the way of the mouse */
+.captions {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 70;
+  width: min(860px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(1.15rem * var(--caption-scale, 1));
+  pointer-events: none;
+}
+.caption {
+  max-width: 100%;
+  padding: 0.2em 0.6em;
+  border-radius: 8px;
+  background: rgba(10, 10, 16, var(--caption-bg, 0.75));
+  color: #fff;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow:
+    0 1px 2px #000,
+    0 0 3px #000;
+}
+.caption-alarm {
+  color: #ffe066;
+}
+.caption-speech b {
+  color: #9bd8ff;
+}
+.captions-preview {
+  position: static;
+  transform: none;
+  width: auto;
+  z-index: auto;
+  padding: 14px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #bfe3ff, #fff3b0 50%, #5c677d);
+}
+
+/* the centre dot: a bigger, two-ring crosshair that reads on any background and stays above the elevator's fade */
+.crosshair-dot {
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-width: 3px;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* Settings → Accessibility */
+.a11y-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+}
+.a11y-slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.92rem;
+  flex-wrap: wrap;
+}
+.a11y-slider > span {
+  min-width: 9em;
+}
+.a11y-slider input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
+}
+.a11y-slider b {
+  min-width: 3.2em;
+  font-variant-numeric: tabular-nums;
+}
+.a11y-fieldset {
+  border: 2px solid rgba(31, 29, 43, 0.25);
+  border-radius: 12px;
+  padding: 4px 12px 8px;
+  margin: 4px 0;
+}
+.a11y-fieldset legend {
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0 4px;
+}
+.a11y-fieldset .toggle.block {
+  margin: 4px 0;
+  gap: 8px;
+}
+.a11y-hint {
+  font-weight: 400;
+}
+.status-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.status-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px 2px 6px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-kind::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--kind);
+}
+.status-kind-idle {
+  --kind: var(--kind-idle, #adb5bd);
+}
+.status-kind-waiting {
+  --kind: var(--kind-waiting, #fab005);
+}
+.status-kind-busy {
+  --kind: var(--kind-busy, #339af0);
+}
+.status-kind-ok {
+  --kind: var(--kind-ok, #2dc653);
+}
+.status-kind-attention {
+  --kind: var(--kind-attention, #ffb703);
+}
+.status-kind-bad {
+  --kind: var(--kind-bad, #ef476f);
+}
+
+/* the list view (ui/FloorList.tsx) */
+.floor-list {
+  width: min(980px, 100%);
+}
+.field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.field-inline select {
+  width: auto;
+}
+.floor-summary {
+  margin: 4px 0 10px;
+}
+.floor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.floor-table th,
+.floor-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 2px solid rgba(31, 29, 43, 0.12);
+  vertical-align: middle;
+}
+.floor-table thead th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.floor-floors {
+  margin: 4px 0;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+
+/* secondary text on a coloured panel head, and on a colour-blind palette's card colours, reads in ink */
+.panel-head .muted,
+html[data-palette] :is(.kcard-good, .kcard-warn, .kcard-bad) .muted {
+  color: inherit;
+}
+
+/* the phone's Company tab: every panel, a tap (or Tab) away */
+.phone-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 2px;
+}
+
+/* status shapes: a shape beside every status colour (always on with a colour-blind palette) */
+html[data-status-shapes] :is(.status-idle, .status-unconfigured, .status-stopped)::before {
+  content: '○ ';
+}
+html[data-status-shapes] :is(.status-preparing, .status-installing, .status-starting)::before {
+  content: '⏳ ';
+}
+html[data-status-shapes] .status-working::before {
+  content: '▶ ';
+}
+html[data-status-shapes] :is(.status-done, .status-running)::before {
+  content: '✓ ';
+}
+html[data-status-shapes] .status-error::before {
+  content: '✕ ';
+}
+html[data-status-shapes] :is(.kcard-good, .kcard-warn, .kcard-bad) {
+  position: relative;
+}
+html[data-status-shapes] :is(.kcard-good, .kcard-warn, .kcard-bad)::after {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+html[data-status-shapes] .kcard-good::after {
+  content: '✓';
+}
+html[data-status-shapes] .kcard-warn::after {
+  content: '!';
+}
+html[data-status-shapes] .kcard-bad::after {
+  content: '✕';
+}
+html[data-status-shapes] .toast-success::before {
+  content: '✓ ';
+  font-weight: 700;
+}
+html[data-status-shapes] .toast-error::before {
+  content: '✕ ';
+  font-weight: 700;
+}
+
+/* reduced motion: nothing slides, pops, spins or bounces; the elevator's fade stays (a fade isn't motion) */
+html[data-reduce-motion] *,
+html[data-reduce-motion] *::before,
+html[data-reduce-motion] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-reduce-motion] .fade {
+  transition-duration: 0.6s !important;
+}
+
+/* UI scale: the HUD, the phone, the console and every panel, 80-150%. Inside a zoomed box, viewport units are zoomed
+   too, so whatever is sized to the screen divides by the scale to still fit it. */
+html[data-ui-scale] :is(.hud, .overlay, .confirm-overlay, .tour, .start, .pocket) {
+  zoom: var(--ui-scale, 1);
+}
+/* pocket mode's panels open inside the (already scaled) pocket: once is enough */
+html[data-ui-scale] .pocket .overlay {
+  zoom: 1;
+}
+html[data-ui-scale] :is(.hud-floor, .office-chip, .toasts) {
+  max-width: min(420px, calc(100vw / var(--ui-scale) - 32px));
+}
+html[data-ui-scale] .hud-floor {
+  max-width: min(520px, calc(100vw / var(--ui-scale) - 32px));
+}
+html[data-ui-scale] .hud-status {
+  max-width: calc(50vw / var(--ui-scale));
+}
+html[data-ui-scale] .hud-banner {
+  max-width: calc(90vw / var(--ui-scale));
+}
+html[data-ui-scale] .workers {
+  width: min(360px, calc(100vw / var(--ui-scale) - 32px));
+  max-height: calc(100vh / var(--ui-scale) - 180px);
+}
+html[data-ui-scale] .tour {
+  width: min(390px, calc(100vw / var(--ui-scale) - 32px));
+}
+html[data-ui-scale] :is(.panel, .start-card) {
+  max-height: calc(100vh / var(--ui-scale) - 32px);
+}
+html[data-ui-scale] .panel-wide {
+  height: calc(100vh / var(--ui-scale) - 32px);
+}
+html[data-ui-scale] .phone {
+  height: min(760px, calc(100vh / var(--ui-scale) - 32px));
+}
+
+/* dyslexia-friendly: a plain sans serif with wider letter, word and line spacing (British Dyslexia Association style guide) */
+html[data-readable-font] {
+  --font: Verdana, Tahoma, 'Trebuchet MS', 'Segoe UI', sans-serif;
+}
+html[data-readable-font] :is(.hud, .overlay, .confirm-overlay, .tour, .start, .pocket, .captions) {
+  letter-spacing: 0.035em;
+  word-spacing: 0.12em;
+  line-height: 1.55;
+}
+html[data-readable-font] :is(em, i, .wk-last-thinking) {
+  font-style: normal;
+}
+
+/* high contrast: white panels, darker secondary text, heavier borders and a two-tone focus ring */
+html[data-high-contrast] {
+  --paper: #ffffff;
+  --muted: #3d3f52;
+}
+html[data-high-contrast] .overlay {
+  background: rgba(10, 10, 16, 0.7);
+}
+html[data-high-contrast] :is(.panel, .card, .kcard, .phone, .confirm, .toast, .hud-floor, .workers, .hud-hint) {
+  border-color: #000;
+}
+html[data-high-contrast] :is(input, select, textarea, .btn-ghost) {
+  border-color: var(--ink);
+}
+html[data-high-contrast] :is(.hud-help, .chat-log, .phone-screen) {
+  background: #fff;
+}
+html[data-high-contrast] .phone-hint {
+  color: #fff;
+}
+html[data-high-contrast] .wk-head b {
+  color: #0b6b2a;
+}
+html[data-high-contrast] .floor-num {
+  color: var(--ink);
+  text-shadow: none;
+}
+html[data-high-contrast] .hud-resume {
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: rgba(10, 10, 16, 0.85);
+  text-shadow: none;
+}
+html[data-high-contrast] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid #000;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px #ffe066;
 }

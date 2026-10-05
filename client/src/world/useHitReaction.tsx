@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
+import { BILLBOARD } from './viewTags';
 import * as THREE from 'three';
 import { boop } from '../ui/sfx';
 import { SANS } from './draw';
@@ -67,7 +68,7 @@ function Bubble({ text, since }: { text: string; since: number }) {
   });
   return (
     // The group's origin is the tail's tip, beside the head, so the bubble pops out of it.
-    <Billboard position={[0.18, 1.45, 0]}>
+    <Billboard position={[0.18, 1.45, 0]} userData={BILLBOARD}>
       <group ref={g} scale={0.3}>
         <mesh position={[0.195, 0.156, 0]} renderOrder={2}>
           <planeGeometry args={[0.5, 0.344]} />

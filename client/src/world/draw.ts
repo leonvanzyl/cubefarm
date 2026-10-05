@@ -1,6 +1,10 @@
 import type { LogLine, PreviewStatus, PreviewView, RepoView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { testingLabel } from '../qaCard';
+import { officeNow } from '../officeTime';
+import { chipRects } from '../ui/channels';
+import { inkOn } from '../ui/colorMath';
+import { KIND_ICON, kindStrong, STANDARD_LOOK, STATUS_KIND, TONE_KIND, toneFill, type StatusKind, type StatusLook } from '../ui/statusLook';
 import { statsChips, type BoardStats } from './boardStats';
 import type { Pair } from './whiteboard';
 
@@ -15,7 +19,8 @@ export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w
   ctx.roundRect(x, y, w, h, r);
 }
 
-function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+/** `text` in at most `maxLines` lines no wider than `maxWidth`, the last one cut short with … if it all doesn't fit. */
+export function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
   let cur = '';
@@ -155,7 +160,7 @@ export function drawTerminal(
   if (agent.status === 'working' || agent.status === 'preparing') {
     const frame = Math.floor(now / 120) % SPINNER.length;
     const verb = agent.status === 'preparing' ? (agent.currentTool ?? 'Setting up worktree') : toolVerb(agent.currentTool) || VERBS[Math.floor(now / 6000) % VERBS.length];
-    const secs = agent.startedAt ? Math.floor((Date.now() - agent.startedAt) / 1000) : 0;
+    const secs = agent.startedAt ? Math.max(0, Math.floor((officeNow() - agent.startedAt) / 1000)) : 0;
     const mm = Math.floor(secs / 60);
     ctx.fillStyle = '#ff9e64';
     ctx.font = `600 ${fontSize}px ${MONO}`;
@@ -224,8 +229,6 @@ const COLS: { key: keyof KanbanColumns; title: string; chip: string; note: strin
   { key: 'merged', title: '🎉 Merged', chip: '#c77dff', note: '#eadcff' },
 ];
 
-const TONE = { warn: '#ffd8a8', bad: '#ffc9c9', good: '#d8f9df' };
-
 /** The whiteboard's columns, left to right. */
 export const KANBAN_KEYS: (keyof KanbanColumns)[] = COLS.map((c) => c.key);
 
@@ -250,8 +253,27 @@ export function kanbanNoteRect(ci: number, i: number, w: number) {
 /** A column's sticky-note colour. */
 export const kanbanNoteColor = (key: keyof KanbanColumns) => COLS.find((c) => c.key === key)?.note ?? '#fff3b0';
 
-/** A card's sticky colour where it is: its tone's, else its column's. */
-export const kanbanCardColor = (card: KanbanCard, key: keyof KanbanColumns) => (card.tone ? TONE[card.tone] : kanbanNoteColor(key));
+/** A card's sticky colour where it is: its tone's (in the viewer's status palette), else its column's. */
+export const kanbanCardColor = (card: KanbanCard, key: keyof KanbanColumns, look: StatusLook = STANDARD_LOOK) => (card.tone ? toneFill(card.tone, look.palette, 'board') : kanbanNoteColor(key));
+
+/** A status shape in a filled circle (the colour-blind-safe cue beside a status colour), centred at x, y. */
+function drawStatusBadge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, kind: StatusKind, look: StatusLook) {
+  const fill = kindStrong(kind, look.palette);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = Math.max(2, r * 0.16);
+  ctx.strokeStyle = '#1f1d2b';
+  ctx.stroke();
+  ctx.fillStyle = inkOn(fill);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(r * 1.25)}px ${SANS}`;
+  ctx.fillText(KIND_ICON[kind], x, y + r * 0.08);
+  ctx.restore();
+}
 
 /** A loose sticky (StickyNotes.tsx's atlas): the note colour, its number big, a darker edge for the toon outline. */
 export function drawSticky(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, label: string, color: string) {
@@ -276,10 +298,11 @@ function shadeHex(hex: string, k: number) {
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
-/** What the board shows besides the cards: "Depends on" strings between stickies, and the stats corner. */
+/** What the board shows besides the cards: "Depends on" strings between stickies, the stats corner, and the status palette and shapes. */
 export interface KanbanExtras {
   strings?: readonly Pair[];
   stats?: BoardStats | null;
+  look?: StatusLook;
 }
 
 export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, repo: RepoView, cols: KanbanColumns, extras: KanbanExtras = {}) {
@@ -307,7 +330,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
   }
 
   const top = NOTE.top;
-  const now = Date.now(); // a testing card's elapsed time: it only moves on when the board repaints anyway
+  const now = officeNow(); // a testing card's elapsed time: it only moves on when the board repaints anyway
   COLS.forEach((c, ci) => {
     const { x0, colW } = kanbanColumnSpan(ci, w);
     const cards = cols[c.key];
@@ -330,7 +353,7 @@ export function drawKanban(ctx: CanvasRenderingContext2D, w: number, h: number, 
     const shown = cards.length > capacity ? cards.slice(0, capacity - 1) : cards;
     shown.forEach((card, i) => {
       const n = kanbanNoteRect(ci, i, w);
-      drawNote(ctx, n.x, n.y, n.w, n.h, card, card.tone ? TONE[card.tone] : c.note, now);
+      drawNote(ctx, n.x, n.y, n.w, n.h, card, kanbanCardColor(card, c.key, extras.look), now, extras.look);
     });
     if (cards.length > shown.length) {
       ctx.fillStyle = '#6c7086';
@@ -420,7 +443,7 @@ function drawString(ctx: CanvasRenderingContext2D, w: number, p: Pair) {
  * One card on its own canvas (the sticky lifted off the board under the crosshair), drawn as the board draws it with
  * a deeper shadow. The note is `nw` × `nh` board pixels, `pad` of them around it, at `scale` canvas pixels each.
  */
-export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, col: keyof KanbanColumns, nw: number, nh: number, pad: number, scale: number) {
+export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, col: keyof KanbanColumns, nw: number, nh: number, pad: number, scale: number, look: StatusLook = STANDARD_LOOK) {
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.save();
   ctx.scale(scale, scale);
@@ -429,11 +452,11 @@ export function drawLiftedNote(ctx: CanvasRenderingContext2D, card: KanbanCard, 
     roundRect(ctx, pad + 3, pad + 7, nw + 2, nh + 2, 6);
     ctx.fill();
   }
-  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col), Date.now());
+  drawNote(ctx, pad, pad, nw, nh, card, kanbanCardColor(card, col, look), officeNow(), look);
   ctx.restore();
 }
 
-function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string, now: number) {
+function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, card: KanbanCard, color: string, now: number, look: StatusLook = STANDARD_LOOK) {
   const tilt = (((card.number * 37) % 7) - 3) * 0.006;
   const ink = card.agent && /^#[0-9a-f]{6}$/i.test(card.agent.color) ? card.agent.color : '#8a8fa3';
   ctx.save();
@@ -503,13 +526,14 @@ function drawNote(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
     ctx.fillText(card.note, w - 12, h - 14);
     ctx.textAlign = 'left';
   }
+  if (look.shapes && card.tone && !card.ghost) drawStatusBadge(ctx, w - 18, 20, 13, TONE_KIND[card.tone], look);
   ctx.restore();
   ctx.textBaseline = 'middle';
 }
 
 // ---------- signs and tags ----------
 
-export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, agent: Agent) {
+export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, agent: Agent, look: StatusLook = STANDARD_LOOK) {
   ctx.clearRect(0, 0, w, h);
   const icon =
     agent.status === 'working'
@@ -561,8 +585,11 @@ export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, age
               : agent.title
                 ? `${agent.name} · ${agent.title}`
                 : agent.name;
-  while (label.length > 4 && ctx.measureText(label).width > w - 96) label = `${label.slice(0, -2)}…`;
+  // With status shapes on, a badge at the right end says the status in shape and colour (the icon on the left is the detail).
+  const badge = look.shapes ? h * 0.32 : 0;
+  while (label.length > 4 && ctx.measureText(label).width > w - 96 - badge * 2) label = `${label.slice(0, -2)}…`;
   ctx.fillText(label, 78, h / 2 + 2);
+  if (badge) drawStatusBadge(ctx, w - 14 - badge, h / 2, badge, STATUS_KIND[agent.status], look);
 }
 
 /** Name tag for a candidate in the waiting room: who they are and the job they're up for. */
@@ -586,10 +613,10 @@ export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: nu
   };
   ctx.fillStyle = '#23263a';
   ctx.font = `700 40px ${SANS}`;
-  ctx.fillText(fit(`${name} · candidate`, w - 100), 80, h * 0.36);
+  ctx.fillText(fit(`Candidate: ${name}`, w - 100), 80, h * 0.36);
   ctx.fillStyle = '#5c6078';
   ctx.font = `600 28px ${SANS}`;
-  ctx.fillText(fit(`${title}${floor ? ` · floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
+  ctx.fillText(fit(`${title}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
 }
 
 export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, lines: { text: string; size: number; color?: string; weight?: number }[], bg: string, fg = '#ffffff') {
@@ -689,13 +716,25 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, max: number) {
   return t;
 }
 
+/** A channel on the big screen's strip: main or an open PR, with its light. */
+export interface ScreenChip {
+  label: string;
+  on: boolean; // the channel on screen
+  led: 'live' | 'busy' | 'bad' | 'off';
+}
+
+const CHIP_LED: Record<ScreenChip['led'], string> = { live: '#7CFFB2', busy: '#ffd166', bad: '#ff6b6b', off: '#6c6c88' };
+
 export interface AppScreenInfo {
   floor: number;
   name: string;
   color: string;
-  preview: PreviewView;
-  shot: HTMLImageElement | null; // the latest agent screenshot on the floor, shown while the app is live
-  shotBy: string | null;
+  preview: PreviewView; // the channel on screen: the floor's main preview, or a PR's
+  shot: HTMLImageElement | null; // shown while the app is live: the latest agent screenshot on the floor, or QA's of the PR
+  shotCaption: string | null; // what the screenshot is, e.g. "latest from Ada's browser"
+  channels?: ScreenChip[]; // the channel strip, drawn when the floor has open PRs
+  /** The player's interact key (Help → Controls). */
+  use: string;
 }
 
 /** The wall screen at the front of an office floor: the floor's app and how it's doing. */
@@ -743,10 +782,13 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillText(fitText(ctx, text, w - 100), w / 2, y);
     ctx.textAlign = 'left';
   };
-  const footer = (text: string, color = '#8d8da8') => centred(text, h - 50, 32, color, 600);
+  // With a channel strip along the bottom, the footer line sits above it.
+  const strip = info.channels && info.channels.length > 1 ? info.channels : null;
+  const footH = strip ? 200 : 100;
+  const footer = (text: string, color = '#8d8da8') => centred(text, h - footH + 50, 32, color, 600);
 
   const bodyTop = headH;
-  const midY = bodyTop + (h - headH - 100) / 2;
+  const midY = bodyTop + (h - headH - footH) / 2;
   const ref = p.ref ?? 'the app';
 
   if (p.status === 'stopped') {
@@ -763,13 +805,13 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.lineTo(w / 2 + 44, cy);
     ctx.closePath();
     ctx.fill();
-    centred('Press E to open the app', midY + 80, 70, '#ffffff');
+    centred(`Press ${info.use} to open the app`, midY + 80, 70, '#ffffff');
     footer("The app isn't running. Start it from the viewer.");
   } else if (p.status === 'unconfigured') {
     centred('⚙️', midY - 90, 110, '#ffffff', 400);
     centred('No run command yet.', midY + 40, 66, '#ffffff');
     centred("Set one in the manager's console.", midY + 120, 44, '#b8b8cc', 600);
-    footer('Press E to open the app');
+    footer(`Press ${info.use} to open the app`);
   } else if (p.status === 'error') {
     const firstLine = (p.error ?? '').split(/\r?\n/).find((l) => l.trim())?.trim() || 'The app stopped unexpectedly.';
     ctx.fillStyle = '#e63946';
@@ -778,7 +820,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fitText(ctx, `⚠ ${firstLine}`, w - 100), 50, midY - 55);
     centred("The app couldn't start.", midY + 90, 52, '#ffffff');
-    footer('Press E to see the log and try again', '#ffb4ba');
+    footer(`Press ${info.use} to see the log and try again`, '#ffb4ba');
   } else if (p.status !== 'running') {
     const at = Math.max(0, APP_STEPS.findIndex((s) => s.status === p.status));
     centred(`Getting ${ref} ready…`, bodyTop + 80, 46, '#b8b8cc', 600);
@@ -798,7 +840,7 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.fillText(`${i < at ? '✓ ' : ''}${s.label}`, x + segW / 2, y + 70);
       ctx.textAlign = 'left';
     });
-    footer(`Step ${at + 1} of ${APP_STEPS.length} · press E to watch`);
+    footer(`Step ${at + 1} of ${APP_STEPS.length} · press ${info.use} to watch`);
   } else {
     // running: where it's served and what's deployed, plus the latest thing an agent on this floor looked at
     const left = 56;
@@ -841,8 +883,37 @@ export function drawAppScreen(ctx: CanvasRenderingContext2D, w: number, h: numbe
       ctx.drawImage(img, 0, 0, tw / scale, th / scale, tx, ty, tw, th);
       ctx.font = `500 26px ${SANS}`;
       ctx.fillStyle = '#8d8da8';
-      ctx.fillText(fitText(ctx, info.shotBy ? `latest from ${info.shotBy}'s browser` : 'latest agent screenshot', tw), tx, ty + th + 36);
+      ctx.fillText(fitText(ctx, info.shotCaption ?? 'latest agent screenshot', tw), tx, ty + th + 36);
     }
-    footer('Press E to open the app', TERM.done);
+    footer(`Press ${info.use} to open the app`, TERM.done);
   }
+  if (strip) drawChannelStrip(ctx, w, h, strip, info.color);
+}
+
+/** The row of channel chips along the bottom of the big screen; aiming at one and pressing E switches to it. */
+function drawChannelStrip(ctx: CanvasRenderingContext2D, w: number, h: number, chips: ScreenChip[], color: string) {
+  const rects = chipRects(chips.length, w, h);
+  ctx.fillStyle = TERM.bar;
+  ctx.fillRect(0, rects[0].y - 16, w, h - rects[0].y + 16);
+  ctx.textBaseline = 'middle';
+  chips.forEach((c, i) => {
+    const r = rects[i];
+    roundRect(ctx, r.x, r.y, r.w, r.h, 18);
+    ctx.fillStyle = c.on ? color : '#3a3a52';
+    ctx.fill();
+    if (c.on) {
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    }
+    ctx.fillStyle = CHIP_LED[c.led];
+    ctx.beginPath();
+    ctx.arc(r.x + 26, r.y + r.h / 2, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `700 30px ${SANS}`;
+    ctx.fillStyle = c.on ? '#ffffff' : '#c8c8dc';
+    ctx.textAlign = 'center';
+    ctx.fillText(fitText(ctx, c.label, r.w - 56), r.x + r.w / 2 + 14, r.y + r.h / 2 + 1);
+    ctx.textAlign = 'left';
+  });
 }

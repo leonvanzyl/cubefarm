@@ -6,6 +6,7 @@
 // Messages read aloud (voiceMessages.ts) have their own 'voice' group, which skips the bus that ducks everything else.
 // Each group also sends a little into the room you're in (roomSfx.ts's shared reverb), and a sound in another space
 // (behind a wall, in the elevator, out on a balcony) comes through quieter and muffled.
+// While the 🎙 listens (mic.ts) everything dips, the voice too, and event cues wait until it closes.
 
 import { ROOM_SENDS, type Occlusion } from './acoustics';
 import { normalizeAudioPrefs, parseAudioPrefs, SOUND_GROUPS, sliderGain, type AudioPrefs, type SoundGroup } from './audioPrefs';
@@ -31,6 +32,8 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let bus: GainNode | null = null; // every sound but the voice, so a message read aloud can duck them
 let roomIn: GainNode | null = null; // what the groups send into the room's reverb
+let mixOut: GainNode | null = null; // the finished mix, as the speakers get it
+let tap: MediaStreamAudioDestinationNode | null = null;
 let unlocked = false;
 const groupGains: Partial<Record<SoundGroup, GainNode>> = {};
 const groupLevels = {} as Record<SoundGroup, number>;
@@ -38,6 +41,9 @@ for (const g of SOUND_GROUPS) groupLevels[g] = sliderGain(prefs[g]);
 
 const COMPRESSOR_TRIM = 10 ** (-2.81 / 20);
 const DUCKED = 10 ** (-8 / 20);
+const MIC_DUCKED = 10 ** (-15 / 20); // what's left of a message being read while the mic listens
+let speakingDuck = false; // a message is being read aloud
+let micOpen = false;
 
 const masterLevel = () => (prefs.muted ? 0 : sliderGain(prefs.volume));
 
@@ -62,6 +68,7 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
       const trim = ctx.createGain();
       trim.gain.value = COMPRESSOR_TRIM;
       master.connect(comp).connect(trim).connect(ctx.destination);
+      mixOut = trim;
       bus = ctx.createGain();
       bus.connect(master);
       roomIn = ctx.createGain();
@@ -81,6 +88,21 @@ export function audio(): { ctx: AudioContext; out: GainNode } | null {
     if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     // Don't queue sounds on a stopped clock: they'd all fire at once when it starts.
     return ctx.state === 'running' && master ? { ctx, out: master } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Everything the office plays, as the speakers get it, as a MediaStream for photo mode's clips; null while audio is off. */
+export function soundStream(): MediaStream | null {
+  audio();
+  if (!ctx || !mixOut) return null;
+  try {
+    if (!tap) {
+      tap = ctx.createMediaStreamDestination();
+      mixOut.connect(tap);
+    }
+    return tap.stream;
   } catch {
     return null;
   }
@@ -121,7 +143,7 @@ function glide(gain: GainNode, level: number) {
 export function setGroupLevel(group: SoundGroup, level: number) {
   groupLevels[group] = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
   const gain = groupGains[group];
-  if (gain) glide(gain, groupLevels[group]);
+  if (gain) glide(gain, groupLevels[group] * (group === 'voice' && micOpen ? MIC_DUCKED : 1));
 }
 
 export function setAudioPrefs(patch: Partial<AudioPrefs>) {
@@ -142,13 +164,28 @@ export const toggleMute = () => setAudioPrefs({ muted: !prefs.muted });
 
 /** Turns every sound but the voice down by about 8 dB (while a message is read aloud), or back up. */
 export function duckOthers(on: boolean) {
+  speakingDuck = on;
+  applyDuck();
+}
+
+function applyDuck() {
   if (!ctx || !bus) return;
+  const down = speakingDuck || micOpen;
   try {
     bus.gain.cancelScheduledValues(ctx.currentTime);
-    bus.gain.setTargetAtTime(on ? DUCKED : 1, ctx.currentTime, on ? 0.06 : 0.25);
+    bus.gain.setTargetAtTime(down ? DUCKED : 1, ctx.currentTime, down ? 0.06 : 0.25);
   } catch {
     // audio is optional
   }
+  setGroupLevel('voice', groupLevels.voice);
+}
+
+/** The 🎙 opened or closed: other sounds and a message being read dip while it listens, and cues wait for it. */
+export function setMicOpen(on: boolean) {
+  if (micOpen === on) return;
+  micOpen = on;
+  applyDuck();
+  if (!on && pending && !timer) timer = setTimeout(flush, GATHER_MS);
 }
 
 // ---------- the listener (the camera's ears) ----------
@@ -240,6 +277,18 @@ const PROBE_SIZE = 50;
 const probe: SfxRecord[] = [];
 if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__swarmSfx = probe;
 
+type SoundListener = (rec: SfxRecord, heard: boolean) => void;
+let soundListener: SoundListener | null = null;
+
+/**
+ * Captions (captions.ts) hear of every sound recorded in __swarmSfx: `heard` is false when it's out of earshot, or when
+ * its caller says it didn't play (a loop going silent). Mute and the volume sliders don't count: a muted office still
+ * gets its captions.
+ */
+export function onSoundRecorded(fn: SoundListener | null) {
+  soundListener = fn;
+}
+
 /**
  * Records a sound in window.__swarmSfx (the last 50). tone() and noise() call it themselves; long-lived loops call it
  * when they start. `peak` is the sound's level before distance; returns the record so `played` can be set later.
@@ -248,7 +297,7 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
  */
 export function recordSfx(
   name: string,
-  { group, pos, pan = 0, peak, played = false, falloff }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean; falloff?: (d: number) => number },
+  { group, pos, pan = 0, peak, played, falloff }: { group?: SoundGroup; pos?: Vec3; pan?: number; peak: number; played?: boolean; falloff?: (d: number) => number },
   log: SfxRecord[] = probe,
 ) {
   const d = pos ? distance(ear, pos) : 0;
@@ -259,11 +308,12 @@ export function recordSfx(
     at: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
     gain: peak * atDistance * (group ? groupLevels[group] : 1),
     pan: pos ? panOf(ear, earFwd, earUp, pos) : pan,
-    played,
+    played: played ?? false,
     t: performance.now(),
   };
   log.push(rec);
   if (log.length > PROBE_SIZE) log.splice(0, log.length - PROBE_SIZE);
+  if (log === probe) soundListener?.(rec, atDistance > 0 && played !== false);
   return rec;
 }
 
@@ -506,6 +556,11 @@ if (typeof window !== 'undefined') {
 
 let lastChirp = -Infinity;
 
+/** The hands-free phone opening its mic (a soft rising pair), or closing it unheard (falling). Plays before the mic opens. */
+export function listenChime(open: boolean) {
+  (open ? [659.25, 987.77] : [783.99, 587.33]).forEach((freq, i) => tone({ name: open ? 'mic:open' : 'mic:close', group: 'alerts', freq, type: 'sine', at: i * 0.12, dur: 0.22, peak: 0.07, attack: 0.015 }));
+}
+
 /** The phone's message chirp: two quick rising blips (messages that arrive together chirp once). */
 export function chirp() {
   if (performance.now() - lastChirp < 800) return;
@@ -578,23 +633,25 @@ const GONG_PARTIALS: [number, number, number][] = [
 /**
  * The merge gong: a soft mallet thud, a long low boom with a slow beat, inharmonic partials and a shimmer that swells
  * in after the hit and rings for ~6 s. The loudest sound in the office (its peaks add up to under 1, and the
- * compressor catches the rest). Non-positional, so it carries across the floor. At most one a second.
+ * compressor catches the rest). Non-positional, so it carries across the floor. At most one a second. `level` (0-1)
+ * plays it quieter (the time-lapse's merges).
  */
-export function gong() {
-  if (performance.now() - lastGong < 1000) return;
+export function gong(level = 1) {
+  if (micOpen || performance.now() - lastGong < 1000) return; // never into the 🎙
   lastGong = performance.now();
   const o = { name: 'gong', group: 'alerts' } as const;
+  const k = Math.max(0, Math.min(1, level));
   // the padded mallet: a low thud and a dull puff, no click
-  tone({ ...o, freq: 150, to: 62, dur: 0.35, peak: 0.12, attack: 0.004 });
-  noise({ ...o, dur: 0.14, peak: 0.07, filter: 'lowpass', freq: 900, to: 180, attack: 0.003 });
+  tone({ ...o, freq: 150, to: 62, dur: 0.35, peak: 0.12 * k, attack: 0.004 });
+  noise({ ...o, dur: 0.14, peak: 0.07 * k, filter: 'lowpass', freq: 900, to: 180, attack: 0.003 });
   // the boom: the fundamental (a triangle, so small speakers still hear its overtones) and a near twin that beats with it
-  tone({ ...o, freq: GONG_F0, type: 'triangle', dur: 6.5, peak: 0.2, attack: 0.02 });
-  tone({ ...o, freq: GONG_F0 * 1.008, dur: 6, peak: 0.08, attack: 0.04 });
-  for (const [ratio, peak, dur] of GONG_PARTIALS) tone({ ...o, freq: GONG_F0 * ratio, dur, peak, attack: 0.015 });
+  tone({ ...o, freq: GONG_F0, type: 'triangle', dur: 6.5, peak: 0.2 * k, attack: 0.02 });
+  tone({ ...o, freq: GONG_F0 * 1.008, dur: 6, peak: 0.08 * k, attack: 0.04 });
+  for (const [ratio, peak, dur] of GONG_PARTIALS) tone({ ...o, freq: GONG_F0 * ratio, dur, peak: peak * k, attack: 0.015 });
   // the shimmer: bright partials and a hiss that bloom in after the hit, the way a struck gong swells
-  tone({ ...o, freq: GONG_F0 * 8.9, type: 'triangle', at: 0.05, dur: 4, peak: 0.016, attack: 0.9 });
-  tone({ ...o, freq: GONG_F0 * 11.7, at: 0.05, dur: 3.5, peak: 0.012, attack: 1.1 });
-  noise({ ...o, at: 0.05, dur: 4.5, peak: 0.028, filter: 'bandpass', freq: 1800, to: 3200, q: 1.5, attack: 1.2 });
+  tone({ ...o, freq: GONG_F0 * 8.9, type: 'triangle', at: 0.05, dur: 4, peak: 0.016 * k, attack: 0.9 });
+  tone({ ...o, freq: GONG_F0 * 11.7, at: 0.05, dur: 3.5, peak: 0.012 * k, attack: 1.1 });
+  noise({ ...o, at: 0.05, dur: 4.5, peak: 0.028 * k, filter: 'bandpass', freq: 1800, to: 3200, q: 1.5, attack: 1.2 });
 }
 
 let lastAlarm = -Infinity;
@@ -663,9 +720,13 @@ let lastAt = -Infinity;
 
 const better = (a: Cue | null, b: Cue) => (a && CUES[a].rank >= CUES[b].rank ? a : b);
 
-/** Play an event cue, rate-limited: bursts collapse into their most important cue. */
+/** Play an event cue, rate-limited: bursts collapse into their most important cue. While the 🎙 listens it waits. */
 export function cue(c: Cue) {
   const now = performance.now();
+  if (micOpen) {
+    pending = better(pending, c);
+    return;
+  }
   // Inside the gap after a cue, only something more important than what just played gets through.
   if (now - lastAt < GAP_MS && CUES[c].rank <= lastRank && !pending) return;
   pending = better(pending, c);
@@ -675,6 +736,7 @@ export function cue(c: Cue) {
 
 function flush() {
   timer = null;
+  if (micOpen) return; // played when the mic closes
   const c = pending;
   pending = null;
   if (!c) return;

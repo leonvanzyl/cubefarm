@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { RepoView } from '../../../shared/types';
 import { EMPTY_NUMBERS, signLine } from '../ops';
 import { agentsOnRepo, floorPrCounts, useStore } from '../store';
+import { useKeyName } from '../ui/controls';
 import { ActivityIcon } from './ActivityIcon';
 import { ActivityTicker } from './ActivityTicker';
 import { AppMonitor } from './AppMonitor';
@@ -19,6 +20,9 @@ import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
 import { Beacon, useFloorAlarm } from './MissionControl';
+import { CoinBurst } from './decor/CoinBurst';
+import { Decorations } from './decor/Decorations';
+import { DeskStory, MvpSign } from './desk/DeskStory';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { OfficeRituals } from './Rituals';
 import { Shell } from './Shell';
@@ -54,6 +58,7 @@ const QA_DESKS = QA_LAB.stations.map((_, slot): [number, number, number] => [qaD
 
 /** Memoised, and it only follows this floor's people and PRs: a big company's other floors change many times a second. */
 export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView }) {
+  const use = useKeyName('interact');
   const agents = useStore(useShallow((s) => agentsOnRepo(s.agents, repo.id)));
   const devBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'dev').map((a) => [a.desk, a])), [agents]);
   const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
@@ -96,6 +101,10 @@ export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView 
       {agents.map((a) => <ActivityIcon key={a.id} agent={a} />)}
       <AppMonitor repo={repo} agents={agents} />
       <MergeConfetti repo={repo} agents={agents} />
+      <CoinBurst repo={repo} agents={agents} />
+      <DeskStory agents={agents} />
+      <MvpSign agents={agents} />
+      <Decorations repo={repo} />
       <Gong repoId={repo.id} />
       <Elevator floorLabel={`▲ ${repo.floor} · ${name}`} accent={repo.color} />
       <Toys floor="office" />
@@ -138,12 +147,12 @@ export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView 
                 { text: `👩‍💻 ${agents.length} on the team`, size: 50, color: '#2d3142' },
                 { text: `⚙️ ${working} busy · 🔍 ${inQa} in QA · ✅ ${ready} to merge`, size: 42, color: '#2d3142', weight: 600 },
                 { text: `📋 ${repo.issues.length} open issue${repo.issues.length === 1 ? '' : 's'}${repo.autoAssign ? ' · ⚡ auto' : ''}`, size: 40, color: '#5c6078', weight: 500 },
-                alarm ? { text: `🚨 ${alarm.text.split(':')[0]} · press E`, size: 38, color: '#d62839' } : { text: ops, size: 36, color: '#3a6ea5', weight: 600 },
+                alarm ? { text: `🚨 ${alarm.text.split(':')[0]} · press ${use}`, size: 38, color: '#d62839' } : { text: ops, size: 36, color: '#3a6ea5', weight: 600 },
               ],
               '#fffdf5',
             )
           }
-          deps={[agents.length, working, inQa, ready, repo.issues.length, repo.autoAssign, ops, alarm?.text]}
+          deps={[agents.length, working, inQa, ready, repo.issues.length, repo.autoAssign, ops, alarm?.text, use]}
         />
         <group position={[4.6, 2.62, HALF_D - 0.12]}>
           <Beacon on={!!alarm} size={0.12} />

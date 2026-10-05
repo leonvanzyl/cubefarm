@@ -1,19 +1,26 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
+import { BILLBOARD } from './viewTags';
 import * as THREE from 'three';
 import { useStore, type Agent } from '../store';
 import { loadScreenshot } from '../screenshot';
 import { look, type Look } from './batch';
 import { Part } from './Batched';
+import { useA11y } from '../ui/a11y';
+import { showsShapes } from '../ui/a11yPrefs';
 import { Box, Cyl, Ball } from './Toon';
 import { Character } from './Character';
+import { greetPick } from './Chatter';
 import { drawSign, drawTag, drawTerminal } from './draw';
 import { useCanvasTexture, useInteractable } from './interact';
 import { PaintedTexture } from './paint/painter';
+import { BLOOM } from './gfx/bloomMarks';
+import { DeskGlow } from './gfx/ScreenGlow';
 import { shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
+import { useKeyName } from '../ui/controls';
 
 const SCREEN = { w: 1.0, h: 0.6, px: 896, py: 538 };
 const WOOD = '#f1d19b';
@@ -90,11 +97,19 @@ function useTerminalTexture(agent: Agent, anchor: React.RefObject<THREE.Object3D
 const TAG_RANGE = 18;
 
 export function NameTag({ agent }: { agent: Agent }) {
+  const palette = useA11y((s) => s.prefs.palette);
+  const shapes = useA11y((s) => showsShapes(s.prefs));
   const anchor = useRef<THREE.Mesh>(null);
-  const tex = useCanvasTexture(512, 96, (ctx) => drawTag(ctx, 512, 96, agent), [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color], { anchor, range: TAG_RANGE });
+  const tex = useCanvasTexture(
+    512,
+    96,
+    (ctx) => drawTag(ctx, 512, 96, agent, { palette, shapes }),
+    [agent.name, agent.status, agent.issueNumber, agent.currentTool, agent.color, palette, shapes],
+    { anchor, range: TAG_RANGE },
+  );
   return (
     // placed by Character, which carries it about with the person
-    <Billboard>
+    <Billboard userData={BILLBOARD}>
       <mesh ref={anchor}>
         <planeGeometry args={[1.15, 0.216]} />
         <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
@@ -136,13 +151,14 @@ function LiveMonitor({ agent, accent }: { agent: Agent; accent: string }) {
     <Monitor accent={accent}>
       <mesh ref={screenRef} position={[0, 0, 0.026]}>
         <planeGeometry args={[SCREEN.w, SCREEN.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
     </Monitor>
   );
 }
 
 function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
+  const use = useKeyName('interact');
   const tex = useCanvasTexture(
     640,
     384,
@@ -152,16 +168,16 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
       drawSign(ctx, 640, 384, [
         { text: qa ? '🔍' : '🪑', size: 70 },
         { text: qa ? 'QA STATION' : 'VACANT', size: 70, color: '#ffd6a5' },
-        { text: qa ? 'press E or click to hire a tester' : 'press E or click to hire an agent', size: 36, color: '#a9adc6', weight: 500 },
+        { text: qa ? `press ${use} or click to hire a tester` : `press ${use} or click to hire an agent`, size: 36, color: '#a9adc6', weight: 500 },
       ], 'rgba(0,0,0,0)');
     },
-    [qa],
+    [qa, use],
   );
   return (
     <Monitor accent={accent}>
       <mesh position={[0, 0, 0.026]}>
         <planeGeometry args={[SCREEN.w, SCREEN.h]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        <meshBasicMaterial map={tex} toneMapped={false} userData={BLOOM} />
       </mesh>
     </Monitor>
   );
@@ -229,6 +245,57 @@ function DeskMug({ agentId, color }: { agentId: string; color: string }) {
   );
 }
 
+/**
+ * The CEO suggests letting this person go: a sealed envelope on their desk with a ✉️ bobbing over it. E on it opens
+ * the CEO's note (ui/Interview.tsx), where the manager lets them go or keeps them.
+ */
+function LetGoEnvelope({ agentId, name }: { agentId: string; name: string }) {
+  const req = useStore((s) => s.requests.find((r) => r.kind === 'let-go' && r.status === 'pending' && r.agentId === agentId));
+  return req ? <Envelope requestId={req.id} name={name} /> : null;
+}
+
+function Envelope({ requestId, name }: { requestId: string; name: string }) {
+  const ref = useInteractable<THREE.Group>({ id: `letgo-${requestId}`, label: `Read the CEO's note about ${name}`, action: { kind: 'interview', requestId } }, 3.6);
+  const marker = useRef<THREE.Group>(null);
+  const tex = useCanvasTexture(
+    128,
+    128,
+    (ctx) => {
+      ctx.beginPath();
+      ctx.arc(64, 64, 56, 0, Math.PI * 2);
+      ctx.fillStyle = '#fffdf6';
+      ctx.fill();
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = '#e07a5f';
+      ctx.stroke();
+      ctx.font = '64px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✉️', 64, 70);
+    },
+    [],
+  );
+  useFrame(({ clock }) => {
+    if (marker.current) marker.current.position.y = 0.42 + Math.sin(clock.elapsedTime * 2.4) * 0.04;
+  });
+  return (
+    <group ref={ref} position={[-0.45, 0.775, 0.18]} rotation={[0, 0.3, 0]}>
+      <Box size={[0.3, 0.012, 0.2]} color="#fffdf6" outline />
+      <Box size={[0.3, 0.004, 0.012]} position={[0, 0.008, 0.02]} rotation={[0, 0.55, 0]} color="#e9e2d0" shadow={false} />
+      <Box size={[0.3, 0.004, 0.012]} position={[0, 0.008, 0.02]} rotation={[0, -0.55, 0]} color="#e9e2d0" shadow={false} />
+      <Cyl r={0.028} h={0.012} position={[0, 0.012, 0.02]} color="#c1121f" />
+      <group ref={marker} position={[0, 0.42, 0]}>
+        <Billboard userData={BILLBOARD}>
+          <mesh>
+            <planeGeometry args={[0.3, 0.3]} />
+            <meshBasicMaterial map={tex} transparent toneMapped={false} depthWrite={false} />
+          </mesh>
+        </Billboard>
+      </group>
+    </group>
+  );
+}
+
 const LAB_BENCH = '#dfe7ef';
 const QA_ORANGE = '#ff9f68';
 
@@ -252,6 +319,10 @@ export const Desk = memo(function Desk({
   rotationY?: number;
 }) {
   const qa = role === 'qa';
+  // Aiming at the person themselves, while they've nothing to do, says hi instead (Chatter.tsx).
+  const agentId = agent?.id;
+  const desk = agent?.role === 'ceo' ? 'to open it' : qa ? 'for their test run' : 'for their terminal';
+  const greeting = useMemo(() => (agentId ? greetPick(agentId, desk) : undefined), [agentId, desk]);
   const ref = useInteractable<THREE.Group>(
     agent
       ? {
@@ -265,6 +336,7 @@ export const Desk = memo(function Desk({
           action: { kind: 'hire', repoId, role },
         },
     3.6,
+    greeting,
   );
   const mug = agent ? shade(agent.color, 0.1) : '#ffffff';
   const top = qa ? LAB_BENCH : WOOD;
@@ -293,10 +365,12 @@ export const Desk = memo(function Desk({
           <group ref={mugRef} position={[0.76, 0.82, 0.02]}>
             <DeskMug agentId={agent.id} color={mug} />
           </group>
+          {agent.role !== 'ceo' && <LetGoEnvelope agentId={agent.id} name={agent.name} />}
         </>
       ) : (
         <VacantMonitor accent={accent} qa={qa} />
       )}
+      <DeskGlow color={accent} />
       {qa ? (
         // test-tube rack: every good QA desk has one
         <group position={[-0.72, 0.77, -0.2]}>
@@ -305,12 +379,13 @@ export const Desk = memo(function Desk({
             <Cyl key={c} r={0.022} h={0.16} position={[-0.09 + i * 0.09, 0.1, 0]} color={c} outline />
           ))}
         </group>
-      ) : (
+      ) : !agent || agent.role === 'ceo' ? (
+        // a team member's plant grows with them (desk/DeskStory.tsx)
         <>
           <Cyl r={0.06} rTop={0.07} h={0.09} position={[-0.76, 0.815, -0.22]} color="#e07a5f" outline />
           <Ball r={0.09} position={[-0.76, 0.92, -0.22]} color="#52b788" outline />
         </>
-      )}
+      ) : null}
 
       {/* chair (it rolls back when its owner gets up) */}
       <group ref={chairRef} position={[0, 0, agent ? 0.8 : 0.6]}>

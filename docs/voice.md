@@ -9,6 +9,8 @@ phone. Two voices are on offer:
 
 Office notes (merges, errors, decisions) are spoken too only if you turn on **Speak office notes**.
 
+It listens too: you can talk to the CEO and the agents instead of typing ([Talking instead of typing](#talking-instead-of-typing)).
+
 Facts about ElevenLabs below were checked against its docs and pricing pages in October 2026.
 
 ## Getting an ElevenLabs key
@@ -100,6 +102,51 @@ The cache is tidied when the office starts and on its housekeeping timer (every 
 **Keep voice clips for N days** (Settings → Voice, 1–90, default 7) go, then the oldest beyond 200, but the clips of the
 newest 20 CEO messages always stay. Settings → Voice also shows the cache's size and has **Clear saved clips**.
 
+## Talking instead of typing
+
+Every message box has a 🎙️ next to Send: the phone's CEO chat, an agent's panel and the CEO tab of the manager's
+console. **Hold** it, or hold **V** while the caret is in the box (or anywhere on that phone or panel outside another
+field), and speak: the words fill the box as you go, and letting go leaves them there to edit before you send. A quick
+tap of V still types a "v"; only a press held for 0.3 s talks, and V never talks in other fields. A **tap** of the 🎙️
+listens until you stop talking (about 1.2 s of quiet), or until you tap it again; if nobody speaks it gives up after 8 s.
+**Esc** stops listening (without closing the phone or the panel), typing in the box takes over from the mic, and
+sending by hand stops it too. Typing works exactly as before.
+
+Settings → Voice → **Talk instead of type** picks who turns speech into text:
+
+- **Browser** (the default): the browser's own speech recognition (the Web Speech API's `SpeechRecognition`), free.
+  Chrome, Edge and Safari have it; where the browser doesn't (Firefox), the 🎙️ is dimmed and says so when pressed.
+  The live transcript appears as you speak. Chrome and Edge send the audio to their makers' speech services to
+  recognise it.
+- **ElevenLabs Speech to Text**: the browser records the clip (MediaRecorder, WebM/Opus in Chromium) and sends it to the
+  office, which sends it to ElevenLabs (`POST /v1/speech-to-text`, model `scribe_v2`, audio-event tags off) with the key
+  above; the text comes back when you let go. A clip is at most 60 seconds and 5 MB. ElevenLabs charges by the length
+  of the audio; a restricted key needs the **Speech to Text** permission. The key is handled exactly like the voice's:
+  it never reaches the browser, the logs or the snapshot.
+- **Off**: no 🎙️ anywhere.
+
+**Send automatically when I stop talking** (off by default) sends what you said after about 1.2 s of quiet, instead of
+leaving it in the box; letting go of a hold sends it too.
+
+**Hands-free** (the 🎧 on the phone's chat, off by default; also in Settings → Voice) is a conversation without
+touching anything: when the CEO's reply has been read aloud, a soft chime plays and the phone listens for up to 8 s with
+a pulsing 🎙️. Say something and it's sent once you stop; say nothing and it closes (with a falling chime). **Esc** or
+**M** closes it straight away. It needs the CEO's voice on, the phone open on the chat in the tab you're looking at, and
+an empty message box; it never asks for the microphone on its own (turning it on asks, from that click).
+
+Manners: the browser asks for the microphone the first time you press the 🎙️ (or turn hands-free on), and a refusal
+is explained in one line. The mic is only ever on while you hold the button or V, or while the pulsing 🎙️ shows
+(a tap, hands-free). While it listens, the jukebox and other sounds dip, a message being read dips by about 15 dB (the
+browser's voice pauses), the office's cues (merge, QA, errors) wait until it closes, and the merge gong stays quiet.
+
+`window.__swarmMic` shows the 🎙️'s `state` (`idle`, `listening`, `transcribing` or `error`), `mode` (`hold`, `tap`,
+`handsfree`), whether the mic is `live`, the last `transcript`, the `provider`, the last `error`, what this browser
+`supported`s, the hands-free state and a `history` of sessions with their outcome. Headless browsers have no mic:
+`__swarmMic.fake()` swaps the browser's recognition for a stand-in, and `__swarmMic.say(text, final = true)` is what it
+hears (with ElevenLabs, `say()` marks speech for the silence detector). The rules are pure and tested:
+`client/src/ui/micSilence.ts` (when you've stopped talking), `handsFree.ts`, `micKeys.ts`, `micText.ts` and
+`shared/clipLimits.ts`.
+
 ## API
 
 | Route | What it does |
@@ -110,13 +157,16 @@ newest 20 CEO messages always stay. Settings → Voice also shows the cache's si
 | `GET /api/voice/messages/:id?cached=1&part=N` | the phone's ▶: part N of the message's saved clips (`X-Voice-Parts` says how many), or 404 when none is saved. Never calls ElevenLabs |
 | `DELETE /api/voice/cache` | deletes every saved clip |
 | `GET /api/voice/sample?voiceId=…` | the Test line in that voice (default: the chosen one) |
+| `POST /api/voice/transcribe` | the 🎙️ with ElevenLabs: the recorded clip as the body (`Content-Type` its audio type, `X-Clip-Ms` its length) → `{ text }`. 409 when ElevenLabs isn't the provider or there's no key, 413 over 60 s or 5 MB, 415 for anything but WebM, Ogg, MP4, MP3 or WAV, 502 when ElevenLabs fails |
 | `GET /api/voice/standup?n=3&part=morning` | the CEO's line at a stand-up in the 3D office ("Morning team, three new features today!"; `part` is `morning`, `afternoon` or `evening`), made once per wording and cached; 404 when the voice isn't ElevenLabs |
 
 Settings travel in `settings.voice` (`PATCH /api/settings`): `{ provider: 'off' | 'browser' | 'elevenlabs', voiceId,
-voiceName, model, speakOffice, keepDays }`. The snapshot has `voiceKeySet`, `voiceKeyHint` and `voiceCache`
+voiceName, model, speakOffice, keepDays }`, and listening in `settings.listen`: `{ provider: 'off' | 'browser' |
+'elevenlabs', autoSend, handsFree }`. The snapshot has `voiceKeySet`, `voiceKeyHint` and `voiceCache`
 (`{ clips, bytes, saved }`, `saved` being the message ids the ▶ can replay); a `voiceKey` event follows every key change
 and a `voiceCache` event every change to the cache. A phone message's `voice` says who read it when it arrived. One clip is made at a time (20 s timeout); requests for a clip that's being made share that call.
 
 The demo office (`--demo`) fakes all of it with no network: any key except one containing "bad" is accepted, there are
 three voices, and every message is a short generated chime (a WAV), pitched by the voice, cached and replayed like a
-real clip. The server logs `voice: made a new clip …` for every clip it makes.
+real clip. Its Speech to Text hears "What's everyone working on?" in any recording. The server logs `voice: made a new
+clip …` for every clip it makes and `voice: transcribed a 2.4 s clip (30 KB)` for every transcription (never the words).

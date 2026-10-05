@@ -32,12 +32,13 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 
 1. **Set up your company.** A short wizard asks your name, names your company and introduces your CEO.
 2. **Move in a project.** Pick one of your project folders or a GitHub repo, or start a new one. It gets its own floor. Every project needs to be on GitHub, because issues and pull requests are how the team works.
-3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires.
+3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires, or meet the candidates waiting in the lobby and interview them face to face.
 4. **Watch the work.** Developers pick up issues and open pull requests. QA testers review and test each one in a real browser, then post a report with screenshots. With auto-merge on, a pull request merges itself once QA passes and GitHub's checks are green.
 
 ## What's in the office
 
 - **Floors**: one per project. Ride the elevator between them.
+- **The roof**: the elevator's top stop. A garden, deck chairs to sit back in, a barbecue for a sausage, a telescope for the billboards by day and the moon and constellations by night, string lights at dusk and a helipad. Idle agents come up for a break now and then.
 - **Desks**: walk up behind an agent to watch their monitor. Open it to see their real terminal: every agent is an actual coding agent running on your machine, and you can type into it. It also shows a live browser when they test the UI. Pick the coding agent, model and effort for the whole team or per agent.
 - **The QA lab**: every floor has at least one QA tester.
 - **The whiteboard**: the Kanban board, from backlog to merged. Aim at a sticky and press `E` to read it up close, or peel a Backlog sticky off with `G` and carry it to a free developer's desk to hand them the issue. Red strings join issues to the ones they depend on, and the corner counts today's merges, the issue-to-merge time, the QA queue and anything that needs you.
@@ -45,8 +46,11 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 - **The lobby**: the manager's office, where you connect projects, hire, file issues and change settings, and the CEO's corner office.
 - **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model, effort and job description, and "What they're told" shows the full prompt the office gives them.
 - **Merges**: confetti bursts over the developer's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
+- **Chatter**: the team talks about their real work in speech bubbles ("PR #212 is up for QA", "Tests are green! ✅", "Ugh, a merge conflict in store.ts") in a cute babble voice of their own, Animal Crossing style. Aim at someone with nothing to do and press `E` to say hi. Off, quiet or lively, with or without the babble, in help (`H`).
 - **Rituals**: when the CEO files a burst of issues, the free agents gather at the whiteboard and the CEO comes up in the elevator to put up the new stickies (and says so out loud if the CEO's voice is on). The CEO walks the floors now and then (press `E` on them to text them), people eat lunch from noon to one, pizza arrives on Friday afternoons, and in the evening the desk lamps come on, idle agents head home and come back in the morning with a coffee. They follow the sky's clock (in help: a 30-minute day, your own clock, or always afternoon).
+- **Time-lapse**: watch the day (or just what happened while you were away) replay in the office at up to 600×, from the manager's console or the screen in the lobby.
 - **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`.
+- **The office dog**: one dog for the whole building (Biscuit, renameable in Settings). Pet it with `E` and it follows you, throw a ball and it fetches it, and it naps, keeps struggling agents company, celebrates merges and rides the elevator between floors.
 - **Sounds**: a master volume, `M` to mute, and a slider each for footsteps, typing, toys and alerts. Find them in help (`H`).
 
 ## Controls
@@ -56,16 +60,22 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 | `W A S D` / arrows | walk |
 | `Shift` | run |
 | mouse | look around (click the view first) |
-| `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine |
+| `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine; say hi to someone with nothing to do |
 | `E` with coffee | take a sip (three to a mug, the last a big gulp) |
+| `E` on the roof | sit back in a deck chair, grill (and eat) a sausage, look through the telescope (mouse wheel zooms) |
 | `F` / left click, holding something | throw a ball (hold to charge) or fire a blaster |
 | `G` | drop what you're holding, or peel the whiteboard sticky you aim at off the board |
 | `R` | reload a blaster |
 | `P` | your phone |
-| `Tab` | show or hide who's working |
+| `Tab` | the overview: the whole floor from above, dollhouse style (drag to pan, scroll to zoom, `Q` / `E` to turn, click someone to open their panel); `Tab` again flies you back, twice quickly shows the whole building |
+| `L` | show or hide who's working |
+| `K` | photo mode: freeze the office, fly a camera, filters, shots and clips |
+| `I` | save the last 15 seconds (once instant replay is on, in photo mode or help) |
 | `M` | mute or unmute |
-| `H` | help, with every control and the sound settings |
-| `Esc` | let go of the mouse, or close a panel |
+| `H` | help, with every control and the sound settings; its Controls tab rebinds every key and sets up the mouse and gamepad |
+| `Esc` | let go of the mouse, close a panel, or leave the overview |
+
+A gamepad works too (left stick walks, right stick looks, A uses, B goes back, X picks up or drops, the triggers throw, Start opens the phone, Select the overview), and **🎥 Follow** in an agent's panel trails them with the camera.
 
 ## Commands
 

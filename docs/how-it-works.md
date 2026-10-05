@@ -48,7 +48,11 @@ You can message an agent at any time. While they're working, the message is inje
 
 ## The team
 
+When the CEO proposes a hire, the candidate waits in the lobby: six chairs by the glass door, each candidate looking as they will once hired, with their CV on their lap and a name tag (more than six: "+N waiting" on the sign). Press `E` on one to interview them: their title, specialty and floor, the CEO's reason as their pitch, the job description, model and effort, and a note the CEO reads. **Hire** and they shake your hand and take the elevator up to their floor, where they get a welcome tour (the coffee machine, the whiteboard and the gong, a teammate waving at each) before sitting down; if work comes in on the way, they go straight to their desk. **Decline** and they nod politely and leave by the door. A let-go the CEO proposes is an envelope on that person's desk. Deciding on the phone or in the manager's console works the same, and the people in the building react either way. In the demo office, Hires on the phone can send a candidate or a let-go on demand.
+
 Agents get names from a pool of computing pioneers (developers) and fictional detectives (QA testers). Each character's look is picked from their name, so Ada, Grace and Marple are drawn with long hair, a ponytail or a bun. You can change any agent's name or look in the manager's console → Team, or in the ⚙️ Setup at the top of their own panel (open their desk), which also has their coding agent, model, effort, title, specialty and job description. Changes apply from their next task. **What they're told**, in the same Setup, shows the full prompt the office gives them, with their job description highlighted; the CEO's is on the console's CEO tab.
+
+The rest of their look is seeded from their id (hair, glasses, outfit, build and so on); QA testers wear a lab coat with a magnifier badge, the CEO a blazer and lanyard, and a developer's specialty can add a small accessory (headphones round the neck for audio, a ball under the desk for physics, a wrench badge for devex). **Look** in their Setup has a live preview and changes any of it (hair, hair colour, skin tone, facial hair, glasses, headwear, outfit, accent colour, build); picks save at once, show on their character straight away, and **Back to their seeded look** undoes them. Their faces follow what they're doing: focused while working, puzzled when their PR's checks go red or QA fails it, stressed after a long fight over a PR, joyful while cheering a merge and proud after, sleepy after a long idle, surprised when a ball hits them.
 
 ## Mission control
 
@@ -87,19 +91,30 @@ Agents can do anything your own coding agent in a terminal can. Run the office w
 
 ## Where things live
 
-- `~/.cubefarm/state.json`: floors, agents, settings, terminal history and mission control's last 7 days (`SWARM_HOME` overrides the folder)
+- `~/.cubefarm/state.json`: floors, agents, settings, terminal history, mission control's last 7 days, and the ledger behind the coins, decorations, trophies and agents' careers (`SWARM_HOME` overrides the folder)
 - `~/.cubefarm/terminals/<agent>.ansi`: each agent's terminal screen and scrollback
 - `~/.cubefarm/sessions/<token>/`: a running CLI session's settings, MCP config and instructions (removed when it ends); `~/.cubefarm/bin/`: the small scripts the CLIs call back to the office with
 - `~/.cubefarm/workspaces/<owner>__<repo>/main`: a clone of each repo
 - `~/.cubefarm/workspaces/<owner>__<repo>/desks/<agent>`: one worktree per agent, reused from task to task. A desk left idle longer than **Free idle desks after** (manager's console → Settings, default 120 minutes, 0 = never) loses its `node_modules` (at any depth) and its build and test output (`dist/`, `dist-server/`, `test-results/`, `playwright-report/`, `.swarm-home/`, `.preview-tmp/`, `.playwright-mcp/`), once per idle stretch; tracked and untracked source files stay, and the next task installs again. The office checks every 15 minutes, never touches a busy desk or a running preview's, and your phone says how much it freed. A folder Windows still has locked is tried again next time.
 - `~/.cubefarm/leftovers/<owner>__<repo>/`: work saved from desks the office swept away
 - `~/.cubefarm/secrets.json`: the ElevenLabs key and the chat apps' webhooks; `~/.cubefarm/push.json`: the Web Push keys and your devices' subscriptions ([docs/pocket.md](pocket.md))
+- `~/.cubefarm/journal/<day>/`: the last week of the office's look, for the time-lapse (see below)
 
 Every 30 minutes (and when a floor starts, or someone is let go) the office sweeps each floor: it removes desks nobody uses any more and the finished `swarm/issue-*` and `qa/pr-*` branches nobody has checked out or has an open PR for. A desk with uncommitted changes to tracked files or unpushed commits is saved as a `.patch` in `leftovers/` first, and a folder that a program still has open is left for the next sweep. Your own branches and worktrees outside `desks/` are never touched.
 
 Workspaces live outside this project on purpose: agents working in them never pick up this project's `CLAUDE.md`.
 
 Disconnecting a floor never deletes anything on GitHub, and it leaves the clone on disk.
+
+## Time-lapse
+
+The office keeps a journal of how it looked, so you can come back and watch the day replay in the office itself, up to 600 times faster.
+
+- **Watching**: the manager's console → **📼 Time-lapse** (or the time-lapse screen on the lobby's south wall, by the hoop) lists the recorded days with their merges (🎉), PRs that needed you (🔴) and new issues (🆕). **Catch up** replays your latest time away: the browser remembers when you were last active, and a gap of 10 minutes or more counts. Pick 30×, 120× or 600× (an hour in 2 minutes, 30 seconds or 6 seconds).
+- **While it plays**, the office draws the recorded moment instead of the live one: people sit, stand and go on their errands, stickies move on the whiteboard, merges bang the gong (a little quieter) with confetti, and the sky, the wall clocks, mission control's screens and the day's rituals follow the replayed time. A red frame and a **▶ REPLAY · 14:32** badge say so; the bar at the bottom pauses, changes speed and jumps anywhere on the timeline. Live actions (assigning, messaging, merging, terminals, the PR theatre) are off; notifications still arrive. `Esc` frees the mouse, and `Esc` again goes straight back to the live office. The time-lapse is part of the 3D office: pocket mode doesn't have it.
+- **What's recorded** is what changes the office's look, taken from the events the browser gets: everyone's status, task, issue or PR and the name of the tool in hand; QA records; PRs opened, merged or closed; issues filed and closed; CEO and phone messages (text only); usage pacing; mission control's numbers. Never terminal output, screenshots, settings, errors, job descriptions or preview environment variables, and anything that looks like a key or token, or matches the ElevenLabs key or a secret-looking environment variable, is written as `[redacted]`.
+- **On disk**: `~/.cubefarm/journal/<day>/<start>.ndjson` (the demo uses `demo-journal/`): newline-delimited JSON, a new file every 10 minutes that starts with a keyframe of the whole office, so a jump reads from the nearest one. Changes wait in memory and are written every 30 seconds through a temp file and a rename; an agent's or a floor's update is stored as just what changed. Days older than a week are deleted, and the oldest files once the journal passes 200 MB: when the office starts and every 15 minutes.
+- **API** (read-only): `GET /api/journal/days` lists the days with their span, size and marks; `GET /api/journal/events?from=<ms>&to=<ms>[&seek=1]` returns the lines between two times (at most 24 hours apart), from the nearest keyframe with `seek=1`. A bad range is a 400, a range before anything was recorded a 404. A demo office that has no earlier day writes a made-up working day as yesterday when it starts, and `POST /api/journal/sample` (the console's 🧪 button) writes it again.
 
 ## Floor connections
 
@@ -130,6 +145,19 @@ Example, this repo previewing itself (a demo office on the floor's port, with it
 ```
 
 In `--demo` mode no git or npm runs: starting a preview serves a small placeholder page ("<floor> app · <ref>", with a click counter) on the floor's port.
+
+### The PR theatre
+
+Any open PR can run beside the floor's main preview, so you can try it before it merges. The big screen's bottom row has a channel per open PR (aim at one, press E), and the app viewer has the same channels: "main" and "PR #12 · title · ✅ QA passed".
+
+- `POST /api/repos/:repo/pr-previews/:n` starts PR #n's preview (kept as it is when it's already up; `{ "restart": true }` runs it again from the PR's latest head). `DELETE` stops it. The previews are in the snapshot's `prPreviews` and the `prPreview` / `prPreviewRemoved` events.
+- It runs the floor's preview command and environment, from a slot worktree: `desks/preview-pr-1` or `desks/preview-pr-2` (branch `swarm-preview-pr-<slot>`). A slot taken over by another PR of the same floor keeps its `node_modules`, so the install is skipped when the dependencies match.
+- Ports: 100 above the floor previews, one lane per slot (6401, 6403 … and 6402, 6404 …), skipping the office's ports, other previews' and anything already listening. `SWARM_PREVIEW_PORT` moves both ranges (default 6300); only test offices need it.
+- At most **2** PR previews at once. A third one stops the one nobody has watched the longest (a failed one first); one on screen is never stopped for room.
+- An open viewer says which PR it has on screen (`POST /api/previews/watch`, every 30 seconds). A PR preview stops after **20 minutes** off screen (`SWARM_PR_PREVIEW_IDLE_MIN` changes it, fractions allowed, for tests), when its PR merges or closes, and when the office stops. Its worktree goes with it; the office's next start clears away anything a hard stop left.
+- **Compare with main** puts main on the left and the PR on the right, the same path in both. **Sync scrolling** shows each side through a small pass-through proxy (`POST /api/repos/:repo/preview/sync`, a port the OS picks, on loopback) that adds a script to HTML pages, so each side follows the other's scrolling and links. That works for plain web pages that scroll the page itself.
+- The side panel shows the PR's GitHub checks and QA's latest report: summary, checks and screenshots. QA's screenshots of a PR's latest round are kept in `<SWARM_HOME>/qa-shots/` (served at `/api/repos/:repo/pulls/:n/qa-shots/:i`) until the PR leaves QA.
+- In `--demo` mode a PR preview is a placeholder page of its own: the PR's number and title, a highlighted "new in this PR" row, and Home / About pages to try the path and scrolling sync on.
 
 ## Updating the office
 

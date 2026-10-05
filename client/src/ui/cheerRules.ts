@@ -42,7 +42,7 @@ export function hashSeed(s: string): number {
 }
 
 /** A small seeded generator (mulberry32) giving numbers in [0, 1). */
-function seeded(seed: number) {
+export function seeded(seed: number) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

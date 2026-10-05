@@ -4,8 +4,14 @@ import { floorPrCounts, isBusy, pendingRequests, unreadMessages, useStore, type 
 import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
+import { MicButton } from './MicButton';
+import { handsFreeProblem, setHandsFree } from './mic';
 import { closeOverlay } from './Panel';
+import { useDialogFocus } from './dialogFocus';
+import { isKey } from './controls';
+import { Key } from './Key';
 import { Games, type GameId } from './games/Games';
+import { HolidayStrip } from './HolidayStrip';
 import { replayKind } from './voiceQueue';
 import { effectiveModel } from '../../../shared/models';
 
@@ -110,8 +116,30 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
   );
 }
 
+/** Candidates waiting in the lobby to be interviewed, with a way down to meet them (unless you're there already). */
+function LobbyNudge() {
+  const n = useStore((s) => pendingRequests(s.requests).filter((r) => r.kind === 'hire').length);
+  const inLobby = useStore((s) => s.floor === 0);
+  const goToFloor = useStore((s) => s.goToFloor);
+  if (!n) return null;
+  return (
+    <div className="phone-nudge" role="status">
+      <span>🪑</span>
+      <span className="grow">
+        {n} candidate{n === 1 ? ' is' : 's are'} waiting in the lobby
+      </span>
+      {!inLobby && (
+        <button className="btn btn-small" onClick={() => goToFloor(0)}>
+          Meet them
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Hires({ focusId }: { focusId?: string }) {
   const requests = useStore((s) => s.requests);
+  const demo = useStore((s) => s.demo);
   const pending = pendingRequests(requests);
   const decided = requests.filter((r) => r.status !== 'pending').slice(-8).reverse();
   return (
@@ -121,6 +149,17 @@ function Hires({ focusId }: { focusId?: string }) {
       {pending.map((r) => (
         <Resume key={r.id} req={r} highlight={r.id === focusId} />
       ))}
+      {demo && (
+        <div className="row wrap">
+          <span className="muted small">Demo:</span>
+          <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.demoPropose('hire'))}>
+            📄 Send a candidate
+          </button>
+          <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.demoPropose('let-go'))}>
+            ✉️ Suggest a let-go
+          </button>
+        </div>
+      )}
       {decided.length > 0 && (
         <>
           <h3 className="phone-h">Earlier</h3>
@@ -157,6 +196,26 @@ function ReplayButton({ m }: { m: PhoneMessage }) {
 }
 
 const QUICK = ["What's everyone working on?", 'Do we need anyone new?', 'Plan the next milestone for the busiest floor.'];
+
+/** The hands-free conversation's switch: after the CEO's spoken reply, the phone listens for up to 8 s. */
+function HandsFreeToggle({ ceoName }: { ceoName: string }) {
+  const listen = useStore((s) => s.settings.listen);
+  useStore((s) => `${s.voiceKeySet}:${s.settings.voice.provider}`); // handsFreeProblem() follows the key and the voice
+  if (!listen || listen.provider === 'off') return null;
+  const on = listen.handsFree;
+  const why = handsFreeProblem(ceoName);
+  return (
+    <button
+      type="button"
+      className={`hands-free ${on ? 'hands-free-on' : ''}`}
+      aria-pressed={on}
+      title={on ? `Hands-free is on: after ${ceoName}'s spoken reply the phone listens for up to 8 s and sends what you say. Esc or M closes the mic.` : why || `Hands-free: talk with ${ceoName} without touching anything`}
+      onClick={() => void setHandsFree(!on, ceoName)}
+    >
+      🎧 {on ? 'Hands-free on' : 'Hands-free'}
+    </button>
+  );
+}
 
 function Bubble({ m, ceoName }: { m: PhoneMessage; ceoName: string }) {
   const req = useStore((s) => (m.requestId ? s.requests.find((r) => r.id === m.requestId) : undefined));
@@ -228,8 +287,9 @@ export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
           <b>{ceo.name}</b> <span className="muted small">CEO</span>
           <div className={`small ${ceo.status === 'working' ? 'presence-busy' : 'muted'}`}>{presence}</div>
         </div>
+        <HandsFreeToggle ceoName={ceo.name} />
       </div>
-      <div className="chat-log" ref={scroller}>
+      <div className="chat-log" ref={scroller} aria-label={`Messages with ${ceo.name}`} tabIndex={0}>
         {messages.length === 0 && (
           <p className="muted small phone-empty">
             Say hi to {ceo.name}. Ask how things are going, hand over a project brief, or ask who the team should hire. Replies land here, and the phone buzzes when {ceo.name} needs you.
@@ -263,6 +323,7 @@ export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
         }}
       >
         <MessageBox value={text} onChange={setText} placeholder={`Message ${ceo.name}…`} aria-label={`Message ${ceo.name}`} title="Enter sends · Shift+Enter adds a new line" autoFocus={autoFocus} />
+        <MicButton kind="phone" value={text} onChange={setText} onSend={send} />
         <button className="btn btn-small btn-good" disabled={!text.trim()}>
           Send
         </button>
@@ -349,6 +410,33 @@ function useCompany() {
   }, [repos, agents, qa, requests, settings, info]);
 }
 
+/** Every panel, a key press away: the phone is where keyboard and screen reader users reach the rest of the office. */
+function Shortcuts() {
+  const openOverlay = useStore((s) => s.openOverlay);
+  const repoId = useStore((s) => s.repos.find((r) => r.floor === s.floor)?.id);
+  return (
+    <nav className="phone-links" aria-label="Open a panel">
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager' })}>
+        🧑‍💼 Console
+      </button>
+      {repoId && (
+        <button className="btn btn-small" onClick={() => openOverlay({ kind: 'kanban', repoId })}>
+          📋 Kanban
+        </button>
+      )}
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'floorList' })}>
+        👥 Floor list
+      </button>
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'help' })}>
+        ❓ Help
+      </button>
+      <button className="btn btn-small" onClick={() => openOverlay({ kind: 'manager', tab: 'access' })}>
+        ♿ Accessibility
+      </button>
+    </nav>
+  );
+}
+
 function Company() {
   const c = useCompany();
   const goToFloor = useStore((s) => s.goToFloor);
@@ -371,6 +459,7 @@ function Company() {
           </div>
         ))}
       </div>
+      <Shortcuts />
       <h3 className="phone-h">Today's report</h3>
       <ul className="report">
         {c.report.map((r, i) => (
@@ -435,10 +524,13 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     [],
   );
   const openOverlay = useStore((s) => s.openOverlay);
+  const box = useRef<HTMLDivElement>(null);
+  useDialogFocus(box);
   const requests = useStore((s) => s.requests);
   const messages = useStore((s) => s.messages);
   const readAt = useStore((s) => s.phoneReadAt);
   const ceoName = useStore((s) => s.agents[CEO_ID]?.name ?? 'CEO');
+  const listenOn = useStore((s) => (s.settings.listen?.provider ?? 'off') !== 'off');
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 20_000);
@@ -454,7 +546,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
-      if (e.key === 'Escape' || (!typing && e.code === 'KeyP')) {
+      if (e.key === 'Escape' || (!typing && isKey('phone', e.code))) {
         e.preventDefault();
         closeOverlay();
       }
@@ -473,23 +565,32 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
   ];
   return (
     <div className="overlay phone-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
-      <div className="phone">
-        <div className="phone-status">
+      <div className="phone" ref={box} role="dialog" aria-modal="true" aria-label="Your phone" tabIndex={-1}>
+        <div className="phone-status" aria-hidden>
           <span>{clock(now)}</span>
           <span className="phone-notch" />
           <span>📶 🔋</span>
         </div>
+        <HolidayStrip />
         <div className="phone-screen">
+          {tab !== 'games' && <LobbyNudge />}
           {tab === 'chat' && <Chat />}
           {tab === 'hires' && <Hires focusId={requestId} />}
           {tab === 'company' && <Company />}
           {tab === 'games' && <Games game={game} onGame={setGame} />}
         </div>
-        <nav className="phone-tabs">
+        <nav className="phone-tabs" role="tablist" aria-label="Phone">
           {tabs.map(([k, icon, label, badge]) => (
             // Tapping Games again while in a game goes back to the list.
-            <button key={k} className={`phone-tab ${tab === k ? 'phone-tab-on' : ''}`} onClick={() => (k === 'games' && tab === 'games' ? setGame(null) : setTab(k))}>
-              <span className="phone-tab-icon">
+            <button
+              key={k}
+              role="tab"
+              aria-selected={tab === k}
+              aria-label={badge > 0 ? `${label}, ${badge} new` : label}
+              className={`phone-tab ${tab === k ? 'phone-tab-on' : ''}`}
+              onClick={() => (k === 'games' && tab === 'games' ? setGame(null) : setTab(k))}
+            >
+              <span className="phone-tab-icon" aria-hidden>
                 {icon}
                 {badge > 0 && <span className="badge badge-dot">{badge}</span>}
               </span>
@@ -501,6 +602,11 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
           {tab === 'chat' && (
             <>
               <kbd>Shift</kbd>+<kbd>Enter</kbd> new line ·{' '}
+              {listenOn && (
+                <>
+                  <Key action="talk" /> to talk ·{' '}
+                </>
+              )}
             </>
           )}
           {tab === 'games' && game && (
@@ -508,7 +614,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
               <kbd>Backspace</kbd> games ·{' '}
             </>
           )}
-          <kbd>P</kbd> or <kbd>Esc</kbd> to put it away
+          <Key action="phone" /> or <kbd>Esc</kbd> to put it away
         </div>
       </div>
     </div>

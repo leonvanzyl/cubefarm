@@ -19,6 +19,7 @@ const NORTH = 0; // body.ts heading facing -Z: the gong
 // Where the runner strikes from: a step closer than GONG_SPOT, so the mallet reaches the disc.
 const STRIKE = { x: GONG.x, z: GONG.z + 1 };
 let timer: ReturnType<typeof setInterval> | null = null;
+let heldAt: number | null = null; // performance.now() when photo mode froze the office, or null
 
 /** Who has the mallet off its hook right now, or null. Read every frame by Character.tsx and Gong.tsx. */
 export const malletHolder = () => (runs.run && holdsMallet(runs.run.beat) ? runs.run.agentId : null);
@@ -37,8 +38,34 @@ function plan(repoId: string | null, agentId: string | null, celebrate: boolean,
   if (p === 'absent') return p;
   runs.queue.push({ agentId: p === 'run' ? agentId : null, celebrate });
   pumpGongRuns(performance.now());
-  if (busy(runs) && !timer) timer = setInterval(() => pumpGongRuns(performance.now()), 250);
+  keepPumping();
   return p;
+}
+
+function keepPumping() {
+  if (busy(runs) && !timer && heldAt === null) timer = setInterval(() => pumpGongRuns(performance.now()), 250);
+}
+
+/**
+ * Photo mode's freeze: holds every run where it is (no strikes, no giving up) and, when released, moves their clocks
+ * and the gong's on by the pause, so they carry on as if no time had passed. Merges meanwhile wait in the queue.
+ */
+export function holdGongRuns(on: boolean, now = performance.now()) {
+  if (on) {
+    if (heldAt === null) heldAt = now;
+    stopTimer();
+    return;
+  }
+  if (heldAt === null) return;
+  const paused = now - heldAt;
+  heldAt = null;
+  for (const r of runs.run ? [runs.run, ...runs.home] : runs.home) {
+    r.since += paused;
+    r.started += paused;
+  }
+  gongState.hitAt += paused;
+  gongState.celebrateUntil += paused;
+  keepPumping();
 }
 
 /** Drops every queued and running trip, sending the runners back to their seats (the gong's floor went away). */
@@ -175,6 +202,7 @@ function step(r: GongRun, now: number) {
 
 /** Moves every trip along; Gong.tsx calls it each frame. Allocates nothing unless something changes. */
 export function pumpGongRuns(now: number) {
+  if (heldAt !== null) return;
   if (!busy(runs)) return stopTimer();
   for (let i = runs.home.length - 1; i >= 0; i--) {
     const r = runs.home[i];

@@ -9,14 +9,25 @@ import { realOffice, type OfficeHost } from './officeUpdate.ts';
 import { elevenLabs } from './elevenlabs.ts';
 import { httpTransport, type NotifyTransport } from './notifier.ts';
 import type { VoiceApi } from './voice.ts';
+import { openMeteo, type WeatherApi } from './weather.ts';
 import type { AgentTerminal } from './terminal.ts';
 import type { OpsHistory } from './metrics.ts';
 import type { UsageWarning } from './pacing.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
+/** A made-up candidate the demo CEO proposes: the propose_hire tool's arguments, bar the floor and role. */
+export interface DemoHire {
+  title: string;
+  specialty: string;
+  job_description: string;
+  reason: string;
+}
+
 /** Everything the swarm needs from the outside world. The demo backend fakes all of it. */
 export interface Backend {
   demo: boolean;
+  /** Demo only: a made-up developer for this floor whose specialty isn't in `taken`; null once they've all been used. */
+  demoCandidate?(fullName: string, taken: readonly string[]): DemoHire | null;
   user(): Promise<string>;
   listMyRepos(owner?: string): Promise<GhRepoSummary[]>;
   repoMeta(fullName: string): Promise<github.RepoMeta>;
@@ -82,6 +93,8 @@ export interface Backend {
   office: OfficeHost;
   /** Text to speech for the manager's phone (ElevenLabs). */
   voice: VoiceApi;
+  /** The real local weather for Settings → Weather (Open-Meteo, keyless; only coordinates are sent once a city is found). */
+  weather: WeatherApi;
   /** Notifications to the chat apps and push services (docs/pocket.md). */
   notify: NotifyTransport;
   /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
@@ -137,5 +150,6 @@ export const realBackend: Backend = {
   previews: realPreviews,
   office: realOffice,
   voice: elevenLabs,
+  weather: openMeteo,
   notify: httpTransport,
 };

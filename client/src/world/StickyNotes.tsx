@@ -11,6 +11,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coversView, useStore, type Agent, type KanbanCard, type KanbanColumns } from '../store';
 import { stickyPeel, stickySlap } from '../ui/peopleSounds';
+import { statusLook } from '../ui/a11y';
 import { angleDelta, smooth } from './body';
 import { drawSticky, kanbanCardColor, kanbanNoteColor } from './draw';
 import { registerErrand, type Errand, type ErrandStep } from './errands';
@@ -407,7 +408,7 @@ function playerHand(camera: THREE.Camera, out: Pose): Pose {
 export function peelForPlayer(c: Ctrl, slot: Slot & { card: KanbanCard }): boolean {
   if (c.mine) return false;
   const pose = boardPose(slot.col, slot.index, slot.card.number, tmp);
-  const color = kanbanCardColor(slot.card, slot.col);
+  const color = kanbanCardColor(slot.card, slot.col, statusLook());
   const p = spawn(c, MINE, label(slot.card), color, pose);
   if (!p) return false;
   fly(p, { hand: PLAYER }, 0.35, 0, 0.6);

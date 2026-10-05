@@ -122,7 +122,16 @@ export class Outbox {
     }
     const next = parseWatch(msg);
     const prev = this.tabs.get(tab);
-    if (!next || !prev || sameWatch(prev, next)) return;
+    if (next && prev && !sameWatch(prev, next)) this.watch(tab, prev, next);
+  }
+
+  /** The tab was sent a fresh snapshot (it has no lines now): catch it up again on what it shows. */
+  resync(tab: Tab) {
+    const w = this.tabs.get(tab);
+    if (w) this.watch(tab, NO_WATCH, w);
+  }
+
+  private watch(tab: Tab, prev: Watch, next: Watch) {
     this.tabs.set(tab, next);
     const { tails, latest } = catchUp(prev, next, this.host.agents());
     if (tails.length) this.send(tab, { type: 'logs', catchUp: true, tails: Object.fromEntries(tails.map(([id, n]) => [id, this.host.log(id).slice(-n)])) });

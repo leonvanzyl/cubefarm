@@ -215,6 +215,51 @@ export const QA_ROTATION = -Math.PI / 2;
 export const qaDeskPosition = (slot: number) => ({ x: QA_LAB.x, z: QA_LAB.stations[slot % QA_LAB.stations.length] });
 export const QA_RUG = rect(QA_LAB.x - 0.4, -2, 3.4, 10.4);
 
+// ---------- decorations (#210) ----------
+
+/**
+ * Where each of a floor's decoration slots (shared/progress.ts) is, and the most room an item there may take. x, z:
+ * the slot's anchor: its middle, or with `back` the middle of its back edge against the wall. rotY turns an item's
+ * front (local +z) to face the room. w x d: the biggest footprint allowed (local x by local z), kept clear of desks,
+ * walkways, the whiteboard and the elevator (layout.test.ts checks); wall slots hang at y and are w wide.
+ */
+export interface DecorSpot {
+  x: number;
+  z: number;
+  rotY: number;
+  w: number;
+  d: number;
+  y?: number;
+  back?: boolean;
+}
+
+const FACE = { south: 0, east: Math.PI / 2, north: Math.PI, west: -Math.PI / 2 };
+export const DECOR_SLOT_AT: Record<string, DecorSpot> = {
+  // walls: above the big west slot, either side of the elevator above the blaster rack and the arcade's slot, past
+  // the "ship it" sign, and over the kitchenette counter
+  'w-west': { x: -HALF_W + 0.02, z: 3.6, rotY: FACE.east, y: 2.5, w: 2.6, d: 0.1 },
+  'w-south-w': { x: -8, z: HALF_D - 0.02, rotY: FACE.north, y: 2.45, w: 2.5, d: 0.1 },
+  'w-south-e': { x: 8.4, z: HALF_D - 0.02, rotY: FACE.north, y: 2.45, w: 2.6, d: 0.1 },
+  'w-north-e': { x: 13.6, z: -HALF_D + 0.02, rotY: FACE.south, y: 2.2, w: 2.8, d: 0.1 },
+  'w-kitchen': { x: HALF_W - 0.02, z: 6.9, rotY: FACE.west, y: 2.45, w: 2.6, d: 0.1 },
+  // corners and quiet stretches of wall
+  'f-ne': { x: 15.2, z: -11.2, rotY: FACE.south, w: 0.9, d: 0.9 },
+  'f-se': { x: 13.3, z: 11.25, rotY: FACE.north, w: 0.9, d: 0.9 },
+  'f-sw': { x: -14.8, z: 9.8, rotY: FACE.east, w: 0.9, d: 0.9 },
+  'f-west': { x: -15.25, z: -6, rotY: FACE.east, w: 0.9, d: 0.9 },
+  // the west wall south of its window, the lounge west of the elevator, and the south wall east of it
+  'b-west': { x: -HALF_W, z: 3.6, rotY: FACE.east, back: true, w: 2.4, d: 1.3 },
+  'b-lounge': { x: -7, z: 8.4, rotY: FACE.east, w: 2.4, d: 1.4 },
+  'b-south': { x: 7.4, z: HALF_D, rotY: FACE.north, back: true, w: 2.4, d: 1.3 },
+  // under the lounge, and in front of the elevator
+  'r-lounge': { x: -7, z: 8.4, rotY: FACE.east, w: 3.6, d: 2.6 },
+  'r-entry': { x: 0, z: 8.7, rotY: FACE.south, w: 3.2, d: 2 },
+};
+
+/** The floor's decor box, against the south wall east of the elevator: bought decorations wait in it. */
+export const DECOR_BOX = { x: 3.4, z: HALF_D - 0.3, w: 0.8, d: 0.55, h: 0.6 };
+export const decorBoxRect = (): Rect => rect(DECOR_BOX.x, DECOR_BOX.z, DECOR_BOX.w, DECOR_BOX.d, DECOR_BOX.h);
+
 export function officeColliders(): Rect[] {
   const out = [...shellColliders('office'), ...outsideColliders('office')];
   for (let s = 0; s < MAX_DESKS; s++) {
@@ -236,6 +281,7 @@ export function officeColliders(): Rect[] {
   out.push(gongRect());
   out.push(rect(HALF_W - 0.45, 7.4, 0.9, 5, SOLID_H.kitchen)); // kitchenette counter + fridge
   out.push(rect(HALF_W - 0.5, -9.5, 0.7, 0.7, SOLID_H.cooler)); // water cooler
+  out.push(decorBoxRect());
   return out;
 }
 
@@ -247,15 +293,21 @@ export const RECEPTION = { x: 3, z: -3.5, w: 5, d: 1.2 };
 // The CEO's corner office mirrors the manager's across the lobby; the trophy cabinet ends up behind their desk.
 export const CEO_ROOM = { minX: 6.5, maxX: HALF_W, minZ: -HALF_D, maxZ: -3.5, doorMinX: 8.2, doorMaxX: 10 };
 export const CEO_DESK = { x: 12, z: -7.4 };
-// Candidates the CEO wants to hire wait on a row of chairs along the east wall, facing into the lobby.
-export const WAITING = { x: HALF_W - 1.4, seats: [6.6, 7.9, 9.2, 10.4] };
+// Candidates the CEO wants to hire wait on six chairs along the east wall, facing into the lobby, three either side of
+// a little coffee table, between the sofa and the corner plant. Declined, they leave by the glass door just north.
+export const WAITING = { x: HALF_W - 1.4, seats: [4.7, 5.65, 6.6, 8.5, 9.45, 10.4] };
 export const WAITING_ROTATION = Math.PI / 2;
+export const WAITING_TABLE = { x: HALF_W - 1.4, z: 7.55, w: 0.62, d: 0.9 };
 // The big rug in front of reception; the manager's and CEO's offices are carpeted wall to wall.
 export const LOBBY_RUG = rect(3, 3, 14, 9);
 // The lobby's coffee corner: a short counter against the south wall, east of the elevator and the directory, in
 // view of the waiting sofa. w runs along the wall, d sticks out into the room; the machine and mugs face north.
 export const COFFEE_CORNER = { x: 9.8, w: 1.5, d: 0.9 };
 export const coffeeCorner = (): Rect => rect(COFFEE_CORNER.x, HALF_D - COFFEE_CORNER.d / 2, COFFEE_CORNER.w, COFFEE_CORNER.d, SOLID_H.coffeeCorner);
+// The rewards corner (#210): the catalogue kiosk out in the lobby west of reception, facing the elevator, and the
+// trophy shelf against the south wall west of the elevator (facing north, clear of the hoop), seen as you step out.
+export const KIOSK = { x: -4.8, z: -2.2, w: 0.9, d: 0.7, h: 1.75 };
+export const TROPHY_SHELF = { x: -6, z: HALF_D - 0.25, w: 2.2, d: 0.5, h: 2.1 };
 
 /**
  * Mission control: a curved bank of screens on the lobby's north wall between the two glass offices, behind reception
@@ -304,6 +356,7 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(CEO_DESK.x, CEO_DESK.z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
   out.push(rect(CEO_DESK.x, CEO_DESK.z + 0.8, 0.7, 0.6, SOLID_H.seated)); // CEO chair
   for (const z of WAITING.seats) out.push(rect(WAITING.x, z, 0.7, 0.7, SOLID_H.seated));
+  out.push(rect(WAITING_TABLE.x, WAITING_TABLE.z, WAITING_TABLE.w, WAITING_TABLE.d, SOLID_H.coffeeTable));
   out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z, MANAGER_DESK.w, MANAGER_DESK.d, SOLID_H.desk));
   out.push(rect(MANAGER_DESK.x, MANAGER_DESK.z - 1.1, 0.8, 0.8, SOLID_H.seated)); // manager chair
   out.push(rect(-HALF_W + 0.4, -8, 0.8, 5, SOLID_H.bookshelf)); // bookshelf
@@ -315,6 +368,180 @@ export function lobbyColliders(): Rect[] {
   out.push(rect(12, -HALF_D + 0.55, 4.4, 1.1, SOLID_H.cabinet)); // trophy cabinet
   out.push(coffeeCorner()); // counter, coffee machine and mug dispenser
   out.push(...missionRects());
+  out.push(rect(KIOSK.x, KIOSK.z, KIOSK.w, KIOSK.d, KIOSK.h));
+  out.push(rect(TROPHY_SHELF.x, TROPHY_SHELF.z, TROPHY_SHELF.w, TROPHY_SHELF.d, TROPHY_SHELF.h));
+  return out;
+}
+
+// ---------- holiday decoration slots ----------
+
+/**
+ * A named place a holiday theme can dress (themes/themes.ts): a point on a desk, a counter, a ceiling corner or the
+ * floor, facing rotY. `floor` ones stand in the way: the theme's item there adds a collider (decorColliders there).
+ */
+export interface DecorSlot {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  floor?: boolean;
+}
+
+/** Each desk's back right corner (desk frame), clear of the monitor, the mug and the plant or test tubes. */
+const DESK_CORNER = { x: 0.74, z: -0.3 };
+/** The desks' top, where things stand on them. */
+export const DESK_TOP = 0.77;
+
+/** Every slot on a floor kind. Office floors all share the same ones. */
+export function decorSlots(kind: FloorKind): DecorSlot[] {
+  const c = 0.02;
+  const corners: DecorSlot[] = [
+    { id: 'corner-nw', x: -HALF_W + c, y: WALL_H, z: -HALF_D + c, rotY: 0 },
+    { id: 'corner-ne', x: HALF_W - c, y: WALL_H, z: -HALF_D + c, rotY: -Math.PI / 2 },
+    { id: 'corner-se', x: HALF_W - c, y: WALL_H, z: HALF_D - c, rotY: Math.PI },
+    { id: 'corner-sw', x: -HALF_W + c, y: WALL_H, z: HALF_D - c, rotY: Math.PI / 2 },
+  ];
+  // Either side of the elevator's frame, against the south wall.
+  const elevator: DecorSlot[] = [-1, 1].map((s) => ({ id: s < 0 ? 'elevator-w' : 'elevator-e', x: s * (ELEVATOR.doorHalf + 0.95), y: 0, z: HALF_D - 0.4, rotY: Math.PI, floor: true }));
+  if (kind === 'office') {
+    const desks = Array.from({ length: MAX_DESKS }, (_, s): DecorSlot => {
+      const { x, z } = deskPosition(s);
+      return { id: `desk-${s}`, x: x + DESK_CORNER.x, y: DESK_TOP, z: z + DESK_CORNER.z, rotY: 0 };
+    });
+    // QA desks are turned to face the east wall (QA_ROTATION), so the corner turns with them.
+    const qa = QA_LAB.stations.map((_, s): DecorSlot => {
+      const { x, z } = qaDeskPosition(s);
+      return { id: `qa-${s}`, x: x - DESK_CORNER.z, y: DESK_TOP, z: z + DESK_CORNER.x, rotY: QA_ROTATION };
+    });
+    // On each balcony, just inside the planter at either end.
+    const balconies = SIDES.flatMap((side) =>
+      [-1, 1].map((n): DecorSlot => ({ id: `balcony-${side[0]}-${n < 0 ? 'n' : 's'}`, x: sideSign(side) * (BALCONY_OUT - 0.45), y: 0, z: n * (BALCONY.maxZ - 2.6), rotY: -sideSign(side) * (Math.PI / 2), floor: true })),
+    );
+    return [...desks, ...qa, ...corners, ...elevator, ...balconies];
+  }
+  const r = RECEPTION;
+  return [
+    ...corners,
+    ...elevator,
+    // the reception counter's top, either side of the receptionist bot, towards the lobby
+    { id: 'reception-w', x: r.x - r.w / 2 + 0.55, y: 1.13, z: r.z + 0.2, rotY: 0 },
+    { id: 'reception-e', x: r.x + r.w / 2 - 0.55, y: 1.13, z: r.z + 0.2, rotY: 0 },
+    // the lobby's showpiece (a tree, a gravestone), in the quiet corner south of the manager's office
+    { id: 'lobby-feature', x: -12.6, y: 0, z: -1.5, rotY: Math.PI / 4, floor: true },
+    // out on the west patio, just north of the bench, in view through the window beside it
+    { id: 'patio', x: -(HALF_W + WALL_T + BALCONY.depth / 2 + 0.1), y: 0, z: -1.2, rotY: Math.PI / 2, floor: true },
+    // the manager's desk, left of the keyboard (desk frame: the visitor's side is +z)
+    { id: 'manager-desk', x: MANAGER_DESK.x - 0.6, y: 0.8, z: MANAGER_DESK.z + 0.25, rotY: 0 },
+    // on top of the trophy cabinet (Lobby.tsx), at its east end
+    { id: 'cabinet-top', x: 13.5, y: 2.1, z: -HALF_D + 0.55, rotY: 0 },
+    // across the lobby under the ceiling, in view from the elevator
+    { id: 'banner', x: 3, y: 3.25, z: 0.5, rotY: 0 },
+  ];
+}
+
+/** A run along a wall just under the ceiling, for string lights, garlands and bunting: from [x, z] to [x, z] at y. */
+export interface DecorRun {
+  from: [number, number];
+  to: [number, number];
+  y: number;
+}
+
+/** Each floor kind's runs, clear of the signs and the boards on the walls. */
+export function decorRuns(kind: FloorKind): DecorRun[] {
+  const y = 3.5;
+  const n = -HALF_D + 0.08;
+  const s = HALF_D - 0.08;
+  const w = -HALF_W + 0.08;
+  const e = HALF_W - 0.08;
+  if (kind === 'office') {
+    return [
+      { from: [w, n], to: [e, n], y },
+      { from: [w, s], to: [e, s], y },
+      { from: [w, n], to: [w, s], y },
+      // the east wall, round the QA lab's sign
+      { from: [e, n], to: [e, -3.8], y },
+      { from: [e, -0.2], to: [e, s], y },
+    ];
+  }
+  // The lobby: the walls of the open hall, from the glass offices round to them again.
+  const m = MANAGER_ROOM.maxZ + 0.1;
+  return [
+    { from: [MANAGER_ROOM.maxX + 0.2, n], to: [CEO_ROOM.minX - 0.2, n], y },
+    { from: [w, m], to: [w, s], y },
+    { from: [w, s], to: [e, s], y },
+    { from: [e, m], to: [e, s], y },
+  ];
+}
+
+// ---------- the roof terrace (roof/Roof.tsx) ----------
+
+/** The roof's stop on the elevator (store.floor): always above the top floor, however many floors there are. */
+export const ROOF = -1;
+/** How far the roof deck is above the ground, for a building whose top floor is `top`. */
+export const roofElevation = (top: number) => (Math.max(0, top) + 1) * FLOOR_HEIGHT;
+/** How far the floor you're on (a floor number, or ROOF) is above the ground. */
+export const viewElevation = (floor: number, top: number) => (floor === ROOF ? roofElevation(top) : floorElevation(floor));
+
+/** The deck runs out to the walls' outer faces; a parapet `t` thick with a rail `h` high goes all round its edge. */
+export const ROOF_EDGE = { x: HALF_W + WALL_T, z: HALF_D + WALL_T, t: 0.3, parapet: 0.5, h: 1.1 };
+// The hut over the elevator shaft (and the stairs, west of it) stands on the south edge with its back out over the
+// street, like the cabin on every floor: its front wall holds the elevator's doorway (the same as every floor's).
+export const ROOF_HUT = { minX: -4.6, maxX: 2.2, minZ: HALF_D, maxZ: HALF_D + ELEVATOR.depth + 0.4, h: 3.9, front: 0.3, stairX: -3.4 };
+/** The lounge's wooden decking on the east half, under the string lights. */
+export const DECKING: Rect = { minX: 2, maxX: HALF_W - 0.3, minZ: -6.2, maxZ: 8.6 };
+/** Deck chairs in a row on the decking, facing north over the garden to downtown: x of each, z of their middles. */
+export const DECK_CHAIRS = { xs: [4.4, 6.9, 9.4, 11.9], z: -2.4, w: 0.72, l: 1.3, h: 0.95 };
+/** Where a deck chair's sitter sits (its seat, which faces north), and where they stand to sit down or get up. */
+export const deckChairSeat = (i: number) => ({ x: DECK_CHAIRS.xs[i], z: DECK_CHAIRS.z + 0.05 });
+export const deckChairFront = (i: number) => ({ x: DECK_CHAIRS.xs[i], z: DECK_CHAIRS.z - DECK_CHAIRS.l / 2 - 0.55 });
+/** Little round tables between the chairs. */
+export const SIDE_TABLES = [5.65, 10.65].map((x) => ({ x, z: DECK_CHAIRS.z - 0.1, r: 0.3 }));
+/** The string lights' poles round the decking; the lights zigzag between the north and south rows. */
+export const LIGHT_POLES = [2.3, 8.8, 15.3].flatMap((x) => [{ x, z: -5.9 }, { x, z: 8.3 }]);
+export const POLE = { r: 0.07, h: 2.9 };
+/** The barbecue grill (a kettle on legs, its side shelf `shelf` east of it) and the picnic table, at the decking's south end. */
+export const GRILL = { x: 13.6, z: 6.4, r: 0.42, h: 0.95, shelf: 0.72 };
+export const PICNIC = { x: 7.4, z: 5.4, w: 2.2, d: 1.9, h: 0.75 };
+/** The telescope on its tripod in the north-east corner, towards downtown; the eyepiece is `eye` up. */
+export const TELESCOPE = { x: 12.8, z: -8.8, r: 0.45, eye: 1.5 };
+/** The water tank on its stand in the north-west corner. */
+export const WATER_TANK = { x: -13.2, z: -9.2, r: 1.35, legs: 2.2, h: 2.4 };
+/** Raised garden beds along the north parapet, and two planters with little trees by the decking. */
+export const GARDEN_BEDS: Rect[] = [rect(-7.4, -11.4, 6, 1.1, 0.6), rect(-0.6, -11.4, 5.4, 1.1, 0.6), rect(5.6, -11.4, 4.6, 1.1, 0.6)];
+export const TREE_PLANTERS = [{ x: 1.3, z: -6.8 }, { x: 15.1, z: 9.8 }].map((p) => ({ ...p, w: 1.1, h: 0.6 }));
+/** The helipad painted on the west half, kept clear (world events can land a helicopter here). */
+export const HELIPAD = { x: -8.4, z: 1.2, r: 4.6 };
+/** The windsock's pole by the west parapet, beside the helipad. */
+export const WINDSOCK = { x: -15.2, z: 7.8, h: 3.4 };
+
+/** The roof's colliders: the parapet all round, the hut and the cabin, and everything standing on the deck. */
+export function roofColliders(): Rect[] {
+  const { x: X, z: Z, t, h } = ROOF_EDGE;
+  const { doorHalf, cabinHalf, depth } = ELEVATOR;
+  const hut = ROOF_HUT;
+  const out: Rect[] = [
+    { minX: -X, maxX: X, minZ: -Z, maxZ: -Z + t, h }, // north parapet
+    { minX: -X, maxX: -X + t, minZ: -Z, maxZ: Z, h }, // west
+    { minX: X - t, maxX: X, minZ: -Z, maxZ: Z, h }, // east
+    { minX: -X, maxX: hut.minX, minZ: Z - t, maxZ: Z, h }, // south, either side of the hut
+    { minX: hut.maxX, maxX: X, minZ: Z - t, maxZ: Z, h },
+    { minX: hut.minX, maxX: -doorHalf, minZ: HALF_D, maxZ: HALF_D + hut.front, h: hut.h }, // the hut's front, beside the doorway
+    { minX: doorHalf, maxX: hut.maxX, minZ: HALF_D, maxZ: HALF_D + hut.front, h: hut.h },
+    { minX: -cabinHalf - SHELL_T, maxX: -cabinHalf, minZ: HALF_D, maxZ: HALF_D + depth }, // the cabin, as on every floor
+    { minX: cabinHalf, maxX: cabinHalf + SHELL_T, minZ: HALF_D, maxZ: HALF_D + depth },
+    { minX: -cabinHalf, maxX: cabinHalf, minZ: HALF_D + depth, maxZ: HALF_D + depth + SHELL_T },
+    rect(WATER_TANK.x, WATER_TANK.z, 2.7, 2.7, WATER_TANK.legs + WATER_TANK.h),
+    ...GARDEN_BEDS,
+    ...TREE_PLANTERS.map((p) => rect(p.x, p.z, p.w, p.w, p.h)),
+    ...DECK_CHAIRS.xs.map((x) => rect(x, DECK_CHAIRS.z, DECK_CHAIRS.w, DECK_CHAIRS.l, DECK_CHAIRS.h)),
+    ...SIDE_TABLES.map((s) => rect(s.x, s.z, s.r * 2, s.r * 2, 0.55)),
+    ...LIGHT_POLES.map((p) => rect(p.x, p.z, POLE.r * 4, POLE.r * 4, POLE.h)),
+    { minX: GRILL.x - GRILL.r - 0.05, maxX: GRILL.x + GRILL.shelf + 0.32, minZ: GRILL.z - GRILL.r - 0.05, maxZ: GRILL.z + GRILL.r + 0.4, h: GRILL.h }, // with its shelf, and its lid propped open behind
+    rect(PICNIC.x, PICNIC.z, PICNIC.w, PICNIC.d, PICNIC.h),
+    rect(TELESCOPE.x, TELESCOPE.z, TELESCOPE.r * 2, TELESCOPE.r * 2, TELESCOPE.eye),
+    rect(WINDSOCK.x, WINDSOCK.z, 0.2, 0.2, WINDSOCK.h),
+  ];
   return out;
 }
 
@@ -326,9 +553,11 @@ const OFFICE_RUGS: Rect[] = [...DESK_RUGS, QA_RUG];
 const LOBBY_RUGS: Rect[] = [LOBBY_RUG, MANAGER_ROOM, CEO_ROOM];
 
 /** The floor under (x, z), for footsteps. A rug's edge counts as rug; past the doorway is the elevator cabin, and
- * outside, a balcony's (or the patio's) paving sounds like the lobby's tiles. */
-export function surfaceAt(floor: 'office' | 'lobby', x: number, z: number): Surface {
+ * outside, a balcony's (or the patio's) paving sounds like the lobby's tiles. On the roof, the decking is wood and
+ * the rest is paving. */
+export function surfaceAt(floor: 'office' | 'lobby' | 'roof', x: number, z: number): Surface {
   if (z > HALF_D && Math.abs(x) <= ELEVATOR.cabinHalf) return 'cabin';
+  if (floor === 'roof') return x >= DECKING.minX && x <= DECKING.maxX && z >= DECKING.minZ && z <= DECKING.maxZ ? 'wood' : 'lobby';
   if (Math.abs(x) > HALF_W) return 'lobby';
   for (const r of floor === 'lobby' ? LOBBY_RUGS : OFFICE_RUGS) {
     if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) return 'rug';

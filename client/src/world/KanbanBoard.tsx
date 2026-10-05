@@ -11,17 +11,22 @@ import { boardStats, dayStartOf, minuteOf, statsChips } from './boardStats';
 import { activateBoard, makeBoardHands, notePaint } from './boardHands';
 import { CardLift } from './CardLift';
 import { BOARD_TEX, dependencyPairs } from './whiteboard';
+import { useA11y } from '../ui/a11y';
+import { showsShapes } from '../ui/a11yPrefs';
+import { officeNow } from '../officeTime';
 
 export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] }) {
   const qa = useStore((s) => s.qa);
   const usageState = useStore((s) => s.usage.state);
+  const palette = useA11y((s) => s.prefs.palette);
+  const shapes = useA11y((s) => showsShapes(s.prefs));
   const real = useMemo(() => kanbanFor(repo, agents, qa, { state: usageState }), [repo, agents, qa, usageState]);
   // what the 3D board shows: the real board, with moves held back until whoever makes them has placed the sticky
   const { shown: cols, ctrl } = useStickyBoard(real, agents);
   const strings = useMemo(() => dependencyPairs(repo.issues, repo.pulls, cols), [repo.issues, repo.pulls, cols]);
   // worked out on the minute, so the stats corner changes the board at most once a minute
   const stats = useMemo(() => {
-    const now = minuteOf(Date.now());
+    const now = minuteOf(officeNow()); // the replayed moment during the time-lapse
     return boardStats(repo.pulls, (n) => qa[qaKey(repo.id, n)], now, dayStartOf(now));
   }, [repo, qa]);
   const hands = useMemo(() => makeBoardHands(repo.id, ctrl), [repo.id, ctrl]);
@@ -37,15 +42,17 @@ export function KanbanBoard({ repo, agents }: { repo: RepoView; agents: Agent[] 
         ...(Object.values(cols) as KanbanCard[][]).map((list) => list.map((c) => [c.key, c.title, c.note, c.agent?.name, c.agent?.color, c.tone, c.ghost, c.ghost ? c.qa?.updatedAt : 0])),
         strings.map((p) => [p.waiter, p.blocker, p.from, p.to]),
         statsChips(stats).map((c) => c.text),
+        palette,
+        shapes,
       ]),
-    [cols, repo, strings, stats],
+    [cols, repo, strings, stats, palette, shapes],
   );
   const texH = BOARD_TEX.h;
   const tex = useCanvasTexture(
     BOARD_TEX.w,
     texH,
     (ctx) => {
-      drawKanban(ctx, BOARD_TEX.w, texH, repo, cols, { strings, stats });
+      drawKanban(ctx, BOARD_TEX.w, texH, repo, cols, { strings, stats, look: { palette, shapes } });
       notePaint();
     },
     [signature],

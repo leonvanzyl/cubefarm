@@ -4,12 +4,15 @@ import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OpsAlarm } from '../../../shared/types';
 import { usageMeter } from '../ops';
+import { officeNow } from '../officeTime';
 import { useStore, type Focus } from '../store';
+import { useKeyName } from '../ui/controls';
 import { drawCost, drawFlow, drawPipeline, drawStrip, drawTeam, drawThroughput, drawUsage, type FloorTag, type UsageScreen } from './drawOps';
 import { useCanvasTexture, useInteractable } from './interact';
 import { HALF_D, MISSION, missionColumn } from './layout';
 import { glow, toon } from './materials';
 import { Box, Cyl } from './Toon';
+import { BILLBOARD } from './viewTags';
 
 // Mission control (#216): a curved bank of big screens on the lobby's north wall with the whole office's numbers from
 // the server's ops view (the store, never polled), Claude's usage meter (E: resume full speed while pacing), and a
@@ -82,7 +85,7 @@ function Sweep({ size }: { size: number }) {
           <boxGeometry args={[size * 0.5, size * 0.5, size * 0.12]} />
         </mesh>
       </group>
-      <Billboard>
+      <Billboard userData={BILLBOARD}>
         <mesh material={halo}>
           <circleGeometry args={[size * 2.6, 24]} />
         </mesh>
@@ -116,6 +119,7 @@ const alarmFocus = (id: string, a: OpsAlarm): Focus => ({
 });
 
 export function MissionControl() {
+  const use = useKeyName('interact');
   const ops = useStore((s) => s.ops);
   const repos = useStore((s) => s.repos);
   const usage = useStore((s) => s.usage);
@@ -154,10 +158,10 @@ export function MissionControl() {
     { floors: tags.map(({ tag, n }) => ({ ...tag, busy: n.busy, idle: n.idle, errors: n.errors })), total: { busy: t.busy, idle: t.idle, errors: t.errors } },
     drawTeam,
   );
-  const m = usageMeter(usage, Date.now());
+  const m = usageMeter(usage, officeNow());
   const meterData: UsageScreen = {
     ...m,
-    hint: usage.state === 'pacing' ? 'Press E to resume full speed' : usage.state === 'paused' ? "A pause at the limit can't be cleared early" : 'New work starts at full speed',
+    hint: usage.state === 'pacing' ? `Press ${use} to resume full speed` : usage.state === 'paused' ? "A pause at the limit can't be cleared early" : 'New work starts at full speed',
   };
   const meter = useScreen('usage', BOTTOM_PX, meterData, drawUsage);
   const cost = useScreen('cost', BOTTOM_PX, { floors: tags.map(({ tag, n }) => ({ ...tag, usd: n.costToday })), ceo: ops.ceoCostToday, total: t.costToday }, drawCost);

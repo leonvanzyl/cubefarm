@@ -7,6 +7,7 @@ import { CEO_ID } from '../../../shared/types';
 import { officeUpdateChip } from '../officeUpdate';
 import { KanbanView } from '../ui/KanbanView';
 import { NotifySettings } from '../ui/NotifySettings';
+import { AccessibilitySettings } from '../ui/AccessibilitySettings';
 import { Panel } from '../ui/Panel';
 import { Chat } from '../ui/Phone';
 import { setMode } from './mode';
@@ -197,6 +198,7 @@ function Settings({ onClose }: { onClose: () => void }) {
   return (
     <Panel title="⚙️ This device and notifications" onClose={onClose} className="pk-settings">
       <NotifySettings />
+      <AccessibilitySettings pocket />
       <div className="card">
         <h3>📱 Pocket mode</h3>
         <p className="muted small">

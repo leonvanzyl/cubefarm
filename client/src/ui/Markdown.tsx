@@ -42,10 +42,12 @@ const components: Components = {
       <span>🖼 {alt}</span>
     ),
   table: ({ children }) => (
-    <div className="md-table">
+    <div className="md-table" tabIndex={0}>
       <table>{children}</table>
     </div>
   ),
+  // Code blocks (and tables, above) scroll sideways: focusable, so the keyboard can scroll them too.
+  pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
 };
 
 // remark-breaks keeps single line breaks, as the phone showed them before Markdown.
