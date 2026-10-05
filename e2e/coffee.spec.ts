@@ -60,14 +60,14 @@ test("the lobby's coffee corner hands out mugs and brews like the kitchenette", 
   await act('place');
   await expect.poll(async () => (await coffee()).state).toBe('mugPlaced');
   await act('brew');
-  await expect.poll(async () => (await coffee()).state, { timeout: 15_000 }).toBe('ready');
-  await act('take');
-  await expect.poll(held).toMatchObject({ kind: 'mug', sips: 3 });
-
-  // the machine's sounds come from the corner, not from where the kitchenette would be
+  // the machine's sounds come from the corner, not from where the kitchenette would be. Read at once: the probe keeps
+  // only the last 50 sounds, and the brew and the lobby around it soon push the button's out.
   const at = await page.evaluate(() => (window as unknown as { __swarmSfx: { name: string; at: { x: number; z: number } | null }[] }).__swarmSfx.filter((s) => s.name === 'coffee-button')[0]?.at);
   expect(Math.abs(at!.x - COFFEE_CORNER.x)).toBeLessThan(COFFEE_CORNER.w / 2);
   expect(at!.z).toBeGreaterThan(HALF_D - COFFEE_CORNER.d);
+  await expect.poll(async () => (await coffee()).state, { timeout: 15_000 }).toBe('ready');
+  await act('take');
+  await expect.poll(held).toMatchObject({ kind: 'mug', sips: 3 });
 });
 
 test('E sips a full mug twice, gulps the last, then the empty mug drops with a clunk', async ({ page }) => {
