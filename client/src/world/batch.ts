@@ -6,9 +6,11 @@ import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.j
 // outline, one in the shadow pass). Every part keeps an invisible stand-in mesh where it always was in the scene, so
 // it still moves with its group, hides with it and is hit by the player's aim; the batch copies the stand-ins' world
 // matrices and colours into its instances just before drawing, after three.js has updated the scene's matrices for the
-// frame, without allocating. Outlines are left off parts beyond `outlineRange` of the camera.
+// frame, without allocating. Outlines are left off parts beyond `outlineRange` of the camera. A geometry with morph
+// targets (a face) gets each instance's weights from its stand-in's morphTargetInfluences.
 
-export type Shading = 'toon' | 'glow';
+/** Cel-shaded like toon(), or unlit like glow() (glowNight: one that blooms only after dark, gfx/bloomMarks.ts). */
+export type Shading = 'toon' | 'glow' | 'glowNight';
 
 /** What a batch draws: one geometry with one kind of material, outline and shadows. Made by `look()`, which caches. */
 export interface Look {
@@ -42,6 +44,7 @@ export function look(geometry: THREE.BufferGeometry, opts: Partial<Omit<Look, 'k
 export interface BatchMaterials {
   toon: THREE.Material;
   glow: THREE.Material;
+  glowNight: THREE.Material;
   outline(thickness: number): THREE.Material;
 }
 
@@ -87,7 +90,7 @@ class Batch {
   }
 
   private make(capacity: number) {
-    const m = new THREE.InstancedMesh(this.look.geometry, this.look.material ?? (this.look.shading === 'glow' ? this.materials.glow : this.materials.toon), capacity);
+    const m = new THREE.InstancedMesh(this.look.geometry, this.look.material ?? this.materials[this.look.shading], capacity);
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3).setUsage(THREE.DynamicDrawUsage);
     m.count = 0;
@@ -97,6 +100,8 @@ class Batch {
     m.matrixAutoUpdate = false;
     m.raycast = () => undefined; // the stand-ins are what the player's aim hits
     m.onBeforeShadow = m.onBeforeRender = this.set.hook;
+    const morphs = this.look.geometry.morphAttributes.position?.length ?? 0;
+    if (morphs) m.morphTexture = new THREE.DataTexture(new Float32Array((morphs + 1) * capacity), morphs + 1, capacity, THREE.RedFormat, THREE.FloatType);
     this.set.root.add(m);
     return m;
   }
@@ -141,6 +146,9 @@ class Batch {
     const cols = m.instanceColor!.array as Float32Array;
     const o = this.outline;
     const omats = o ? (o.instanceMatrix.array as Float32Array) : null;
+    const morph = m.morphTexture ? (m.morphTexture.image.data as Float32Array) : null;
+    const len = morph ? m.morphTexture!.image.width : 0;
+    const relative = this.look.geometry.morphTargetsRelative;
     let n = 0;
     let k = 0;
     for (const s of this.slots) {
@@ -150,6 +158,17 @@ class Batch {
       cols[n * 3] = s.color.r;
       cols[n * 3 + 1] = s.color.g;
       cols[n * 3 + 2] = s.color.b;
+      if (morph) {
+        // as InstancedMesh.setMorphAt writes them: the base weight, then each target's
+        const w = (s.obj as THREE.Mesh).morphTargetInfluences;
+        let sum = 0;
+        for (let i = 1; i < len; i++) {
+          const v = w?.[i - 1] ?? 0;
+          morph[n * len + i] = v;
+          sum += v;
+        }
+        morph[n * len] = relative ? 1 : 1 - sum;
+      }
       n++;
       if (omats) {
         const dx = e[12] - (eye?.x ?? e[12]);
@@ -161,6 +180,7 @@ class Batch {
     m.count = n;
     m.instanceMatrix.needsUpdate = true;
     m.instanceColor!.needsUpdate = true;
+    if (m.morphTexture) m.morphTexture.needsUpdate = true;
     if (o) {
       o.count = k;
       o.instanceMatrix.needsUpdate = true;

@@ -4,12 +4,13 @@ import type { AgentLook, AgentRole } from '../../../shared/types';
 import { ACCENTS, BUILD_SHAPE, type Appearance } from './appearance';
 import { PARTS } from './characterParts';
 import { EYES, MORPHS, MORPH_AT, type FaceState } from './face';
-import { mix, shade, toon } from './materials';
-import { Outlines } from './Outlines';
+import { Piece } from './Batched';
+import { mix, shade } from './materials';
 
 // What a person wears and their face, drawn the same by Character.tsx (at their desk, walking about) and by the look
 // editor's preview (LookPreview.tsx): the clothes, uniforms and badges on the torso, and the head's parts. Shared
-// geometry (characterParts.ts) and cached materials only; applyFace writes an expression into the face's morph targets.
+// geometry (characterParts.ts) as Pieces, which a floor draws in instanced batches (Batched.tsx); applyFace writes an
+// expression into the face's morph targets.
 
 export const INK = '#1f1d2b';
 // Glasses frames, picked by the same accent index as hats and stripes.
@@ -35,8 +36,8 @@ const phonesAtNeck = (look: Appearance, busy: boolean) => !phonesOn(look, busy) 
 function Headphones({ agent }: { agent: Who }) {
   return (
     <>
-      <mesh geometry={PARTS.headphones.shell} material={toon(SUIT)} castShadow />
-      <mesh geometry={PARTS.headphones.covers} material={toon(shade(agent.color, 0.12))} />
+      <Piece geometry={PARTS.headphones.shell} color={SUIT} castShadow />
+      <Piece geometry={PARTS.headphones.covers} color={shade(agent.color, 0.12)} />
     </>
   );
 }
@@ -45,51 +46,45 @@ function Headphones({ agent }: { agent: Who }) {
 export function TorsoWear({ agent, look, busy }: { agent: Who; look: Appearance; busy: boolean }) {
   const isQa = agent.role === 'qa';
   const isCeo = agent.role === 'ceo';
-  const shirt = toon(shirtColor(agent));
+  const shirt = shirtColor(agent);
   const outfit = PARTS.outfit[look.outfit];
   const accent = ACCENTS[look.accent];
   const shape = BUILD_SHAPE[look.build];
   return (
     <group scale={[torsoWidth(look), 1, shape.depth]}>
-      <mesh position={[0, 0.3, 0]} geometry={PARTS.torso} material={shirt} castShadow>
-        <Outlines thickness={0.015} color={INK} angle={0} />
-      </mesh>
+      <Piece position={[0, 0.3, 0]} geometry={PARTS.torso} color={shirt} castShadow outline={0.015} />
       {look.outfit !== 'sweater' && look.outfit !== 'turtleneck' && (
-        <mesh position={[0, 0.5, -0.02]} rotation={[Math.PI / 2, 0, 0]} geometry={PARTS.collar} material={toon(isCeo ? WHITE : shade(agent.color, -0.15))} />
+        <Piece position={[0, 0.5, -0.02]} rotation={[Math.PI / 2, 0, 0]} geometry={PARTS.collar} color={isCeo ? WHITE : shade(agent.color, -0.15)} />
       )}
-      {outfit.main && <mesh geometry={outfit.main} material={toon(shade(agent.color, -0.08))} castShadow />}
-      {outfit.trim && (
-        <mesh geometry={outfit.trim} material={toon(look.outfit === 'stripe' ? accent : look.outfit === 'hoodie' || look.outfit === 'cardigan' ? WHITE : shade(agent.color, -0.14))} />
-      )}
+      {outfit.main && <Piece geometry={outfit.main} color={shade(agent.color, -0.08)} castShadow />}
+      {outfit.trim && <Piece geometry={outfit.trim} color={look.outfit === 'stripe' ? accent : look.outfit === 'hoodie' || look.outfit === 'cardigan' ? WHITE : shade(agent.color, -0.14)} />}
       {isCeo && (
         <>
           {/* white shirt front, tie and knot under the blazer; the lanyard over them */}
-          <mesh position={[0, 0.36, -0.192]} geometry={PARTS.shirtFront} material={toon(WHITE)} />
-          <mesh position={[0, 0.33, -0.206]} geometry={PARTS.tie} material={toon(agent.color)} />
-          <mesh position={[0, 0.445, -0.206]} geometry={PARTS.tieKnot} material={toon(shade(agent.color, -0.2))} />
-          <mesh geometry={PARTS.blazer.lapels} material={toon(LAPEL)} />
-          <mesh geometry={PARTS.blazer.button} material={toon(GOLD)} />
-          <mesh geometry={PARTS.blazer.square} material={toon(agent.color)} />
-          <mesh geometry={PARTS.lanyard.strap} material={toon(shade(agent.color, -0.2))} />
-          <mesh geometry={PARTS.lanyard.card} material={toon(WHITE)} />
+          <Piece position={[0, 0.36, -0.192]} geometry={PARTS.shirtFront} color={WHITE} />
+          <Piece position={[0, 0.33, -0.206]} geometry={PARTS.tie} color={agent.color} />
+          <Piece position={[0, 0.445, -0.206]} geometry={PARTS.tieKnot} color={shade(agent.color, -0.2)} />
+          <Piece geometry={PARTS.blazer.lapels} color={LAPEL} />
+          <Piece geometry={PARTS.blazer.button} color={GOLD} />
+          <Piece geometry={PARTS.blazer.square} color={agent.color} />
+          <Piece geometry={PARTS.lanyard.strap} color={shade(agent.color, -0.2)} />
+          <Piece geometry={PARTS.lanyard.card} color={WHITE} />
         </>
       )}
       {isQa && (
         <>
           {/* the lab coat: tails, pockets and lapels, open over a shirt in their colour, and a magnifier badge */}
-          <mesh geometry={PARTS.labCoat} material={shirt} castShadow>
-            <Outlines thickness={0.012} color={INK} angle={0} />
-          </mesh>
-          <mesh geometry={PARTS.labCoatLapels} material={toon(COAT_TRIM)} />
-          <mesh position={[0, 0.27, -0.196]} geometry={PARTS.coatOpening} material={toon(agent.color)} />
-          <mesh geometry={PARTS.magnifierBadge} material={toon(GOLD)} />
-          <mesh geometry={PARTS.magnifier} material={toon(INK)} />
+          <Piece geometry={PARTS.labCoat} color={shirt} castShadow outline={0.012} />
+          <Piece geometry={PARTS.labCoatLapels} color={COAT_TRIM} />
+          <Piece position={[0, 0.27, -0.196]} geometry={PARTS.coatOpening} color={agent.color} />
+          <Piece geometry={PARTS.magnifierBadge} color={GOLD} />
+          <Piece geometry={PARTS.magnifier} color={INK} />
         </>
       )}
       {(look.accessory === 'wrench' || look.accessory === 'padlock') && (
         <>
-          <mesh geometry={PARTS.leftBadge} material={toon(look.accessory === 'wrench' ? ACCENTS[3] : ACCENTS[4])} />
-          <mesh geometry={look.accessory === 'wrench' ? PARTS.wrench : PARTS.padlock} material={toon(look.accessory === 'wrench' ? INK : WHITE)} />
+          <Piece geometry={PARTS.leftBadge} color={look.accessory === 'wrench' ? ACCENTS[3] : ACCENTS[4]} />
+          <Piece geometry={look.accessory === 'wrench' ? PARTS.wrench : PARTS.padlock} color={look.accessory === 'wrench' ? INK : WHITE} />
         </>
       )}
       {phonesAtNeck(look, busy) && (
@@ -106,10 +101,8 @@ export function TorsoWear({ agent, look, busy }: { agent: Who; look: Appearance;
 export function Sleeve({ agent, look }: { agent: Who; look: Appearance }) {
   return (
     <>
-      <mesh position={[0, 0, -0.24]} rotation={[Math.PI / 2, 0, 0]} geometry={PARTS.sleeve} material={toon(shirtColor(agent))} castShadow>
-        <Outlines thickness={0.012} color={INK} angle={0} />
-      </mesh>
-      <mesh position={[0, 0, -0.5]} geometry={PARTS.hand} material={toon(look.skin)} castShadow />
+      <Piece position={[0, 0, -0.24]} rotation={[Math.PI / 2, 0, 0]} geometry={PARTS.sleeve} color={shirtColor(agent)} castShadow outline={0.012} />
+      <Piece position={[0, 0, -0.5]} geometry={PARTS.hand} color={look.skin} castShadow />
     </>
   );
 }
@@ -130,8 +123,8 @@ const CLIPPED_HAIR = ['long', 'ponytail', 'bun', 'sidePart', 'curls', 'bob'];
 export function HeadParts({ agent, look, busy, face }: { agent: Who; look: Appearance; busy: boolean; face: RefObject<THREE.Mesh | null> }) {
   const isQa = agent.role === 'qa';
   const feminine = agent.look === 'feminine';
-  const skin = toon(look.skin);
-  const hair = toon(look.hair === 'buzz' ? mix(look.hairColor, look.skin, 0.35) : look.hairColor);
+  const skin = look.skin;
+  const hair = look.hair === 'buzz' ? mix(look.hairColor, look.skin, 0.35) : look.hairColor;
   const hairGeo = PARTS.hair[look.hair];
   const facialGeo = PARTS.facialHair[look.facialHair];
   const glassesGeo = PARTS.glasses[look.glasses];
@@ -143,32 +136,22 @@ export function HeadParts({ agent, look, busy, face }: { agent: Who; look: Appea
   useLayoutEffect(() => face.current?.updateMorphTargets(), [face, faceGeo]);
   return (
     <>
-      <mesh geometry={PARTS.head} material={skin} castShadow>
-        <Outlines thickness={0.015} color={INK} angle={0} />
-      </mesh>
-      {hairGeo && (
-        <mesh geometry={hairGeo} material={hair} castShadow={outlinedHair}>
-          {outlinedHair && <Outlines thickness={0.012} color={INK} angle={0} />}
-        </mesh>
-      )}
-      <mesh geometry={PARTS.ears} material={skin} />
-      <mesh ref={face} geometry={faceGeo} material={toon(INK)} />
-      <mesh position={[0, -0.02, -0.2]} geometry={PARTS.nose} material={toon(shade(look.skin, -0.08))} />
-      {facialGeo && <mesh geometry={facialGeo} material={toon(look.facialHair === 'stubble' ? mix(look.skin, look.hairColor, 0.3) : look.hairColor)} />}
-      {feminine && <mesh geometry={PARTS.cheeks} material={toon('#ff9aa2')} />}
-      {clip && <mesh position={[0.15, 0.13, -0.08]} rotation={[0, 0, 0.5]} geometry={PARTS.hairClip} material={toon(isQa ? '#ff9f68' : shade(agent.color, 0.15))} />}
+      <Piece geometry={PARTS.head} color={skin} castShadow outline={0.015} />
+      {hairGeo && <Piece geometry={hairGeo} color={hair} castShadow={outlinedHair} outline={outlinedHair ? 0.012 : 0} />}
+      <Piece geometry={PARTS.ears} color={skin} />
+      <Piece ref={face} geometry={faceGeo} color={INK} />
+      <Piece position={[0, -0.02, -0.2]} geometry={PARTS.nose} color={shade(look.skin, -0.08)} />
+      {facialGeo && <Piece geometry={facialGeo} color={look.facialHair === 'stubble' ? mix(look.skin, look.hairColor, 0.3) : look.hairColor} />}
+      {feminine && <Piece geometry={PARTS.cheeks} color="#ff9aa2" />}
+      {clip && <Piece position={[0.15, 0.13, -0.08]} rotation={[0, 0, 0.5]} geometry={PARTS.hairClip} color={isQa ? '#ff9f68' : shade(agent.color, 0.15)} />}
       {/* QA's round inspector glasses stay part of the uniform */}
-      {isQa && <mesh geometry={PARTS.inspectorGlasses} material={toon(INK)} />}
-      {glassesGeo && <mesh geometry={glassesGeo} material={toon(FRAMES[look.accent])} />}
-      {hatGeo && (
-        <mesh geometry={hatGeo} material={toon(look.accent === 0 ? shade(agent.color, -0.2) : ACCENTS[look.accent])} castShadow>
-          <Outlines thickness={0.012} color={INK} angle={0} />
-        </mesh>
-      )}
+      {isQa && <Piece geometry={PARTS.inspectorGlasses} color={INK} />}
+      {glassesGeo && <Piece geometry={glassesGeo} color={FRAMES[look.accent]} />}
+      {hatGeo && <Piece geometry={hatGeo} color={look.accent === 0 ? shade(agent.color, -0.2) : ACCENTS[look.accent]} castShadow outline={0.012} />}
       {look.accessory === 'pencil' && !look.headphones && (
         <>
-          <mesh geometry={PARTS.pencil.body} material={toon(GOLD)} />
-          <mesh geometry={PARTS.pencil.tip} material={toon('#f1d19b')} />
+          <Piece geometry={PARTS.pencil.body} color={GOLD} />
+          <Piece geometry={PARTS.pencil.tip} color="#f1d19b" />
         </>
       )}
       {phonesOn(look, busy) && <Headphones agent={agent} />}

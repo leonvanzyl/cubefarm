@@ -66,7 +66,8 @@ function targetPoint(t: OrbitTarget, out: THREE.Vector3): boolean {
 }
 
 function shown(o: THREE.Object3D | null): boolean {
-  for (; o; o = o.parent) if (!o.visible) return false;
+  // a batched part's stand-in (world/Batched.tsx) is never drawn itself: its batch draws it where it stands
+  for (; o; o = o.parent) if (!o.visible && !o.userData.standIn) return false;
   return true;
 }
 

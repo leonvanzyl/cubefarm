@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { look } from './batch';
+import { Part } from './Batched';
 import { Outlines } from './Outlines';
 import { ELEVATOR, HALF_D, HALF_W, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, sideSign, type Side } from './layout';
 import { drawGlass } from './draw';
-import { glow, shade, toon } from './materials';
+import { shade, toon } from './materials';
 import { boxesGeometry, merged, type BoxSpec } from './shapes';
 import { Box } from './Toon';
 import { LampHalos } from './sky/lamps';
@@ -117,13 +119,14 @@ function SideWalls({ kind }: { kind: FloorKind }) {
   );
 }
 
+// Every light's panel is the same shape: one batch draws them all (Batched.tsx).
+const PANEL = look(new THREE.PlaneGeometry(1.25, 0.38), { shading: 'glowNight' });
+
 function CeilingLight({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
       <Box size={[1.4, 0.06, 0.5]} position={[0, 0, 0]} color="#e9ecef" shadow={false} />
-      <mesh position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} material={glow('#fffbe8', 'night')}>
-        <planeGeometry args={[1.25, 0.38]} />
-      </mesh>
+      <Part look={PANEL} color="#fffbe8" position={[0, -0.035, 0]} rotation={[Math.PI / 2, 0, 0]} />
     </group>
   );
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BatchSet, look, type BatchMaterials } from './batch';
 
-const MATERIALS: BatchMaterials = { toon: new THREE.MeshBasicMaterial(), glow: new THREE.MeshBasicMaterial(), outline: () => new THREE.MeshBasicMaterial() };
+const MATERIALS: BatchMaterials = { toon: new THREE.MeshBasicMaterial(), glow: new THREE.MeshBasicMaterial(), glowNight: new THREE.MeshBasicMaterial(), outline: () => new THREE.MeshBasicMaterial() };
 const box = new THREE.BoxGeometry(1, 1, 1);
 const ball = new THREE.SphereGeometry(0.5, 8, 6);
 

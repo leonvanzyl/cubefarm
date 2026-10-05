@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Outlines } from './Outlines';
+import { Piece } from './Batched';
 import { qaKey, useStore, type Agent } from '../store';
 import { BUILD_SHAPE, appearanceFor } from './appearance';
 import { WALK_SPEED, gait, newBodyState, smooth, stepBody, type BodyTarget, type Gait, type Gesture } from './body';
@@ -50,6 +50,7 @@ const clone = (p: Pose): Pose => ({ ...p, l: { ...p.l }, r: { ...p.r } });
 const lerp = THREE.MathUtils.lerp;
 /** Marks a person's root, so High's contact-shadow bake (gfx/ContactShadows.tsx) can leave people out of it. */
 const PERSON = { person: true };
+const PANTS = '#3d4a6b';
 // A physics person's ball (chair-space: beside their feet, under the desktop).
 const BALL_AT: [number, number, number] = [-0.5, 0.13, -0.98];
 
@@ -564,26 +565,20 @@ export function Character({
   });
 
   const busy = agent.status === 'working' || agent.status === 'preparing';
-  const dark = toon(INK);
-  const pants = toon('#3d4a6b');
 
   return (
     <group ref={root} userData={PERSON}>
       {look.accessory === 'ball' && chair && (
         // under the desk, where it stays when they get up
-        <mesh position={BALL_AT} geometry={PARTS.ball} material={toon('#e76f51')} castShadow>
-          <Outlines thickness={0.012} color={INK} angle={0} />
-        </mesh>
+        <Piece position={BALL_AT} geometry={PARTS.ball} color="#e76f51" castShadow outline={0.012} />
       )}
       <group ref={body} scale={scale}>
         <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />
         {/* seated legs don't move, so both are one mesh; getting up swaps in jointed ones */}
         <group ref={seatedLegs}>
-          <mesh geometry={PARTS.legs} material={pants} castShadow>
-            <Outlines thickness={0.012} color={INK} angle={0} />
-          </mesh>
-          <mesh geometry={PARTS.shoes} material={dark} castShadow />
+          <Piece geometry={PARTS.legs} color={PANTS} castShadow outline={0.012} />
+          <Piece geometry={PARTS.shoes} color={INK} castShadow />
         </group>
         <group ref={legs} visible={false}>
           {[
@@ -591,14 +586,10 @@ export function Character({
             { hip: hipR, knee: kneeR, x: HIP.x },
           ].map(({ hip, knee, x }) => (
             <group key={x} ref={hip} position={[x, HIP.seatY, HIP.seatZ]} rotation={[Math.PI / 2, 0, 0]}>
-              <mesh geometry={PARTS.thigh} material={pants} castShadow>
-                <Outlines thickness={0.012} color={INK} angle={0} />
-              </mesh>
+              <Piece geometry={PARTS.thigh} color={PANTS} castShadow outline={0.012} />
               <group ref={knee} position={[0, -HIP.thigh, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                <mesh geometry={PARTS.shin} material={pants} castShadow>
-                  <Outlines thickness={0.012} color={INK} angle={0} />
-                </mesh>
-                <mesh geometry={PARTS.shoe} material={dark} castShadow />
+                <Piece geometry={PARTS.shin} color={PANTS} castShadow outline={0.012} />
+                <Piece geometry={PARTS.shoe} color={INK} castShadow />
               </group>
             </group>
           ))}
@@ -622,7 +613,7 @@ export function Character({
                   {/* where a mug sits in the hand, and the phone they check */}
                   <group ref={grip} position={[0, 0.03, -0.56]} />
                   <group ref={phone} position={[-0.03, 0.06, -0.52]} rotation={[0.7, -0.55, 0]} visible={false}>
-                    <mesh geometry={PARTS.phone} material={dark} />
+                    <Piece geometry={PARTS.phone} color={INK} />
                     <mesh geometry={PARTS.phoneScreen} material={toon('#8ecae6', { emissive: '#8ecae6', emissiveIntensity: 0.5 })} />
                   </group>
                   {food && (

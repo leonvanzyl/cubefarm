@@ -34,7 +34,7 @@ export function pickAt(ray: THREE.Raycaster, mode: ViewMode): Pick | null {
   let found: Pick | null = null;
   for (const h of hits) {
     let o: THREE.Object3D | null = h.object;
-    let shown = o.visible;
+    let shown = o.visible || o.userData.standIn === true; // a batched part's stand-in (Batched.tsx) is drawn by its batch
     while (o && !o.userData.pick && !interactables.has(o)) {
       o = o.parent;
       shown &&= !o || o.visible;
