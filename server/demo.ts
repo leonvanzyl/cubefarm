@@ -68,6 +68,15 @@ function takeNumber(r: FakeRepo) {
   return n;
 }
 
+/**
+ * An issue or PR number the fake GitHub handed out before the office restarted: it starts over on every start (only
+ * its numbers carry on), so what it forgot was closed while the office was down, as far as the office can tell.
+ */
+function forgotten(fullName: string, n: number) {
+  const r = repos.get(fullName);
+  return !!r && n > 0 && n < r.nextNumber && !r.issues.some((i) => i.number === n) && !r.pulls.some((p) => p.number === n);
+}
+
 let runSeq = 1000; // fake Actions run ids, so the office can re-run a failed one
 /**
  * Fake CI: checks run for a while after every push, and now and then one fails so the fix loop shows. They say they
@@ -644,7 +653,7 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     },
     issueState: async (fullName, number) => {
       const r = repos.get(fullName);
-      return r?.issues.some((i) => i.number === number) ? 'OPEN' : closedIssues.has(`${fullName}#${number}`) ? 'CLOSED' : null;
+      return r?.issues.some((i) => i.number === number) ? 'OPEN' : closedIssues.has(`${fullName}#${number}`) || forgotten(fullName, number) ? 'CLOSED' : null;
     },
     editIssue: async (fullName, number, edit) => {
       const i = repos.get(fullName)?.issues.find((x) => x.number === number);
@@ -701,6 +710,26 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     prForBranch: async () => null,
     prDetails: async (fullName, number) => {
       const pr = repos.get(fullName)?.pulls.find((p) => p.number === number);
+      if (!pr && forgotten(fullName, number)) {
+        // From before a restart: the fake GitHub starts over, so it was closed while the office was down.
+        return {
+          number,
+          title: `PR #${number}`,
+          body: '',
+          url: `https://github.com/${fullName}/pull/${number}`,
+          headRefName: '',
+          headSha: fakeSha(),
+          isCrossRepository: false,
+          closesIssues: [],
+          state: 'CLOSED',
+          mergeable: 'UNKNOWN',
+          mergeState: 'UNKNOWN',
+          checks: 'none',
+          checkNames: [],
+          failedChecks: [],
+          pendingChecks: [],
+        };
+      }
       if (!pr) throw new Error(`Unknown PR #${number}`);
       return {
         number,
