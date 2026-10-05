@@ -170,6 +170,7 @@ export default function Easter({ kind, floor }: ThemeProps) {
     [eggs, find, day],
   );
 
+  if (kind === 'roof') return <Tint def={DEF} />;
   return (
     <group>
       <Decor id="easter" kind={kind} items={ITEMS} />

@@ -1,30 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { agentsOnRepo, useStore } from '../../store';
-import { CEO_ID } from '../../../../shared/types';
 import { SANS } from '../draw';
 import { useCanvasTexture } from '../interact';
 import { APP_SCREEN, HALF_D } from '../layout';
 import { toon } from '../materials';
+import { triggerEvent } from '../events/eventsState';
 import { say } from '../people';
+import { agentsOnRepo, useStore } from '../../store';
+import { CEO_ID } from '../../../../shared/types';
 import { addProbe, themeNow, useThemeRuntime } from './active';
 import { Burst, burstAt } from './kit/Burst';
 import { useCostumes } from './kit/costumes';
 import { free, sendHome, sendTo, windowPlaces, type Person } from './kit/crowd';
-import { Fireworks, fireworksLeft, startFireworks } from './kit/Fireworks';
 import { box, cyl, mergeParts, paintedToon, paintedToonDouble, part, sphere } from './kit/geo';
 import { Decor, type ItemRenderers, type Spot } from './kit/Placed';
 import { Bunting, StringLights } from './kit/runs';
 import { chime, pop } from './kit/sfx';
 import { Tint } from './kit/Tint';
-import { countdownNumber, newYearState, SHOW_S, timeToGo, type NewYearState } from './newyearClock';
+import { countdownNumber, newYearState, timeToGo, type NewYearState } from './newyearClock';
 import type { ThemeProps } from './ThemeLayer';
 import { THEMES } from './themes';
 
 // New Year's Eve (31 Dec–1 Jan): party hats, streamers and gold bunting, champagne at reception, a countdown to
 // midnight in the lobby; in the last ten seconds the app monitors count down too, and at local midnight fireworks go
-// up over the city while everyone on the floor heads to the windows to cheer.
+// up over the city (the world events' fireworks, events/) while everyone free on the floor heads to the windows on that
+// side to cheer.
 
 const DEF = THEMES.newyear;
 const STREAMERS = ['#ffd23f', '#c77dff', '#4cc9f0', '#ff5d8f', '#f8f9fa'];
@@ -149,11 +150,11 @@ function MonitorCountdown({ s }: { s: NewYearState }) {
 }
 
 /** Who's on the floor: its developers and testers, or the CEO in the lobby. */
-function usePeople(kind: 'office' | 'lobby', repoId: string | null): Person[] {
+function usePeople(kind: ThemeProps['kind'], repoId: string | null): Person[] {
   const agents = useStore((s) => s.agents);
   return useMemo(() => {
     if (kind === 'lobby') return agents[CEO_ID] ? [{ id: CEO_ID, role: 'ceo', desk: 0 }] : [];
-    return repoId ? agentsOnRepo(agents, repoId).map((a) => ({ id: a.id, role: a.role, desk: a.desk })) : [];
+    return kind === 'office' && repoId ? agentsOnRepo(agents, repoId).map((a) => ({ id: a.id, role: a.role, desk: a.desk })) : [];
   }, [agents, kind, repoId]);
 }
 
@@ -161,28 +162,36 @@ export default function NewYear({ kind, repoId }: ThemeProps) {
   useCostumes();
   const [s, setS] = useState(() => newYearState(themeNow()));
   const people = usePeople(kind, repoId);
-  const crowd = useRef<Person[]>([]);
   const peopleRef = useRef(people);
   peopleRef.current = people;
+  const crowd = useRef<Person[]>([]);
 
-  /** Midnight: fireworks, and whoever's free goes to the windows to cheer. */
-  const celebrate = useCallback(
-    (seconds = SHOW_S) => {
-      startFireworks(seconds);
-      chime(undefined, true);
-      burstAt(kind === 'lobby' ? 3 : 0, 2.2, kind === 'lobby' ? 0.5 : -8, DEF.confetti!.colors);
-      pop();
-      const places = windowPlaces(kind);
-      const going = peopleRef.current.filter((p) => free(p.id)).slice(0, places.length);
-      crowd.current = going;
-      going.forEach((p, i) => sendTo(kind, p, places[i], places[i].heading, 'cheer', () => say(p.id, '🎉')));
-      setTimeout(() => {
-        for (const p of crowd.current) {
-          say(p.id, null);
-          sendHome(kind, p);
-        }
-        crowd.current = [];
-      }, seconds * 1000);
+  /** Midnight: a cheer, confetti, the fireworks event, and whoever's free off to the windows on its side to cheer. */
+  const celebrate = useCallback(() => {
+    chime(undefined, true);
+    pop();
+    const run = triggerEvent('fireworks');
+    if (kind === 'roof') return run.seconds;
+    burstAt(kind === 'lobby' ? 3 : 0, 2.2, kind === 'lobby' ? 0.5 : -8, DEF.confetti!.colors);
+    const all = windowPlaces(kind);
+    const near = all.filter((p) => Math.sign(p.x) === (run.side === 'west' ? -1 : 1));
+    const places = near.length >= 3 ? near : all;
+    const going = peopleRef.current.filter((p) => free(p.id)).slice(0, places.length);
+    crowd.current = going;
+    going.forEach((p, i) => sendTo(kind, p, places[i], places[i].heading, 'cheer', () => say(p.id, '🎉')));
+    setTimeout(() => {
+      for (const p of crowd.current) {
+        say(p.id, null);
+        sendHome(kind, p);
+      }
+      crowd.current = [];
+    }, run.seconds * 1000);
+    return run.seconds;
+  }, [kind]);
+
+  useEffect(
+    () => () => {
+      if (kind !== 'roof') for (const p of crowd.current) sendHome(kind, p);
     },
     [kind],
   );
@@ -192,18 +201,11 @@ export default function NewYear({ kind, repoId }: ThemeProps) {
     const t = setInterval(() => {
       const next = newYearState(themeNow());
       setS(next);
-      if (prev === 'countdown' && next.phase === 'show') celebrate(Math.max(10, SHOW_S - next.seconds));
+      if (prev === 'countdown' && next.phase === 'show') celebrate();
       prev = next.phase;
     }, 250);
     return () => clearInterval(t);
   }, [celebrate]);
-
-  useEffect(
-    () => () => {
-      for (const p of crowd.current) sendHome(kind, p);
-    },
-    [kind],
-  );
 
   useEffect(() => {
     useThemeRuntime.setState({ status: s.phase === 'waiting' ? `🥂 ${s.year} in ${timeToGo(s.seconds)}` : s.phase === 'countdown' ? `🥂 ${countdownNumber(s)}…` : `🎆 Happy New Year ${s.year}!` });
@@ -214,12 +216,13 @@ export default function NewYear({ kind, repoId }: ThemeProps) {
     () =>
       addProbe({
         countdown: () => newYearState(themeNow()),
-        fireworks: (seconds?: number) => (celebrate(seconds ?? 20), fireworksLeft()),
+        fireworks: () => celebrate(),
         crowd: () => crowd.current.map((p) => p.id),
       }),
     [celebrate],
   );
 
+  if (kind === 'roof') return <Tint def={DEF} />;
   return (
     <group>
       <Decor id="newyear" kind={kind} items={ITEMS} />
@@ -227,7 +230,6 @@ export default function NewYear({ kind, repoId }: ThemeProps) {
       <Bunting kind={kind} colors={DEF.bunting!} />
       <Streamers kind={kind} />
       <Tint def={DEF} />
-      <Fireworks />
       <Burst />
       {kind === 'lobby' && <LobbyBoard s={s} />}
       {kind === 'office' && (s.phase === 'countdown' || s.phase === 'show') && <MonitorCountdown s={s} />}

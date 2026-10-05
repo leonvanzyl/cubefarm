@@ -8,6 +8,8 @@
 import { doorOpen } from '../world/doors';
 import { SIDES, type Side } from '../world/layout';
 import { sampleDayTime } from '../world/sky/useDayTime';
+import { weatherLayers } from '../world/weather/weatherRules';
+import { weather } from '../world/weather/weatherState';
 import {
   birdCall,
   BIRD_CALL_MAX,
@@ -125,7 +127,7 @@ function tick() {
   const ear = listenerAt();
   for (const side of SIDES) open[side] = doorOpen(side);
   hearing = outsideHearing(kind, ear.x, ear.z, open);
-  layers = outsideLayers(sampleDayTime(), kind);
+  layers = weatherLayers(outsideLayers(sampleDayTime(), kind), weather.mix); // birds go quiet in the rain, snow hushes the city
   const silent = quiet || document.hidden;
   const level = silent ? 0 : hearing.level;
 

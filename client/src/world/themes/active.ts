@@ -92,7 +92,7 @@ export function addProbe(calls: Record<string, (...args: never[]) => unknown>) {
   return () => names.forEach((n) => extras.get(n) === calls[n] && extras.delete(n));
 }
 
-let placedHere: { kind: 'office' | 'lobby'; floor: number } | null = null;
+let placedHere: { kind: 'office' | 'lobby' | 'roof'; floor: number } | null = null;
 let root: Object3D | null = null;
 
 /** ThemeLayer's group, so the probe can count what the theme draws. */
@@ -113,7 +113,7 @@ function drawn() {
 }
 
 /** ThemeLayer says which floor it dresses, for the probe's `placed`. */
-export function setPlacedFloor(at: { kind: 'office' | 'lobby'; floor: number } | null) {
+export function setPlacedFloor(at: { kind: 'office' | 'lobby' | 'roof'; floor: number } | null) {
   placedHere = at;
 }
 
@@ -140,7 +140,7 @@ if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '_
       /** The decorations on the floor you're on, as { slot, item, x, y, z }. */
       get placed() {
         const id = useTheme.getState().id;
-        if (!placedHere || !id) return [];
+        if (!placedHere || !id || placedHere.kind === 'roof') return [];
         return placeDecor(id, placedHere.kind).map(({ slot, item }) => ({ slot: slot.id, item, x: slot.x, y: slot.y, z: slot.z }));
       },
       get floor() {

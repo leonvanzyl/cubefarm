@@ -5,7 +5,10 @@ import { markBloom } from '../gfx/bloomMarks';
 import { useStore } from '../../store';
 import { ELEVATOR, BALCONY, BALCONY_OUT, FLOOR_HEIGHT, HALF_D, HALF_W, PLANTER, SIDES, WALL_T, balconyFurniture, decorSlots, sideSign } from '../layout';
 import { toon } from '../materials';
+import { playerAt, wallCut } from '../camera/rig';
 import { bodies } from '../people';
+import { dogNow } from '../toys/dogState';
+import { setEventWeather, weather } from '../weather/weatherState';
 import { addProbe, useTheme, useThemeRuntime } from './active';
 import { burstAt, Burst } from './kit/Burst';
 import { useCostumes } from './kit/costumes';
@@ -21,8 +24,9 @@ import { THEMES } from './themes';
 
 // Christmas (1–26 Dec): a big tree in the lobby with twinkling lights and presents under it (E opens one: a festive mug
 // colour, a sticker for the phone or a confetti burst; they're wrapped again every morning), garlands and string lights
-// on every floor, a wreath on each elevator door, snow on every balcony and the roof and a light snowfall outside, a
-// snowman or two, Santa hats, antlers and ugly sweaters, and hot chocolate (with marshmallows) from the coffee machines.
+// on every floor, a wreath on each elevator door, snow lying on every balcony and the roof and snow falling outside (the
+// weather's own snow, weather/), a snowman or two, Santa hats, antlers and ugly sweaters, and hot chocolate (with
+// marshmallows) from the coffee machines.
 
 const DEF = THEMES.christmas;
 const ORNAMENTS = ['#e63946', '#ffd166', '#4cc9f0', '#f8f9fa', '#c77dff', '#ff8fab'];
@@ -262,7 +266,7 @@ function wreathGeometry() {
   ]);
 }
 
-/** A wreath on each elevator door, sliding open with it (the doors open the same way Elevator.tsx opens them). */
+/** A wreath on each elevator door, sliding open with it (the doors open just as Elevator.tsx opens them). */
 function Wreaths() {
   const geo = useMemo(wreathGeometry, []);
   useEffect(() => () => geo.dispose(), [geo]);
@@ -271,18 +275,22 @@ function Wreaths() {
   const open = useRef(0);
   const { doorHalf } = ELEVATOR;
   const z = HALF_D + 0.07;
-  useFrame(({ camera }, dt) => {
+  const root = useRef<THREE.Group>(null);
+  useFrame((_, dt) => {
     const travel = useStore.getState().travel;
-    let near = Math.hypot(camera.position.x, camera.position.z - (HALF_D + 0.15)) < 2.8;
+    let near = Math.hypot(playerAt.x, playerAt.z - (HALF_D + 0.15)) < 2.8;
     for (const b of bodies()) if (b.stage !== 'seated' && Math.abs(b.x) < doorHalf + 0.6 && Math.abs(b.z - (HALF_D + 0.15)) < 2) near = true;
+    if (dogNow.drawn && Math.abs(dogNow.x) < doorHalf + 0.6 && Math.abs(dogNow.z - (HALF_D + 0.15)) < 2) near = true;
     const want = travel?.phase === 'closing' ? 0 : near || travel?.phase === 'opening' ? 1 : 0;
     open.current += (want - open.current) * (1 - Math.exp(-dt * 5));
     const slide = open.current * doorHalf * 0.98;
     left.current?.position.setX(-doorHalf / 2 - slide);
     right.current?.position.setX(doorHalf / 2 + slide);
+    // the overview's cutaway takes the south wall, and the doors with it
+    if (root.current) root.current.visible = wallCut().z !== 1;
   });
   return (
-    <group>
+    <group ref={root}>
       <group ref={left} position={[-doorHalf / 2, 1.65, z]} rotation={[0, Math.PI, 0]} scale={0.85}>
         <mesh geometry={geo} material={paintedToon()} />
       </group>
@@ -318,53 +326,23 @@ function SnowCover({ kind, floor, top }: { kind: 'office' | 'lobby'; floor: numb
   return <mesh geometry={geo} material={paintedToon()} receiveShadow />;
 }
 
-const FLAKE_VERT = /* glsl */ `
-uniform float uTime;
-attribute float aSpeed;
-attribute float aPhase;
-void main() {
-  vec3 p = position;
-  p.y = mod(p.y - uTime * aSpeed, 18.0) - 5.0;
-  p.x += sin(uTime * 0.6 + aPhase) * 0.35;
-  p.z += cos(uTime * 0.5 + aPhase * 1.3) * 0.35;
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  gl_Position = projectionMatrix * mv;
-  gl_PointSize = 70.0 / -mv.z;
-}`;
-
-const FLAKE_FRAG = /* glsl */ `
-void main() {
-  float r = length(gl_PointCoord - 0.5);
-  gl_FragColor = vec4(1.0, 1.0, 1.0, 0.9 * (1.0 - smoothstep(0.3, 0.5, r)));
-  #include <colorspace_fragment>
-}`;
-
-const FLAKES = 1600;
-
-/** A light snowfall outside the side walls: one draw call, falling in the shader. */
-function Snowfall() {
-  const st = useMemo(() => {
-    const pos = new Float32Array(FLAKES * 3);
-    const speed = new Float32Array(FLAKES);
-    const phase = new Float32Array(FLAKES);
-    for (let i = 0; i < FLAKES; i++) {
-      const s = i % 2 ? 1 : -1;
-      pos.set([s * (HALF_W + 0.6 + Math.random() * 16), Math.random() * 18, (Math.random() - 0.5) * 50], i * 3);
-      speed[i] = 0.5 + Math.random() * 0.6;
-      phase[i] = Math.random() * 6.28;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('aSpeed', new THREE.BufferAttribute(speed, 1));
-    geo.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
-    const mat = new THREE.ShaderMaterial({ vertexShader: FLAKE_VERT, fragmentShader: FLAKE_FRAG, transparent: true, depthWrite: false, uniforms: { uTime: { value: 0 } } });
-    return { geo, mat };
+/** Snow falling outside while it's on: the weather's own snow (weather/), held like a world event's weather. It leaves
+ * Off and the real weather alone, and ?weather= (QA) wins. */
+const SNOW = { kind: 'snow' as const, wind: 0.15 };
+function useSnowfall() {
+  useEffect(() => {
+    const hold = () => {
+      const mode = useStore.getState().settings.weather?.mode ?? 'cycle';
+      if (mode !== 'cycle' || weather.url || weather.probe) return;
+      if (!weather.event) setEventWeather(SNOW); // a world event's own weather (the hurricane) takes its turn first
+    };
+    hold();
+    const t = setInterval(hold, 2000);
+    return () => {
+      clearInterval(t);
+      if (weather.event === SNOW) setEventWeather(null);
+    };
   }, []);
-  useEffect(() => () => [st.geo, st.mat].forEach((d) => d.dispose()), [st]);
-  useFrame(({ clock }) => {
-    st.mat.uniforms.uTime.value = clock.elapsedTime;
-  });
-  return <points geometry={st.geo} material={st.mat} frustumCulled={false} />;
 }
 
 // ---------- hot chocolate ----------
@@ -413,6 +391,7 @@ function useHotChocolate() {
 export default function Christmas({ kind, floor, top, office }: ThemeProps) {
   useCostumes();
   useHotChocolate();
+  useSnowfall();
   const day = useTheme((s) => s.day);
   const feature = useMemo(() => decorSlots('lobby').find((s) => s.id === 'lobby-feature')!, []);
   const presentAt = useCallback(
@@ -454,6 +433,7 @@ export default function Christmas({ kind, floor, top, office }: ThemeProps) {
       }),
     [open, day],
   );
+  if (kind === 'roof') return <Tint def={DEF} />;
   return (
     <group>
       <Decor id="christmas" kind={kind} items={ITEMS} />
@@ -461,7 +441,6 @@ export default function Christmas({ kind, floor, top, office }: ThemeProps) {
       <Garland kind={kind} />
       <Wreaths />
       <SnowCover kind={kind} floor={floor} top={top} />
-      <Snowfall />
       <Tint def={DEF} />
       {kind === 'lobby' && <Burst />}
     </group>

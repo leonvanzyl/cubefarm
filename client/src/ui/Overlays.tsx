@@ -27,7 +27,7 @@ const SOUND_GROUP_TITLES: Partial<Record<SoundGroup, string>> = {
   alerts: 'The phone, the elevator and work cues',
   music: "Each floor's jukebox",
   voice: 'Messages read aloud',
-  outside: 'Wind, the city, birds and crickets, on the balconies',
+  outside: 'Wind, the city, birds and crickets, rain and thunder, and whatever is happening outside',
   score: "Quiet music that follows the office's mood, when no jukebox is playing nearby",
 };
 
@@ -190,11 +190,16 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             fanfare after a merge (a bigger one on a streak). Every space sounds like itself, from the glassy lobby and the carpeted floors to the tiled kitchenette, the boxy elevator and the open balconies, and
             sounds behind a wall come through muffled. <Key action="mute" /> mutes or unmutes anywhere. Under the master volume, turn footsteps (yours and everyone's), typing (and the team's chatter), toys (balls,
             blasters, coffee and the roomba), alerts (the phone, the elevator, the gong and these cues), music (the jukebox), voice (messages read aloud), outside (wind, the city, birds by day and crickets at night,
-            heard out on a balcony or through an open side door) and the soundtrack up or down on their own, or switch the soundtrack off. Your settings are saved in this browser.
+            rain and thunder and the world's goings-on, heard out on a balcony or through an open side door, and the rain on the windows) and the soundtrack up or down on their own, or switch the soundtrack off. Your settings are saved in this browser.
           </p>
           <SoundControls />
           <h3>Outside</h3>
           <p>The sky outside the windows has its own day: a whole one every 30 minutes, the time on your own clock, or always a sunny afternoon.</p>
+          <p>
+            It has weather too: rain running down the glass and puddles on the balconies, thunderstorms, fog and snow. In the manager's console, <b>Settings → Weather</b> picks a calm cycle of its own (mostly fair), your
+            real local weather or none. And now and then something happens outside, from a plane or a blimp with the office's news to fireworks at night, a UFO or, very rarely, a friendly kaiju; idle teammates run to the
+            windows to watch. <b>Settings → World events</b> sets how often, or keeps it calm.
+          </p>
           <DaySettings />
           <h3>Graphics</h3>
           <p>

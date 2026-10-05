@@ -10,8 +10,9 @@ import { tickWalks } from './kit/walker';
 // downloaded, built or drawn the rest of the year), and the active theme's scene dressing the floor you're on.
 
 export interface ThemeProps {
-  kind: 'office' | 'lobby';
-  /** The floor number (0 for the lobby) and the building's top floor. */
+  /** The roof terrace gets only the theme's sky, costumes and the weather and events it holds (not the floors' slots). */
+  kind: 'office' | 'lobby' | 'roof';
+  /** The floor number (0 for the lobby, ROOF for the roof) and the building's top floor. */
   floor: number;
   top: number;
   /** The office floor's repo, null in the lobby. */

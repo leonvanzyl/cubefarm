@@ -136,6 +136,7 @@ export default function Valentines({ kind, repoId }: ThemeProps) {
   useEffect(() => () => useThemeRuntime.setState({ status: null }), []);
   useEffect(() => addProbe({ heart: () => sendHeart(), hearts: () => stickies.map((s) => `${s.from}→${s.to.id}`) }), [sendHeart, stickies]);
 
+  if (kind === 'roof') return <Tint def={DEF} />;
   return (
     <group>
       <Decor id="valentines" kind={kind} items={ITEMS} />

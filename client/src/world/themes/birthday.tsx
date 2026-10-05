@@ -338,6 +338,7 @@ export default function Birthday({ kind, office: { Character } }: ThemeProps) {
     [party, stage, guests, act],
   );
 
+  if (kind === 'roof') return <Tint def={DEF} />;
   return (
     <group>
       <Decor id="birthday" kind={kind} items={ITEMS} />

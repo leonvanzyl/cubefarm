@@ -9,6 +9,7 @@ import { realOffice, type OfficeHost } from './officeUpdate.ts';
 import { elevenLabs } from './elevenlabs.ts';
 import { httpTransport, type NotifyTransport } from './notifier.ts';
 import type { VoiceApi } from './voice.ts';
+import { openMeteo, type WeatherApi } from './weather.ts';
 import type { AgentTerminal } from './terminal.ts';
 import type { OpsHistory } from './metrics.ts';
 import type { UsageWarning } from './pacing.ts';
@@ -92,6 +93,8 @@ export interface Backend {
   office: OfficeHost;
   /** Text to speech for the manager's phone (ElevenLabs). */
   voice: VoiceApi;
+  /** The real local weather for Settings → Weather (Open-Meteo, keyless; only coordinates are sent once a city is found). */
+  weather: WeatherApi;
   /** Notifications to the chat apps and push services (docs/pocket.md). */
   notify: NotifyTransport;
   /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
@@ -145,5 +148,6 @@ export const realBackend: Backend = {
   previews: realPreviews,
   office: realOffice,
   voice: elevenLabs,
+  weather: openMeteo,
   notify: httpTransport,
 };

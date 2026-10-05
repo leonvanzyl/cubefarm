@@ -20,6 +20,7 @@ import { StatusPill } from './TerminalView';
 import { ThemeSettings } from './ThemeSettings';
 import { TimeLapseTab } from './TimeLapse';
 import { VoiceSettings } from './VoiceSettings';
+import { OutsideSettings } from './OutsideSettings';
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
   try {
@@ -722,6 +723,7 @@ function SettingsTab() {
         </div>
       </div>
       <VoiceSettings />
+      <OutsideSettings />
       <NotifySettings />
       <ThemeSettings />
     </div>

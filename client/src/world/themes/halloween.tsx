@@ -430,6 +430,13 @@ export default function Halloween({ kind }: ThemeProps) {
       }),
     [],
   );
+  if (kind === 'roof')
+    return (
+      <group>
+        <Tint def={DEF} />
+        <Bats />
+      </group>
+    );
   return (
     <group>
       <Decor id="halloween" kind={kind} items={ITEMS} />

@@ -23,6 +23,8 @@ import { useTheme } from './themes/active';
 import { ThemeLayer } from './themes/ThemeLayer';
 import { decorColliders } from './themes/themes';
 import { TypingSounds } from './TypingSounds';
+import { Weather } from './weather/Weather';
+import { WorldEvents } from './events/WorldEvents';
 
 // The roof is its own chunk: fetched as the elevator heads up there, never by a floor that doesn't go.
 const loadRoof = () => import('./roof/Roof');
@@ -87,12 +89,14 @@ export function Game() {
       }}
     >
       <DayClock />
+      <Weather kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} />
       <Sky />
       <DayLights />
       <City />
+      <WorldEvents kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} />
       <Suspense fallback={null}>{onRoof ? <Roof top={top} /> : repo ? <OfficeFloor key={repo.id} repo={repo} /> : <Lobby />}</Suspense>
       {!onRoof && <Outside key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} />}
-      {!onRoof && <ThemeLayer key={isOffice ? floor : 0} kind={isOffice ? 'office' : 'lobby'} floor={isOffice ? floor : 0} top={top} repoId={repo?.id ?? null} />}
+      <ThemeLayer key={onRoof ? ROOF : isOffice ? floor : 0} kind={onRoof ? 'roof' : isOffice ? 'office' : 'lobby'} floor={onRoof ? ROOF : isOffice ? floor : 0} top={top} repoId={repo?.id ?? null} />
       <Player colliders={colliders} floor={floor} />
       <CameraRig />
       <Travel />

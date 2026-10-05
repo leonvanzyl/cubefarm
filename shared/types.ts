@@ -2,6 +2,7 @@
 import type { CareerView } from './careers.ts';
 import type { ProgressView, RewardView } from './progress.ts';
 
+import type { WeatherSettings, WeatherView, WorldEventSettings } from './outside.ts';
 import type { ThemeSettings } from './themes.ts';
 import type { AgentStyle } from './looks.ts';
 
@@ -322,6 +323,8 @@ export interface SwarmSettings {
   trimIdleDesksMin: number; // a desk idle this many minutes loses its node_modules and build output; 0 = never
   voice: VoiceSettings;
   themes: ThemeSettings; // holiday themes: Settings → Themes (shared/themes.ts)
+  weather: WeatherSettings; // Settings → Weather: the calm cycle, off, or the manager's real local weather
+  worldEvents: WorldEventSettings; // Settings → World events: how often something happens outside
   listen: ListenSettings;
   notify: NotifySettings;
 }
@@ -548,6 +551,7 @@ export interface WorldSnapshot {
   voiceKeySet: boolean; // an ElevenLabs key is saved (the key itself never leaves the server)
   voiceKeyHint: string; // its last 4 characters, '' when none
   voiceCache: VoiceCacheView;
+  weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
   notifyChannels: NotifyChannelsView;
   progress: ProgressView; // coins, decorations and achievements (#210)
@@ -576,6 +580,7 @@ export type ServerEvent =
   | { type: 'clis'; clis: CliView[] }
   | { type: 'voiceKey'; voiceKeySet: boolean; voiceKeyHint: string }
   | { type: 'voiceCache'; voiceCache: VoiceCacheView }
+  | { type: 'weather'; weather: WeatherView }
   | { type: 'ticker'; item: TickerItem }
   | { type: 'notifyChannels'; notifyChannels: NotifyChannelsView }
   | { type: 'notify'; note: NoteView }
