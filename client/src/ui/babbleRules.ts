@@ -30,7 +30,7 @@ const WAVES: readonly BabbleVoice['wave'][] = ['triangle', 'triangle', 'square',
 const round = (n: number, k = 100) => Math.round(n * k) / k;
 
 /** The voice someone always babbles with, from their id and look. The CEO's is lower, slower and grander. */
-export function babbleVoice(id: string, look: AgentLook | '' = '', role: AgentRole = 'dev'): BabbleVoice {
+export function babbleVoice(id: string, look: AgentLook | '' = '', role: AgentRole = 'agent'): BabbleVoice {
   const r = seeded(hashSeed(`babble:${id}:${look}`));
   const high = look === 'feminine';
   if (role === 'ceo') {

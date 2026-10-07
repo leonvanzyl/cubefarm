@@ -28,7 +28,7 @@ import { findPath, spot, standable, walkways } from './walkways';
 
 const office = walkways('office');
 const lobby = walkways('lobby');
-const peer = (id: string, status: AgentStatus, desk: string, role = 'dev'): ErrandPeer => ({ id, status, role, home: spot(office, desk)! });
+const peer = (id: string, status: AgentStatus, desk: string, role = 'agent'): ErrandPeer => ({ id, status, role, home: spot(office, desk)! });
 const state = (over: Partial<ErrandState> = {}): ErrandState => ({ floor: 'office', statusFor: 100, seatedFor: 60, restless: 30, ...over });
 /** A fixed sequence of "random" numbers. */
 const seq = (...xs: number[]) => {
@@ -39,7 +39,7 @@ const seq = (...xs: number[]) => {
 describe('arriving and leaving by the elevator', () => {
   const lift = spot(office, 'elevator')!;
 
-  it('every desk and station can be reached from the elevator, and the elevator from them', () => {
+  it('every desk can be reached from the elevator, and the elevator from them', () => {
     for (const home of office.homes) {
       const inPath = arrivalPath(office, lift, home);
       expect(inPath, home.id).not.toBeNull();
@@ -63,7 +63,7 @@ describe('arriving and leaving by the elevator', () => {
     expect(LEAVE.carry).toBe('hold');
     expect(LEAVE.steps.map((s) => s.gesture)).toEqual(['reach', 'hold']);
     // neither is ever started by the registry
-    for (const e of [ARRIVE, LEAVE, CHAT]) expect(e.when({ id: 'a', status: 'idle', role: 'dev' }, state())).toBe(false);
+    for (const e of [ARRIVE, LEAVE, CHAT]) expect(e.when({ id: 'a', status: 'idle', role: 'agent' }, state())).toBe(false);
   });
 
   it('waves at the nearest other person, and faces them', () => {
@@ -76,9 +76,9 @@ describe('arriving and leaving by the elevator', () => {
 });
 
 describe('visiting a busy teammate', () => {
-  it('goes to the nearest working developer in range, never a QA tester or someone idle', () => {
+  it('goes to the nearest working teammate in range, never the CEO or someone idle', () => {
     const me = peer('me', 'idle', 'desk-0');
-    const others = [me, peer('idle', 'idle', 'desk-1'), peer('qa', 'working', 'qa-0', 'qa'), peer('busy', 'working', 'desk-1'), peer('far', 'working', 'desk-11')];
+    const others = [me, peer('idle', 'idle', 'desk-1'), peer('ceo', 'working', 'desk-1', 'ceo'), peer('busy', 'working', 'desk-1'), peer('far', 'working', 'desk-11')];
     expect(busyNeighbour(me, others)!.id).toBe('busy');
     expect(busyNeighbour(me, [me, peer('far', 'working', 'desk-11')])).toBeNull();
     expect(busyNeighbour(me, [me])).toBeNull();
@@ -87,15 +87,16 @@ describe('visiting a busy teammate', () => {
   it("stands behind every desk's chair, and can walk there from every other desk", () => {
     const desks = office.homes.filter((h) => h.id.startsWith('desk-'));
     for (const d of desks) {
-      const s = shoulderSpot({ id: d.id, status: 'working', role: 'dev', home: d });
+      const s = shoulderSpot({ id: d.id, status: 'working', role: 'agent', home: d });
       expect(standable(office, s.x, s.z), d.id).toBe(true);
+      expect(s.facing, d.id).toBeCloseTo(d.facing); // looking at the screen the way the desk faces
       for (const from of desks) if (from !== d) expect(findPath(office, from, s), `${from.id} → ${d.id}`).not.toBeNull();
     }
   });
 
-  it('idle developers want it when restless and someone nearby works', () => {
+  it('idle agents want it when restless and someone nearby works', () => {
     const others = [peer('me', 'idle', 'desk-0'), peer('busy', 'working', 'desk-1')];
-    const me = { id: 'me', status: 'idle' as const, role: 'dev' };
+    const me = { id: 'me', status: 'idle' as const, role: 'agent' };
     const s = state({ home: spot(office, 'desk-0'), others });
     expect(wanted(errands(), me, s).map((e) => e.name)).toContain('visit');
     expect(wanted(errands(), me, { ...s, others: [others[0]] }).map((e) => e.name)).not.toContain('visit');
@@ -109,7 +110,7 @@ describe('the CEO in the lobby', () => {
     const ceo = { id: 'ceo', status: 'idle' as const, role: 'ceo' };
     expect(wanted(errands(), ceo, state({ floor: 'lobby' })).map((e) => e.name)).toContain('stroll');
     expect(wanted(errands(), ceo, state({ floor: 'lobby', seatedFor: 1 }))).toEqual([]);
-    expect(wanted(errands(), { ...ceo, role: 'dev' }, state()).map((e) => e.name)).not.toContain('stroll');
+    expect(wanted(errands(), { ...ceo, role: 'agent' }, state()).map((e) => e.name)).not.toContain('stroll');
     const ids = spotChoices(errandNamed('stroll')!.spot, lobby.spots.map((s) => s.id), new Set());
     expect(ids).toContain('reception');
     const home = spot(lobby, 'ceo')!;

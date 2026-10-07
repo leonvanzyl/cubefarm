@@ -1,9 +1,9 @@
-// The whiteboard's stickies, moved by the agents themselves: when a card moves on the floor's Kanban board, its
-// developer or QA tester walks over (an errand, errands.ts) and peels, carries and slaps the sticky, while the 3D
-// board holds the move back until they've placed it (never more than HOLD_MAX seconds). QA testers keep the sticky of
-// the PR they're testing on their monitor. The loose stickies are one instanced mesh over a small atlas texture.
-// The sticky the player peels off by hand (boardHands.ts) is one of them too: in their hands, back onto the board, or
-// onto the monitor of the developer they gave the issue to, where it stays while they work on it.
+// The whiteboard's stickies, moved by the agents themselves: when a card moves on the floor's Kanban board, the
+// agent who moved it (its author, or whoever tests it) walks over (an errand, errands.ts) and peels, carries and slaps
+// the sticky, while the 3D board holds the move back until they've placed it (never more than HOLD_MAX seconds).
+// Whoever tests a PR keeps its sticky on their monitor meanwhile. The loose stickies are one instanced mesh over a
+// small atlas texture. The sticky the player peels off by hand (boardHands.ts) is one of them too: in their hands,
+// back onto the board, or onto the monitor of the agent they gave the issue to, where it stays while they work on it.
 // window.__swarmStickies shows the queue, the loose stickies and what happened, for QA.
 
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
@@ -97,7 +97,7 @@ const moveSteps: ErrandStep[] = [
 ];
 registerErrand(errand('sticky-move', [...moveSteps, { gesture: 'none', seconds: 0.4 }]));
 registerErrand(errand('sticky-merge', [...moveSteps, { gesture: 'none', seconds: 0.25 }, { gesture: 'cheer', seconds: 1.4 }]));
-// a tester takes it off In QA and carries it back to their station (maybe once its developer has put it up)
+// a tester takes it off In QA and carries it back to their desk (maybe once its author has put it up)
 registerErrand(
   errand('sticky-take', [{ gesture: 'none', seconds: 0.2 }, { gesture: 'post', seconds: 0.7, cue: 'peel' }, { gesture: 'hold', seconds: 0.3 }], {
     carry: 'hold',
@@ -128,7 +128,7 @@ interface Piece {
 
 /**
  * The sticky the player peeled off. held: in their hands (or there while the office answers). back: on its way back to
- * the board. given: on the monitor of the developer it went to; the board keeps its card out of sight until it moves.
+ * the board. given: on the monitor of the agent it went to; the board keeps its card out of sight until it moves.
  */
 interface Mine {
   key: string;
@@ -166,7 +166,7 @@ function makeController() {
     pieces: Array.from({ length: PIECES }, (): Piece => ({ owner: null, drawn: '', label: '', pose: newPose(), from: newPose(), to: { pose: newPose(), hand: null }, t: 0, dur: 0, curl: 0, land: null })),
     log: [] as LogEntry[],
     mine: null as Mine | null,
-    /** Developers' monitors with a sticky the player brought them: the issue, while they work on it. */
+    /** Agents' monitors with a sticky the player brought them: the issue, while they work on it. */
     given: new Map<string, { number: number; label: string; color: string; at: number }>(),
     canvas,
     tex,
@@ -265,7 +265,7 @@ function holdsOf(c: Ctrl, jobs: readonly Job[] = c.jobs): Hold[] {
 
 const jobOf = (c: Ctrl, agentId: string, stages: Job['stage'][]) => c.jobs.find((j) => j.move.agentId === agentId && stages.includes(j.stage));
 
-const seatOf = (c: Ctrl, agentId: string) => c.agents.find((a) => a.id === agentId) ?? { role: 'qa', desk: 0 };
+const seatOf = (c: Ctrl, agentId: string) => c.agents.find((a) => a.id === agentId) ?? { desk: 0 };
 
 const tmp = newPose();
 
@@ -439,7 +439,7 @@ export function returnMine(c: Ctrl) {
 }
 
 /** The sticky the player has goes onto `agent`'s monitor: they've just been given its issue. */
-export function giveMine(c: Ctrl, agent: { id: string; role: string; desk: number }) {
+export function giveMine(c: Ctrl, agent: { id: string; desk: number }) {
   const m = c.mine;
   if (!m || m.stage !== 'held') return;
   Object.assign(m, { stage: 'given', agentId: agent.id });
@@ -688,8 +688,8 @@ export function StickyNotes({ ctrl }: { ctrl: Ctrl }) {
 }
 
 /**
- * One sticky on each tester's monitor while they have a PR's (and until they've taken it back to the board), and on a
- * developer's while they work on the issue the player brought them.
+ * One sticky on each tester's monitor while they have a PR's (and until they've taken it back to the board), and on an
+ * agent's while they work on the issue the player brought them.
  */
 function syncMonitors(c: Ctrl) {
   c.dirty = false;
@@ -733,7 +733,7 @@ const probe = {
   log() {
     return [...(this.ctrl?.log ?? [])];
   },
-  /** The sticky the player peeled off, and the developers' monitors they gave one to. */
+  /** The sticky the player peeled off, and the agents' monitors they gave one to. */
   mine() {
     const c = this.ctrl;
     return c ? { mine: c.mine ? { ...c.mine } : null, given: [...c.given].map(([agent, g]) => ({ agent, issue: g.number })) } : null;

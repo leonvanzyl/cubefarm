@@ -83,7 +83,7 @@ export function arrival(w: DogWhere, now: number): Arrival {
   return 'here';
 }
 
-type Dev = Pick<AgentView, 'id' | 'role' | 'repoId' | 'prNumber' | 'branch'>;
+type Teammate = Pick<AgentView, 'id' | 'role' | 'task' | 'repoId' | 'prNumber' | 'branch'>;
 
 /** Whether an open PR has its author having a hard time: CI red, stuck for a human, or a third round of fixes. */
 export function troubledPr(p: Pick<PullInfo, 'state' | 'checks'>, rec: Pick<QaView, 'status' | 'round'> | undefined): boolean {
@@ -93,16 +93,18 @@ export function troubledPr(p: Pick<PullInfo, 'state' | 'checks'>, rec: Pick<QaVi
 }
 
 /**
- * The developers on `repo`'s floor having a hard time: their PR's checks are red, it needs a human, or it's on its
+ * The agents on `repo`'s floor having a hard time: their PR's checks are red, it needs a human, or it's on its
  * third round of fixes (QA's round 3 or later, failed or being fixed). `forced` adds anyone by hand (QA's probe).
  */
-export function hardTimes(repo: Pick<RepoView, 'id' | 'pulls'>, agents: readonly Dev[], qa: Record<string, QaView>, forced: ReadonlySet<string> = new Set()): string[] {
-  const devs = agents.filter((a) => a.repoId === repo.id && a.role === 'dev');
-  const out = new Set(devs.filter((a) => forced.has(a.id)).map((a) => a.id));
+export function hardTimes(repo: Pick<RepoView, 'id' | 'pulls'>, agents: readonly Teammate[], qa: Record<string, QaView>, forced: ReadonlySet<string> = new Set()): string[] {
+  const team = agents.filter((a) => a.repoId === repo.id && a.role !== 'ceo');
+  // an agent testing a PR has its number too, but didn't write it
+  const authors = team.filter((a) => a.task !== 'qa');
+  const out = new Set(team.filter((a) => forced.has(a.id)).map((a) => a.id));
   for (const p of repo.pulls) {
     const rec = qa[`${repo.id}#${p.number}`];
     if (!troubledPr(p, rec)) continue;
-    const author = devs.find((a) => a.id === rec?.devAgentId) ?? devs.find((a) => a.prNumber === p.number) ?? devs.find((a) => !!a.branch && a.branch === p.headRefName);
+    const author = team.find((a) => a.id === rec?.devAgentId) ?? authors.find((a) => a.prNumber === p.number) ?? authors.find((a) => !!a.branch && a.branch === p.headRefName);
     if (author) out.add(author.id);
   }
   return [...out].sort();

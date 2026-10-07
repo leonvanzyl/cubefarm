@@ -4,13 +4,13 @@ import { mergeAuthor } from './confetti';
 import { SIT_SECONDS } from './body';
 import { BEATS, REACH_MS, RUN_SPEED, createRuns, elsewhere, nextBeat, nextJob, planGong, runOf, startRun, takenOver, timedOut, type GongJob, type GongRuns } from './gongRun';
 import { GONG_GAP_MS } from './gongRules';
-import { GONG_SPOT, MAX_DESKS, deskPosition } from './layout';
+import { GONG_SPOT, SEATS, deskPosition, deskRotation } from './layout';
 import { bodyTarget, claimBody, onClaim, onErrand, seatBody, setBody, setErrand } from './people';
 import { findPath, walkways } from './walkways';
 
 const agents = [
-  { id: 'a1', name: 'Ada', role: 'dev' as const, repoId: 'o/r' },
-  { id: 'a2', name: 'Grace Hopper', role: 'dev' as const, repoId: 'o/r' },
+  { id: 'a1', name: 'Ada', role: 'agent' as const, repoId: 'o/r' },
+  { id: 'a2', name: 'Grace Hopper', role: 'agent' as const, repoId: 'o/r' },
 ];
 const pr = (headRefName: string) => ({ headRefName }) as PullInfo;
 const qa = (devAgentId: string | null) => ({ repoId: 'o/r', prNumber: 7, devAgentId }) as QaView;
@@ -22,7 +22,7 @@ describe('who runs to the gong', () => {
     return { agentId, plan: planGong({ ...here, agentId }) };
   };
 
-  it('the QA record’s developer, else the one named in the branch, else nobody (it strikes by itself)', () => {
+  it('the QA record’s author, else the one named in the branch, else nobody (it strikes by itself)', () => {
     expect(plan('swarm/issue-7-ada', qa('a2'))).toEqual({ agentId: 'a2', plan: 'run' });
     expect(plan('swarm/issue-7-GRACE-HOPPER')).toEqual({ agentId: 'a2', plan: 'run' });
     expect(plan('feature/login')).toEqual({ agentId: null, plan: 'solo' });
@@ -156,13 +156,14 @@ describe('a run at the gong', () => {
     }
   });
 
-  it('every desk’s developer reaches the gong and winds up well within REACH_MS', () => {
+  it('every desk’s agent reaches the gong and winds up well within REACH_MS', () => {
     const w = walkways('office');
     const longest = Math.max(
-      ...Array.from({ length: MAX_DESKS }, (_, slot) => {
-        // where they stand up: Character.tsx's STAND beside the chair, which Desk.tsx puts 0.8 behind the desk
+      ...Array.from({ length: SEATS }, (_, slot) => {
+        // where they stand up: Character.tsx's STAND beside the chair, 0.8 behind the desk (Desk.tsx), turned with it
         const d = deskPosition(slot);
-        let at = { x: d.x + 0.62, z: d.z + 0.7 };
+        const [c, s] = [Math.cos(deskRotation(slot)), Math.sin(deskRotation(slot))];
+        let at = { x: d.x + 0.62 * c + 0.7 * s, z: d.z - 0.62 * s + 0.7 * c };
         let m = 0;
         for (const p of findPath(w, at, GONG_SPOT)!) {
           m += Math.hypot(p.x - at.x, p.z - at.z);

@@ -46,7 +46,7 @@ export const FACES: Record<Expression, FaceWeights> = {
 
 // ---------- which expression ----------
 
-/** How a developer feels about their own open PR. */
+/** How an agent feels about their own open PR. */
 export type PrFace = 'stressed' | 'puzzled' | 'proud';
 /** The QA round from which a PR that keeps coming back stresses its author. */
 export const STRESS_ROUND = 4;
@@ -73,13 +73,16 @@ export function prFace(checks: PullInfo['checks'] | null, qa: { status: QaStatus
 
 type Pull = Pick<PullInfo, 'number' | 'state' | 'checks'>;
 
-/** A developer's open PR as their face shows it; `qa` is QA's record of that PR, if any. Nobody else has one. */
+/**
+ * An agent's own open PR as their face shows it; `qa` is QA's record of that PR, if any. The PR an agent is testing
+ * isn't theirs, and the CEO has none.
+ */
 export function prFaceOf(
-  agent: { role: string; repoId: string; prNumber: number | null },
+  agent: { role: string; task: string | null; repoId: string; prNumber: number | null },
   repos: readonly { id: string; pulls: readonly Pull[] }[],
   qa: { status: QaStatus; round: number } | null | undefined,
 ): PrFace | null {
-  if (agent.role !== 'dev' || agent.prNumber == null) return null;
+  if (agent.role === 'ceo' || agent.task === 'qa' || agent.prNumber == null) return null;
   const pr = repos.find((r) => r.id === agent.repoId)?.pulls.find((p) => p.number === agent.prNumber);
   if (pr && pr.state !== 'OPEN') return null;
   return prFace(pr?.checks ?? null, qa);

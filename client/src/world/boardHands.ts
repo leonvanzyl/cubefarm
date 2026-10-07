@@ -1,6 +1,6 @@
 // The whiteboard by hand: aim at a sticky (it lifts and E reads it), peel one off (G, or hold the click) and carry it to
-// a developer's desk (they start the issue, through the assign API) or the QA lab (send the PR to QA), or back to the
-// board. Player.tsx, hands.ts and the HUD call in here; KanbanBoard.tsx keeps it up to date with what the board shows.
+// an agent's desk (they start the issue, through the assign API, or test the PR), or back to the board. Player.tsx,
+// hands.ts and the HUD call in here; KanbanBoard.tsx keeps it up to date with what the board shows.
 // window.__swarmBoard shows what's aimed at and held, the last hand-over, the strings and the stats, for QA.
 
 import * as THREE from 'three';
@@ -140,7 +140,7 @@ export function releaseBoard(open: (focus: Focus) => void) {
 
 // ---------- putting it down ----------
 
-/** A sticky put down at a desk or the QA lab, and what the office said. */
+/** A sticky put down at a desk, and what the office said. */
 interface Handover {
   at: number;
   kind: 'assign' | 'qa';
@@ -171,8 +171,8 @@ useStore.subscribe((s, prev) => {
 });
 
 /**
- * Put the carried sticky down where you're aiming (E, G or a click). A developer's desk starts the issue there, the QA
- * lab sends the PR to QA, a desk that can't take it says why, and the board takes it back. `anywhere`: anywhere else
+ * Put the carried sticky down where you're aiming (E, G or a click). An agent's desk starts the issue there, or has
+ * them test the PR; a desk that can't take it says why, and the board takes it back. `anywhere`: anywhere else
  * sends it back too (G, a click); otherwise (E) it's left for the target's own action. True when the sticky was used.
  */
 export function placeSticky(focus: Focus | null, anywhere: boolean): boolean {
@@ -193,17 +193,21 @@ export function placeSticky(focus: Focus | null, anywhere: boolean): boolean {
   }
   stow();
   const n = held.number;
+  const agent = b.agents.find((a) => a.id === drop.agentId);
   if (drop.kind === 'qa') {
-    const rec: Handover = { at: Date.now(), kind: 'qa', agent: null, number: n, result: 'pending' };
+    const rec: Handover = { at: Date.now(), kind: 'qa', agent: agent?.name ?? drop.agentId, number: n, result: 'pending' };
     last = rec;
+    // The office decides: busy or out of session slots, it refuses with the console's words.
     api
-      .sendToQa(b.repoId, n)
-      .then(() => void (rec.result = 'ok'))
+      .sendToQa(b.repoId, n, drop.agentId)
+      .then(() => {
+        rec.result = 'ok';
+        s.pushToast('success', `📌 ${agent?.name ?? 'They'} will test PR #${n}`);
+      })
       .catch((err: Error) => Object.assign(rec, { result: 'refused', error: err.message }))
-      .finally(() => returnMine(b.ctrl)); // it waits on the board for a tester to take it
+      .finally(() => returnMine(b.ctrl)); // it waits on the board for them to come and take it
     return true;
   }
-  const agent = b.agents.find((a) => a.id === drop.agentId);
   const rec: Handover = { at: Date.now(), kind: 'assign', agent: agent?.name ?? drop.agentId, number: n, result: 'pending' };
   last = rec;
   // The office decides: busy, waiting on other issues or out of session slots, it refuses with the console's words.
@@ -239,7 +243,7 @@ const probe = {
     const h = useStore.getState().held;
     return { held: h?.kind === 'sticky' ? { key: h.key, number: h.number, pr: h.pr } : null, mine: board?.ctrl.mine ? { ...board.ctrl.mine } : null };
   },
-  /** The last sticky put down at a desk or the QA lab: to whom, and what the office said. */
+  /** The last sticky put down at a desk: to whom, and what the office said. */
   lastAssign() {
     return last ? { ...last } : null;
   },

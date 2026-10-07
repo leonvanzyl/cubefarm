@@ -5,7 +5,8 @@ import { type CommandError, gh, git, run } from './exec.ts';
 
 // Layout on disk:
 //   <your projects folder>/<repo>                    the floor's main checkout: your own folder, only fetched and fast-forwarded (syncMain)
-//   <WORKSPACE_ROOT>/<owner>__<repo>/desks/<agent>   one git worktree per agent, reused from task to task
+//   <WORKSPACE_ROOT>/<owner>__<repo>/desks/<name>    the floor's preview worktrees (and agents' desks from before machines)
+//   <HOME_DIR>/machines/<machine>/                   an agent's machine (see "agents' machines" below)
 // Desks stay outside your project so its dev server, tsc and linters never see them.
 // Floors connected before project folders existed keep their clone at <WORKSPACE_ROOT>/<owner>__<repo>/main.
 
@@ -335,71 +336,74 @@ async function clearDeskFolder(wt: string) {
 
 /** `note` hears why the desk couldn't be reused in place, when it has to be rebuilt. */
 export function prepareDesk(fullName: string, base: DeskBase, agentSlug: string, branch: string, note?: (text: string) => void): Promise<string> {
-  return withRepoLock(fullName, async () => {
-    const main = mainDir(fullName);
-    await git(['fetch', 'origin', '--prune'], { cwd: main, timeoutMs: 180_000 });
-    let ref = `origin/${base.defaultBranch}`;
-    if (base.pr) {
-      // refs/pull/N/head works for branches in this repo and for forks alike
-      ref = `origin/pr/${base.pr}`;
-      await git(['fetch', 'origin', `+refs/pull/${base.pr}/head:refs/remotes/${ref}`], { cwd: main, timeoutMs: 180_000 });
-    }
+  return withRepoLock(fullName, () => setUpWorktree(mainDir(fullName), deskDir(fullName, agentSlug), fullName, base, branch, note));
+}
+
+/**
+ * Put the worktree `wt` of the clone `main` on `branch` at the default branch or a PR's head (fetched first), reusing
+ * it in place when it's there. Callers hold the clone's lock.
+ */
+async function setUpWorktree(main: string, wt: string, fullName: string, base: DeskBase, branch: string, note?: (text: string) => void): Promise<string> {
+  await git(['fetch', 'origin', '--prune'], { cwd: main, timeoutMs: 180_000 });
+  let ref = `origin/${base.defaultBranch}`;
+  if (base.pr) {
+    // refs/pull/N/head works for branches in this repo and for forks alike
+    ref = `origin/pr/${base.pr}`;
+    await git(['fetch', 'origin', `+refs/pull/${base.pr}/head:refs/remotes/${ref}`], { cwd: main, timeoutMs: 180_000 });
+  }
+  try {
+    await git(['rev-parse', '--verify', ref], { cwd: main });
+  } catch {
+    throw new Error(
+      base.pr
+        ? `Could not fetch pull request #${base.pr} of ${fullName}.`
+        : `${fullName} has no ${base.defaultBranch} branch yet. Push an initial commit (or create the repo with a README) before assigning work.`,
+    );
+  }
+
+  // git lets a branch be checked out in one worktree only. When another one has it (the PR's author still at their
+  // desk, or your own folder), this desk works on it detached and pushes with `git push origin HEAD:<branch>`:
+  // the other checkout is never touched.
+  await git(['worktree', 'prune'], { cwd: main });
+  // Real paths on both sides, or a desk can take itself for the holder (8.3 names, /var vs /private/var on macOS).
+  const real = (p: string) => fs.realpath(p).catch(() => p);
+  const worktrees = await Promise.all(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd: main })).map(async (w) => ({ ...w, path: await real(w.path) })));
+  const holder = branchHolder(worktrees, branch, await real(wt));
+  const local = holder ? null : branch;
+  if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at ${ref}; push with git push origin HEAD:${branch}.`);
+
+  // Reuse the desk's worktree in place. Deleting it fails on Windows while any process (a dev server
+  // the agent left running, a browser) still has its working directory inside, and reuse keeps
+  // node_modules warm between tasks.
+  if (await exists(path.join(wt, '.git'))) {
     try {
-      await git(['rev-parse', '--verify', ref], { cwd: main });
-    } catch {
-      throw new Error(
-        base.pr
-          ? `Could not fetch pull request #${base.pr} of ${fullName}.`
-          : `${fullName} has no ${base.defaultBranch} branch yet. Push an initial commit (or create the repo with a README) before assigning work.`,
-      );
-    }
-
-    const wt = deskDir(fullName, agentSlug);
-
-    // git lets a branch be checked out in one worktree only. When another one has it (the PR's author still at their
-    // desk, or your own folder), this desk works on it detached and pushes with `git push origin HEAD:<branch>`:
-    // the other checkout is never touched.
-    await git(['worktree', 'prune'], { cwd: main });
-    // Real paths on both sides, or a desk can take itself for the holder (8.3 names, /var vs /private/var on macOS).
-    const real = (p: string) => fs.realpath(p).catch(() => p);
-    const worktrees = await Promise.all(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd: main })).map(async (w) => ({ ...w, path: await real(w.path) })));
-    const holder = branchHolder(worktrees, branch, await real(wt));
-    const local = holder ? null : branch;
-    if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at ${ref}; push with git push origin HEAD:${branch}.`);
-
-    // Reuse the desk's worktree in place. Deleting it fails on Windows while any process (a dev server
-    // the agent left running, a browser) still has its working directory inside, and reuse keeps
-    // node_modules warm between tasks.
-    if (await exists(path.join(wt, '.git'))) {
       try {
-        try {
-          await reuseDesk(wt, local, ref);
-        } catch (err) {
-          // A git that died mid-command (a crash, a killed CLI) leaves index.lock behind, and every git after it fails.
-          const lock = /index\.lock/.test((err as Error).message) ? await staleIndexLock(wt) : null;
-          if (!lock) throw err;
-          await fs.rm(lock, { force: true, maxRetries: 3 });
-          note?.(`Removed a stale git lock (${lock}) left in the desk.`);
-          await reuseDesk(wt, local, ref);
-        }
-        return wt;
+        await reuseDesk(wt, local, ref);
       } catch (err) {
-        // Rebuild the worktree from scratch, but say why: the rebuild can fail in its own way.
-        const why = `Couldn't reuse the desk in place, so it's rebuilt: ${(err as Error).message}`;
-        console.warn(`${wt}: ${why}`);
-        note?.(why);
+        // A git that died mid-command (a crash, a killed CLI) leaves index.lock behind, and every git after it fails.
+        const lock = /index\.lock/.test((err as Error).message) ? await staleIndexLock(wt) : null;
+        if (!lock) throw err;
+        await fs.rm(lock, { force: true, maxRetries: 3 });
+        note?.(`Removed a stale git lock (${lock}) left in the desk.`);
+        await reuseDesk(wt, local, ref);
       }
+      return wt;
+    } catch (err) {
+      // Rebuild the worktree from scratch, but say why: the rebuild can fail in its own way.
+      const why = `Couldn't reuse the desk in place, so it's rebuilt: ${(err as Error).message}`;
+      console.warn(`${wt}: ${why}`);
+      note?.(why);
     }
+  }
 
-    if (await exists(wt)) {
-      await git(['worktree', 'remove', '--force', wt], { cwd: main }).catch(() => undefined);
-      await clearDeskFolder(wt);
-    }
-    await git(['worktree', 'prune'], { cwd: main });
-    await fs.mkdir(path.dirname(wt), { recursive: true });
-    await git(['worktree', 'add', ...(local ? ['-B', local] : ['--detach']), wt, ref], { cwd: main });
-    return wt;
-  });
+  if (await exists(wt)) {
+    await git(['worktree', 'remove', '--force', wt], { cwd: main }).catch(() => undefined);
+    await clearDeskFolder(wt);
+  }
+  await git(['worktree', 'prune'], { cwd: main });
+  await fs.mkdir(path.dirname(wt), { recursive: true });
+  await git(['worktree', 'add', ...(local ? ['-B', local] : ['--detach']), wt, ref], { cwd: main });
+  return wt;
 }
 
 /** The other worktree (not `desk`) that has `branch` checked out, if any. */
@@ -528,9 +532,9 @@ const stamp = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStar
 
 /**
  * Save a desk's modified tracked files and the commits that are on no remote branch to
- * <HOME_DIR>/leftovers/<owner>__<repo>/<desk>-<YYYYMMDD>.patch (format-patch, then `git diff HEAD`). Null: nothing to save.
+ * <HOME_DIR>/leftovers/<owner>__<repo>/<label>-<YYYYMMDD>.patch (format-patch, then `git diff HEAD`). Null: nothing to save.
  */
-async function saveLeftovers(fullName: string, desk: string): Promise<string | null> {
+async function saveLeftovers(fullName: string, desk: string, label = path.basename(desk)): Promise<string | null> {
   const g = (args: string[]) => git(args, { cwd: desk, timeoutMs: 60_000 });
   if (!(await g(['rev-parse', '--verify', '-q', 'HEAD']).catch(() => ''))) return null;
   const dirty = await g(['status', '--porcelain', '--untracked-files=no']);
@@ -544,7 +548,7 @@ async function saveLeftovers(fullName: string, desk: string): Promise<string | n
     if (commits) await g(['format-patch', '-q', '-o', tmp, 'HEAD', '--not', '--remotes']);
     if (dirty) await g(['diff', 'HEAD', '--binary', `--output=${path.join(tmp, 'zz-uncommitted.patch')}`]);
     const parts = (await fs.readdir(tmp)).sort();
-    const base = `${path.basename(desk)}-${stamp(new Date())}`;
+    const base = `${label}-${stamp(new Date())}`;
     let file = path.join(dir, `${base}.patch`);
     for (let n = 2; await exists(file); n++) file = path.join(dir, `${base}-${n}.patch`);
     await fs.writeFile(file, Buffer.concat(await Promise.all(parts.map((p) => fs.readFile(path.join(tmp, p))))));
@@ -682,15 +686,18 @@ async function trimTargets(wt: string): Promise<string[]> {
  * Windows has locked fails whole and is skipped until next time, never left half-deleted), then measured and deleted
  * outside the lock. Never stops processes. Returns null when the desk doesn't exist or is busy.
  */
-export async function trimDesk(fullName: string, agentSlug: string, stillIdle: () => boolean = () => true): Promise<DeskTrim | null> {
-  const wt = deskDir(fullName, agentSlug);
-  const trash = path.join(repoDir(fullName), 'trash');
+export function trimDesk(fullName: string, agentSlug: string, stillIdle: () => boolean = () => true): Promise<DeskTrim | null> {
+  return trimWorktree(deskDir(fullName, agentSlug), path.join(repoDir(fullName), 'trash'), agentSlug, fullName, stillIdle);
+}
+
+/** trimDesk's work on the worktree `wt`, under the lock `lock`; what it removes waits in `trash` as <name>-<time>. */
+async function trimWorktree(wt: string, trash: string, name: string, lock: string, stillIdle: () => boolean): Promise<DeskTrim | null> {
   // What an earlier trim couldn't delete (files that were still locked).
-  for (const name of await fs.readdir(trash).catch(() => [])) {
-    if (name.startsWith(`${agentSlug}-`)) await removeDir(path.join(trash, name)).catch(() => undefined);
+  for (const old of await fs.readdir(trash).catch(() => [])) {
+    if (old.startsWith(`${name}-`)) await removeDir(path.join(trash, old)).catch(() => undefined);
   }
-  const bin = path.join(trash, `${agentSlug}-${Date.now()}`);
-  const moved = await withRepoLock(fullName, async () => {
+  const bin = path.join(trash, `${name}-${Date.now()}`);
+  const moved = await withRepoLock(lock, async () => {
     if (!stillIdle() || !(await exists(path.join(wt, '.git')))) return null;
     const out = { removed: [] as string[], skipped: [] as string[] };
     const targets = await trimTargets(wt);
@@ -752,8 +759,12 @@ export function leftoversInDesk(listing: string, desk: string, keep: OfficeProce
  * desk, plus the shell/node chain that launched it. Never the office's own processes (the keeper, the CLIs in agents'
  * terminals): the walk up from a leftover stops at them.
  */
-export async function releaseDesk(fullName: string, agentSlug: string, port: number, keep: OfficeProcesses = { pids: [], markers: [] }): Promise<void> {
-  const desk = deskDir(fullName, agentSlug);
+export function releaseDesk(fullName: string, agentSlug: string, port: number, keep: OfficeProcesses = { pids: [], markers: [] }): Promise<void> {
+  return releaseDirs([deskDir(fullName, agentSlug)], port, keep);
+}
+
+/** releaseDesk's work: what listens on `port`, or whose command line points into one of `dirs`. */
+async function releaseDirs(dirs: string[], port: number, keep: OfficeProcesses): Promise<void> {
   const spare = [process.pid, ...keep.pids];
   if (process.platform === 'win32') {
     const psList = (paths: string[]) => paths.flatMap(pathForms).map((d) => `'${d.toLowerCase().replaceAll("'", "''")}'`).join(', ');
@@ -762,7 +773,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 $spare = @(${spare.join(', ')})
 $seed = @()
 Get-NetTCPConnection -LocalPort ${port} -State Listen | ForEach-Object { $seed += [int]$_.OwningProcess }
-$desks = @(${psList([desk])})
+$desks = @(${psList(dirs)})
 $marks = @(${psList(keep.markers)})
 $all = Get-CimInstance Win32_Process
 $byId = @{}; foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
@@ -792,7 +803,7 @@ Write-Output $kill.Count`;
   }
   const listening = await run('sh', ['-c', `lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null || true`]).catch(() => '');
   const listing = await run('ps', ['-A', '-ww', '-o', 'pid=,args=']).catch(() => '');
-  const pids = new Set([...listening.split(/\s+/).map(Number), ...leftoversInDesk(listing, desk, keep)]);
+  const pids = new Set([...listening.split(/\s+/).map(Number), ...dirs.flatMap((d) => leftoversInDesk(listing, d, keep))]);
   for (const pid of pids) {
     if (!pid || spare.includes(pid)) continue;
     try {
@@ -801,4 +812,98 @@ Write-Output $kill.Count`;
       // already gone
     }
   }
+}
+
+// ---------- agents' machines ----------
+
+// A local machine (server/machines.ts) is a folder, <HOME_DIR>/machines/<machine>/, holding the agent's own clone of
+// each repository it works on (repos/<owner>__<repo>, with no checkout of its own), its worktree of that clone
+// (work/<owner>__<repo>), where its branches are checked out, and its temp folder (tmp). Each clone has a lock of its
+// own, so agents never wait for each other's git.
+
+export const MACHINES_DIR = path.join(HOME_DIR, 'machines');
+const repoFolder = (fullName: string) => fullName.replace('/', '__');
+export const machineDir = (machine: string) => path.join(MACHINES_DIR, machine);
+const machineClone = (machine: string, fullName: string) => path.join(machineDir(machine), 'repos', repoFolder(fullName));
+export const machineDesk = (machine: string, fullName: string) => path.join(machineDir(machine), 'work', repoFolder(fullName));
+export const machineTmp = (machine: string) => path.join(machineDir(machine), 'tmp');
+const machineLock = (machine: string, fullName: string) => `machine:${machine}:${fullName}`;
+
+/**
+ * The machine's own clone, made the first time from the same origin as the floor's checkout, borrowing that
+ * checkout's objects so it's quick but sharing nothing afterwards.
+ */
+async function ensureMachineClone(machine: string, fullName: string): Promise<string> {
+  const clone = machineClone(machine, fullName);
+  if (await exists(path.join(clone, '.git'))) return clone;
+  await removeDir(clone).catch(() => undefined); // a clone that died half-way
+  await fs.mkdir(path.dirname(clone), { recursive: true });
+  const main = mainDir(fullName);
+  const origin = (await exists(path.join(main, '.git'))) ? await git(['remote', 'get-url', 'origin'], { cwd: main }).catch(() => '') : '';
+  if (origin) await git(['clone', '-q', '--no-checkout', '--reference-if-able', main, '--dissociate', origin, clone], { timeoutMs: 600_000 });
+  else await gh(['repo', 'clone', fullName, clone, '--', '--no-checkout'], { timeoutMs: 600_000 });
+  await addLocalExcludes(clone);
+  return clone;
+}
+
+/** Set an agent's worktree up for a task on its machine: its clone is made the first time, then as prepareDesk. */
+export function prepareMachineDesk(machine: string, fullName: string, base: DeskBase, branch: string, note?: (text: string) => void): Promise<string> {
+  return withRepoLock(machineLock(machine, fullName), async () => setUpWorktree(await ensureMachineClone(machine, fullName), machineDesk(machine, fullName), fullName, base, branch, note));
+}
+
+/** trimDesk for an agent's worktree on its machine. */
+export function trimMachineDesk(machine: string, fullName: string, stillIdle: () => boolean = () => true): Promise<DeskTrim | null> {
+  return trimWorktree(machineDesk(machine, fullName), path.join(machineDir(machine), 'trash'), repoFolder(fullName), machineLock(machine, fullName), stillIdle);
+}
+
+/**
+ * Stop what an agent left running on its machine: on its port, or started in its worktree. Not what's in its temp
+ * folder: that's where the browser of a CLI still waiting at its prompt keeps its profile.
+ */
+export function releaseMachine(machine: string, fullName: string, port: number, keep: OfficeProcesses = { pids: [], markers: [] }): Promise<void> {
+  return releaseDirs([machineDesk(machine, fullName)], port, keep);
+}
+
+/** Finished swarm/issue-* and qa/pr-* branches in a machine's clone that its worktree doesn't have out and `keep` doesn't name. */
+export function sweepMachine(machine: string, fullName: string, keep: string[]): Promise<number> {
+  return withRepoLock(machineLock(machine, fullName), async () => {
+    const clone = machineClone(machine, fullName);
+    if (!(await exists(path.join(clone, '.git')))) return 0;
+    const g = (args: string[]) => git(args, { cwd: clone, timeoutMs: 60_000 });
+    await g(['worktree', 'prune']);
+    const out = parseWorktrees(await g(['worktree', 'list', '--porcelain'])).map((w) => w.branch);
+    const list = async () => (await g(['for-each-ref', '--format=%(refname)', 'refs/heads/swarm', 'refs/heads/qa'])).split(/\r?\n/).filter(Boolean).map((r) => r.replace(/^refs\/heads\//, ''));
+    const doomed = (await list()).filter((b) => OFFICE_BRANCH.test(b) && !keep.includes(b) && !out.includes(b));
+    for (let i = 0; i < doomed.length; i += 40) await g(['branch', '-D', ...doomed.slice(i, i + 40)]).catch(() => undefined);
+    if (!doomed.length) return 0;
+    const left = new Set(await list());
+    return doomed.filter((b) => !left.has(b)).length;
+  });
+}
+
+/**
+ * Remove a machine. Work in its worktrees that is on no remote branch is saved to leftovers first. A machine a
+ * process still has open stays (removed: false), for the next try.
+ */
+export async function removeMachine(machine: string): Promise<{ removed: boolean; patches: string[] }> {
+  await Promise.all([...locks].filter(([key]) => key.startsWith(`machine:${machine}:`)).map(([, p]) => p.catch(() => undefined)));
+  const dir = machineDir(machine);
+  if (!(await exists(dir))) return { removed: true, patches: [] };
+  if (await inUse(dir)) return { removed: false, patches: [] };
+  const patches: string[] = [];
+  for (const name of await fs.readdir(path.join(dir, 'work')).catch(() => [])) {
+    const patch = await saveLeftovers(name.replace('__', '/'), path.join(dir, 'work', name), `machine-${machine}`).catch(() => null);
+    if (patch) patches.push(patch);
+  }
+  try {
+    await removeDir(dir);
+    return { removed: true, patches };
+  } catch {
+    return { removed: false, patches };
+  }
+}
+
+/** The machines on disk. */
+export async function listMachines(): Promise<string[]> {
+  return (await fs.readdir(MACHINES_DIR, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
 }

@@ -11,7 +11,7 @@ const agent = (id: string, patch: Partial<Agent> = {}): Agent =>
     id,
     name: id[0].toUpperCase() + id.slice(1),
     repoId: REPO,
-    role: 'dev',
+    role: 'agent',
     status: 'idle',
     task: null,
     issueNumber: null,
@@ -39,9 +39,9 @@ const kinds = (s: ReturnType<typeof storeNews>) => s.map((x) => `${x.who}:${x.ev
 
 describe('storeNews', () => {
   const ken = agent('ken', { branch: 'swarm/issue-212', prNumber: 212 });
-  const marple = agent('marple', { role: 'qa' });
+  const marple = agent('marple');
 
-  it('a developer starting an issue says so', () => {
+  it('an agent starting an issue says so', () => {
     const before = office([agent('ken')]);
     const after = office([agent('ken', { status: 'preparing', task: 'issue', issueNumber: 204 })]);
     expect(storeNews(before, after).map((s) => s.event)).toEqual([{ kind: 'start', issue: 204 }]);
@@ -57,16 +57,22 @@ describe('storeNews', () => {
     expect(news.map((s) => [s.who, s.event])).toEqual([['ken', { kind: 'prOpened', pr: 212 }]]);
     expect(storeNews(office([done], [pull(212)]), office([{ ...done, status: 'idle' }], [pull(212)]))).toEqual([]);
     // a tester's or a fixer's PR isn't theirs to open
-    const tester = agent('marple', { role: 'qa', status: 'working', task: 'qa' });
+    const tester = agent('marple', { status: 'working', task: 'qa' });
     expect(storeNews(office([tester]), office([{ ...tester, prNumber: 212 }]))).toEqual([]);
   });
 
-  it('going to QA: the developer asks the tester by name, and the tester answers a moment later', () => {
+  it('going to QA: the author asks the tester by name, and the tester answers a moment later', () => {
     const news = storeNews(office([ken, marple], [pull(212)], [qa(212, 'queued')]), office([ken, marple], [pull(212)], [qa(212, 'testing')]));
     expect(news.map((s) => [s.who, s.event, s.delay > 0])).toEqual([
       ['ken', { kind: 'askQa', pr: 212, tester: 'Marple' }, false],
       ['marple', { kind: 'qaStart', pr: 212 }, true],
     ]);
+  });
+
+  it('testing their own PR, the author just starts', () => {
+    const own = (status: QaView['status']) => qa(212, status, { qaAgentId: 'ken' });
+    const news = storeNews(office([ken, marple], [pull(212)], [own('queued')]), office([ken, marple], [pull(212)], [own('testing')]));
+    expect(news.map((s) => [s.who, s.event, s.delay > 0])).toEqual([['ken', { kind: 'qaStart', pr: 212 }, false]]);
   });
 
   it("QA's verdict, from the tester", () => {
@@ -112,13 +118,13 @@ describe('storeNews', () => {
 });
 
 describe('authorOf', () => {
-  it("finds the developer by QA's record, their PR number or their branch", () => {
+  it("finds the author by QA's record, their PR number or their branch", () => {
     const agents = { ken: agent('ken', { prNumber: 9 }), ada: agent('ada', { branch: 'swarm/issue-5' }) };
     expect(authorOf(agents, REPO, pull(9))?.id).toBe('ken');
     expect(authorOf(agents, REPO, pull(5, { headRefName: 'swarm/issue-5' }))?.id).toBe('ada');
     expect(authorOf(agents, REPO, pull(7), qa(7, 'testing', { devAgentId: 'ada' }))?.id).toBe('ada');
     expect(authorOf(agents, 'other/repo', pull(9))).toBeUndefined();
-    // a developer testing someone's PR has its number too, but didn't write it
+    // an agent testing someone's PR has its number too, but didn't write it
     expect(authorOf({ ada: agent('ada', { prNumber: 9, task: 'qa' }) }, REPO, pull(9))).toBeUndefined();
   });
 });
@@ -199,7 +205,8 @@ describe('greeting', () => {
     expect(greeting(agent('ken', { prNumber: 213, status: 'done' }), slice, 'Leon', NOW)).toMatchObject({ mood: 'inQa', pr: 213 });
     expect(greeting(agent('ken', { prNumber: 213, status: 'working', task: 'fix' }), slice, 'Leon', NOW)).toMatchObject({ mood: 'fixing' });
     expect(greeting(agent('ken', { status: 'working', task: 'issue', issueNumber: 4 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'working', issue: 4 });
-    expect(greeting(agent('marple', { role: 'qa', status: 'working', prNumber: 213 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'testing' });
+    expect(greeting(agent('marple', { status: 'working', task: 'qa', prNumber: 213 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'testing' });
+    // testing a PR they didn't write, which merged meanwhile: still testing, not shipped
     expect(greeting(agent('ada', { status: 'working', task: 'qa', prNumber: 212 }), slice, 'Leon', NOW)).toMatchObject({ mood: 'testing', pr: 212 });
     expect(greeting(agent('ceo', { role: 'ceo' }), slice, 'Leon', NOW)).toMatchObject({ mood: 'ceo' });
   });

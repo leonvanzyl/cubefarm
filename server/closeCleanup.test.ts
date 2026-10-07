@@ -29,9 +29,9 @@ const floor = (f: Partial<FloorState> = {}): FloorState => ({ fetchedAt: T, open
 const learned = (p: KnownPull, at = T + 1): [number, LearnedPull] => [p.number, { ...p, at }];
 
 // The 2026-10-04 cast: Barbara on issue #192 (her PR #198, branch swarm/issue-192-barbara), Guido fixing it, Marple testing.
-const barbara: Holder = { id: 'barbara', role: 'dev', status: 'working', task: 'issue', issueNumber: 192, prNumber: null, branch: 'swarm/issue-192-barbara' };
-const guido: Holder = { id: 'guido', role: 'dev', status: 'working', task: 'fix', issueNumber: 192, prNumber: 198, branch: 'swarm/issue-192-barbara' };
-const marple: Holder = { id: 'marple', role: 'qa', status: 'working', task: 'qa', issueNumber: 192, prNumber: 198, branch: 'qa/pr-198-marple' };
+const barbara: Holder = { id: 'barbara', role: 'agent', status: 'working', task: 'issue', issueNumber: 192, prNumber: null, branch: 'swarm/issue-192-barbara' };
+const guido: Holder = { id: 'guido', role: 'agent', status: 'working', task: 'fix', issueNumber: 192, prNumber: 198, branch: 'swarm/issue-192-barbara' };
+const marple: Holder = { id: 'marple', role: 'agent', status: 'working', task: 'qa', issueNumber: 192, prNumber: 198, branch: 'qa/pr-198-marple' };
 const rec = (status: string, more: Partial<HeldRecord> = {}): HeldRecord => ({ prNumber: 198, status, qaAgentId: 'marple', devAgentId: 'barbara', ...more });
 const closed198: Closure = { kind: 'pr', number: 198, merged: false, headRefName: 'swarm/issue-192-barbara' };
 const merged198: Closure = { ...closed198, merged: true };
@@ -129,11 +129,11 @@ describe('closuresHeld', () => {
 });
 
 describe('afterClose', () => {
-  it('stops a developer on an issue closed as not planned; the PR flow is left alone', () => {
+  it('stops an agent on an issue closed as not planned; the PR flow is left alone', () => {
     expect(afterClose(issue192, [barbara, marple], [rec('queued')], BUSY)).toEqual({ stop: ['barbara'], clear: [], dropQa: false });
   });
 
-  it("clears the desk of a developer whose card still shows the closed issue (the old \"finished · no PR\")", () => {
+  it("clears the desk of an agent whose card still shows the closed issue (the old \"finished · no PR\")", () => {
     expect(afterClose(issue192, [{ ...barbara, status: 'done' }], [], BUSY)).toEqual({ stop: [], clear: ['barbara'], dropQa: false });
     expect(afterClose(issue192, [{ ...barbara, status: 'error' }, { ...barbara, id: 'b2', status: 'stopped' }], [], BUSY).clear).toEqual(['barbara', 'b2']);
   });
@@ -163,10 +163,10 @@ describe('afterClose', () => {
     expect(afterClose(merged198, [marple], [rec('testing')], BUSY).dropQa).toBe(false); // it leaves QA once the run ends
   });
 
-  it('clears a merged PR from the cards it is on, but leaves the tester their last run', () => {
+  it('clears a merged PR from the cards it is on, but leaves whoever tested it their last run', () => {
     const author = { ...barbara, status: 'done', prNumber: 198 };
     expect(afterClose(merged198, [author, { ...marple, status: 'done' }], [rec('passed')], BUSY)).toEqual({ stop: [], clear: ['barbara'], dropQa: true });
-    expect(afterClose(merged198, [{ ...marple, role: 'dev', status: 'done' }], [], BUSY).clear).toEqual(['marple']); // a developer covering QA
+    expect(afterClose(merged198, [{ ...guido, status: 'done' }], [], BUSY).clear).toEqual(['guido']); // whoever fixed it
   });
 
   it("doesn't stop an issue's author when their own PR's merge closed it, but does stop anyone else on it", () => {

@@ -58,11 +58,13 @@ describe('prFace', () => {
     expect(prFace('passing', { status: 'passed', round: STRESS_ROUND + 1 })).toBe('proud');
   });
 
-  it("only looks at a developer's own open PR", () => {
+  it("only looks at an agent's own open PR", () => {
     const repos = [{ id: 'o/r', pulls: [{ number: 4, state: 'OPEN' as const, checks: 'failing' as const }, { number: 5, state: 'MERGED' as const, checks: 'failing' as const }] }];
-    const dev = { role: 'dev', repoId: 'o/r', prNumber: 4 };
+    const dev = { role: 'agent', task: null, repoId: 'o/r', prNumber: 4 };
     expect(prFaceOf(dev, repos, null)).toBe('puzzled');
-    expect(prFaceOf({ ...dev, role: 'qa' }, repos, null)).toBeNull(); // the PR a QA tester is testing isn't theirs
+    expect(prFaceOf({ ...dev, task: 'fix' }, repos, null)).toBe('puzzled');
+    expect(prFaceOf({ ...dev, task: 'qa' }, repos, null)).toBeNull(); // the PR they're testing isn't theirs
+    expect(prFaceOf({ ...dev, role: 'ceo' }, repos, null)).toBeNull();
     expect(prFaceOf({ ...dev, prNumber: null }, repos, null)).toBeNull();
     expect(prFaceOf({ ...dev, prNumber: 5 }, repos, null)).toBeNull(); // merged: nothing to worry about
     // not listed yet: QA's record still counts

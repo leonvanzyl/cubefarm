@@ -49,8 +49,9 @@ export const WINDOW = { w: 4.4, h: 1.8, y: 1.95 };
 /** A side wall's glass door: half its width and its height. */
 export const SIDE_DOOR = { half: 0.9, h: 2.5 };
 // Each side wall's door and windows, as z of their middles. Offices: west, between the desks' aisle and the couch;
-// east, between the QA lab and the kitchenette. Lobby: west, south of the manager's office; east, between the CEO's
-// office and the waiting room, past the sofa. Windows keep about where the old painted ones were, clear of the doors.
+// east, between the east wall's desks and the kitchenette. Lobby: west, south of the manager's office; east, between
+// the CEO's office and the waiting room, past the sofa. Windows keep about where the old painted ones were, clear of
+// the doors.
 export const SIDE_OPENINGS: Record<FloorKind, Record<Side, { door: number; windows: number[] }>> = {
   office: { west: { door: -4.2, windows: [-8.5, 0, 8] }, east: { door: 3.55, windows: [-8, -2] } },
   lobby: { west: { door: 4.5, windows: [0, 8.5] }, east: { door: 2.6, windows: [-1] } },
@@ -166,21 +167,38 @@ export const elevatorDoorway = (): Rect => ({ minX: -ELEVATOR.doorHalf, maxX: EL
 
 // ---------- office floors ----------
 
+// A floor's desks, numbered 0 to SEATS - 1: the open-plan grid first (0 to MAX_DESKS - 1), then the desks along the
+// east wall, whose people face the wall with their backs to the room.
 export const DESK_COLS = [-10.5, -3.5, 3.5, 10.5];
 export const DESK_ROWS = [-6.2, -1.6, 3.0];
+/** The open-plan grid's desks. */
 export const MAX_DESKS = DESK_COLS.length * DESK_ROWS.length;
+/** The east wall's desks: their x, and the z of each (desks MAX_DESKS and up). */
+export const EAST_DESKS = { x: HALF_W - 2.0, z: [-5.2, -2.0, 1.2] };
+/** How the east wall's desks are turned: facing the wall. */
+export const EAST_ROTATION = -Math.PI / 2;
+/** Every desk in a floor's room (shared/types.ts FLOOR_SEATS). */
+export const SEATS = MAX_DESKS + EAST_DESKS.z.length;
 
 export const DESK = { w: 1.9, d: 0.95, h: 0.74 };
 
 /** One long rug under each row of desks (and their chairs). */
 export const DESK_RUGS: Rect[] = DESK_ROWS.map((z) => rect(0, z + 0.35, 24.4, 2.9));
 
-/** Desks fill from the row nearest the elevator, so a new team is visible as soon as you arrive. */
+/** Whether desk `slot` is one of the east wall's (turned to face the wall). */
+export const isEastDesk = (slot: number) => slot % SEATS >= MAX_DESKS;
+
+/** Where desk `slot` stands. The grid fills from the row nearest the elevator, so a new team shows as you arrive. */
 export function deskPosition(slot: number) {
-  const row = DESK_ROWS.length - 1 - (Math.floor(slot / DESK_COLS.length) % DESK_ROWS.length);
-  const col = slot % DESK_COLS.length;
+  const s = slot % SEATS;
+  if (s >= MAX_DESKS) return { x: EAST_DESKS.x, z: EAST_DESKS.z[s - MAX_DESKS] };
+  const row = DESK_ROWS.length - 1 - Math.floor(s / DESK_COLS.length);
+  const col = s % DESK_COLS.length;
   return { x: DESK_COLS[col], z: DESK_ROWS[row] };
 }
+
+/** How desk `slot` is turned about y: 0 for the grid (facing north), EAST_ROTATION for the east wall's. */
+export const deskRotation = (slot: number) => (isEastDesk(slot) ? EAST_ROTATION : 0);
 
 export const BOARD = { w: 12, h: 3.0, y: 0.45, z: -HALF_D + 0.06 };
 
@@ -217,12 +235,6 @@ export const GONG_SPOT = { x: GONG.x, z: GONG.z + GONG.d / 2 + 0.9 };
 export const PONG_TABLE = { x: -6.6, z: 8.2, len: 2.74, wid: 1.525, top: 0.76, stand: 0.65 };
 export const pongTableRect = (): Rect => rect(PONG_TABLE.x, PONG_TABLE.z, PONG_TABLE.len, PONG_TABLE.wid, PONG_TABLE.top);
 export const PONG_BOARD = { x: -8.4, y: 1.95, w: 1.5, h: 1.3 };
-
-// The QA lab: test stations along the east wall. Testers face the wall, with their backs to the room.
-export const QA_LAB = { x: HALF_W - 2.0, stations: [-5.2, -2.0, 1.2] };
-export const QA_ROTATION = -Math.PI / 2;
-export const qaDeskPosition = (slot: number) => ({ x: QA_LAB.x, z: QA_LAB.stations[slot % QA_LAB.stations.length] });
-export const QA_RUG = rect(QA_LAB.x - 0.4, -2, 3.4, 10.4);
 
 // ---------- decorations (#210) ----------
 
@@ -271,14 +283,15 @@ export const decorBoxRect = (): Rect => rect(DECOR_BOX.x, DECOR_BOX.z, DECOR_BOX
 
 export function officeColliders(): Rect[] {
   const out = [...shellColliders('office'), ...outsideColliders('office')];
-  for (let s = 0; s < MAX_DESKS; s++) {
+  for (let s = 0; s < SEATS; s++) {
     const { x, z } = deskPosition(s);
-    out.push(rect(x, z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
-    out.push(rect(x, z + 0.8, 0.7, 0.6, SOLID_H.seated)); // chair + occupant
-  }
-  for (const z of QA_LAB.stations) {
-    out.push(rect(QA_LAB.x, z, DESK.d + 0.1, DESK.w + 0.1, SOLID_H.desk)); // rotated desk
-    out.push(rect(QA_LAB.x - 0.8, z, 0.6, 0.7, SOLID_H.seated)); // chair + tester
+    if (isEastDesk(s)) {
+      out.push(rect(x, z, DESK.d + 0.1, DESK.w + 0.1, SOLID_H.desk)); // turned to face the wall
+      out.push(rect(x - 0.8, z, 0.6, 0.7, SOLID_H.seated)); // chair + occupant
+    } else {
+      out.push(rect(x, z, DESK.w + 0.1, DESK.d + 0.1, SOLID_H.desk));
+      out.push(rect(x, z + 0.8, 0.7, 0.6, SOLID_H.seated)); // chair + occupant
+    }
   }
   out.push(rect(0, -HALF_D + 0.25, BOARD.w + 0.4, 0.5, SOLID_H.board)); // whiteboard + marker tray
   const a = APP_SCREEN;
@@ -398,7 +411,7 @@ export interface DecorSlot {
   floor?: boolean;
 }
 
-/** Each desk's back right corner (desk frame), clear of the monitor, the mug and the plant or test tubes. */
+/** Each desk's back right corner (desk frame), clear of the monitor, the mug and the plant. */
 const DESK_CORNER = { x: 0.74, z: -0.3 };
 /** The desks' top, where things stand on them. */
 export const DESK_TOP = 0.77;
@@ -415,20 +428,18 @@ export function decorSlots(kind: FloorKind): DecorSlot[] {
   // Either side of the elevator's frame, against the south wall.
   const elevator: DecorSlot[] = [-1, 1].map((s) => ({ id: s < 0 ? 'elevator-w' : 'elevator-e', x: s * (ELEVATOR.doorHalf + 0.95), y: 0, z: HALF_D - 0.4, rotY: Math.PI, floor: true }));
   if (kind === 'office') {
-    const desks = Array.from({ length: MAX_DESKS }, (_, s): DecorSlot => {
+    // the east wall's desks are turned to face the wall, so the corner turns with them
+    const desks = Array.from({ length: SEATS }, (_, s): DecorSlot => {
       const { x, z } = deskPosition(s);
-      return { id: `desk-${s}`, x: x + DESK_CORNER.x, y: DESK_TOP, z: z + DESK_CORNER.z, rotY: 0 };
-    });
-    // QA desks are turned to face the east wall (QA_ROTATION), so the corner turns with them.
-    const qa = QA_LAB.stations.map((_, s): DecorSlot => {
-      const { x, z } = qaDeskPosition(s);
-      return { id: `qa-${s}`, x: x - DESK_CORNER.z, y: DESK_TOP, z: z + DESK_CORNER.x, rotY: QA_ROTATION };
+      return isEastDesk(s)
+        ? { id: `desk-${s}`, x: x - DESK_CORNER.z, y: DESK_TOP, z: z + DESK_CORNER.x, rotY: EAST_ROTATION }
+        : { id: `desk-${s}`, x: x + DESK_CORNER.x, y: DESK_TOP, z: z + DESK_CORNER.z, rotY: 0 };
     });
     // On each balcony, just inside the planter at either end.
     const balconies = SIDES.flatMap((side) =>
       [-1, 1].map((n): DecorSlot => ({ id: `balcony-${side[0]}-${n < 0 ? 'n' : 's'}`, x: sideSign(side) * (BALCONY_OUT - 0.45), y: 0, z: n * (BALCONY.maxZ - 2.6), rotY: -sideSign(side) * (Math.PI / 2), floor: true })),
     );
-    return [...desks, ...qa, ...corners, ...elevator, ...balconies];
+    return [...desks, ...corners, ...elevator, ...balconies];
   }
   const r = RECEPTION;
   return [
@@ -469,9 +480,7 @@ export function decorRuns(kind: FloorKind): DecorRun[] {
       { from: [w, n], to: [e, n], y },
       { from: [w, s], to: [e, s], y },
       { from: [w, n], to: [w, s], y },
-      // the east wall, round the QA lab's sign
-      { from: [e, n], to: [e, -3.8], y },
-      { from: [e, -0.2], to: [e, s], y },
+      { from: [e, n], to: [e, s], y },
     ];
   }
   // The lobby: the walls of the open hall, from the glass offices round to them again.
@@ -559,7 +568,7 @@ export function roofColliders(): Rect[] {
 
 export type Surface = 'wood' | 'rug' | 'lobby' | 'cabin';
 
-const OFFICE_RUGS: Rect[] = [...DESK_RUGS, QA_RUG];
+const OFFICE_RUGS: Rect[] = DESK_RUGS;
 const LOBBY_RUGS: Rect[] = [LOBBY_RUG, MANAGER_ROOM, CEO_ROOM];
 
 /** The floor under (x, z), for footsteps. A rug's edge counts as rug; past the doorway is the elevator cabin, and

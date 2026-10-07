@@ -2,7 +2,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
-// Agent-written prose (the CEO's texts, resumes, job descriptions) rendered as Markdown.
+// Agent-written prose (the CEO's texts and reasons, issues, QA reports) rendered as Markdown.
 // Safe by default: raw HTML is shown as text, never parsed, and only http(s)/mailto links work.
 
 interface MdNode {

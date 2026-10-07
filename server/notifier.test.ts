@@ -149,13 +149,13 @@ describe('the notifier', () => {
     const { n, posts, notes } = notifier(tmpDir(), () => 200, settings);
     await n.setWebhook('ntfy', SECRETS.ntfy);
     n.notify('merge', 'Merged PR #1', 'x'); // merges are off by default
-    n.notify('hire', 'New candidate for floor 1', 'Ada');
+    n.notify('hire', 'A new agent waits for floor 1', 'Ada');
     await settle();
     expect(notes).toEqual([]);
-    expect(posts.map((p) => [p.channel, p.text])).toEqual([['ntfy', '📄 New candidate for floor 1\nAda']]);
+    expect(posts.map((p) => [p.channel, p.text])).toEqual([['ntfy', '📄 A new agent waits for floor 1\nAda']]);
     const quiet = notifier(tmpDir(), () => 200, notifySettings(DEFAULT_NOTIFY, { channels: { ntfy: false } }));
     await quiet.n.setWebhook('ntfy', SECRETS.ntfy);
-    quiet.n.notify('hire', 'New candidate for floor 1', 'Ada');
+    quiet.n.notify('hire', 'A new agent waits for floor 1', 'Ada');
     await settle();
     expect(quiet.posts).toEqual([]);
   });

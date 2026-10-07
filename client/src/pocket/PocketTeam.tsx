@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { agentsOnRepo, kanbanFor, useStore, type Agent } from '../store';
 import { CEO_ID, type RepoView } from '../../../shared/types';
+import { agentLabel } from '../ui/floorRows';
 import { MessageBox } from '../ui/MessageBox';
 import { toolVerb } from '../world/draw';
 import { agentActions, assignChoices, doing } from './pocketData';
@@ -34,6 +35,8 @@ function useBusy() {
 function AgentCard({ agent, repo }: { agent: Agent; repo: RepoView }) {
   const allAgents = useStore((s) => s.agents);
   const qa = useStore((s) => s.qa);
+  const settings = useStore((s) => s.settings);
+  const clis = useStore((s) => s.clis);
   const openOverlay = useStore((s) => s.openOverlay);
   const cols = useMemo(() => kanbanFor(repo, agentsOnRepo(allAgents, repo.id), qa), [repo, allAgents, qa]);
   const [busy, run] = useBusy();
@@ -41,8 +44,8 @@ function AgentCard({ agent, repo }: { agent: Agent; repo: RepoView }) {
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState('');
   const can = agentActions(agent);
-  const isQa = agent.role === 'qa';
-  const choices = assignChoices(agent.role, cols);
+  const choices = assignChoices(cols);
+  const chosen = choices.find((c) => c.key === pick);
   const working = agent.status === 'working' || agent.status === 'preparing';
   const send = async () => {
     const t = text.trim();
@@ -59,7 +62,7 @@ function AgentCard({ agent, repo }: { agent: Agent; repo: RepoView }) {
           {agent.name[0]}
         </span>
         <div className="grow">
-          <b>{agent.name}</b> <span className="muted small">{agent.title || (isQa ? 'QA tester' : 'Developer')}</span>
+          <b>{agent.name}</b> <span className="muted small">{agentLabel(agent, settings, clis)}</span>
           <div className="small pk-ellipsis">
             {doing(agent)}
             {working && agent.currentTool ? <span className="muted"> · {toolVerb(agent.currentTool) || agent.currentTool}…</span> : null}
@@ -76,20 +79,22 @@ function AgentCard({ agent, repo }: { agent: Agent; repo: RepoView }) {
         )}
         {can.assign && (
           <>
-            <select className="pk-assign" value={pick} aria-label={`Give ${agent.name} ${isQa ? 'a pull request to test' : 'an issue'}`} onChange={(e) => setPick(e.target.value)} disabled={busy || choices.length === 0}>
-              <option value="">{choices.length ? (isQa ? 'Pick a PR to test…' : 'Pick an issue…') : isQa ? 'Nothing to test' : 'Backlog is empty'}</option>
+            <select className="pk-assign" value={pick} aria-label={`Give ${agent.name} an issue or a pull request to test`} onChange={(e) => setPick(e.target.value)} disabled={busy || choices.length === 0}>
+              <option value="">{choices.length ? 'Pick an issue or a PR…' : 'Nothing to pick up'}</option>
               {choices.map((c) => (
-                <option key={c.key} value={c.number}>
-                  {isQa ? 'PR ' : ''}#{c.number} {c.title}
+                <option key={c.key} value={c.key}>
+                  {c.kind === 'qa' ? '🔍 PR ' : ''}#{c.number} {c.title}
                 </option>
               ))}
             </select>
             <button
               className="btn btn-small btn-good"
-              disabled={busy || !pick}
-              onClick={() => void run(() => (isQa ? api.sendToQa(repo.id, Number(pick)) : api.assign(agent.id, Number(pick)))).then((ok) => ok && setPick(''))}
+              disabled={busy || !chosen}
+              onClick={() =>
+                chosen && void run(() => (chosen.kind === 'qa' ? api.sendToQa(repo.id, chosen.number, agent.id) : api.assign(agent.id, chosen.number))).then((ok) => ok && setPick(''))
+              }
             >
-              {isQa ? '🔍 Test' : '▶ Start'}
+              {chosen?.kind === 'qa' ? '🔍 Test' : '▶ Start'}
             </button>
           </>
         )}
@@ -175,7 +180,7 @@ export function Team({ focusRepo }: { focusRepo: string | null }) {
           <section key={repo.id} ref={repo.id === focusRepo ? focus : undefined} className="pk-section" style={{ ['--accent' as string]: repo.color }}>
             <h3 className="pk-h">
               <span className="floor-badge">{repo.floor}</span> {repo.fullName.split('/')[1]}
-              <span className="muted small"> · {team.length} people</span>
+              <span className="muted small"> · {team.length} {team.length === 1 ? 'agent' : 'agents'}</span>
             </h3>
             {team.length === 0 && <p className="muted small">Nobody works here yet.</p>}
             {team.map((a) => (

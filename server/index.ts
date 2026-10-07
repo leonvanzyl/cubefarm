@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { CLIP_MAX_BYTES, CLIP_TOO_BIG } from '../shared/clipLimits.ts';
 import { DAY_PARTS } from '../shared/speech.ts';
 import { DEMO, DEMO_SCALE, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
+import { MACHINES_DIR } from './workspace.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
 import { createDemoBackend } from './demo.ts';
@@ -81,7 +82,7 @@ app.post(
     swarm.setup({
       managerName: str(req.body.managerName),
       companyName: str(req.body.companyName),
-      hiring: str(req.body.hiring),
+      scaling: str(req.body.scaling),
       ceoName: str(req.body.ceoName),
       ceoLook: str(req.body.ceoLook),
       ceoColor: str(req.body.ceoColor),
@@ -106,7 +107,7 @@ app.post('/api/repos/:repo/sync-folder', route((req) => swarm.syncFolderNow(repo
 app.post(
   '/api/repos/:repo/issues',
   route(async (req) => ({
-    number: await swarm.createIssue(repoId(req), str(req.body.title), str(req.body.body), str(req.body.assignTo) || undefined, str(req.body.specialty) || undefined),
+    number: await swarm.createIssue(repoId(req), str(req.body.title), str(req.body.body), str(req.body.assignTo) || undefined),
   })),
 );
 app.post('/api/repos/:repo/issues/:n/close', route((req) => swarm.closeIssueByManager(repoId(req), num(req.params.n))));
@@ -154,20 +155,17 @@ app.get('/api/repos/:repo/pulls/:n/qa-shots/:i', async (req, res, next) => {
 });
 app.post('/api/repos/:repo/pulls/:n/merge', route((req) => swarm.mergePull(repoId(req), num(req.params.n), req.body?.method ?? 'squash')));
 app.post('/api/repos/:repo/pulls/:n/close', route((req) => swarm.closePull(repoId(req), num(req.params.n))));
-app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n))));
+app.post('/api/repos/:repo/pulls/:n/qa', route((req) => swarm.sendToQa(repoId(req), num(req.params.n), str(req.body?.agentId) || undefined)));
 app.post('/api/repos/:repo/pulls/:n/fix', route((req) => swarm.sendBackToDev(repoId(req), num(req.params.n), parseSendBackNote(req.body))));
 app.post(
   '/api/repos/:repo/agents',
   route((req) =>
     swarm.hireAgent(repoId(req), {
       name: str(req.body.name),
+      cli: str(req.body.cli),
       model: str(req.body.model),
       effort: str(req.body.effort),
-      role: str(req.body.role),
       look: str(req.body.look),
-      title: str(req.body.title),
-      specialty: str(req.body.specialty),
-      brief: str(req.body.brief),
     }),
   ),
 );
@@ -274,6 +272,7 @@ app.post(
   route((req) =>
     swarm.approveRequest(String(req.params.id), {
       name: str(req.body?.name) || undefined,
+      cli: typeof req.body?.cli === 'string' ? req.body.cli : undefined,
       model: typeof req.body?.model === 'string' ? req.body.model : undefined,
       effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
       note: str(req.body?.note),
@@ -281,7 +280,7 @@ app.post(
   ),
 );
 app.post('/api/requests/:id/reject', route((req) => swarm.rejectRequest(String(req.params.id), str(req.body?.note))));
-// The demo office only: the CEO proposes a hire (or a let-go) on demand.
+// The demo office only: the CEO grows (or shrinks) a floor's team on demand.
 app.post('/api/demo/proposals', route((req) => swarm.demoPropose(req.body?.kind, req.body?.floor)));
 
 // Office progression (#210): the lobby kiosk, a floor's decorations, the player's coffees, and the demo's coins and
@@ -335,7 +334,8 @@ server.listen(PORT, '127.0.0.1', () => {
   const scale = DEMO_SCALE ? `, ${DEMO_SCALE.floors} floors × ${DEMO_SCALE.agents} people` : '';
   console.log(`\n  🏢 cubefarm ${VERSION} on http://localhost:${PORT}${DEMO ? `  (DEMO MODE: fake GitHub + fake agents${scale})` : ''}`);
   console.log(`     state: ${STATE_FILE}`);
-  console.log(`     workspaces: ${WORKSPACE_ROOT}\n`);
+  console.log(`     workspaces: ${WORKSPACE_ROOT}`);
+  console.log(`     agents' machines: ${DEMO ? '(pretend ones, in the demo)' : MACHINES_DIR}\n`);
 });
 
 // Floors' apps don't outlive the office. (A hard kill skips this; the next start clears the orphans.) Agents' CLIs

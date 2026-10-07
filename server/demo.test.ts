@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoCandidate, demoPastWeek, demoTeam, demoUsage, fixPromptPull } from './demo.ts';
+import { demoGrow, demoPastWeek, demoShrink, demoTeam, demoUsage, fixPromptPull, type DemoFloor } from './demo.ts';
 import { KEEP_MS, opsView, startOfDay } from './metrics.ts';
 
 describe('fixPromptPull', () => {
@@ -17,27 +17,6 @@ describe('fixPromptPull', () => {
 
   it('falls back to 0 when no PR is named', () => {
     expect(fixPromptPull('Work on issue #4: Add socks').number).toBe(0);
-  });
-});
-
-describe('demoCandidate', () => {
-  it("offers a floor's own hire first, then the shared candidates, never a specialty already taken", () => {
-    expect(demoCandidate('demo-co/pixel-todo', [])?.title).toBe('Accessibility engineer');
-    const next = demoCandidate('demo-co/pixel-todo', ['a11y', 'frontend']);
-    expect(next?.specialty).not.toBe('a11y');
-    expect(next?.title).toBe('HTML/CSS front-end developer');
-    expect(demoCandidate('demo-co/unknown', [])?.specialty).toBe('frontend'); // a project the demo doesn't know
-  });
-
-  it('runs out once every specialty is taken', () => {
-    const taken: string[] = [];
-    for (let c = demoCandidate('demo-co/weather-api', taken); c; c = demoCandidate('demo-co/weather-api', taken)) {
-      expect(taken).not.toContain(c.specialty);
-      expect(c.title && c.job_description && c.reason).toBeTruthy();
-      taken.push(c.specialty);
-    }
-    expect(taken.length).toBeGreaterThanOrEqual(6);
-    expect(demoCandidate('demo-co/weather-api', taken)).toBeNull();
   });
 });
 
@@ -76,14 +55,50 @@ describe("the demo's mission control", () => {
 });
 
 describe("the demo's teams", () => {
-  it('are five developers on floor 1 and three elsewhere, with a tester each, in the usual demo', () => {
-    expect(demoTeam(null, 1)).toEqual({ dev: 5, qa: 1 });
-    expect(demoTeam(null, 2)).toEqual({ dev: 3, qa: 1 });
+  it('are six agents on floor 1 and four elsewhere in the usual demo', () => {
+    expect(demoTeam(null, 1)).toBe(6);
+    expect(demoTeam(null, 2)).toBe(4);
   });
 
-  it('fill a big company floor: 15 people are 12 developers and 3 testers', () => {
-    expect(demoTeam({ floors: 10, agents: 15 }, 7)).toEqual({ dev: 12, qa: 3 });
-    expect(demoTeam({ floors: 3, agents: 4 }, 1)).toEqual({ dev: 3, qa: 1 });
-    expect(demoTeam({ floors: 1, agents: 1 }, 1)).toEqual({ dev: 0, qa: 1 });
+  it("fill a big company's floors, up to the room's desks", () => {
+    expect(demoTeam({ floors: 10, agents: 15 }, 7)).toBe(15);
+    expect(demoTeam({ floors: 3, agents: 4 }, 1)).toBe(4);
+    expect(demoTeam({ floors: 1, agents: 1 }, 1)).toBe(1);
+    expect(demoTeam({ floors: 1, agents: 40 }, 1)).toBe(15);
+  });
+});
+
+describe("the demo CEO's team sizes", () => {
+  const floor = (team: Partial<DemoFloor['team']> = {}, capacity: Partial<DemoFloor['capacity']> = {}): DemoFloor => ({
+    floor: 2,
+    repo: 'demo-co/weather-api',
+    brief: null,
+    team: { size: 2, max: 10, free: 0, pendingHires: 0, pendingLetGos: 0, ...team },
+    capacity: { issuesReadyToStart: 0, prsAwaitingQa: 0, ...capacity },
+    backlog: [],
+    pullRequests: [],
+  });
+
+  it('grows a floor when ready issues outnumber its free agents, up to six and the max', () => {
+    expect(demoGrow(floor({ free: 1 }), 3)).toMatchObject({ size: 4 });
+    expect(demoGrow(floor({ free: 1 }), 3)?.reason).toContain('3 issues are ready to start on floor 2 and 1 agent is free');
+    expect(demoGrow(floor(), 12)?.size).toBe(6);
+    expect(demoGrow(floor({ max: 3 }), 12)?.size).toBe(3);
+    expect(demoGrow(floor({ size: 6 }), 12)).toBeNull(); // big enough: more agents mostly add conflicts
+    expect(demoGrow(floor({ free: 3 }), 3)).toBeNull();
+  });
+
+  it('counts the agents already on their way', () => {
+    expect(demoGrow(floor({ pendingHires: 2 }), 2)).toBeNull();
+    expect(demoGrow(floor({ pendingHires: 1 }), 3)?.size).toBe(5);
+  });
+
+  it('shrinks a floor whose agents sit idle with nothing to start or test, never below one', () => {
+    expect(demoShrink(floor({ size: 5, free: 3 }))).toMatchObject({ size: 3 });
+    expect(demoShrink(floor({ size: 2, free: 2 }))?.size).toBe(1);
+    expect(demoShrink(floor({ size: 1, free: 1 }))).toBeNull();
+    expect(demoShrink(floor({ size: 5, free: 3 }, { issuesReadyToStart: 1 }))).toBeNull();
+    expect(demoShrink(floor({ size: 5, free: 3 }, { prsAwaitingQa: 1 }))).toBeNull();
+    expect(demoShrink(floor({ size: 5, free: 3, pendingLetGos: 2 }))).toBeNull(); // already on their way out
   });
 });

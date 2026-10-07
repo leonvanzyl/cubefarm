@@ -1,24 +1,19 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 import { isBusy, useStore, type Agent } from '../store';
-import type { AgentCli, AgentPromptView, CliView, EffortLevel, SwarmSettings } from '../../../shared/types';
+import type { AgentCli, AgentPromptView, CliView, EffortLevel } from '../../../shared/types';
 import { ACCENT_COLORS, BUILDS, FACIAL_HAIR, GLASSES, HAIR_COLORS, HAIR_STYLES, HEADWEAR, OUTFITS, SKIN_TONES, type AgentStyle, type HairStyle, type Outfit } from '../../../shared/looks';
 import { CLAUDE_MODELS, effectiveModel, modelSuggestions } from '../../../shared/models';
 import { TALL_HAIR, appearanceFor, randomStyle } from '../world/appearance';
 import { LookPreview } from '../world/LookPreview';
+import { workerCli } from './floorRows';
 
-// One agent's setup (coding agent, model, effort, job), edited in place: the Team tab's row cells and the
+// One agent's setup (name, look, coding agent, model, effort), edited in place: the Team tab's row cells and the
 // ⚙️ Setup section of their panel share these. Every change is a PATCH; the `agent` event updates all views.
 
 export const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-/** The longest job description the server keeps. */
-export const BRIEF_MAX = 2500;
 
 export const cliName = (clis: CliView[], id: AgentCli) => clis.find((c) => c.id === id)?.label ?? id;
-
-/** The coding agent a worker runs: their own pick in Real terminals; the Agent SDK is Claude Code for everyone. */
-export const workerCli = (a: Pick<Agent, 'cli' | 'role'>, settings: Pick<SwarmSettings, 'runtime' | 'defaultCli'>): AgentCli =>
-  a.role === 'ceo' || settings.runtime !== 'terminal' ? 'claude' : a.cli || settings.defaultCli;
 
 type Patch = Parameters<typeof api.updateAgent>[1];
 
@@ -107,7 +102,7 @@ export function ModelInput({ agent, id, className = 'inline', style }: FieldProp
 export function EffortSelect({ agent, id, style }: FieldProps) {
   const defaultEffort = useStore((s) => s.settings.defaultEffort);
   return (
-    <select id={id} value={agent.effort} title={agent.role === 'ceo' ? "The CEO's effort" : 'Their effort'} aria-label={id ? undefined : 'Effort'} style={style} onChange={(e) => void save(agent.id, { effort: e.target.value })}>
+    <select id={id} value={agent.effort} title={agent.role === 'ceo' ? "The CEO's effort" : 'Their effort'} aria-label={id ? undefined : 'Effort'} style={style} onChange={(e) => void save(agent.id, { effort: e.target.value as EffortLevel | '' })}>
       {(agent.role !== 'ceo' || !agent.effort) && <option value="">default ({defaultEffort})</option>}
       {EFFORTS.map((x) => (
         <option key={x} value={x}>
@@ -115,39 +110,6 @@ export function EffortSelect({ agent, id, style }: FieldProps) {
         </option>
       ))}
     </select>
-  );
-}
-
-export function TitleInput({ agent, id, className = 'inline', style }: FieldProps) {
-  return (
-    <input
-      id={id}
-      key={`t-${agent.title}`}
-      className={className}
-      style={style}
-      defaultValue={agent.title}
-      maxLength={60}
-      placeholder={agent.role === 'qa' ? 'QA tester' : 'Developer'}
-      title="Job title"
-      aria-label={id ? undefined : 'Job title'}
-      onBlur={(e) => e.target.value !== agent.title && void save(agent.id, { title: e.target.value })}
-    />
-  );
-}
-
-export function SpecialtyInput({ agent, id, className = 'inline', style }: FieldProps) {
-  return (
-    <input
-      id={id}
-      key={`s-${agent.specialty}`}
-      className={className}
-      style={style}
-      defaultValue={agent.specialty}
-      placeholder="specialty"
-      title="Issues labelled swarm:<specialty> go to this agent first"
-      aria-label={id ? undefined : 'Specialty'}
-      onBlur={(e) => e.target.value !== agent.specialty && void save(agent.id, { specialty: e.target.value })}
-    />
   );
 }
 
@@ -224,14 +186,7 @@ export function LookEditor({ agent }: { agent: Agent }) {
         <div className="look-fields">
           <PickSelect label="Hair" value={look.hair} options={HAIR_STYLES} labels={HAIR_LABEL} onPick={(hair) => pick({ hair })} />
           <PickSelect label="Facial hair" value={look.facialHair} options={FACIAL_HAIR} onPick={(facialHair) => pick({ facialHair })} />
-          {agent.role === 'qa' ? (
-            <div className="field">
-              <span>Glasses</span>
-              <span className="muted small">Inspector glasses (uniform)</span>
-            </div>
-          ) : (
-            <PickSelect label="Glasses" value={look.glasses} options={GLASSES} onPick={(glasses) => pick({ glasses })} />
-          )}
+          <PickSelect label="Glasses" value={look.glasses} options={GLASSES} onPick={(glasses) => pick({ glasses })} />
           <PickSelect
             label="Headwear"
             value={look.headwear}
@@ -240,13 +195,13 @@ export function LookEditor({ agent }: { agent: Agent }) {
             title={tall ? `A hat doesn't fit over ${HAIR_LABEL[look.hair].toLowerCase()} hair` : undefined}
             onPick={(headwear) => pick({ headwear })}
           />
-          {agent.role === 'dev' ? (
-            <PickSelect label="Outfit" value={look.outfit} options={OUTFITS} labels={OUTFIT_LABEL} onPick={(outfit) => pick({ outfit })} />
-          ) : (
+          {agent.role === 'ceo' ? (
             <div className="field">
               <span>Outfit</span>
-              <span className="muted small">{agent.role === 'qa' ? 'Lab coat' : 'Blazer and lanyard'} (uniform)</span>
+              <span className="muted small">Blazer and lanyard (uniform)</span>
             </div>
+          ) : (
+            <PickSelect label="Outfit" value={look.outfit} options={OUTFITS} labels={OUTFIT_LABEL} onPick={(outfit) => pick({ outfit })} />
           )}
           <PickSelect label="Build" value={look.build} options={BUILDS} onPick={(build) => pick({ build })} />
           <Swatches label="Hair colour" colors={HAIR_COLORS} value={look.hairColor} onPick={(hairColor) => pick({ hairColor })} />
@@ -267,49 +222,9 @@ export function LookEditor({ agent }: { agent: Agent }) {
   );
 }
 
-/** The job description. `compact` saves on blur (the Team tab); otherwise it's roomy, counted and saved explicitly. */
-export function BriefEditor({ agent, id, compact }: FieldProps & { compact?: boolean }) {
-  const [text, setText] = useState(agent.brief);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => setText(agent.brief), [agent.brief]);
-  const placeholder = `What ${agent.name} owns on this project and how they should work. It's added to their instructions.`;
-  if (compact) {
-    return <textarea key={`b-${agent.brief}`} rows={3} defaultValue={agent.brief} placeholder={placeholder} onBlur={(e) => e.target.value !== agent.brief && void save(agent.id, { brief: e.target.value })} />;
-  }
-  const countId = `${id ?? agent.id}-count`;
-  const dirty = text.trim() !== agent.brief;
-  return (
-    <>
-      <textarea id={id} rows={8} value={text} maxLength={BRIEF_MAX} placeholder={placeholder} aria-describedby={countId} onChange={(e) => setText(e.target.value)} />
-      <div className="row small">
-        <span id={countId} className={text.length >= BRIEF_MAX ? '' : 'muted'} aria-live="polite">
-          {text.length.toLocaleString()} / {BRIEF_MAX.toLocaleString()} · Added to their instructions on every task.
-        </span>
-        <span className="spacer" />
-        {dirty && (
-          <button type="button" className="btn btn-small btn-ghost" onClick={() => setText(agent.brief)}>
-            Undo
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn btn-small btn-good"
-          disabled={!dirty || saving}
-          onClick={() => {
-            setSaving(true);
-            void save(agent.id, { brief: text }).finally(() => setSaving(false));
-          }}
-        >
-          {saving ? 'Saving…' : 'Save job description'}
-        </button>
-      </div>
-    </>
-  );
-}
-
 /**
- * "What they're told": the whole prompt the office gives them on a task, read-only, with the job description (the
- * part the manager edits) highlighted. Fetched when opened and again whenever something in it changes.
+ * "What they're told": what the office gives them on each kind of task (the CEO: its one prompt), read-only, with
+ * <placeholders> for each task's details. Fetched when opened and again whenever something in it changes.
  */
 export function PromptPreview({ agent }: { agent: Agent }) {
   const [open, setOpen] = useState(false);
@@ -319,7 +234,7 @@ export function PromptPreview({ agent }: { agent: Agent }) {
   const context = useStore((s) => {
     const r = s.repos.find((x) => x.id === agent.repoId);
     const o = s.settings;
-    return JSON.stringify(r ? [r.fullName, r.defaultBranch, r.autoMerge, r.browserTesting, r.links, r.mission, r.summary, r.qaBrief] : [o.companyName, o.managerName, o.sessionLimit, o.teamCap, o.hiring]);
+    return JSON.stringify(r ? [r.fullName, r.defaultBranch, r.autoMerge, r.browserTesting, r.links, r.mission, r.summary, r.qaBrief] : [o.companyName, o.managerName, o.sessionLimit, o.maxAgents, o.scaling]);
   });
   useEffect(() => {
     if (!open) return;
@@ -335,14 +250,10 @@ export function PromptPreview({ agent }: { agent: Agent }) {
     return () => {
       live = false;
     };
-  }, [open, agent.id, agent.name, agent.role, agent.title, agent.brief, context]);
-  const hasBrief = prompt?.parts.some((p) => p.editable);
+  }, [open, agent.id, agent.name, context]);
   return (
     <details className="prompt-preview" onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>
-        What they're told
-        {prompt && <span className="muted small"> · {prompt.text.length.toLocaleString()} characters</span>}
-      </summary>
+      <summary>What they're told</summary>
       {failed && !prompt && <p className="muted small">Couldn't load their prompt.</p>}
       {!prompt && !failed && <p className="muted small">Loading…</p>}
       {prompt && (
@@ -350,21 +261,18 @@ export function PromptPreview({ agent }: { agent: Agent }) {
           <p className="muted small">
             {prompt.kind === 'ceo'
               ? "The CEO's instructions for every job. They're all the office's own."
-              : `The office builds this for every ${prompt.kind === 'qa' ? 'pull request they test' : 'issue they start'}; <placeholders> are filled in per task. `}
-            {prompt.kind !== 'ceo' && (hasBrief ? <>Only the <mark>job description</mark> is yours to edit: the rest is the office's workflow and safety rules.</> : 'They have no job description yet: add one above and it appears here.')}
+              : "The office's workflow and safety rules for each kind of task, the same for every agent and sent with every session; <placeholders> are filled in per task."}
           </p>
-          <pre className="prompt-text" tabIndex={0} aria-label={`${agent.name}'s full prompt`}>
-            {prompt.parts.map((p, i) =>
-              p.editable ? (
-                <mark key={i} title={p.label}>
-                  {p.text}
-                </mark>
-              ) : (
-                <span key={i}>{p.text}</span>
-              ),
-            )}
-          </pre>
-          <p className="muted small">{prompt.text.length.toLocaleString()} characters, sent with every session.</p>
+          {prompt.parts.map((p) => (
+            <Fragment key={p.label}>
+              <p className="small">
+                <b>{p.label}</b> <span className="muted">· {p.text.length.toLocaleString()} characters</span>
+              </p>
+              <pre className="prompt-text" tabIndex={0} aria-label={`${agent.name}'s prompt: ${p.label}`}>
+                {p.text}
+              </pre>
+            </Fragment>
+          ))}
         </>
       )}
     </details>
@@ -413,28 +321,10 @@ export function AgentSetup({ agent }: { agent: Agent }) {
           <span>Effort</span>
           <EffortSelect agent={agent} id={`${id}-effort`} />
         </label>
-        {!ceo && (
-          <label className="field" htmlFor={`${id}-title`}>
-            <span>Title</span>
-            <TitleInput agent={agent} id={`${id}-title`} className="" />
-          </label>
-        )}
-        {!ceo && (
-          <label className="field" htmlFor={`${id}-specialty`}>
-            <span>Specialty</span>
-            <SpecialtyInput agent={agent} id={`${id}-specialty`} className="" />
-          </label>
-        )}
       </div>
       <LookEditor agent={agent} />
-      {!ceo && (
-        <label className="field" htmlFor={`${id}-brief`}>
-          <span>Job description</span>
-        </label>
-      )}
-      {!ceo && <BriefEditor agent={agent} id={`${id}-brief`} />}
       <PromptPreview agent={agent} />
-      <p className="muted small">Name, model, effort and the other fields save when you leave them; looks save as you pick them. Running sessions aren't restarted.</p>
+      <p className="muted small">Name and model save when you leave them; the rest, and looks, as you pick them. Running sessions aren't restarted.</p>
     </section>
   );
 }

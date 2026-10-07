@@ -10,10 +10,6 @@ const person = (id: string, role: JournalAgent['role'], repoId: string, desk: nu
   name: id[0].toUpperCase() + id.slice(1),
   repoId,
   role,
-  title: '',
-  specialty: '',
-  brief: '',
-  hiredBy: 'manager',
   look: 'feminine',
   task: null,
   desk,
@@ -74,10 +70,8 @@ const base: JournalFrame = {
   repos: [floor('demo-co/pixel-todo', 1, 6), floor('demo-co/weather-api', 2, 3)],
   agents: [
     person(CEO_ID, 'ceo', '', 0),
-    ...['ada', 'grace', 'linus', 'alan', 'barbara'].map((id, i) => person(id, 'dev', 'demo-co/pixel-todo', i)),
-    person('marple', 'qa', 'demo-co/pixel-todo', 0),
-    ...['ken', 'dennis', 'margaret'].map((id, i) => person(id, 'dev', 'demo-co/weather-api', i)),
-    person('poirot', 'qa', 'demo-co/weather-api', 0),
+    ...['ada', 'grace', 'linus', 'alan', 'barbara', 'marple'].map((id, i) => person(id, 'agent', 'demo-co/pixel-todo', i)),
+    ...['ken', 'dennis', 'margaret', 'poirot'].map((id, i) => person(id, 'agent', 'demo-co/weather-api', i)),
   ],
   qa: [],
   requests: [],
@@ -117,6 +111,19 @@ describe('sampleDay', () => {
     const last = lines.filter(isFrame).at(-1)!.k;
     expect(last.repos.map((r) => r.id)).toEqual(base.repos.map((r) => r.id));
     expect(last.agents.map((a) => a.id)).toEqual(base.agents.map((a) => a.id));
+  });
+
+  it('has any free agent build, test and fix, never testing a PR they wrote', () => {
+    const qa = lines.flatMap((l) => (!isFrame(l) && l.e.type === 'qa' && l.e.qa.status === 'testing' ? [l.e.qa] : []));
+    expect(qa.length).toBeGreaterThanOrEqual(8);
+    expect(qa.every((q) => q.qaAgentId !== q.devAgentId)).toBe(true);
+    const tasks = new Map<string, Set<string>>();
+    for (const l of lines) {
+      const agents = isFrame(l) ? l.k.agents : l.e.type === 'agent' ? [l.e.agent] : [];
+      for (const a of agents) if (a.task && a.status === 'working') tasks.set(a.id, (tasks.get(a.id) ?? new Set()).add(a.task));
+    }
+    expect([...tasks.values()].filter((t) => t.has('issue') && t.has('qa')).length).toBeGreaterThanOrEqual(4);
+    expect([...tasks.values()].some((t) => t.has('fix'))).toBe(true);
   });
 
   it('is the same day for the same seed', () => {

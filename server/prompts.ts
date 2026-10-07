@@ -1,14 +1,12 @@
-// What developers and QA testers are told on every task: the system prompt the office appends for each session, as
-// pure functions, so the manager can preview it (GET /api/agents/:id/prompt) without a live task. The job
-// description is the one part the manager edits; the rest carries the office's workflow and safety rules.
+// What agents are told on every task: the system prompt the office appends for each session, as pure functions, so
+// the manager can preview it (GET /api/agents/:id/prompt) without a live task. Every agent gets the same prompts: the
+// task decides which one (build an issue, test a pull request, fix one), and they carry the office's workflow and
+// safety rules.
 
-import type { AgentPromptView, AgentRole, PromptPart } from '../shared/types.ts';
+import type { AgentPromptView } from '../shared/types.ts';
 
 export interface PromptAgent {
   name: string;
-  role: AgentRole;
-  title: string;
-  brief: string;
 }
 
 export interface PromptFloor {
@@ -36,7 +34,7 @@ export interface DevPromptInput extends PromptBase {
   /** Connected repositories they may read, with their clone paths. */
   linked: { fullName: string; dir: string }[];
   /** Fixing an open pull request rather than starting an issue. */
-  fixing?: { pr: number; headRef: string };
+  fixing?: { pr: number | string; headRef: string };
 }
 
 export interface QaPromptInput extends PromptBase {
@@ -65,9 +63,8 @@ export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fix
   const push = fixing ? `git push origin HEAD:${fixing.headRef}` : `git push -u origin ${branch}`;
   const links = linked.map((r) => `- ${r.fullName}: read-only reference clone at ${r.dir}`);
   return [
-    `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a software engineer'} on an autonomous agent team ("cubefarm"). Several teammates work in parallel on other issues of the same repository, each in their own git worktree. Nobody is watching live to answer questions, so make sensible decisions yourself and record assumptions in the PR description. The manager may occasionally send you messages; follow their instructions.`,
-    `Every pull request is reviewed and tested by a QA teammate. ${repo.autoMerge ? "Once they sign off and GitHub's checks pass, the office merges it by itself" : 'Once they sign off, the manager merges it'}. If they find problems, or checks fail, or it conflicts with the default branch, you will get the details; fix them on the same branch.`,
-    a.brief ? `\nYour job description:\n${a.brief}` : '',
+    `You are ${a.name}, a software engineer on an autonomous agent team ("cubefarm"). Several teammates work in parallel on other issues of the same repository, each in their own git worktree. Nobody is watching live to answer questions, so make sensible decisions yourself and record assumptions in the PR description. The manager may occasionally send you messages; follow their instructions.`,
+    `Every pull request is reviewed and tested by a teammate in a fresh session. ${repo.autoMerge ? "Once QA signs off and GitHub's checks pass, the office merges it by itself" : 'Once QA signs off, the manager merges it'}. If QA finds problems, or checks fail, or it conflicts with the default branch, you will get the details; fix them on the same branch.`,
     '',
     `Repository: ${repo.fullName} (default branch: ${repo.defaultBranch})`,
     repo.summary ? `Project: ${repo.summary}` : '',
@@ -101,9 +98,9 @@ export function devSystemPrompt({ agent: a, repo, port, cwd, branch, linked, fix
 
 export function qaSystemPrompt({ agent: a, repo, port, cwd, branch, pr, depsLine, testStep }: QaPromptInput) {
   return [
-    `You are ${a.name}, ${a.title ? `the team's ${a.title},` : 'a QA engineer'} on an autonomous agent team ("cubefarm"). Developers open pull requests; you review and independently verify each one before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
-    ...(a.brief ? ['', `Your job description:\n${a.brief}`] : []),
-    ...(a.role === 'dev' ? ['', "You're a developer covering for the QA lab while its testers are busy. You didn't write this pull request: test it as an independent QA engineer would."] : []),
+    `You are ${a.name}, a software engineer on an autonomous agent team ("cubefarm"). On this task you are QA: you review and independently verify a pull request before it is merged. Your sign-off is the review: ${repo.autoMerge ? "on this floor a PR you pass merges by itself as soon as GitHub's checks are green, so nobody else reads the code after you. " : ''}Be thorough and skeptical, but fair: fail a PR only for real problems (broken behaviour, failing tests or build, the issue's requirements not met, obvious regressions), not for style preferences.`,
+    '',
+    "Another session wrote this pull request, possibly yours from an earlier task: you don't remember it, so test it as an independent reviewer would, without assuming it works.",
     '',
     `Repository: ${repo.fullName} (default branch: ${repo.defaultBranch})`,
     ...(repo.summary ? [`Project: ${repo.summary}`] : []),
@@ -142,37 +139,20 @@ export const failedLogLines = (runId: string, tail: string) => (tail ? [`Last li
 
 // ---------- previews ----------
 
-const OFFICE = 'Office instructions';
-// Stands in for the job description while the prompt is built, so the parts split exactly around it.
-const MARK = '\u0000job description\u0000';
+type PreviewInput = Omit<PromptBase, 'cwd' | 'branch'> & Pick<DevPromptInput, 'linked'> & { slug: string };
 
-/** Splits a prompt around the job description, which is the one editable part. */
-export function promptParts(build: (brief: string) => string, brief: string): PromptPart[] {
-  if (!brief) return [{ label: OFFICE, text: build(''), editable: false }];
-  const [before, after] = build(MARK).split(MARK);
-  return [
-    { label: OFFICE, text: before, editable: false },
-    { label: 'Job description', text: brief, editable: true },
-    { label: OFFICE, text: after, editable: false },
-  ].filter((p) => p.text !== '');
-}
-
-const view = (kind: AgentPromptView['kind'], parts: PromptPart[]): AgentPromptView => ({ kind, text: parts.map((p) => p.text).join(''), parts });
-
-type PreviewInput = Omit<PromptBase, 'cwd' | 'branch'> & { slug: string };
-
-/** What a developer is told when they start an issue, with placeholders for the issue and their worktree. */
-export function devPromptPreview({ slug, ...i }: PreviewInput & Pick<DevPromptInput, 'linked'>): AgentPromptView {
-  const branch = devBranch(PLACEHOLDERS.issue, slug);
-  return view('dev', promptParts((brief) => devSystemPrompt({ ...i, agent: { ...i.agent, brief }, cwd: PLACEHOLDERS.worktree, branch }), i.agent.brief));
-}
-
-/** What a QA tester is told when they test a pull request, with placeholders for the PR and their worktree. */
-export function qaPromptPreview({ slug, ...i }: PreviewInput): AgentPromptView {
+/** What an agent is told on each kind of task, with placeholders for the task's details and their worktree. */
+export function agentPromptPreview({ slug, linked, ...i }: PreviewInput): AgentPromptView {
+  const cwd = PLACEHOLDERS.worktree;
   const pr = { number: PLACEHOLDERS.pr, title: PLACEHOLDERS.prTitle, headRefName: PLACEHOLDERS.branch, url: PLACEHOLDERS.prUrl };
-  const branch = qaBranch(PLACEHOLDERS.pr, slug);
-  return view('qa', promptParts((brief) => qaSystemPrompt({ ...i, agent: { ...i.agent, brief }, cwd: PLACEHOLDERS.worktree, branch, pr }), i.agent.brief));
+  return {
+    kind: 'agent',
+    parts: [
+      { label: 'Building an issue', text: devSystemPrompt({ ...i, linked, cwd, branch: devBranch(PLACEHOLDERS.issue, slug) }) },
+      { label: 'Testing a pull request', text: qaSystemPrompt({ ...i, cwd, branch: qaBranch(PLACEHOLDERS.pr, slug), pr }) },
+      { label: 'Fixing a pull request', text: devSystemPrompt({ ...i, linked, cwd, branch: PLACEHOLDERS.branch, fixing: { pr: PLACEHOLDERS.pr, headRef: PLACEHOLDERS.branch } }) },
+    ],
+  };
 }
 
-/** The CEO's prompt has no job description of theirs in it: all of it is the office's. */
-export const ceoPromptPreview = (text: string): AgentPromptView => view('ceo', [{ label: OFFICE, text, editable: false }]);
+export const ceoPromptPreview = (text: string): AgentPromptView => ({ kind: 'ceo', parts: [{ label: 'Office instructions', text }] });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CEO_DESK, QA_LAB, deskPosition } from './layout';
+import { CEO_DESK, EAST_DESKS, MAX_DESKS, deskPosition } from './layout';
 import {
   KEYBOARD_OFFSET,
   assignSlots,
@@ -103,16 +103,16 @@ describe('poseFor', () => {
 
 describe('keyboardSpot', () => {
   const out = { x: 0, y: 0, z: 0 };
-  it('sits in front of a developer', () => {
+  it('sits in front of an agent', () => {
     const d = deskPosition(5);
-    expect(keyboardSpot('dev', 5, false, out)).toEqual({ x: d.x, y: KEYBOARD_OFFSET.y, z: d.z + KEYBOARD_OFFSET.z });
+    expect(keyboardSpot('agent', 5, false, out)).toEqual({ x: d.x, y: KEYBOARD_OFFSET.y, z: d.z + KEYBOARD_OFFSET.z });
     expect(keyboardSpot('ceo', 0, false, out)).toEqual({ x: CEO_DESK.x, y: KEYBOARD_OFFSET.y, z: CEO_DESK.z + KEYBOARD_OFFSET.z });
   });
-  it('turns with the rotated QA stations', () => {
-    const s = keyboardSpot('qa', 1, false, out);
-    expect(s.x).toBeCloseTo(QA_LAB.x - KEYBOARD_OFFSET.z, 9);
-    expect(s.z).toBeCloseTo(QA_LAB.stations[1], 9);
-    const m = keyboardSpot('qa', 1, true, { x: 0, y: 0, z: 0 });
+  it("turns with the east wall's desks", () => {
+    const s = keyboardSpot('agent', MAX_DESKS + 1, false, out);
+    expect(s.x).toBeCloseTo(EAST_DESKS.x - KEYBOARD_OFFSET.z, 9);
+    expect(s.z).toBeCloseTo(EAST_DESKS.z[1], 9);
+    const m = keyboardSpot('agent', MAX_DESKS + 1, true, { x: 0, y: 0, z: 0 });
     expect(Math.hypot(m.x - s.x, m.z - s.z)).toBeGreaterThan(0.4);
   });
 });

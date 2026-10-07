@@ -55,7 +55,7 @@ describe('the merge gong trigger', () => {
 
   it('sends the PR’s author, one call per merge in order', () => {
     const { apply } = useStore.getState();
-    const ada = { id: 'a1', name: 'Ada', role: 'dev', repoId: 'acme/floor1', log: [] } as Partial<AgentView>;
+    const ada = { id: 'a1', name: 'Ada', role: 'agent', repoId: 'acme/floor1', log: [] } as Partial<AgentView>;
     apply(snapshot([repo(1, pr(4, 'OPEN', 'swarm/issue-4-ada'), pr(5, 'OPEN'))], [ada]));
     apply({ type: 'repo', repo: repo(1, pr(4, 'MERGED', 'swarm/issue-4-ada'), pr(5, 'MERGED')) });
     expect(vi.mocked(gongForMerge).mock.calls.map(([b]) => b)).toEqual([
@@ -141,21 +141,21 @@ describe('mission control in the store', () => {
 
   it('marks backlog issues auto-assign would start as paced while Claude usage holds them back', () => {
     const issue = (number: number, body = '', labels: string[] = []) => ({ number, title: `#${number}`, body, url: '', labels, createdAt: '' }) as IssueInfo;
-    const r = { ...repo(1), issues: [issue(1), issue(2, 'Depends on #1'), issue(3, '', ['swarm:frontend'])], autoAssign: true, autoMerge: true } as RepoView;
+    const r = { ...repo(1), issues: [issue(1), issue(2, 'Depends on #1'), issue(3, '', ['bug'])], autoAssign: true, autoMerge: true } as RepoView;
     const notes = (usage?: { state: 'normal' | 'pacing' | 'paused' }, autoAssign = true) => kanbanFor({ ...r, autoAssign }, [], {}, usage).backlog.map((c) => c.note);
-    expect(notes()).toEqual([undefined, '⏳ after #1', '🎯 frontend']);
-    expect(notes({ state: 'normal' })).toEqual([undefined, '⏳ after #1', '🎯 frontend']);
-    expect(notes({ state: 'pacing' })).toEqual(['⏸ paced', '⏳ after #1', '⏸ paced · 🎯 frontend']);
-    expect(notes({ state: 'paused' })).toEqual(['⏸ paused', '⏳ after #1', '⏸ paused · 🎯 frontend']);
-    expect(notes({ state: 'pacing' }, false)).toEqual([undefined, '⏳ after #1', '🎯 frontend']); // nothing starts on its own there anyway
+    expect(notes()).toEqual([undefined, '⏳ after #1', 'bug']);
+    expect(notes({ state: 'normal' })).toEqual([undefined, '⏳ after #1', 'bug']);
+    expect(notes({ state: 'pacing' })).toEqual(['⏸ paced', '⏳ after #1', '⏸ paced · bug']);
+    expect(notes({ state: 'paused' })).toEqual(['⏸ paused', '⏳ after #1', '⏸ paused · bug']);
+    expect(notes({ state: 'pacing' }, false)).toEqual([undefined, '⏳ after #1', 'bug']); // nothing starts on its own there anyway
   });
 });
 
 describe('kanbanFor: In progress', () => {
   const r = (...pulls: PullInfo[]) => ({ ...repo(1, ...pulls), issues: [{ number: 192, title: 'Cancelled', body: '', labels: [] }], autoMerge: false }) as unknown as RepoView;
-  const barbara = (patch: Partial<AgentView>) => ({ id: 'b', name: 'Barbara', role: 'dev', task: 'issue', status: 'working', issueNumber: 192, issueTitle: 'Cancelled', prNumber: null, branch: 'swarm/issue-192-barbara', ...patch }) as AgentView;
+  const barbara = (patch: Partial<AgentView>) => ({ id: 'b', name: 'Barbara', role: 'agent', task: 'issue', status: 'working', issueNumber: 192, issueTitle: 'Cancelled', prNumber: null, branch: 'swarm/issue-192-barbara', ...patch }) as AgentView;
 
-  it('shows a developer working on an issue, and one who finished without a PR', () => {
+  it('shows an agent working on an issue, and one who finished without a PR', () => {
     expect(kanbanFor(r(), [barbara({})], {}).progress.map((c) => c.note)).toEqual(['working']);
     expect(kanbanFor(r(), [barbara({ status: 'done' })], {}).progress.map((c) => c.note)).toEqual(['finished · no PR']);
   });
@@ -166,6 +166,14 @@ describe('kanbanFor: In progress', () => {
     expect(kanbanFor(r(), [done], {}).progress).toEqual([]); // GitHub's list leaves closed PRs out
     expect(kanbanFor(r(pr(198, 'CLOSED')), [done], {}).progress).toEqual([]);
     expect(kanbanFor(r(pr(198, 'MERGED')), [done], {}).progress).toEqual([]);
+  });
+
+  it('never takes the agent testing a PR for its author', () => {
+    const tester = barbara({ id: 't', name: 'Tess', task: 'qa', issueNumber: null, prNumber: 198, branch: 'qa/pr-198' });
+    const author = barbara({ status: 'done', prNumber: 198 });
+    expect(kanbanFor(r(pr(198, 'OPEN')), [tester, author], {}).qa.map((c) => c.agent?.id)).toEqual(['b']);
+    expect(kanbanFor(r(pr(198, 'OPEN')), [tester], {}).qa.map((c) => c.agent)).toEqual([undefined]);
+    expect(kanbanFor(r(), [tester], {}).progress).toEqual([]);
   });
 
   it('shows nothing for an agent whose task was cleared', () => {
@@ -181,7 +189,7 @@ describe('kanbanFor: In progress', () => {
 
 describe('batched agents and watched terminal lines (#228)', () => {
   const line = (id: number, kind: LogLine['kind'] = 'tool') => ({ id, t: id, kind, text: `line ${id}` }) as LogLine;
-  const ken = { id: 'ken', name: 'Ken', role: 'dev', status: 'working', currentTool: 'Read', repoId: 'acme/floor1', log: [] } as Partial<AgentView>;
+  const ken = { id: 'ken', name: 'Ken', role: 'agent', status: 'working', currentTool: 'Read', repoId: 'acme/floor1', log: [] } as Partial<AgentView>;
 
   beforeEach(() => {
     useStore.setState({ loaded: false });

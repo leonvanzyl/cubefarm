@@ -1,5 +1,5 @@
 // The rituals' food (Rituals.tsx): a lunch box, a sandwich or noodles in a cup at lunch, and Friday's pizza, in
-// someone's hand (Character.tsx), beside a busy developer's keyboard, and in the courier's boxes. Small toon shapes.
+// someone's hand (Character.tsx), beside a busy agent's keyboard, and in the courier's boxes. Small toon shapes.
 
 import { toon } from './materials';
 import type { Food } from './ritualSchedule';

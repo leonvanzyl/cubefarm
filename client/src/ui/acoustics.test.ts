@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CEO_ROOM, ELEVATOR, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, QA_LAB, SIDE_OPENINGS, SPAWN } from '../world/layout';
+import { CEO_ROOM, EAST_DESKS, ELEVATOR, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, SIDE_OPENINGS, SPAWN } from '../world/layout';
 import { DOOR, FADE, GLASS, ROOMS, ROOM_SENDS, ROOM_SOUND, SETTLE, WALL, fillImpulse, newRoomTracker, occlusion, roomAt, trackRoom, zoneAt, type Room } from './acoustics';
 import { SOUND_GROUPS } from './audioPrefs';
 
@@ -17,7 +17,7 @@ describe('roomAt', () => {
   it('tells the spaces of an office floor apart', () => {
     expect(roomAt('office', SPAWN.x, SPAWN.z)).toBe('office');
     expect(roomAt('office', 0, 0)).toBe('office');
-    expect(roomAt('office', QA_LAB.x - 1, QA_LAB.stations[1])).toBe('qa');
+    expect(roomAt('office', EAST_DESKS.x - 1, EAST_DESKS.z[1])).toBe('office'); // the east wall's desks are the open plan too
     expect(roomAt('office', HALF_W - 1.5, 7.4)).toBe('kitchen');
     expect(roomAt('office', 0, HALF_D + 1.3)).toBe('cabin');
     expect(roomAt('office', -HALF_W - 1.5, SIDE_OPENINGS.office.west.door)).toBe('outside');
@@ -42,7 +42,7 @@ describe('roomAt', () => {
 describe('zoneAt', () => {
   it('puts an office floor\'s open plan in one zone and each enclosure in its own', () => {
     expect(zoneAt('office', 0, 0)).toBe('floor');
-    expect(zoneAt('office', QA_LAB.x, 0)).toBe('floor');
+    expect(zoneAt('office', EAST_DESKS.x, 0)).toBe('floor');
     expect(zoneAt('office', HALF_W - 1.5, 7.4)).toBe('floor');
     expect(zoneAt('office', 0, HALF_D + 1.3)).toBe('cabin');
     expect(zoneAt('office', -HALF_W - 1.5, 0)).toBe('west');

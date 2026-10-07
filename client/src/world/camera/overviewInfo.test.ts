@@ -7,14 +7,14 @@ vi.mock('../gongRunner', () => ({ gongForMerge: vi.fn(() => 'solo') }));
 
 const { chipFor, floorSummary, lobbySummary, summaryLine } = await import('./overviewInfo');
 
-const agent = (p: Partial<AgentView>) => ({ id: 'a', name: 'Ada', repoId: 'acme/app', role: 'dev', task: null, status: 'idle', desk: 0, ...p }) as AgentView;
+const agent = (p: Partial<AgentView>) => ({ id: 'a', name: 'Ada', repoId: 'acme/app', role: 'agent', task: null, status: 'idle', desk: 0, ...p }) as AgentView;
 
 describe('chipFor', () => {
   it('names what someone is doing', () => {
     expect(chipFor(agent({ status: 'working', task: 'issue' }))).toBe('working');
     expect(chipFor(agent({ status: 'preparing', task: 'issue' }))).toBe('working');
     expect(chipFor(agent({ status: 'working', task: 'fix' }))).toBe('fixing');
-    expect(chipFor(agent({ status: 'working', role: 'qa', task: 'qa' }))).toBe('testing');
+    expect(chipFor(agent({ status: 'working', task: 'qa' }))).toBe('testing');
     expect(chipFor(agent({ status: 'error', task: 'issue' }))).toBe('error');
     expect(chipFor(agent({ status: 'idle' }))).toBe('idle');
     expect(chipFor(agent({ status: 'done', task: 'issue' }))).toBe('idle');
@@ -34,10 +34,11 @@ describe('floorSummary', () => {
     const s = floorSummary(
       repo,
       [
-        agent({ id: 'q', role: 'qa', desk: 0, status: 'working', task: 'qa' }),
+        agent({ id: 'q', desk: 12, status: 'working', task: 'qa' }),
         agent({ id: 'b', desk: 1, status: 'error', task: 'issue' }),
         agent({ id: 'a', desk: 0, status: 'working', task: 'issue' }),
         agent({ id: 'x', repoId: 'other/repo', status: 'working' }),
+        agent({ id: 'ceo', role: 'ceo', status: 'working' }),
       ],
       qa,
     );

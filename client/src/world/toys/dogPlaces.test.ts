@@ -64,12 +64,12 @@ describe("the dog's places", () => {
   });
 
   it("a visit sits on the person's left, beside the chair, facing them", () => {
-    // a developer faces -Z (seat heading 0): their left is -X
+    // at a desk in the grid they face -Z (seat heading 0): their left is -X
     const s = lapSpot(3.5, 3.8, 0);
     expect(s.x).toBeCloseTo(3.5 - 0.62);
     expect(s.z).toBeLessThan(3.8);
     expect(s.heading).toBeCloseTo(0); // facing +X, towards them
-    // a QA tester faces +X (seat heading -π/2): their left is -Z
+    // at the east wall they face +X (seat heading -π/2): their left is -Z
     const q = lapSpot(13.2, -2, -Math.PI / 2);
     expect(q.z).toBeCloseTo(-2 - 0.62);
     expect(Math.abs(q.heading - Math.PI / 2)).toBeLessThan(1e-9);

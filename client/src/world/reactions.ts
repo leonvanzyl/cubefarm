@@ -16,7 +16,7 @@ export function newlyErrored(prev: Record<string, { status: AgentStatus }>, next
 
 type Qa = { status: QaStatus; devAgentId: string | null };
 
-/** The developers whose PR just passed QA. */
+/** The agents whose PR just passed QA. */
 export function newlyPassed(prev: Record<string, Qa>, next: Record<string, Qa>) {
   const out: string[] = [];
   for (const key in next) {

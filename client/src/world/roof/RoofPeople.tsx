@@ -295,7 +295,7 @@ export function RoofPeople() {
       run.roll = ROLL.every;
       const up = new Set(visits.map((v) => v.id));
       const free = Object.values(s.agents).filter((a) => !up.has(a.id) && isFree(a.status));
-      const team = free.filter((a) => a.role === 'dev' || a.role === 'qa');
+      const team = free.filter((a) => a.role !== 'ceo');
       if (team.length && Math.random() < ROLL.breakChance) comeUp(team[Math.floor(Math.random() * team.length)]);
       const ceo = free.find((a) => a.role === 'ceo');
       if (ceo && Math.random() < ROLL.callChance) comeUp(ceo);

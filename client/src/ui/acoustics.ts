@@ -2,18 +2,18 @@
 // space's echo sounds like (the impulse responses roomSfx.ts writes into its convolvers), how much of each sound group
 // goes into the room, when to move the reverb to a new room, and how much the walls between a sound and you muffle it.
 
-import { CEO_ROOM, ELEVATOR, HALF_D, HALF_W, MANAGER_ROOM, QA_RUG, WALL_T, type Rect, type Side } from '../world/layout';
+import { CEO_ROOM, ELEVATOR, HALF_D, HALF_W, MANAGER_ROOM, WALL_T, type Rect, type Side } from '../world/layout';
 import type { SoundGroup } from './audioPrefs';
 import { MAX_DISTANCE } from './sfxMix';
 
 type FloorKind = 'office' | 'lobby' | 'roof';
 
 /** The kinds of space that sound different. Balconies, the lobby's patio and the roof are 'outside'. */
-export type Room = 'lobby' | 'office' | 'qa' | 'kitchen' | 'cabin' | 'outside';
-export const ROOMS: readonly Room[] = ['lobby', 'office', 'qa', 'kitchen', 'cabin', 'outside'];
+export type Room = 'lobby' | 'office' | 'kitchen' | 'cabin' | 'outside';
+export const ROOMS: readonly Room[] = ['lobby', 'office', 'kitchen', 'cabin', 'outside'];
 
 /**
- * The enclosure a point is in, for occlusion: an office floor's open plan (desks, the QA lab and the kitchenette) is one
+ * The enclosure a point is in, for occlusion: an office floor's open plan (the desks and the kitchenette) is one
  * space, the elevator cabin, each balcony and the lobby's two glass offices are others.
  */
 export type Zone = 'floor' | 'cabin' | Side | 'manager' | 'ceo';
@@ -33,7 +33,6 @@ export function roomAt(kind: FloorKind, x: number, z: number): Room {
   if (outside(x) || kind === 'roof') return 'outside';
   if (kind === 'lobby') return inRect(MANAGER_ROOM, x, z) || inRect(CEO_ROOM, x, z) ? 'office' : 'lobby';
   if (inRect(KITCHEN, x, z)) return 'kitchen';
-  if (inRect(QA_RUG, x, z, 0.8)) return 'qa';
   return 'office';
 }
 
@@ -70,8 +69,7 @@ export const ROOM_SOUND: Record<Room, RoomSound> = {
   lobby: { length: 2, rt60: 1.4, predelay: 0.022, brightness: 0.8, early: [[0.031, 1.6], [0.047, 1.2], [0.083, 1]], echo: [0.19, 4], wet: 0.3 },
   // carpet and desks soak it up: short and dark
   office: { length: 0.8, rt60: 0.5, predelay: 0.01, brightness: 0.3, early: [[0.012, 1.2], [0.021, 0.9], [0.034, 0.6]], wet: 0.13 },
-  // the same floor, but hard benches and screens: a touch livelier
-  qa: { length: 0.9, rt60: 0.6, predelay: 0.009, brightness: 0.5, early: [[0.009, 1.4], [0.017, 1.1], [0.028, 0.8]], wet: 0.16 },
+
   // tiles and steel: short, but bright and ringing
   kitchen: { length: 1, rt60: 0.75, predelay: 0.004, brightness: 0.95, early: [[0.005, 2], [0.009, 1.6], [0.013, 1.3], [0.019, 1]], wet: 0.24 },
   // a metal box: very short and boxy, reflections crowding in

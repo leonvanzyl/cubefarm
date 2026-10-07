@@ -243,7 +243,7 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <SoundControls />
           <h3>Chatter</h3>
           <p>
-            The team talks as they work: speech bubbles about what's really going on (a PR up for QA, a tester asked to look at it, tests going green, a merge conflict, a merge and a teammate's "Nice
+            The team talks as they work: speech bubbles about what's really going on (a PR up for QA, a teammate asked to test it, tests going green, a merge conflict, a merge and a teammate's "Nice
             one!", coffee at the cooler) in a cute babble voice of their own, the same on every visit; the CEO's is lower and grander. At most three speak at once and the nearest win. Quiet says the news;
             lively also chats about what they're doing. Aim at someone with nothing to do and press <Key action="interact" /> to say hi (aim at their desk to open it). The Chatter slider above sets how loud
             they babble.
@@ -266,9 +266,10 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           <GraphicsSettings />
           <h3>The building</h3>
           <p>
-            The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and candidates wait on the chairs by the glass door. Walk up to one and press <Key action="interact" /> to
-            interview them: hire them and they shake your hand and take the elevator up to their floor for a welcome tour; decline and they leave by the door. When the CEO suggests letting someone go, an envelope
-            waits on their desk. Every connected GitHub repo gets its own floor. To travel, walk into the elevator in the middle of the south wall and press <Key action="interact" /> on its panel. In the lobby, the directory beside it works too.
+            The ground floor is the lobby: your office is the glass room at the back left, the CEO's corner office is at the back right, and new agents the CEO wants wait on the chairs by the glass door. Walk up
+            to one and press <Key action="interact" /> to meet them: why the CEO wants them, and their coding agent, model and effort, which you can change before you hire them. Hire them and they shake your hand
+            and take the elevator up to their floor for a welcome tour; decline and they leave by the door. When the CEO wants a smaller team, an envelope waits on the desk of whoever it picked to leave. Every
+            connected GitHub repo gets its own floor. To travel, walk into the elevator in the middle of the south wall and press <Key action="interact" /> on its panel. In the lobby, the directory beside it works too.
           </p>
           <p>
             The elevator's top stop is the roof terrace (<kbd>R</kbd> on its panel). Sit back in a deck chair (<Key action="interact" />; walk or press <Key action="interact" /> to get up), grill a sausage at the barbecue (<Key action="interact" /> puts one on and turns it, 
@@ -290,7 +291,7 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           </p>
           <h3>Your phone</h3>
           <p>
-            Press <Key action="phone" /> anywhere to pull out your phone. Text the CEO, approve or decline the people they want to hire, see every project at a glance, or play Cubetris, Cable Snake or look after your
+            Press <Key action="phone" /> anywhere to pull out your phone. Text the CEO, approve or decline their team changes, see every project at a glance, or play Cubetris, Cable Snake or look after your
             Desk Pet while the team works. The red badge counts decisions and messages waiting for you. In the chat, and in an agent's terminal, <kbd>Enter</kbd> sends and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a
             new line. To talk instead of type, hold the 🎙️ next to Send, or hold <Key action="talk" /> in the message box, and speak: your words fill the box to edit before you send (a tap of the 🎙️ listens until you
             stop talking, and <kbd>Esc</kbd> stops listening). With 🎧 Hands-free on, the phone listens for a few seconds after the CEO's spoken reply and sends what you say. Settings → Voice picks the browser's
@@ -319,17 +320,22 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
           </p>
           <h3>The CEO</h3>
           <p>
-            The CEO studies every new floor, writes its QA brief, gives each agent a job that fits the project, turns your project briefs into issues and proposes hires. Hires wait for your approval unless you switch
-            hiring to auto in the manager's console.
+            The CEO studies every new floor, writes its QA brief, turns your project briefs into issues and sets each floor's team size from its work. New agents and let-gos wait for your approval unless you
+            set team changes to apply straight away (manager's console, Settings), and no floor grows past its most agents per floor.
           </p>
           <h3>Your team</h3>
           <p>
-            Each agent is a real coding agent running in its own terminal, working in its own git worktree. Walk up behind them to read their laptop, or press <Key action="interact" /> (or click) on a desk to open their
-            terminal: watch it live, type into it, send them instructions, stop them or hand them another issue. Aim at an empty desk and press <Key action="interact" /> to hire, or click it and confirm.
+            Each agent is a real coding agent running in its own terminal, working in its own git worktree. They're all the same kind of worker: any free agent takes whatever is next on the board, an issue to
+            build, a pull request to test or one to fix. Walk up behind them to read their laptop, or press <Key action="interact" /> (or click) on a desk to open their terminal: watch it live, type into it, send
+            them instructions, stop them or hand them an issue or a PR to test. Aim at an empty desk and press <Key action="interact" /> to add an agent, or click it and confirm.
           </p>
           <p>
-            <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model, effort, title, specialty and job description. Changes apply from their next task, so nothing is interrupted.
-            Open <b>What they're told</b> there to read the full prompt the office gives them, with their job description highlighted. The CEO's model, effort and prompt are in the console's CEO tab.
+            Every pull request is tested before it can be merged, in a fresh session, by an agent other than its author when one is free: they run the tests, click through the change in a real browser, and post a
+            report with screenshots on the PR. If it fails, its author (or any free agent) fixes it and it's tested again.
+          </p>
+          <p>
+            <b>⚙️ Setup</b>, at the top of their panel, changes their name, look, coding agent, model and effort. Changes apply from their next task, so nothing is interrupted. Open <b>What they're told</b> there
+            to read what the office tells every agent on each kind of task. The CEO's model, effort and prompt are in the console's CEO tab.
           </p>
           <h3>Coins, decorations and trophies</h3>
           <p>
@@ -339,22 +345,18 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             Achievements fill the trophy shelf in the lobby: <Key action="interact" /> on a trophy says what it was for and when.
           </p>
           <p>
-            Desks tell their owner's story: a plaque on the monitor for every merged PR, a gold star for ten first-time QA passes, specialty stickers, and a plant, a photo and a desk toy that arrive with time on the team.
+            Desks tell their owner's story: a plaque on the monitor for every merged PR, a gold star for ten first-time QA passes, and a plant, a photo and a desk toy that arrive with time on the team.
             Look at a desk for a moment to see its career card (or open <b>🏅 Career</b> in their panel); the console's Team tab compares everyone.
-          </p>
-          <h3>The QA lab</h3>
-          <p>
-            The testers in lab coats along the east wall check every pull request before it can be merged. They run the tests, click through the change in a real browser, and post a report with screenshots on the PR.
-            If a PR fails, it goes back to the developer who wrote it, who fixes it and sends it back to QA.
           </p>
           <h3>The whiteboard</h3>
           <p>
-            <b>Backlog</b>: open issues nobody has picked up. <b>In progress</b>: developers at work. <b>In QA</b>: being tested or fixed. <b>Ready to merge</b>: QA passed, waiting for you. Press{' '}
-            <Key action="interact" /> or click the board to assign, send to QA, merge and file new issues. When a PR merges, confetti bursts over the desk of the developer who wrote it.
+            <b>Backlog</b>: open issues nobody has picked up. <b>In progress</b>: agents building issues. <b>In QA</b>: being tested or fixed. <b>Ready to merge</b>: QA passed, waiting for you. Press{' '}
+            <Key action="interact" /> or click the board to assign, send to QA, merge and file new issues. When a PR merges, confetti bursts over the desk of the agent who wrote it.
           </p>
           <p>
             Aim at a sticky and it lifts off the board: <Key action="interact" /> (or a click) reads it up close. <Key action="drop" />, or holding the click, peels a Backlog sticky off: carry it to a free
-            developer's desk and press <Key action="interact" /> and they start that issue (the sticky goes on their monitor). A PR waiting to go to QA can be carried to the QA lab the same way. Anywhere else,{' '}
+            agent's desk and press <Key action="interact" /> and they start that issue (the sticky goes on their monitor). A PR waiting for QA can be carried to a free agent's desk the same way, and they test it.
+            Anywhere else,{' '}
             <Key action="drop" /> puts it back. Red strings join an issue to the one it depends on until that one closes, and the corner of the board counts today's merges, the time from issue to merge, the QA queue
             and anything that needs you.
           </p>

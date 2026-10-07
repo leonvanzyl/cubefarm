@@ -3,9 +3,9 @@ import { TeamStats } from './CareerCard';
 import { api } from '../api';
 import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
-import { CEO_ID, type AgentCli, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
-import { CLAUDE_MODELS } from '../../../shared/models';
-import { BriefEditor, CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, LookSelect, ModelInput, NameInput, PromptPreview, SpecialtyInput, TitleInput } from './AgentSettings';
+import { CEO_ID, DEFAULT_MAX_AGENTS, FLOOR_SEATS, type AgentCli, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
+import { CLAUDE_MODELS, modelSuggestions } from '../../../shared/models';
+import { CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, LookEditor, LookSelect, ModelInput, NameInput, PromptPreview } from './AgentSettings';
 import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../officeUpdate';
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
@@ -223,11 +223,11 @@ function FloorBrief({ repo }: { repo: RepoView }) {
           <b>{repo.fullName}</b>
           <div className="muted small">{repo.summary ? `🧠 ${repo.summary}` : 'The CEO has not studied this floor yet.'}</div>
         </div>
-        <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.onboardFloor(repo.id))} title="Study the repo again and rethink the team">
+        <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.onboardFloor(repo.id))} title="Study the repo again and rethink the plan and the team's size">
           Re-study
         </button>
       </div>
-      <textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={2} placeholder="Brief: what should this floor build next? The CEO turns it into issues and a team." />
+      <textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={2} placeholder="Brief: what should this floor build next? The CEO turns it into issues and a team size." />
       <div className="row">
         <button className="btn btn-small" disabled={mission === repo.mission} onClick={() => void attempt(() => api.updateRepo(repo.id, { mission }))}>
           Save brief
@@ -243,7 +243,7 @@ function FloorBrief({ repo }: { repo: RepoView }) {
           key={repo.qaBrief}
           rows={4}
           defaultValue={repo.qaBrief}
-          placeholder="What QA testers must check on every PR for this project."
+          placeholder="What every QA pass must check on this project."
           onBlur={(e) => e.target.value !== repo.qaBrief && void attempt(() => api.updateRepo(repo.id, { qaBrief: e.target.value }))}
         />
       </details>
@@ -342,8 +342,8 @@ function CeoTab() {
         </div>
       </div>
       <div>
-        <h3 className="section">📄 Hiring {pending.length > 0 && <span className="badge">{pending.length}</span>}</h3>
-        {pending.length === 0 && <p className="muted small">No proposals waiting. The CEO proposes hires when they study a floor or notice the team can't cover the work.</p>}
+        <h3 className="section">📄 Team changes {pending.length > 0 && <span className="badge">{pending.length}</span>}</h3>
+        {pending.length === 0 && <p className="muted small">None waiting. The CEO grows or shrinks a floor's team when its work calls for it (Settings → Team changes from the CEO).</p>}
         {pending.map((r) => (
           <Resume key={r.id} req={r} />
         ))}
@@ -367,45 +367,87 @@ function CeoTab() {
 
 // ---------- team ----------
 
+interface NewAgent {
+  name: string;
+  cli: AgentCli | '';
+  model: string;
+  effort: EffortLevel | '';
+}
+
+const NO_SETUP: NewAgent = { name: '', cli: '', model: '', effort: '' };
+
+/** A floor's "+ Agent": an optional name and their coding agent, model and effort ('' = the office's defaults). */
+function AddAgent({ repo, size }: { repo: RepoView; size: number }) {
+  const settings = useStore((s) => s.settings);
+  const clis = useStore((s) => s.clis);
+  const [draft, setDraft] = useState<NewAgent>(NO_SETUP);
+  const [busy, setBusy] = useState(false);
+  const terminal = settings.runtime === 'terminal';
+  const cli = terminal ? draft.cli || settings.defaultCli : 'claude';
+  const full = size >= settings.maxAgents;
+  const edit = (p: Partial<NewAgent>) => setDraft({ ...draft, ...p });
+  const add = () => {
+    setBusy(true);
+    const { name, ...setup } = draft;
+    void attempt(() => api.hireAgent(repo.id, { ...setup, name: name.trim() || undefined }))
+      .then((a) => a && setDraft(NO_SETUP))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="row wrap">
+      <input value={draft.name} onChange={(e) => edit({ name: e.target.value })} placeholder="Name (optional)" maxLength={24} aria-label={`New agent's name on floor ${repo.floor}`} style={{ maxWidth: 150 }} />
+      {terminal && (
+        <select value={draft.cli} onChange={(e) => edit({ cli: e.target.value as AgentCli | '' })} aria-label="New agent's coding agent" style={{ width: 'auto' }}>
+          <option value="">{cliName(clis, settings.defaultCli)} (default)</option>
+          <CliOptions clis={clis} />
+        </select>
+      )}
+      <input value={draft.model} onChange={(e) => edit({ model: e.target.value })} list={`new-agent-models-${repo.floor}`} placeholder="default model" aria-label="New agent's model" style={{ maxWidth: 150 }} />
+      <datalist id={`new-agent-models-${repo.floor}`}>
+        {modelSuggestions(cli).map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
+      <select value={draft.effort} onChange={(e) => edit({ effort: e.target.value as EffortLevel | '' })} aria-label="New agent's effort" style={{ width: 'auto' }}>
+        <option value="">default effort ({settings.defaultEffort})</option>
+        {EFFORTS.map((x) => (
+          <option key={x} value={x}>
+            {x}
+          </option>
+        ))}
+      </select>
+      <span title={full ? `Floor ${repo.floor} has its most agents (${settings.maxAgents}): change it in Settings → Most agents per floor` : undefined}>
+        <button className="btn btn-small btn-good" disabled={busy || full} onClick={add}>
+          + Agent
+        </button>
+      </span>
+    </div>
+  );
+}
+
 function TeamTab() {
   const repos = useStore((s) => s.repos);
   const agents = useStore((s) => s.agents);
   const settings = useStore((s) => s.settings);
   const openOverlay = useStore((s) => s.openOverlay);
   const terminal = settings.runtime === 'terminal';
-  const [names, setNames] = useState<Record<string, string>>({});
-  const [openBrief, setOpenBrief] = useState<string | null>(null);
+  const [openLook, setOpenLook] = useState<string | null>(null);
   if (repos.length === 0) return <p className="muted">Connect a repo first; agents need a floor to sit on.</p>;
   return (
     <div>
       <TeamStats />
       {[...repos].sort((a, b) => a.floor - b.floor).map((repo) => {
-        const team = agentsOnRepo(agents, repo.id);
+        const team = agentsOnRepo(agents, repo.id).filter((a) => a.role !== 'ceo');
         return (
           <div key={repo.id} className="card floor-card" style={{ ['--accent' as string]: repo.color }}>
-            <div className="row">
+            <div className="row wrap">
               <span className="floor-badge">{repo.floor}</span>
               <b className="grow">{repo.fullName}</b>
-              <input value={names[repo.id] ?? ''} onChange={(e) => setNames({ ...names, [repo.id]: e.target.value })} placeholder="Name (optional)" style={{ maxWidth: 160 }} />
-              <button
-                className="btn btn-small btn-good"
-                disabled={team.filter((a) => a.role === 'dev').length >= 12}
-                onClick={() =>
-                  void attempt(() => api.hireAgent(repo.id, { name: names[repo.id] || undefined, role: 'dev' })).then(() => setNames({ ...names, [repo.id]: '' }))
-                }
-              >
-                + Developer
-              </button>
-              <button
-                className="btn btn-small"
-                disabled={team.filter((a) => a.role === 'qa').length >= 3}
-                onClick={() =>
-                  void attempt(() => api.hireAgent(repo.id, { name: names[repo.id] || undefined, role: 'qa' })).then(() => setNames({ ...names, [repo.id]: '' }))
-                }
-              >
-                + QA tester
-              </button>
+              <span className="muted small">
+                {team.length} of {settings.maxAgents} agents
+              </span>
             </div>
+            <AddAgent repo={repo} size={team.length} />
             {team.length === 0 && <div className="muted small">No one works here yet.</div>}
             <table className="team">
               <tbody>
@@ -418,21 +460,9 @@ function TeamTab() {
                     <td>
                       <NameInput agent={a} />
                     </td>
-                    <td className="nowrap">
-                      <span className="chip" title={a.hiredBy === 'ceo' ? 'Hired on the CEO\'s proposal' : undefined}>
-                        {a.role === 'qa' ? '🔍 QA' : '💻 Dev'}
-                        {a.hiredBy === 'ceo' ? ' · 🧠' : ''}
-                      </span>
-                    </td>
                     <td>
-                      <TitleInput agent={a} />
-                    </td>
-                    <td>
-                      <SpecialtyInput agent={a} style={{ width: 96 }} />
-                    </td>
-                    <td>
-                      <button className="btn btn-small btn-ghost" title="Job description and look" onClick={() => setOpenBrief(openBrief === a.id ? null : a.id)}>
-                        📝{a.brief ? '' : ' +'}
+                      <button className="btn btn-small btn-ghost" aria-expanded={openLook === a.id} title={`${a.name}'s look`} onClick={() => setOpenLook(openLook === a.id ? null : a.id)}>
+                        🎨
                       </button>
                     </td>
                     <td>
@@ -466,15 +496,15 @@ function TeamTab() {
                       </button>
                     </td>
                   </tr>
-                  {openBrief === a.id && (
+                  {openLook === a.id && (
                     <tr>
                       <td />
-                      <td colSpan={terminal ? 11 : 10}>
+                      <td colSpan={terminal ? 8 : 7}>
                         <label className="row small">
                           <span>Drawn as</span>
                           <LookSelect agent={a} />
                         </label>
-                        <BriefEditor agent={a} compact />
+                        <LookEditor agent={a} />
                       </td>
                     </tr>
                   )}
@@ -516,7 +546,7 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
         <div className="repo-list tall">
           {repo?.issues.length === 0 && <div className="muted small">None. Nice.</div>}
           {repo?.issues.map((i) => {
-            const holder = agents.find((a) => a.role === 'dev' && a.issueNumber === i.number && a.status !== 'idle');
+            const holder = agents.find((a) => a.role !== 'ceo' && a.task !== 'qa' && a.issueNumber === i.number && a.status !== 'idle');
             return (
               <div key={i.number} className="repo-row">
                 <div>
@@ -536,7 +566,7 @@ function IssuesTab({ initialRepo }: { initialRepo?: string }) {
                     <select value="" onChange={(e) => e.target.value && void attempt(() => api.assign(e.target.value, i.number))} aria-label={`Assign issue #${i.number}`}>
                       <option value="">Assign…</option>
                       {agents
-                        .filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing')
+                        .filter((a) => a.role !== 'ceo' && a.status !== 'working' && a.status !== 'preparing')
                         .map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.name}
@@ -574,7 +604,7 @@ function SettingsTab() {
   const settings = useStore((s) => s.settings);
   const clis = useStore((s) => s.clis);
   const user = useStore((s) => s.user);
-  const workspaceRoot = useStore((s) => s.workspaceRoot);
+  const machinesRoot = useStore((s) => s.machinesRoot);
   const demo = useStore((s) => s.demo);
   const version = useStore((s) => s.version);
   const commit = useStore((s) => s.officeCommit);
@@ -620,8 +650,8 @@ function SettingsTab() {
         </label>
         <p className="muted small">
           {terminal
-            ? 'Each worker can use their own coding agent, model and effort (Team tab); the CEO always runs Claude Code. Claude Code reports every step; Codex and OpenCode are experimental: the office sees their task rather than each step.'
-            : 'The Agent SDK runs Claude Code. Each worker can use their own model and effort (Team tab).'}
+            ? 'Each agent can use their own coding agent, model and effort (Team tab); the CEO always runs Claude Code. Claude Code reports every step; Codex and OpenCode are experimental: the office sees their task rather than each step.'
+            : 'The Agent SDK runs Claude Code. Each agent can use their own model and effort (Team tab).'}
         </p>
         <label className="field">
           <span>Session limit</span>
@@ -643,28 +673,45 @@ function SettingsTab() {
           />
         </label>
         <p className="muted small">When Claude warns that usage is getting high, new issues only start while fewer sessions than this are running. QA, fixes and the CEO carry on.</p>
-        <h3>🧠 The CEO</h3>
-        <label className="toggle block">
-          <input type="radio" checked={settings.hiring === 'approve'} onChange={() => set({ hiring: 'approve' })} />
-          <span>
-            <b>I approve every hire</b> (recommended): the CEO's proposals wait on your phone.
-          </span>
-        </label>
-        <label className="toggle block">
-          <input type="radio" checked={settings.hiring === 'auto'} onChange={() => set({ hiring: 'auto' })} />
-          <span>
-            <b>Auto-approve</b> while a floor has fewer people than the team cap. Anything beyond the cap still waits for you.
-          </span>
-        </label>
         <label className="field">
-          <span>Team cap per floor</span>
-          <input type="number" min={1} max={15} defaultValue={settings.teamCap} onBlur={(e) => set({ teamCap: Number(e.target.value) })} />
+          <span>Most agents per floor</span>
+          <input
+            key={settings.maxAgents}
+            type="number"
+            min={1}
+            max={FLOOR_SEATS}
+            defaultValue={settings.maxAgents}
+            onBlur={(e) => {
+              const n = Math.min(FLOOR_SEATS, Math.max(1, Math.round(Number(e.target.value)) || DEFAULT_MAX_AGENTS));
+              if (n !== settings.maxAgents) set({ maxAgents: n });
+            }}
+          />
         </label>
+        <p className="muted small">At most {FLOOR_SEATS}, one per desk. Adding agents past it is refused, by hand or by the CEO.</p>
+        <h3>🧠 The CEO</h3>
+        <div role="radiogroup" aria-label="Team changes from the CEO">
+          <div className="small">
+            <b>Team changes from the CEO</b>
+          </div>
+          <label className="toggle block">
+            <input type="radio" name="scaling" checked={settings.scaling === 'approve'} onChange={() => set({ scaling: 'approve' })} />
+            <span>
+              <b>I approve each one</b> (recommended): new agents wait in the lobby, where you can change their coding agent, model and effort before hiring them,
+              and a let-go waits as an envelope on their desk.
+            </span>
+          </label>
+          <label className="toggle block">
+            <input type="radio" name="scaling" checked={settings.scaling === 'auto'} onChange={() => set({ scaling: 'auto' })} />
+            <span>
+              <b>Apply straight away</b>, up to the most agents per floor. Idle agents leave first; busy ones finish their task.
+            </span>
+          </label>
+        </div>
         <label className="field">
           <span>Company review every (minutes, 0 = off)</span>
           <input type="number" min={0} max={1440} defaultValue={settings.ceoHeartbeatMin} onBlur={(e) => set({ ceoHeartbeatMin: Number(e.target.value) })} />
         </label>
-        <p className="muted small">A review is skipped when nothing changed since the last one. The CEO's own model and effort are on the CEO tab.</p>
+        <p className="muted small">A review checks team sizes, stuck PRs and floor profiles, and is skipped when nothing changed since the last one. It never files issues: new work only comes from you. The CEO's own model and effort are on the CEO tab.</p>
       </div>
       <div className="card">
         <h3>⌨️ How agents run</h3>
@@ -731,7 +778,7 @@ function SettingsTab() {
           GitHub: <b>{user ?? 'not signed in'}</b>
           {demo && ' (demo)'}
           <br />
-          Agent desks: <code>{workspaceRoot}</code>
+          Agents' machines: <code>{machinesRoot}</code>
         </div>
       </div>
       <ProfileSettings />
@@ -751,7 +798,7 @@ export function ManagerConsole({ initialTab, initialRepo, card }: { initialTab?:
   const tabs: [ManagerTab, string][] = [
     ['floors', '🏢 Floors & repos'],
     ['ops', `🛰️ Mission control${alarms ? ` (${alarms})` : ''}`],
-    ['ceo', `🧠 CEO & hiring${pending ? ` (${pending})` : ''}`],
+    ['ceo', `🧠 CEO${pending ? ` (${pending})` : ''}`],
     ['team', '👩‍💻 Team'],
     ['issues', '📝 Issues'],
     ['settings', '⚙️ Settings'],

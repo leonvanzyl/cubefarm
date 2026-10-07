@@ -16,7 +16,7 @@ import { useCanvasTexture } from './interact';
 import { KanbanBoard } from './KanbanBoard';
 import { Jukebox } from './Jukebox';
 import { Leaver, useLeavers } from './Leavers';
-import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, QA_ROTATION, QA_RUG, deskPosition, qaDeskPosition } from './layout';
+import { DESK_RUGS, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, SEATS, deskPosition, deskRotation } from './layout';
 import { shade } from './materials';
 import { MergeConfetti } from './MergeConfetti';
 import { Beacon, useFloorAlarm } from './MissionControl';
@@ -54,15 +54,15 @@ export function WallSign({
 }
 
 // Made once, so the memoised desks see the same position every render.
-const DEV_DESKS = Array.from({ length: MAX_DESKS }, (_, slot): [number, number, number] => [deskPosition(slot).x, 0, deskPosition(slot).z]);
-const QA_DESKS = QA_LAB.stations.map((_, slot): [number, number, number] => [qaDeskPosition(slot).x, 0, qaDeskPosition(slot).z]);
+const DESKS = Array.from({ length: SEATS }, (_, slot): [number, number, number] => [deskPosition(slot).x, 0, deskPosition(slot).z]);
 
 /** Memoised, and it only follows this floor's people and PRs: a big company's other floors change many times a second. */
 export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView }) {
   const use = useKeyName('interact');
   const agents = useStore(useShallow((s) => agentsOnRepo(s.agents, repo.id)));
-  const devBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'dev').map((a) => [a.desk, a])), [agents]);
-  const qaBySlot = useMemo(() => new Map(agents.filter((a) => a.role === 'qa').map((a) => [a.desk, a])), [agents]);
+  const bySlot = useMemo(() => new Map(agents.filter((a) => a.role !== 'ceo').map((a) => [a.desk, a])), [agents]);
+  const maxAgents = useStore((s) => s.settings.maxAgents);
+  const full = bySlot.size >= maxAgents ? maxAgents : 0;
   const { leavers, gone } = useLeavers(agents);
   const working = agents.filter((a) => a.status === 'working' || a.status === 'preparing').length;
   const { inQa, ready } = useStore(useShallow((s) => floorPrCounts(repo, s.qa)));
@@ -79,23 +79,20 @@ export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView 
         <Rug key={r.minZ} position={[(r.minX + r.maxX) / 2, 0.004, (r.minZ + r.maxZ) / 2]} size={[r.maxX - r.minX, r.maxZ - r.minZ]} color={rugColor} />
       ))}
 
-      {DEV_DESKS.map((position, slot) => (
-        <Desk key={slot} agent={devBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={position} />
+      {/* The east wall's desks are spare (furniture only) unless someone sits there or the team may grow past the grid.
+          They always stand: their solids, walkways and holiday decorations don't change with the settings. */}
+      {DESKS.map((position, slot) => (
+        <Desk
+          key={slot}
+          agent={bySlot.get(slot) ?? null}
+          accent={repo.color}
+          repoId={repo.id}
+          position={position}
+          rotationY={deskRotation(slot)}
+          full={full}
+          spare={slot >= MAX_DESKS && maxAgents <= MAX_DESKS && !bySlot.has(slot)}
+        />
       ))}
-
-      {/* QA lab */}
-      <Rug position={[(QA_RUG.minX + QA_RUG.maxX) / 2, 0.005, (QA_RUG.minZ + QA_RUG.maxZ) / 2]} size={[QA_RUG.maxX - QA_RUG.minX, QA_RUG.maxZ - QA_RUG.minZ]} color="#ffd8bf" />
-      {QA_DESKS.map((position, slot) => (
-        <Desk key={`qa${slot}`} role="qa" rotationY={QA_ROTATION} agent={qaBySlot.get(slot) ?? null} accent={repo.color} repoId={repo.id} position={position} />
-      ))}
-      <WallSign
-        position={[HALF_W - 0.03, 3.2, -2]}
-        rotationY={-Math.PI / 2}
-        size={[3.2, 0.55]}
-        px={[768, 132]}
-        draw={(ctx) => drawSign(ctx, 768, 132, [{ text: `🔍 QA LAB · ${inQa} in testing`, size: 56 }], '#ff9f68')}
-        deps={[inQa]}
-      />
 
       <KanbanBoard repo={repo} agents={agents} />
       <ActivityTicker repoId={repo.id} />

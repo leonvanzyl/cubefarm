@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockers, holdUps, issueSpecialty, setDependsOn, waitsMessage } from './issues.ts';
+import { blockers, holdUps, setDependsOn, waitsMessage } from './issues.ts';
 
 const open = (...n: number[]) => new Set(n);
 
@@ -50,23 +50,6 @@ describe('blockers', () => {
     expect(blockers('', open(1))).toEqual([]);
     expect(blockers(undefined as unknown as string, open(1))).toEqual([]);
     expect(blockers(null as unknown as string, open(1))).toEqual([]);
-  });
-});
-
-describe('issueSpecialty', () => {
-  it('reads the swarm:<specialty> label, lowercased', () => {
-    expect(issueSpecialty(['bug', 'swarm:Testing'])).toBe('testing');
-    expect(issueSpecialty(['SWARM:frontend'])).toBe('frontend');
-  });
-
-  it('is empty without a specialty label', () => {
-    expect(issueSpecialty([])).toBe('');
-    expect(issueSpecialty(['bug', 'enhancement'])).toBe('');
-  });
-
-  it('does not treat swarm:skip as a specialty', () => {
-    expect(issueSpecialty(['swarm:skip'])).toBe('');
-    expect(issueSpecialty(['Swarm:Skip', 'swarm:backend'])).toBe('backend');
   });
 });
 

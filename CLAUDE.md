@@ -1,7 +1,8 @@
 # cubefarm
 
-A cartoon first-person 3D office (React Three Fiber) over a Node orchestrator that runs one Claude Code session
-(Claude Agent SDK) per developer, QA tester and the CEO, each in its own git worktree, working through GitHub issues.
+A cartoon first-person 3D office (React Three Fiber) over a Node orchestrator that runs one coding-agent session
+(Claude Code, Codex or OpenCode) per agent, plus the CEO, working through GitHub issues. Agents are interchangeable (no
+roles: any free agent builds, tests or fixes) and each works on a machine of its own (docs/agents.md).
 This is the app the company runs on: a live office is running from this repo right now. README.md is the quick start; docs/how-it-works.md and CONTRIBUTING.md have the details.
 It ships on npm as `cubefarm` (`npx cubefarm`); it used to be called Office Swarm.
 
@@ -60,8 +61,8 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `index.ts`: entry; picks the real or demo backend, REST routes under `/api`, the `/ws` and `/ws/term` websockets, serves `dist/`, shutdown.
 - `config.ts`: `SWARM_PORT` (default 4317), `SWARM_HOME` (default `~/.cubefarm`), `--demo`, state file, intervals,
   the default projects folder.
-- `swarm.ts`: the orchestrator. Floors, agents, scheduling/auto-assign, dev → QA → fix → merge loop, dev and QA
-  prompts, CEO job queue, phone messages, persistence (`state.json` / `demo-state.json`), websocket fan-out (through
+- `swarm.ts`: the orchestrator. Floors, agents, scheduling/auto-assign, build → QA → fix → merge loop, team changes
+  (the CEO's `scale_team`, lobby approvals), CEO job queue, phone messages, persistence (`state.json` / `demo-state.json`), websocket fan-out (through
   `outbox.ts`).
 - `outbox.ts`: what goes out on `/ws`: agents' and floors' changes batched on a 250 ms tick as patches of what
   changed, terminal lines only to the tabs that show them (`shared/watch.ts`), catch-ups when a tab's watch changes.
@@ -76,18 +77,22 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
   tree) holding the CLIs' pseudo-terminals and relaying their hooks, so agents keep working through office restarts.
   `ptyClient.ts` is the office's side (start/connect, spawn, adopt after a restart, local fallback); `ptyProtocol.ts`
   their JSON-lines messages. The launcher's `office:shutdown` says `restart: false` when quitting: CLIs stop then.
-  A developer's CLI stays at its prompt after the task (`keepAlive`): follow-ups and prompts typed there reuse it.
+  An agent's CLI stays at its prompt after building or fixing (`keepAlive`): follow-ups and prompts typed there reuse it.
 - `clis.ts`: the CLIs (Claude Code from the SDK's bundled binary, Codex, OpenCode): detection, Windows `.cmd` shim
   unwrapping, each one's command line, and the helper scripts they call back with.
 - `terminal.ts`: `AgentTerminal`, a headless xterm mirror per agent (replay for late viewers, saved to disk), its
   `/ws/term` viewers, and keystrokes/resizes to the running CLI.
-- `ceo.ts`: the CEO's office MCP tools (`createOfficeTools`, zod-validated), `ceoSystemPrompt`, `ceoJobPrompt`.
+- `ceo.ts`: the CEO's office MCP tools (`createOfficeTools`, zod-validated: `scale_team`, `configure_agent`, issues,
+  triage), `scalePlan` (team-size arithmetic), `ceoSystemPrompt`, `ceoJobPrompt`.
 - `backend.ts`: the `Backend` interface (everything touching GitHub, git, disk and sessions) and `realBackend`.
-- `demo.ts`: `createDemoBackend()`: fake GitHub, fake sessions (drawn into the agent's terminal in the terminal runtime), fake previews for `--demo`;
+- `machines.ts`: agents' machines, `MachineProvider`: each agent's own clone, worktree and temp folder (the local
+  provider is folders under `<SWARM_HOME>/machines/<machine>/`, in `workspace.ts`; containers and cloud VMs come later).
+- `demo.ts`: `createDemoBackend()`: fake GitHub, fake sessions (drawn into the agent's terminal in the terminal runtime), fake previews and machines for `--demo`;
   `--floors N --agents N` (or `SWARM_DEMO_FLOORS` / `SWARM_DEMO_AGENTS`) makes it a big company for scale tests.
 - `github.ts`: all GitHub access through the `gh` CLI.
-- `workspace.ts`: floor checkouts, per-agent worktrees (`<SWARM_HOME>/workspaces/<owner>__<repo>/desks/<agent>`),
-  fast-forwarding main, per-repo git lock, stopping processes an agent left running.
+- `workspace.ts`: floor checkouts, the preview worktrees (`<SWARM_HOME>/workspaces/<owner>__<repo>/desks/<name>`),
+  local machines (clone, worktree, branch sweep, removal with leftovers), fast-forwarding main, a git lock per clone,
+  stopping processes an agent left running.
 - `exec.ts`: `run` / `git` / `gh`: `execFile` without a shell, prompts disabled, `CommandError` with stderr.
 - `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation; and the PR theatre's PR
   previews (`prTheatre.ts`: their slots, ports, eviction and idle stop, pure; `syncProxy.ts`: compare mode's synced scrolling).
@@ -118,7 +123,7 @@ are in `scripts/officeSteps.mjs` (tested in `officeSteps.test.ts`).
 
 Shared (`shared/`, imported by both sides):
 - `types.ts`: the REST/websocket contract (`WorldSnapshot`, `ServerEvent`, views, settings).
-- `issues.ts`: issue conventions (`swarm:<specialty>` labels, `Depends on #N`, hold-up ranking).
+- `issues.ts`: issue conventions (`swarm:skip`, `Depends on #N`, hold-up ranking).
 - `journal.ts`: the time-lapse journal's format and pure rules, for the server and the replay.
 - `watch.ts`: which terminal lines a tab gets: its floor, open panels, the workers list's latest lines.
 - `looks.ts`: the look editor's options and `cleanStyle` (an agent's `style`, checked on the server).
@@ -129,7 +134,7 @@ Client (`client/`, Vite root; React 19, R3F, drei, zustand):
   where people can walk (`walkways.ts`: the walk grid, paths, named spots and steering, on the roomba's grid),
   errands that get them up (`errands.ts`: the registry and who may go; `ErrandDirector.tsx` runs them), toy
   errands (`toyErrands.ts`: hoops and catch, on `toys/npc.ts`, the toys' hands for people, aimed by `toys/npcAim.ts`),
-  comings and goings (`socials.ts`: hires by elevator, leavers with a box, chats, visits, the CEO's stroll),
+  comings and goings (`socials.ts`: new agents by elevator, leavers with a box, chats, visits, the CEO's stroll),
   the time of day (`sky/time.ts`, `sky/useDayTime.ts`) and the city outside (`outside/`: the seeded layout in
   `cityLayout.ts`, drawn by `City.tsx` in six instanced draw calls), the camera's other views (`camera/`: the
   overview, the building view and the follow cam in `rig.ts`, pose maths in `cameraMath.ts`, the cutaway as global

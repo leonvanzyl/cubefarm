@@ -1,5 +1,5 @@
 import { kanbanColumnSpan, KANBAN_KEYS } from './draw';
-import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, MAX_DESKS, PLAYER_RADIUS, PONG_TABLE, QA_LAB, RECEPTION, deskPosition, qaDeskPosition } from './layout';
+import { BOARD, CEO_DESK, COFFEE_CORNER, GONG_SPOT, HALF_D, HALF_W, JUKEBOX, MANAGER_DESK, PLAYER_RADIUS, PONG_TABLE, RECEPTION, SEATS, deskPosition, isEastDesk } from './layout';
 import { hoopRim } from './toys/hoopScore';
 import { clear, makeNav, planPath, roombaRects, type Nav, type Pt } from './toys/roombaBrain';
 
@@ -32,7 +32,7 @@ export interface Walkways {
   floor: FloorKind;
   nav: Nav;
   spots: Spot[];
-  /** Where people start from: every developer desk and QA station (office), the CEO's desk (lobby). */
+  /** Where people start from: every desk (office), the CEO's desk (lobby). */
   homes: Spot[];
 }
 
@@ -40,16 +40,10 @@ export interface Walkways {
 
 const STAND_BACK = 1.5; // behind a desk's chair, where its occupant stands up
 
-/** Developer desk `slot`'s "stand up here" spot, just behind the chair, facing the desk. */
+/** Desk `slot`'s "stand up here" spot, just behind the chair, facing the desk (the east wall's desks face the wall). */
 export function deskSpot(slot: number): Spot {
   const { x, z } = deskPosition(slot);
-  return { id: `desk-${slot}`, x, z: z + STAND_BACK, facing: NORTH };
-}
-
-/** QA station `slot`'s spot: behind the tester's chair (testers face the east wall). */
-export function qaSpot(slot: number): Spot {
-  const { x, z } = qaDeskPosition(slot);
-  return { id: `qa-${slot}`, x: x - STAND_BACK, z, facing: EAST };
+  return isEastDesk(slot) ? { id: `desk-${slot}`, x: x - STAND_BACK, z, facing: EAST } : { id: `desk-${slot}`, x, z: z + STAND_BACK, facing: NORTH };
 }
 
 /** In front of each Kanban column, as drawKanban lays them out across the board. */
@@ -118,7 +112,7 @@ function officeSpots(): Spot[] {
     ...pongSpots(),
     jukeboxSpot(JUKEBOX.officeX),
     elevatorSpot(),
-    // not the west window at z 8 (the couch) or the east one at z 0 (the QA lab)
+    // not the west window at z 8 (the couch) or the east one at z -2 (behind the east wall's desks)
     ...windowSpots([-8, 0], [-8]),
   ];
 }
@@ -156,14 +150,14 @@ export function walkways(floor: FloorKind): Walkways {
   const spots = floor === 'office' ? officeSpots() : lobbySpots();
   const homes =
     floor === 'office'
-      ? [...Array.from({ length: MAX_DESKS }, (_, s) => deskSpot(s)), ...QA_LAB.stations.map((_, s) => qaSpot(s))]
+      ? Array.from({ length: SEATS }, (_, s) => deskSpot(s))
       : spots.filter((s) => s.id === 'ceo');
   w = { floor, nav, spots, homes };
   cache.set(floor, w);
   return w;
 }
 
-/** The spot called `id` on this floor (desk-N and qa-N included), or undefined. */
+/** The spot called `id` on this floor (desk-N included), or undefined. */
 export function spot(w: Walkways, id: string): Spot | undefined {
   return w.spots.find((s) => s.id === id) ?? w.homes.find((s) => s.id === id);
 }

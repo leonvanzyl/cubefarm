@@ -196,8 +196,9 @@ function facialGeometry(kind: FacialHair): THREE.BufferGeometry | null {
 }
 
 /** Frames only (no lens): two rims, a bridge and short arms back toward the ears. */
-function glassesGeometry(kind: Glasses, z = -0.215): THREE.BufferGeometry | null {
+function glassesGeometry(kind: Glasses): THREE.BufferGeometry | null {
   if (kind === 'none') return null;
+  const z = -0.215;
   const rims =
     kind === 'round'
       ? [-0.075, 0.075].map((x) => xf(new THREE.TorusGeometry(0.047, 0.01, 6, 20), { at: [x, 0.02, z] }))
@@ -248,7 +249,7 @@ function headwearGeometry(kind: Headwear): THREE.BufferGeometry | null {
   }
 }
 
-/** Torso-space extras for developer outfits (the plain tee needs nothing but the collar). */
+/** Torso-space extras for the outfits (the plain tee needs nothing but the collar). */
 function outfitGeometry(kind: Outfit): { main: THREE.BufferGeometry | null; trim: THREE.BufferGeometry | null } {
   switch (kind) {
     case 'tee':
@@ -452,52 +453,7 @@ function faceGeometry(lashes: boolean) {
   return g;
 }
 
-// ---------- uniforms and accessories (torso-space unless noted) ----------
-
-/** QA's lab coat: tails round the back and sides with a hem that rises toward the open front, and pockets. */
-function labCoatGeometry() {
-  const tails = new THREE.CylinderGeometry(0.207, 0.236, 0.3, 32, 1, true, -2.4, 4.8).translate(0, 0.03, 0);
-  const pos = tails.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    // seated, the back drapes over the chair while the front stays clear of the thighs
-    if (pos.getY(i) < 0) pos.setY(i, -0.12 + 0.24 * ((1 - Math.cos(Math.atan2(pos.getX(i), pos.getZ(i)))) / 2));
-  }
-  tails.computeVertexNormals();
-  return merge(
-    tails,
-    ...[-1, 1].map((s) => pin(box(0.08, 0.065, 0.014), s * 0.75, 0.12, 0.004, 0.19)),
-    pin(box(0.075, 0.06, 0.012), -0.5, 0.33, 0.004), // breast pocket
-  );
-}
-
-/** A round badge pinned on the chest at (a, y); its picture goes on with badgePicture. */
-const badgeDisc = (a: number, y: number) => pin(new THREE.CylinderGeometry(0.04, 0.04, 0.014, 20).rotateX(Math.PI / 2), a, y, 0.007);
-/** Pins a picture drawn facing -Z round the origin onto the badge at (a, y). */
-const badgePicture = (a: number, y: number, ...parts: THREE.BufferGeometry[]) => pin(merge(...parts).translate(0, 0, -0.009), a, y, 0.007);
-const RIGHT_BADGE = { a: 0.5, y: 0.36 };
-const LEFT_BADGE = { a: -0.5, y: 0.36 };
-
-const magnifier = () =>
-  badgePicture(
-    RIGHT_BADGE.a,
-    RIGHT_BADGE.y,
-    xf(new THREE.TorusGeometry(0.015, 0.005, 6, 16), { at: [-0.005, 0.006, 0] }),
-    xf(box(0.008, 0.022, 0.006), { at: [0.011, -0.011, 0], rot: [0, 0, Math.PI / 4] }),
-  );
-const wrench = () =>
-  badgePicture(
-    LEFT_BADGE.a,
-    LEFT_BADGE.y,
-    xf(box(0.008, 0.034, 0.006), { at: [-0.004, -0.004, 0], rot: [0, 0, Math.PI / 4] }),
-    xf(new THREE.TorusGeometry(0.01, 0.0045, 6, 12, 4.4), { at: [0.011, 0.011, 0], rot: [0, 0, 1.73] }),
-  );
-const padlock = () =>
-  badgePicture(
-    LEFT_BADGE.a,
-    LEFT_BADGE.y,
-    xf(box(0.03, 0.024, 0.006), { at: [0, -0.008, 0] }),
-    xf(new THREE.TorusGeometry(0.01, 0.004, 6, 12, Math.PI), { at: [0, 0.004, 0] }),
-  );
+// ---------- the CEO's suit (torso-space) ----------
 
 /** The CEO's blazer over the suit: lapels, a button, and a pocket square in their colour. */
 function blazerGeometry() {
@@ -520,15 +476,6 @@ function lanyardGeometry() {
     return pts.slice(1).map((b, i) => rod(pts[i], b, 0.006));
   });
   return { strap: merge(...strap), card: xf(box(0.055, 0.075, 0.01), { at: [0, 0.195, -0.214] }) };
-}
-
-/** A pencil resting on top of the right ear (head-space), its point forward. */
-function pencilGeometry() {
-  const at: Xf = { at: [0.222, 0.05, -0.01], rot: [Math.PI / 2 - 0.25, 0, 0] };
-  return {
-    body: xf(new THREE.CylinderGeometry(0.012, 0.012, 0.11, 6), at),
-    tip: xf(xf(new THREE.ConeGeometry(0.012, 0.03, 6), { at: [0, 0.07, 0] }), at),
-  };
 }
 
 function build<K extends string, V>(keys: readonly K[], make: (k: K) => V) {
@@ -559,24 +506,12 @@ export const PARTS = {
   nose: sphere(0.028, 10, 8),
   cheeks: merge(...[-1, 1].map((s) => xf(sphere(0.03, 10, 8), { at: [s * 0.115, -0.045, -0.165], scale: [1, 0.6, 0.3] }))),
   hairClip: box(0.07, 0.035, 0.035),
-  // role details
+  // the CEO's suit
   shirtFront: box(0.11, 0.22, 0.02),
   tie: box(0.045, 0.2, 0.012),
   tieKnot: box(0.06, 0.04, 0.02),
-  coatOpening: box(0.06, 0.3, 0.02),
-  labCoat: labCoatGeometry(),
-  labCoatLapels: merge(...[-1, 1].map((s) => pin(box(0.05, 0.2, 0.014).rotateZ(-s * 0.32), s * 0.24, 0.37, 0.004))),
-  magnifierBadge: badgeDisc(RIGHT_BADGE.a, RIGHT_BADGE.y),
-  magnifier: magnifier(),
-  inspectorGlasses: glassesGeometry('round', -0.2)!,
   blazer: blazerGeometry(),
   lanyard: lanyardGeometry(),
-  // developers' specialty accessories (appearance.ts accessoryFor); headphones round the neck reuse the headphones
-  leftBadge: badgeDisc(LEFT_BADGE.a, LEFT_BADGE.y),
-  wrench: wrench(),
-  padlock: padlock(),
-  pencil: pencilGeometry(),
-  ball: sphere(0.13, 18, 12),
   // the phone they check while idle (lying in the hand, screen up)
   phone: box(0.075, 0.014, 0.13),
   phoneScreen: xf(new THREE.PlaneGeometry(0.06, 0.105), { at: [0, 0.0075, 0], rot: [-Math.PI / 2, 0, 0] }),

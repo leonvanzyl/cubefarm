@@ -11,7 +11,7 @@ import { useStore } from './store';
 import { CHUNK_MS, clockTime, createClock, DEFAULT_SPEED, nextFetch, parsePresence, seekClock, touchPresence, withPlaying, withSpeed, type Presence, type ReplayClock } from './replayClock';
 import { setGongVolume } from './world/gongState';
 import { setReplayTime } from './world/sky/useDayTime';
-import { applyRepoPatch, isFrame, type JournalDayView, type JournalFrame, type JournalLine, type JournalMark } from '../../shared/journal';
+import { applyRepoPatch, isFrame, legacyAgent, legacyRequest, type JournalDayView, type JournalEvent, type JournalFrame, type JournalLine, type JournalMark } from '../../shared/journal';
 import type { WorldSnapshot } from '../../shared/types';
 
 export type ReplayPhase = 'off' | 'loading' | 'playing' | 'paused' | 'ended' | 'error';
@@ -59,12 +59,12 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
     ghReady: s.ghReady,
     ghError: s.ghError,
     demo: s.demo,
-    workspaceRoot: s.workspaceRoot,
+    machinesRoot: s.machinesRoot,
     settings: s.settings,
     repos: f.repos,
-    agents: f.agents.map((a) => ({ ...a, log: [] })),
+    agents: f.agents.map((a) => ({ ...legacyAgent(a), log: [] })),
     qa: f.qa,
-    requests: f.requests,
+    requests: f.requests.map(legacyRequest),
     ceo: f.ceo,
     messages: f.messages,
     phoneReadAt: Number.MAX_SAFE_INTEGER, // nothing replayed counts as unread
@@ -86,6 +86,13 @@ function frameSnapshot(f: JournalFrame): WorldSnapshot {
   };
 }
 
+/** A day recorded before agents were interchangeable (roles, titles, the old hire requests), in today's shape. */
+function current(e: JournalEvent): JournalEvent {
+  if (e.type === 'agent') return { ...e, agent: legacyAgent(e.agent) };
+  if (e.type === 'request') return { ...e, request: legacyRequest(e.request) };
+  return e;
+}
+
 /**
  * One journal line into the store. Keyframes only matter when jumping ('seek') or after the office restarted (a boot
  * keyframe, after a gap): while playing, the events carry the state.
@@ -99,12 +106,12 @@ function applyLine(l: JournalLine, mode: 'play' | 'seek') {
   // Agents and floors are recorded as their changes since the last line: on top of how they are on screen.
   if (l.e.type === 'agentPatch') {
     const prev = store.agents[l.e.id];
-    if (prev) store.apply({ type: 'agent', agent: { ...prev, ...l.e.set } }, mode);
+    if (prev) store.apply({ type: 'agent', agent: legacyAgent({ ...prev, ...l.e.set }) }, mode);
   } else if (l.e.type === 'repoPatch') {
     const id = l.e.id;
     const prev = store.repos.find((r) => r.id === id);
     if (prev) store.apply({ type: 'repo', repo: applyRepoPatch(prev, l.e) }, mode);
-  } else store.apply(l.e, mode);
+  } else store.apply(current(l.e), mode);
   applied++;
 }
 

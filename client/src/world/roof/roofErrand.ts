@@ -1,4 +1,4 @@
-// A roof break, seen from downstairs (roofBreaks.ts): an idle developer or tester (or the CEO, off to take a call) walks
+// A roof break, seen from downstairs (roofBreaks.ts): an idle agent (or the CEO, off to take a call) walks
 // to the elevator, steps in and rides up out of sight; once their time up there is over they step back out and go back
 // to their desk. A scripted errand (errands.ts) that the errand director runs on the floor you're on; RoofPeople.tsx
 // plays the same visit up top.
@@ -65,7 +65,7 @@ export function rideUp(id: string, kind: VisitKind): ErrandScript {
 }
 
 const goesUp = (a: ErrandAgent, s: ErrandState, ceo: boolean) =>
-  (ceo ? a.role === 'ceo' && s.floor === 'lobby' : (a.role === 'dev' || a.role === 'qa') && s.floor === 'office') &&
+  (ceo ? a.role === 'ceo' && s.floor === 'lobby' : a.role !== 'ceo' && s.floor === 'office') &&
   isFree(a.status) &&
   s.seatedFor >= s.restless &&
   roomFor(roofVisits(), a.id, ceo ? 'call' : 'break', Date.now());

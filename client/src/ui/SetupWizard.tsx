@@ -43,6 +43,7 @@ export function SetupWizard() {
   const ghReady = useStore((s) => s.ghReady);
   const ghError = useStore((s) => s.ghError);
   const ceoAgent = useStore((s) => s.agents[CEO_ID]);
+  const maxAgents = useStore((s) => s.settings.maxAgents);
   const start = useStore((s) => s.start);
 
   const [step, setStep] = useState(0);
@@ -51,7 +52,7 @@ export function SetupWizard() {
   const [ceoName, setCeoName] = useState(ceoAgent?.name ?? 'Morgan');
   const [ceoLook, setCeoLook] = useState<'feminine' | 'masculine'>(ceoAgent?.look ?? 'masculine');
   const [ceoColor, setCeoColor] = useState(ceoAgent?.color ?? TIES[0]);
-  const [hiring, setHiring] = useState<'approve' | 'auto'>('approve');
+  const [scaling, setScaling] = useState<'approve' | 'auto'>('approve');
   const [project, setProject] = useState<RepoView | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +60,7 @@ export function SetupWizard() {
   const ceo = ceoName.trim() || 'Morgan';
   const company = companyName.trim() || COMPANIES[0];
 
-  const save = () => api.setup({ managerName: me, companyName: company, hiring, ceoName: ceo, ceoLook, ceoColor });
+  const save = () => api.setup({ managerName: me, companyName: company, scaling, ceoName: ceo, ceoLook, ceoColor });
   const finish = async () => {
     setBusy(true);
     try {
@@ -100,8 +101,8 @@ export function SetupWizard() {
             <h1>cubefarm</h1>
             <p className="start-tag">Your own cartoon software company, staffed by AI coding agents.</p>
             <ul className="start-list">
-              <li>🏢 Every project gets its own floor, with developers and a QA lab working through its GitHub issues.</li>
-              <li>🧠 A CEO studies each project, plans the work and proposes the specialists it needs. You approve every hire.</li>
+              <li>🏢 Every project gets its own floor, with a team of coding agents building and testing its GitHub issues.</li>
+              <li>🧠 A CEO studies each project, plans the work you ask for and sizes each team. You approve every new agent.</li>
               <li>📱 Your phone keeps you in the loop from anywhere in the building.</li>
             </ul>
             {!ghReady && ghError && <div className="term-error small">⚠️ {ghError}</div>}
@@ -170,18 +171,18 @@ export function SetupWizard() {
               </div>
             </div>
             <p className="start-tag" style={{ margin: '12px 0 6px' }}>
-              {ceo} studies every project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire.
+              {ceo} studies every project, writes its QA checklist, turns the work you ask for into GitHub issues and decides how big each team should be.
             </p>
             <label className="toggle block">
-              <input type="radio" checked={hiring === 'approve'} onChange={() => setHiring('approve')} />
+              <input type="radio" checked={scaling === 'approve'} onChange={() => setScaling('approve')} />
               <span>
-                <b>Ask me before every hire</b> (recommended). Candidates wait in the lobby and on your phone.
+                <b>Ask me before every team change</b> (recommended). New agents wait in the lobby and on your phone.
               </span>
             </label>
             <label className="toggle block">
-              <input type="radio" checked={hiring === 'auto'} onChange={() => setHiring('auto')} />
+              <input type="radio" checked={scaling === 'auto'} onChange={() => setScaling('auto')} />
               <span>
-                <b>Let {ceo} hire</b> on their own, up to 6 people per floor.
+                <b>Let {ceo} change teams</b> on their own, up to {maxAgents} agents per floor.
               </span>
             </label>
           </>
@@ -197,7 +198,7 @@ export function SetupWizard() {
                   <b>{project.fullName}</b> moved into floor {project.floor}.
                 </p>
                 <p className="muted">
-                  {ceo} is studying it right now and will text you when they know who the team needs. A QA tester is already in the lab.
+                  {ceo} is studying it right now and will text you when they know how big the team should be. One agent is already at a desk.
                 </p>
               </div>
             ) : (
@@ -216,10 +217,10 @@ export function SetupWizard() {
             <ul className="start-list">
               <li>
                 🧠 {ceo}{project ? ` is studying ${project.fullName.split('/')[1]}` : ' is waiting for your first project'}.{' '}
-                {hiring === 'approve' ? "Hires wait for your OK." : 'Hires up to 6 per floor go through on their own.'}
+                {scaling === 'approve' ? 'Team changes wait for your OK.' : `Team changes up to ${maxAgents} agents per floor go through on their own.`}
               </li>
               <li>
-                📱 Press <Key action="phone" /> anywhere for your phone: chat with {ceo}, approve hires, and see every project at a glance.
+                📱 Press <Key action="phone" /> anywhere for your phone: chat with {ceo}, approve team changes, and see every project at a glance.
               </li>
               <li>
                 🧭 A short tour starts when you walk in. Press <Key action="help" /> any time for help.

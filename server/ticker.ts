@@ -30,7 +30,7 @@ const OPEN_ISSUES_LISTED = 100; // and for open issues
 const busy = (s: AgentView['status']) => s === 'working' || s === 'preparing';
 const opened = (repoId: string, pr: number) => `opened:${repoId}#${pr}`;
 
-/** What changed about a developer that's worth a line. With no `prev` (first seen), only the work they're on. */
+/** What changed about an agent that's worth a line. With no `prev` (first seen), only the work they're on. */
 export function agentTicks(prev: AgentFacts | undefined, next: AgentFacts): Tick[] {
   if (next.role === 'ceo' || !next.repoId) return [];
   const out: Tick[] = [];
@@ -62,7 +62,7 @@ export function qaTicks(prev: QaStatus | undefined, next: QaView, nameOf: (agent
       return tick(`${pr} is queued for QA${next.round > 1 ? ` (round ${next.round})` : ''}`);
     case 'testing':
       return tick(`${who} is testing ${pr}`);
-    // A tester's verdict, or the office's own call after it (a conflict at merge sends a passed PR back).
+    // The verdict of the agent testing it, or the office's own call after it (a conflict at merge sends a passed PR back).
     case 'passed':
       return tick(prev === 'testing' ? `${who} passed ${pr} ✅` : `${pr} passed QA ✅`, 'good');
     case 'failed':
@@ -70,7 +70,7 @@ export function qaTicks(prev: QaStatus | undefined, next: QaView, nameOf: (agent
     case 'needs-human':
       return tick(`${pr} needs you 🙋`, 'bad');
     default:
-      return []; // fixing: the developer's own line says so
+      return []; // fixing: the fixing agent's own line says so
   }
 }
 

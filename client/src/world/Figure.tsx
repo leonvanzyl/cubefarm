@@ -8,7 +8,7 @@ import { Piece } from './Batched';
 import { mix, shade } from './materials';
 
 // What a person wears and their face, drawn the same by Character.tsx (at their desk, walking about) and by the look
-// editor's preview (LookPreview.tsx): the clothes, uniforms and badges on the torso, and the head's parts. Shared
+// editor's preview (LookPreview.tsx): the clothes (and the CEO's suit) on the torso, and the head's parts. Shared
 // geometry (characterParts.ts) as Pieces, which a floor draws in instanced batches (Batched.tsx); applyFace writes an
 // expression into the face's morph targets.
 
@@ -18,20 +18,19 @@ const FRAMES = ['#1f1d2b', '#7f5539', '#1f1d2b', '#c1121f', '#355070', '#1f1d2b'
 const WHITE = '#f8f9fa';
 const GOLD = '#ffd166';
 const SUIT = '#2b2d42';
-const COAT_TRIM = '#dee2e6';
 const LAPEL = '#1d1f30';
 
 type Who = { role: AgentRole; color: string; look: AgentLook };
 
-/** The shirt (or coat, or suit) colour: QA testers wear a white lab coat, the CEO a navy suit. */
-export const shirtColor = (agent: Who) => (agent.role === 'qa' ? WHITE : agent.role === 'ceo' ? SUIT : agent.color);
+/** The shirt (or suit) colour: the CEO wears a navy suit. */
+export const shirtColor = (agent: Who) => (agent.role === 'ceo' ? SUIT : agent.color);
 
 /** How wide the torso is drawn (the arms hang from its edges). */
 export const torsoWidth = (look: Appearance) => BUILD_SHAPE[look.build].width * look.shoulders;
 
-/** Headphones on the head while working; resting round the neck otherwise, and always for audio people. */
+/** Headphones on the head while working; resting round the neck otherwise. */
 const phonesOn = (look: Appearance, busy: boolean) => look.headphones && busy;
-const phonesAtNeck = (look: Appearance, busy: boolean) => !phonesOn(look, busy) && (look.headphones || look.accessory === 'neckphones');
+const phonesAtNeck = (look: Appearance, busy: boolean) => look.headphones && !busy;
 
 function Headphones({ agent }: { agent: Who }) {
   return (
@@ -44,7 +43,6 @@ function Headphones({ agent }: { agent: Who }) {
 
 /** Torso-space (origin on the seat, facing -Z): the shirt and everything worn over it, scaled for their build. */
 export function TorsoWear({ agent, look, busy }: { agent: Who; look: Appearance; busy: boolean }) {
-  const isQa = agent.role === 'qa';
   const isCeo = agent.role === 'ceo';
   const shirt = shirtColor(agent);
   const outfit = PARTS.outfit[look.outfit];
@@ -69,22 +67,6 @@ export function TorsoWear({ agent, look, busy }: { agent: Who; look: Appearance;
           <Piece geometry={PARTS.blazer.square} color={agent.color} />
           <Piece geometry={PARTS.lanyard.strap} color={shade(agent.color, -0.2)} />
           <Piece geometry={PARTS.lanyard.card} color={WHITE} />
-        </>
-      )}
-      {isQa && (
-        <>
-          {/* the lab coat: tails, pockets and lapels, open over a shirt in their colour, and a magnifier badge */}
-          <Piece geometry={PARTS.labCoat} color={shirt} castShadow outline={0.012} />
-          <Piece geometry={PARTS.labCoatLapels} color={COAT_TRIM} />
-          <Piece position={[0, 0.27, -0.196]} geometry={PARTS.coatOpening} color={agent.color} />
-          <Piece geometry={PARTS.magnifierBadge} color={GOLD} />
-          <Piece geometry={PARTS.magnifier} color={INK} />
-        </>
-      )}
-      {(look.accessory === 'wrench' || look.accessory === 'padlock') && (
-        <>
-          <Piece geometry={PARTS.leftBadge} color={look.accessory === 'wrench' ? ACCENTS[3] : ACCENTS[4]} />
-          <Piece geometry={look.accessory === 'wrench' ? PARTS.wrench : PARTS.padlock} color={look.accessory === 'wrench' ? INK : WHITE} />
         </>
       )}
       {phonesAtNeck(look, busy) && (
@@ -121,7 +103,6 @@ const CLIPPED_HAIR = ['long', 'ponytail', 'bun', 'sidePart', 'curls', 'bob'];
 
 /** Head-space (origin at the middle of the head, facing -Z): the head, hair, face, glasses, hats and headphones. */
 export function HeadParts({ agent, look, busy, face }: { agent: Who; look: Appearance; busy: boolean; face: RefObject<THREE.Mesh | null> }) {
-  const isQa = agent.role === 'qa';
   const feminine = agent.look === 'feminine';
   const skin = look.skin;
   const hair = look.hair === 'buzz' ? mix(look.hairColor, look.skin, 0.35) : look.hairColor;
@@ -143,17 +124,9 @@ export function HeadParts({ agent, look, busy, face }: { agent: Who; look: Appea
       <Piece position={[0, -0.02, -0.2]} geometry={PARTS.nose} color={shade(look.skin, -0.08)} />
       {facialGeo && <Piece geometry={facialGeo} color={look.facialHair === 'stubble' ? mix(look.skin, look.hairColor, 0.3) : look.hairColor} />}
       {feminine && <Piece geometry={PARTS.cheeks} color="#ff9aa2" />}
-      {clip && <Piece position={[0.15, 0.13, -0.08]} rotation={[0, 0, 0.5]} geometry={PARTS.hairClip} color={isQa ? '#ff9f68' : shade(agent.color, 0.15)} />}
-      {/* QA's round inspector glasses stay part of the uniform */}
-      {isQa && <Piece geometry={PARTS.inspectorGlasses} color={INK} />}
+      {clip && <Piece position={[0.15, 0.13, -0.08]} rotation={[0, 0, 0.5]} geometry={PARTS.hairClip} color={shade(agent.color, 0.15)} />}
       {glassesGeo && <Piece geometry={glassesGeo} color={FRAMES[look.accent]} />}
       {hatGeo && <Piece geometry={hatGeo} color={look.accent === 0 ? shade(agent.color, -0.2) : ACCENTS[look.accent]} castShadow outline={0.012} />}
-      {look.accessory === 'pencil' && !look.headphones && (
-        <>
-          <Piece geometry={PARTS.pencil.body} color={GOLD} />
-          <Piece geometry={PARTS.pencil.tip} color="#f1d19b" />
-        </>
-      )}
       {phonesOn(look, busy) && <Headphones agent={agent} />}
     </>
   );

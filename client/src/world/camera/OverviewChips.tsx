@@ -5,7 +5,7 @@ import { agentsOnRepo, repoOnFloor, useStore, type Agent } from '../../store';
 import { CEO_ID } from '../../../../shared/types';
 import { SANS, roundRect } from '../draw';
 import { useCanvasTexture } from '../interact';
-import { CEO_DESK, deskPosition, qaDeskPosition } from '../layout';
+import { CEO_DESK, deskPosition } from '../layout';
 import { CHIP_COLORS, chipFor, type ChipKind } from './overviewInfo';
 import { pickables } from './picking';
 
@@ -48,7 +48,7 @@ function drawChip(ctx: CanvasRenderingContext2D, name: string, kind: ChipKind) {
 /** Where someone's desk is, from their desk slot (the CEO's is in the lobby). */
 function deskSpot(a: Agent): [number, number] {
   if (a.role === 'ceo') return [CEO_DESK.x, CEO_DESK.z];
-  const p = a.role === 'qa' ? qaDeskPosition(a.desk) : deskPosition(a.desk);
+  const p = deskPosition(a.desk);
   return [p.x, p.z];
 }
 

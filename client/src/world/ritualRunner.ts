@@ -439,7 +439,7 @@ export class OfficeRitualRunner {
 
   private startWalk(gong: boolean) {
     const lift = spot(this.w, 'elevator')!;
-    const working = this.agents.filter((a) => a.role === 'dev' && a.status === 'working');
+    const working = this.agents.filter((a) => a.role !== 'ceo' && a.status === 'working');
     const host = working.length ? working[Math.floor(Math.random() * working.length)] : null;
     const desk = host && spot(this.w, `desk-${host.desk}`);
     const aisles = [...AISLES].sort(() => Math.random() - 0.5);
@@ -454,11 +454,12 @@ export class OfficeRitualRunner {
     ];
     if (host && desk) {
       // behind someone hard at work: a look at their screen, and a thumbs-up
+      const look = shoulderSpot({ id: host.id, role: host.role, status: host.status, home: desk });
       cues.push(
-        { walk: shoulderSpot({ id: host.id, role: host.role, status: host.status, home: desk }), face: NORTH },
-        { hold: 2.4, face: NORTH },
+        { walk: look, face: look.facing },
+        { hold: 2.4, face: look.facing },
         { run: () => say(CEO_ID, '👍') },
-        { hold: 1.8, face: NORTH, gesture: 'thumbs' },
+        { hold: 1.8, face: look.facing, gesture: 'thumbs' },
         { run: () => say(CEO_ID, null) },
       );
     }

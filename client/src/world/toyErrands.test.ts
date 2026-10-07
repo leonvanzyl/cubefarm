@@ -97,7 +97,7 @@ describe('the toy errands', () => {
 
   it('go only when restless, rolled for, free, and the toy is there for the taking', () => {
     const state = { floor: 'office' as const, statusFor: 99, seatedFor: 40, restless: 30, roll: 0.1 };
-    const dev = { id: 'ada', status: 'idle' as const, role: 'dev' };
+    const dev = { id: 'ada', status: 'idle' as const, role: 'agent' };
     const hoops = errandNamed('hoops')!;
     expect(hoops.when(dev, state)).toBe(false); // no toy world
     npc.setNpcBalls(freshBalls());
@@ -115,10 +115,10 @@ describe('shooting hoops', () => {
   it('fetches the ball, shoots a few, cheers a basket, puts the ball back and goes', () => {
     const balls = freshBalls();
     npc.setNpcBalls(balls);
-    const script = errandNamed('hoops')!.script!({ id: 'ada', status: 'idle', role: 'dev' }, 'office')!;
+    const script = errandNamed('hoops')!.script!({ id: 'ada', status: 'idle', role: 'agent' }, 'office')!;
     expect(script).not.toBeNull();
     // only one person at the hoop at a time
-    expect(errandNamed('hoops')!.script!({ id: 'bob', status: 'idle', role: 'dev' }, 'office')).toBeNull();
+    expect(errandNamed('hoops')!.script!({ id: 'bob', status: 'idle', role: 'agent' }, 'office')).toBeNull();
     let n = 0;
     const before = npc.npcSnapshot();
     const { acts, gestures } = play(script, newMe(10.5, 7.25), balls, { basket: () => n++ % 2 === 0 });
@@ -137,7 +137,7 @@ describe('shooting hoops', () => {
   it('shrugs and goes back when the player takes the ball', () => {
     const balls = freshBalls();
     npc.setNpcBalls(balls);
-    const script = errandNamed('hoops')!.script!({ id: 'ada', status: 'idle', role: 'dev' }, 'office')!;
+    const script = errandNamed('hoops')!.script!({ id: 'ada', status: 'idle', role: 'agent' }, 'office')!;
     const shots = npc.npcSnapshot().shots;
     const { acts, gestures } = play(script, newMe(10.5, 7.25), balls, {
       each: () => {
@@ -191,7 +191,7 @@ describe('catch with the beach ball', () => {
     const { newBodyState } = await import('./body');
     const balls = freshBalls();
     npc.setNpcBalls(balls);
-    const dev = (id: string) => ({ id, status: 'idle' as const, role: 'dev' });
+    const dev = (id: string) => ({ id, status: 'idle' as const, role: 'agent' });
     const a = errandNamed('toss')!.script!(dev('ada'), 'office')!;
     expect(errandNamed('catch')!.when(dev('bob'), { floor: 'office', statusFor: 9, seatedFor: 5, restless: 30 })).toBe(true);
     const b = errandNamed('catch')!.script!(dev('bob'), 'office')!;

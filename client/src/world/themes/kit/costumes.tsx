@@ -70,15 +70,6 @@ function headGeometry(c: Costume, y: number, v: number): THREE.BufferGeometry | 
     case 'skeleton':
       // the hoodie's hood, round the back of the head
       return part(new THREE.SphereGeometry(0.24, 20, 14, Math.PI * 1.5 + 0.8, Math.PI * 2 - 1.6, 0, 2.1), '#1f1d2b', [0, 0.02, 0.02]);
-    case 'deerstalker':
-      return mergeParts([
-        part(new THREE.SphereGeometry(0.218, 20, 10, 0, Math.PI * 2, 0, 1.45), '#a0784e', [0, y - 0.15, 0]),
-        part(torus(0.2, 0.012, 6, 24), '#5e4630', [0, y - 0.06, 0], [Math.PI / 2, 0, 0]),
-        part(torus(0.15, 0.012, 6, 24), '#5e4630', [0, y, 0], [Math.PI / 2, 0, 0]),
-        part(new THREE.CylinderGeometry(0.13, 0.13, 0.015, 16, 1, false, Math.PI / 2, Math.PI), '#8b6a43', [0, y - 0.12, -0.17], [0.25, 0, 0], [1, 1, 0.7]),
-        part(new THREE.CylinderGeometry(0.13, 0.13, 0.015, 16, 1, false, -Math.PI / 2, Math.PI), '#8b6a43', [0, y - 0.12, 0.17], [-0.25, 0, 0], [1, 1, 0.7]),
-        part(sphere(0.03, 8, 6), '#5e4630', [0, y + 0.07, 0]),
-      ]);
     case 'crown':
       return mergeParts([
         part(cyl(0.165, 0.16, 0.08, 20, true), '#ffd23f', [0, y + 0.03, 0]),

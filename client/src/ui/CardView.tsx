@@ -111,7 +111,7 @@ export function CardView({ repoId, cardKey, number, pr }: { repoId: string; card
         <span className="muted small">
           {canPeel(col, card) && (
             <>
-              <Key action="drop" /> on the sticky takes it {col === 'backlog' ? "to a developer's desk" : 'to the QA lab'} ·{' '}
+              <Key action="drop" /> on the sticky takes it to a free agent's desk ·{' '}
             </>
           )}
           <kbd>Esc</kbd> closes
@@ -129,7 +129,7 @@ function WhoHasIt({ card, col, filed, opened, mergedAt }: { card: KanbanCard; co
   if (card.qa?.status === 'testing') {
     return <Who agent={a}>{`🔍 ${a?.name ?? 'QA'} is testing it · round ${card.qa.round} ${since(card.qa.updatedAt)}`}</Who>;
   }
-  if (card.qa?.status === 'fixing') return <Who agent={a}>{`🔧 ${a?.name ?? 'A developer'} is fixing it ${since(card.qa.updatedAt)}`}</Who>;
+  if (card.qa?.status === 'fixing') return <Who agent={a}>{`🔧 ${a?.name ?? 'An agent'} is fixing it ${since(card.qa.updatedAt)}`}</Who>;
   return <Who agent={a}>{`${a ? `${a.name} wrote it` : 'Opened outside the office'}${opened ? ` · opened ${ago(opened)}` : ''}`}</Who>;
 }
 

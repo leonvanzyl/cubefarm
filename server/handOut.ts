@@ -1,5 +1,5 @@
-// Handing out a PR's fix or QA run (#199): who may take a failed PR's fix, and what happens when a desk can't even be
-// set up for it. A desk that fails to prepare ran nothing, so its developer is free again at once; the PR is what
+// Handing out a PR's fix or QA run (#199): who may take a failed PR's fix, who tests a PR, and what happens when a
+// desk can't even be set up for it. A desk that fails to prepare ran nothing, so its developer is free again at once; the PR is what
 // keeps failing, so it is the PR that sits out, and its fix/QA budget that pays.
 
 import type { AgentStatus } from '../shared/types.ts';
@@ -20,6 +20,22 @@ export function fixGoesTo(author: FixAuthor | null, authorFree: boolean, prNumbe
   if (authorFree) return 'author';
   const live = author.status === 'preparing' || author.status === 'working';
   return live && (author.prNumber === prNumber || (!!headRef && author.branch === headRef)) ? 'wait' : 'anyone';
+}
+
+/** How long a PR waits for an agent other than its author to come free before the author tests it themselves. */
+export const SELF_QA_WAIT_MS = 15 * 60_000;
+
+/**
+ * Who of the floor's free agents (by desk) tests a PR: anyone but its author, those whose failed PRs wait for them
+ * last (they stay free for their own fixes). The author tests their own PR, in a fresh session like anyone, only when
+ * nobody else on the floor can (`othersCan`: another agent who isn't stopped) or after SELF_QA_WAIT_MS without one.
+ * Null: it waits.
+ */
+export function pickTester<T extends { id: string; desk: number }>(free: T[], author: string | null, owed: ReadonlySet<string>, othersCan: boolean, waitedMs: number): T | null {
+  const others = free.filter((a) => a.id !== author).sort((x, y) => Number(owed.has(x.id)) - Number(owed.has(y.id)) || x.desk - y.desk);
+  if (others.length) return others[0];
+  const self = free.find((a) => a.id === author) ?? null;
+  return self && (!othersCan || waitedMs >= SELF_QA_WAIT_MS) ? self : null;
 }
 
 /** Desk preparations in a row that may fail for the same PR and task before it sits out. */

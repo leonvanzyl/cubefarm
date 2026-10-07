@@ -45,8 +45,8 @@ export function noteAt(cols: KanbanColumns, u: number, v: number): (Slot & { car
 }
 
 /**
- * A sticky you may peel off and carry: an issue in the Backlog (for a developer's desk), or a PR in In QA that the
- * console would send to QA (never tested, or needing you) for the QA lab.
+ * A sticky you may peel off and carry to an agent's desk: an issue in the Backlog (for them to build), or a PR in In QA
+ * that the console would send to QA (never tested, or needing you) for them to test.
  */
 export function canPeel(col: Col, card: KanbanCard) {
   if (col === 'backlog') return !card.prNumber;
@@ -65,38 +65,40 @@ export interface Carried {
 }
 
 /**
- * What putting the sticky down at `focus` does. assign: the issue goes to that developer through the assign API (warn
- * is what the server will refuse with, shown before you try). qa: the PR goes to QA. back: onto the board again.
- * refuse: a desk that can't take it (the warning, then it floats back). none: not a place for stickies.
+ * What putting the sticky down at `focus` does. assign: the issue goes to that agent through the assign API (warn is
+ * what the server will refuse with, shown before you try). qa: that agent tests the PR (warn as for assign). back: onto
+ * the board again. refuse: a desk that can't take it (the warning, then it floats back). none: not a place for stickies.
  */
 export type Drop =
   | { kind: 'assign'; agentId: string; label: string; warn: string | null }
-  | { kind: 'qa'; label: string }
+  | { kind: 'qa'; agentId: string; label: string; warn: string | null }
   | { kind: 'back'; label: string }
   | { kind: 'refuse'; label: string }
   | { kind: 'none' };
 
 const busy = (a: Pick<Agent, 'status'>) => a.status === 'preparing' || a.status === 'working';
 
+/** What a busy agent is on, for the warning: "testing PR #7", "fixing PR #7" or "working on #12". */
+function doing(a: Pick<Agent, 'task' | 'issueNumber' | 'prNumber'>) {
+  if (a.task === 'qa' && a.prNumber != null) return `testing PR #${a.prNumber}`;
+  if (a.task === 'fix' && a.prNumber != null) return `fixing PR #${a.prNumber}`;
+  return a.issueNumber != null ? `working on #${a.issueNumber}` : 'busy';
+}
+
 export function dropTarget(s: Carried, focus: Pick<Focus, 'action'> | null, agents: readonly Agent[], issues: readonly Pick<IssueInfo, 'number' | 'body'>[]): Drop {
   const a = focus?.action;
   const what = cardLabel(s);
   if (!a) return { kind: 'none' };
   if (a.kind === 'kanban' || a.kind === 'card') return { kind: 'back', label: `Put ${what} back` };
-  const qa = { kind: 'qa', label: `Send ${what} to QA` } as const;
-  if (a.kind === 'hire') {
-    if (a.role === 'qa') return s.pr ? qa : { kind: 'refuse', label: 'The QA lab tests pull requests: give issues to a developer' };
-    return { kind: 'refuse', label: 'Nobody sits at this desk yet' };
-  }
+  if (a.kind === 'hire') return { kind: 'refuse', label: 'Nobody sits at this desk yet' };
   if (a.kind !== 'terminal') return { kind: 'none' };
   const who = agents.find((x) => x.id === a.agentId);
-  if (!who) return { kind: 'none' };
-  if (who.role === 'qa') return s.pr ? qa : { kind: 'refuse', label: `${who.name} is a QA tester; they test pull requests rather than issues.` };
-  if (who.role !== 'dev') return { kind: 'none' };
-  if (s.pr) return { kind: 'refuse', label: 'Pull requests go to the QA lab, along the east wall' };
+  if (!who || who.role === 'ceo') return { kind: 'none' };
+  const already = busy(who) ? `${who.name} is already ${doing(who)}` : null;
+  if (s.pr) return { kind: 'qa', agentId: who.id, label: already ? `⚠️ ${already}` : `Give ${what} to ${who.name} to test`, warn: already };
   const issue = issues.find((i) => i.number === s.number);
   const waits = issue ? blockers(issue.body, new Set(issues.map((i) => i.number))) : [];
-  const warn = busy(who) ? `${who.name} is already working on #${who.issueNumber}` : waits.length ? waitsMessage(s.number, waits) : null;
+  const warn = already ?? (waits.length ? waitsMessage(s.number, waits) : null);
   return { kind: 'assign', agentId: who.id, label: warn ? `⚠️ ${warn}` : `Give #${s.number} to ${who.name}`, warn };
 }
 

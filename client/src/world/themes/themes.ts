@@ -34,7 +34,6 @@ export type Costume =
   | 'ghost'
   | 'catEars'
   | 'skeleton'
-  | 'deerstalker'
   | 'crown'
   | 'santaHat'
   | 'antlers'
@@ -57,7 +56,8 @@ export interface ThemeDef {
   tint: { color: string; amount: number };
   /** Mixed into the sky and the fog, mostly in the evening and at night, and how much closer the fog comes then. */
   sky?: { color: string; amount: number; fog: number };
-  costumes: { dev: Costume[]; qa: Costume[]; ceo: Costume[] };
+  /** What the agents and the CEO wear (costumeFor picks one each). */
+  costumes: { agent: Costume[]; ceo: Costume[] };
   /** Song ids (jukeboxSongs.ts HOLIDAY_SONGS), played before the usual playlist. */
   playlist: string[];
   /** Merge confetti, instead of the usual colours. */
@@ -71,7 +71,6 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     id: 'halloween',
     decor: [
       { slots: 'desk-*', item: 'jackOLantern' },
-      { slots: 'qa-*', item: 'jackOLantern' },
       { slots: 'reception-w', item: 'jackOLantern' },
       { slots: 'reception-e', item: 'candyBowl' },
       { slots: 'balcony-*', item: 'bigPumpkin' },
@@ -83,7 +82,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     lights: ['#ff7b00', '#9d4edd'],
     tint: { color: '#b48cff', amount: 0.12 },
     sky: { color: '#5a189a', amount: 0.45, fog: 0.35 },
-    costumes: { dev: ['witchHat', 'pumpkinHead', 'vampire', 'ghost', 'catEars', 'skeleton'], qa: ['deerstalker'], ceo: ['crown'] },
+    costumes: { agent: ['witchHat', 'pumpkinHead', 'vampire', 'ghost', 'catEars', 'skeleton'], ceo: ['crown'] },
     playlist: ['haunted-hotfix', 'monster-merge'],
     confetti: { colors: HALLOWEEN_CONFETTI, shape: 'paper' },
   },
@@ -98,7 +97,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     garland: true,
     tint: { color: '#ffd6a0', amount: 0.1 },
     sky: { color: '#c8d7ff', amount: 0.2, fog: 0.2 },
-    costumes: { dev: ['santaHat', 'antlers', 'uglySweater'], qa: ['santaHat', 'antlers'], ceo: ['santaHat'] },
+    costumes: { agent: ['santaHat', 'antlers', 'uglySweater'], ceo: ['santaHat'] },
     playlist: ['snowed-in-standup', 'cocoa-and-code'],
     confetti: { colors: ['#e63946', '#2a9d8f', '#ffd166', '#ffffff', '#52b788'], shape: 'paper' },
   },
@@ -112,7 +111,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     bunting: ['#ffd23f', '#1b1b3a', '#f8f9fa', '#c77dff'],
     tint: { color: '#ffe8b0', amount: 0.08 },
     sky: { color: '#1b1b4a', amount: 0.25, fog: 0 },
-    costumes: { dev: ['partyHat'], qa: ['partyHat'], ceo: ['crown'] },
+    costumes: { agent: ['partyHat'], ceo: ['crown'] },
     playlist: ['countdown-commit'],
     confetti: { colors: ['#ffd23f', '#f8f9fa', '#c0c0c0', '#c77dff', '#4cc9f0'], shape: 'paper' },
   },
@@ -120,12 +119,11 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     id: 'valentines',
     decor: [
       { slots: 'desk-*', item: 'heartBalloon' },
-      { slots: 'qa-*', item: 'heartBalloon' },
       { slots: 'reception-*', item: 'heartBalloon' },
     ],
     lights: ['#ff4d6d', '#ff8fab', '#c9184a'],
     tint: { color: '#ff9eb5', amount: 0.12 },
-    costumes: { dev: ['heartBoppers'], qa: ['heartBoppers'], ceo: ['crown'] },
+    costumes: { agent: ['heartBoppers'], ceo: ['crown'] },
     playlist: ['pair-programming'],
     confetti: { colors: ['#ff4d6d', '#ff8fab', '#c9184a', '#ffccd5', '#ffffff'], shape: 'heart' },
   },
@@ -139,7 +137,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     lights: null,
     bunting: ['#ffc8dd', '#bde0fe', '#caffbf', '#fdffb6', '#e4c1f9'],
     tint: { color: '#e9ffd6', amount: 0.08 },
-    costumes: { dev: ['bunnyEars'], qa: ['bunnyEars'], ceo: ['bunnyEars'] },
+    costumes: { agent: ['bunnyEars'], ceo: ['bunnyEars'] },
     playlist: ['egg-hunt-hop'],
     confetti: { colors: ['#ffc8dd', '#bde0fe', '#caffbf', '#fdffb6', '#e4c1f9'], shape: 'paper' },
   },
@@ -155,7 +153,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     lights: ['#ffd23f', '#ff5d8f', '#3a86ff', '#06d6a0'],
     bunting: ['#ff5d8f', '#ffd23f', '#3bceac', '#3a86ff', '#9b5de5'],
     tint: { color: '#fff0c2', amount: 0.06 },
-    costumes: { dev: ['partyHat'], qa: ['partyHat'], ceo: ['partyHat'] },
+    costumes: { agent: ['partyHat'], ceo: ['partyHat'] },
     playlist: ['another-year-of-uptime'],
     confetti: { colors: ['#ff5d8f', '#ffd23f', '#3bceac', '#3a86ff', '#ff8c42', '#9b5de5'], shape: 'paper' },
   },

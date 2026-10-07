@@ -60,11 +60,12 @@ const rec = (prNumber: number, over: Partial<QaView>): QaView =>
 
 describe('who is having a hard time', () => {
   const agents = [
-    { id: 'ada', role: 'dev' as const, repoId: 'o/r', prNumber: 1, branch: 'swarm/issue-1-ada' },
-    { id: 'bob', role: 'dev' as const, repoId: 'o/r', prNumber: null, branch: 'swarm/issue-2-bob' },
-    { id: 'cy', role: 'dev' as const, repoId: 'o/r', prNumber: 3, branch: null },
-    { id: 'qa1', role: 'qa' as const, repoId: 'o/r', prNumber: 3, branch: null },
-    { id: 'eve', role: 'dev' as const, repoId: 'x/y', prNumber: 1, branch: null },
+    { id: 'ada', role: 'agent' as const, task: 'issue' as const, repoId: 'o/r', prNumber: 1, branch: 'swarm/issue-1-ada' },
+    { id: 'bob', role: 'agent' as const, task: null, repoId: 'o/r', prNumber: null, branch: 'swarm/issue-2-bob' },
+    { id: 'cy', role: 'agent' as const, task: null, repoId: 'o/r', prNumber: 3, branch: null },
+    // testing PR 4: its number, but not its author
+    { id: 'qa1', role: 'agent' as const, task: 'qa' as const, repoId: 'o/r', prNumber: 4, branch: null },
+    { id: 'eve', role: 'agent' as const, task: null, repoId: 'x/y', prNumber: 1, branch: null },
   ];
 
   it('red checks, needs-human and a third round of fixes count; the rest does not', () => {

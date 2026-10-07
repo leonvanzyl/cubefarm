@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { floorPrCounts, isBusy, pendingRequests, unreadMessages, useStore, type PhoneTab } from '../store';
-import { CEO_ID, type HireRequestView, type PhoneMessage } from '../../../shared/types';
+import { CEO_ID, type AgentCli, type CliView, type EffortLevel, type HireRequestView, type PhoneMessage, type SwarmSettings } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { MicButton } from './MicButton';
@@ -13,9 +13,9 @@ import { Key } from './Key';
 import { Games, type GameId } from './games/Games';
 import { HolidayStrip } from './HolidayStrip';
 import { replayKind } from './voiceQueue';
-import { effectiveModel } from '../../../shared/models';
+import { CLAUDE_MODELS, effectiveModel, modelSuggestions } from '../../../shared/models';
 
-// The manager's phone: text the CEO, decide on hires, see the whole company at a glance
+// The manager's phone: text the CEO, decide on team changes, see the whole company at a glance
 // without walking anywhere, and play a game while the team works. Press P anywhere in the office.
 
 async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -36,12 +36,113 @@ function Avatar({ name, color, size = 34 }: { name: string; color: string; size?
   );
 }
 
-// ---------- resumes ----------
+// ---------- team changes ----------
 
+/** Every reasoning effort, lowest first ('' = the office default). */
+const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** A coding agent's name, as the office lists it. */
+export const cliLabel = (clis: CliView[], id: AgentCli) => clis.find((c) => c.id === id)?.label ?? id;
+
+/** The coding agent a new agent will run: their own pick, else the office default; the Agent SDK runtime is Claude Code for everyone. */
+export const hireCli = (cli: AgentCli | '', settings: Pick<SwarmSettings, 'runtime' | 'defaultCli'>): AgentCli =>
+  settings.runtime !== 'terminal' ? 'claude' : cli || settings.defaultCli;
+
+/** What the manager can set up on a new agent before hiring them: the CEO's picks to start with ('' = the office default). */
+export interface HireSetup {
+  name: string;
+  cli: AgentCli | '';
+  model: string;
+  effort: EffortLevel | '';
+}
+
+export const setupOf = (r: HireRequestView): HireSetup => ({ name: r.name, cli: r.cli, model: r.model, effort: r.effort });
+
+/** The approval's overrides: the setup as the manager left it, an emptied name back to the CEO's pick. */
+export const hireOverrides = (r: HireRequestView, s: HireSetup) => ({ name: s.name.trim() || r.name, cli: s.cli, model: s.model.trim(), effort: s.effort });
+
+/** "Claude Code · claude-opus-5-5 · medium effort": what they'll run, the office defaults filled in. */
+export function setupLine(s: Pick<HireSetup, 'cli' | 'model' | 'effort'>, settings: SwarmSettings, clis: CliView[]) {
+  const cli = hireCli(s.cli, settings);
+  return `${cliLabel(clis, cli)} · ${effectiveModel(s.model, cli, settings, CLAUDE_MODELS[0]) || 'its default model'} · ${s.effort || settings.defaultEffort} effort`;
+}
+
+/** A new agent's settings, edited before they're created: the lobby's card and the phone's both use these. */
+export function HireSetupFields({ value, onChange, disabled }: { value: HireSetup; onChange: (v: HireSetup) => void; disabled?: boolean }) {
+  const settings = useStore((s) => s.settings);
+  const clis = useStore((s) => s.clis);
+  const id = useId();
+  const sdk = settings.runtime !== 'terminal';
+  const cli = hireCli(value.cli, settings);
+  const set = (patch: Partial<HireSetup>) => onChange({ ...value, ...patch });
+  return (
+    <div className="hire-setup">
+      <label className="field" htmlFor={`${id}-name`}>
+        <span>Name</span>
+        <input id={`${id}-name`} value={value.name} maxLength={24} disabled={disabled} onChange={(e) => set({ name: e.target.value })} />
+      </label>
+      <label className="field" htmlFor={`${id}-cli`}>
+        <span>Coding agent</span>
+        <select
+          id={`${id}-cli`}
+          value={sdk ? '' : value.cli}
+          disabled={disabled || sdk}
+          title={sdk ? 'The Agent SDK runs Claude Code for every agent (Settings → How agents run)' : undefined}
+          onChange={(e) => set({ cli: e.target.value as AgentCli | '' })}
+        >
+          <option value="">{sdk ? 'Claude Code' : `${cliLabel(clis, settings.defaultCli)} (default)`}</option>
+          {[...clis]
+            .sort((a, b) => Number(b.installed) - Number(a.installed))
+            .map((c) => (
+              <option key={c.id} value={c.id} disabled={!c.installed}>
+                {c.label}
+                {c.installed ? '' : ' (not installed)'}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label className="field" htmlFor={`${id}-model`}>
+        <span>Model</span>
+        <input
+          id={`${id}-model`}
+          list={`${id}-models`}
+          value={value.model}
+          disabled={disabled}
+          placeholder={effectiveModel('', cli, settings, CLAUDE_MODELS[0]) || 'agent default'}
+          title="Empty: the default for their coding agent"
+          onChange={(e) => set({ model: e.target.value })}
+        />
+        <datalist id={`${id}-models`}>
+          {modelSuggestions(cli).map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+      </label>
+      <label className="field" htmlFor={`${id}-effort`}>
+        <span>Effort</span>
+        <select id={`${id}-effort`} value={value.effort} disabled={disabled} onChange={(e) => set({ effort: e.target.value as EffortLevel | '' })}>
+          <option value="">default ({settings.defaultEffort})</option>
+          {EFFORTS.map((x) => (
+            <option key={x} value={x}>
+              {x}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+/**
+ * One team change as a card (the phone, the console, pocket mode): a new agent, with what they'll run and a way to
+ * change it before hiring them, or an agent the CEO would let go. The CEO's reason either way.
+ */
 export function Resume({ req, highlight }: { req: HireRequestView; highlight?: boolean }) {
   const repo = useStore((s) => s.repos.find((r) => r.id === req.repoId));
   const settings = useStore((s) => s.settings);
-  const [open, setOpen] = useState(false);
+  const clis = useStore((s) => s.clis);
+  const [setup, setSetup] = useState(() => setupOf(req));
+  const [editing, setEditing] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -51,41 +152,41 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
   }, [highlight]);
   const pending = req.status === 'pending';
   const hire = req.kind === 'hire';
+  const name = (hire && pending && setup.name.trim()) || req.name;
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     await attempt(fn);
     setBusy(false);
   };
+  const outcome = req.status === 'approved' ? (hire ? '✅ hired' : '👋 left') : hire ? '✋ declined' : '🤝 kept';
   return (
     <div ref={ref} className={`resume ${hire ? '' : 'resume-letgo'} ${highlight ? 'resume-hot' : ''} ${pending ? '' : 'resume-done'}`}>
       <div className="resume-head">
-        <Avatar name={req.name} color={req.color} size={42} />
+        <Avatar name={name} color={req.color} size={42} />
         <div className="grow">
-          <div className="resume-name">{hire ? req.name : `Let ${req.name} go?`}</div>
-          <div className="resume-title">{req.title}</div>
+          <div className="resume-name">{hire ? name : `Let ${req.name} go?`}</div>
+          <div className="resume-title">{hire ? 'A new agent' : 'Leaving the team'}</div>
         </div>
-        {!pending && <span className={`chip ${req.status === 'approved' ? 'chip-good' : ''}`}>{req.status === 'approved' ? (hire ? '✅ hired' : '👋 left') : '✋ declined'}</span>}
+        {!pending && <span className={`chip ${req.status === 'approved' ? 'chip-good' : ''}`}>{outcome}</span>}
       </div>
       <div className="resume-meta">
         <span className="chip" style={{ background: repo?.color }}>
           Floor {repo?.floor ?? '?'}
         </span>
         <span className="muted small">{repo?.fullName.split('/')[1] ?? 'removed floor'}</span>
-        <span className="chip">{req.role === 'qa' ? '🔍 QA' : '💻 Dev'}</span>
-        {req.specialty && <span className="chip">🎯 {req.specialty}</span>}
       </div>
       {req.reason && <Markdown className="resume-reason" text={req.reason} />}
-      {hire && req.brief && (
-        <button className="linkish small" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? '▾ Job description' : '▸ Job description'}
-        </button>
-      )}
-      {open && <Markdown className="resume-brief" text={req.brief} />}
-      {hire && pending && (
-        <div className="muted small">
-          {effectiveModel(req.model, settings.runtime === 'terminal' ? settings.defaultCli : 'claude', settings, 'claude-opus-5-5') || 'default model'} · {req.effort || settings.defaultEffort} effort
+      {hire && (
+        <div className="resume-meta small">
+          <span className="grow">⚙️ {setupLine(pending ? setup : req, settings, clis)}</span>
+          {pending && (
+            <button className="linkish small" aria-expanded={editing} onClick={() => setEditing(!editing)}>
+              {editing ? 'Done' : 'Change'}
+            </button>
+          )}
         </div>
       )}
+      {hire && pending && editing && <HireSetupFields value={setup} onChange={setSetup} disabled={busy} />}
       {!pending && req.note && <div className="muted small">Your note: “{req.note}”</div>}
       {pending && !declining && (
         <div className="row">
@@ -93,8 +194,8 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
             {hire ? 'Decline' : 'Keep them'}
           </button>
           <span className="spacer" />
-          <button className="btn btn-small btn-good" disabled={busy} onClick={() => act(() => api.approveRequest(req.id))}>
-            {hire ? `Hire ${req.name}` : `Let ${req.name} go`}
+          <button className="btn btn-small btn-good" disabled={busy} onClick={() => act(() => api.approveRequest(req.id, hire ? hireOverrides(req, setup) : {}))}>
+            {hire ? `Hire ${name}` : `Let ${req.name} go`}
           </button>
         </div>
       )}
@@ -116,7 +217,7 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
   );
 }
 
-/** Candidates waiting in the lobby to be interviewed, with a way down to meet them (unless you're there already). */
+/** New agents waiting in the lobby to be set up and hired, with a way down to meet them (unless you're there already). */
 function LobbyNudge() {
   const n = useStore((s) => pendingRequests(s.requests).filter((r) => r.kind === 'hire').length);
   const inLobby = useStore((s) => s.floor === 0);
@@ -126,7 +227,7 @@ function LobbyNudge() {
     <div className="phone-nudge" role="status">
       <span>🪑</span>
       <span className="grow">
-        {n} candidate{n === 1 ? ' is' : 's are'} waiting in the lobby
+        {n} new agent{n === 1 ? ' is' : 's are'} waiting in the lobby
       </span>
       {!inLobby && (
         <button className="btn btn-small" onClick={() => goToFloor(0)}>
@@ -137,15 +238,15 @@ function LobbyNudge() {
   );
 }
 
-function Hires({ focusId }: { focusId?: string }) {
+function TeamChanges({ focusId }: { focusId?: string }) {
   const requests = useStore((s) => s.requests);
   const demo = useStore((s) => s.demo);
   const pending = pendingRequests(requests);
   const decided = requests.filter((r) => r.status !== 'pending').slice(-8).reverse();
   return (
     <div className="phone-scroll">
-      <h3 className="phone-h">📄 Waiting on you {pending.length > 0 && <span className="badge">{pending.length}</span>}</h3>
-      {pending.length === 0 && <p className="muted small phone-empty">Nobody's waiting. When the CEO wants to hire someone, or let someone go, their resume shows up here.</p>}
+      <h3 className="phone-h">👥 Waiting on you {pending.length > 0 && <span className="badge">{pending.length}</span>}</h3>
+      {pending.length === 0 && <p className="muted small phone-empty">Nothing waiting. When the CEO wants a floor's team to grow or shrink, the change shows up here for your OK.</p>}
       {pending.map((r) => (
         <Resume key={r.id} req={r} highlight={r.id === focusId} />
       ))}
@@ -153,10 +254,10 @@ function Hires({ focusId }: { focusId?: string }) {
         <div className="row wrap">
           <span className="muted small">Demo:</span>
           <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.demoPropose('hire'))}>
-            📄 Send a candidate
+            👥 Grow a floor
           </button>
           <button className="btn btn-small btn-ghost" onClick={() => void attempt(() => api.demoPropose('let-go'))}>
-            ✉️ Suggest a let-go
+            ✉️ Shrink a floor
           </button>
         </div>
       )}
@@ -195,7 +296,7 @@ function ReplayButton({ m }: { m: PhoneMessage }) {
   );
 }
 
-const QUICK = ["What's everyone working on?", 'Do we need anyone new?', 'Plan the next milestone for the busiest floor.'];
+const QUICK = ["What's everyone working on?", 'Should a team grow?', 'Plan the next milestone for the busiest floor.'];
 
 /** The hands-free conversation's switch: after the CEO's spoken reply, the phone listens for up to 8 s. */
 function HandsFreeToggle({ ceoName }: { ceoName: string }) {
@@ -292,7 +393,7 @@ export function Chat({ autoFocus = true }: { autoFocus?: boolean }) {
       <div className="chat-log" ref={scroller} aria-label={`Messages with ${ceo.name}`} tabIndex={0}>
         {messages.length === 0 && (
           <p className="muted small phone-empty">
-            Say hi to {ceo.name}. Ask how things are going, hand over a project brief, or ask who the team should hire. Replies land here, and the phone buzzes when {ceo.name} needs you.
+            Say hi to {ceo.name}. Ask how things are going, hand over a project brief, or ask whether a team should grow. Replies land here, and the phone buzzes when {ceo.name} needs you.
           </p>
         )}
         {messages.map((m) => (
@@ -352,7 +453,7 @@ function useCompany() {
         repo: r,
         team: team.length,
         working: team.filter(isBusy).length,
-        idleDevs: team.filter((a) => a.role === 'dev' && !isBusy(a)).length,
+        idle: team.filter((a) => !isBusy(a)).length,
         issues: r.issues.length,
         prs: r.pulls.filter((p) => p.state === 'OPEN').length,
         inQa: counts.inQa,
@@ -374,7 +475,7 @@ function useCompany() {
         tone: 'good',
       });
     if (sum('stuck')) report.push({ icon: '⚠️', text: `${sum('stuck')} pull request${sum('stuck') === 1 ? '' : 's'} need${sum('stuck') === 1 ? 's' : ''} your call: the team can't move ${sum('stuck') === 1 ? 'it' : 'them'} on alone.`, tone: 'warn' });
-    if (pending) report.push({ icon: '📄', text: `${pending} hiring decision${pending === 1 ? ' is' : 's are'} waiting in Hires.`, tone: 'warn' });
+    if (pending) report.push({ icon: '👥', text: `${pending} team change${pending === 1 ? ' is' : 's are'} waiting in Team.`, tone: 'warn' });
     report.push({
       icon: '⚙️',
       text: settings.sessionLimit
@@ -386,8 +487,8 @@ function useCompany() {
           : 'Nobody is working at the moment.',
     });
     for (const f of floors) {
-      if (f.issues > 0 && !f.repo.autoAssign && f.working === 0 && f.idleDevs > 0) {
-        report.push({ icon: '💤', text: `${f.repo.fullName.split('/')[1]} has ${f.issues} open issue${f.issues === 1 ? '' : 's'} and free developers, but auto-assign is off.` });
+      if (f.issues > 0 && !f.repo.autoAssign && f.working === 0 && f.idle > 0) {
+        report.push({ icon: '💤', text: `${f.repo.fullName.split('/')[1]} has ${f.issues} open issue${f.issues === 1 ? '' : 's'} and free agents, but auto-assign is off.` });
       }
     }
     const busiest = [...floors].sort((a, b) => b.issues + b.prs - (a.issues + a.prs))[0];
@@ -559,7 +660,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
   const unread = unreadMessages(messages, readAt);
   const tabs: [PhoneTab, string, string, number][] = [
     ['chat', '💬', ceoName, tab === 'chat' ? 0 : unread],
-    ['hires', '📄', 'Hires', pending],
+    ['hires', '👥', 'Team', pending],
     ['company', '📊', 'Company', 0],
     ['games', '🎮', 'Games', 0],
   ];
@@ -575,7 +676,7 @@ export function Phone({ tab: initialTab, requestId }: { tab?: PhoneTab; requestI
         <div className="phone-screen">
           {tab !== 'games' && <LobbyNudge />}
           {tab === 'chat' && <Chat />}
-          {tab === 'hires' && <Hires focusId={requestId} />}
+          {tab === 'hires' && <TeamChanges focusId={requestId} />}
           {tab === 'company' && <Company />}
           {tab === 'games' && <Games game={game} onGame={setGame} />}
         </div>

@@ -61,10 +61,10 @@ describe('parseMoodParam', () => {
 
 describe('officeState', () => {
   const agents = {
-    a: { repoId: 'o/one', role: 'dev', status: 'working' },
-    b: { repoId: 'o/one', role: 'dev', status: 'preparing' },
-    c: { repoId: 'o/one', role: 'qa', status: 'idle' },
-    d: { repoId: 'o/two', role: 'dev', status: 'working' },
+    a: { repoId: 'o/one', role: 'agent', status: 'working' },
+    b: { repoId: 'o/one', role: 'agent', status: 'preparing' },
+    c: { repoId: 'o/one', role: 'agent', status: 'idle' },
+    d: { repoId: 'o/two', role: 'agent', status: 'working' },
     ceo: { repoId: '', role: 'ceo', status: 'working' },
   };
   const pull = (state: string, checks: string) => ({ state, checks });

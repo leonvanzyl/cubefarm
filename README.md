@@ -32,20 +32,19 @@ Demo mode fakes GitHub and the agents, so it costs nothing and changes nothing.
 
 1. **Set up your company.** A short wizard asks your name, names your company and introduces your CEO.
 2. **Move in a project.** Pick one of your project folders or a GitHub repo, or start a new one. It gets its own floor. Every project needs to be on GitHub, because issues and pull requests are how the team works.
-3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist, plans the work as GitHub issues and proposes who to hire. Press `P` for your phone to chat with them and approve hires, or meet the candidates waiting in the lobby and interview them face to face.
-4. **Watch the work.** Developers pick up issues and open pull requests. QA testers review and test each one in a real browser, then post a report with screenshots. With auto-merge on, a pull request merges itself once QA passes and GitHub's checks are green.
+3. **Let the CEO plan.** The CEO studies the project, writes its QA checklist and sizes the floor's team. New work only ever comes from you: give the CEO a brief (when the project moves in, or later with **Plan**) or message them, and they turn it into GitHub issues. The CEO never files issues on its own. Press `P` for your phone to chat with them and approve team changes, or meet the new agents waiting in the lobby and set them up (coding agent, model, effort) before you hire them.
+4. **Watch the work.** Agents are interchangeable: a free agent picks up the next issue and opens a pull request, and another reviews and tests it in a real browser, in a fresh session, then posts a report with screenshots. With auto-merge on, a pull request merges itself once QA passes and GitHub's checks are green. Each agent works on a machine of its own (its own clone, worktree and temp folder; see [Agents](docs/agents.md)).
 
 ## What's in the office
 
 - **Floors**: one per project. Ride the elevator between them.
 - **The roof**: the elevator's top stop. A garden, deck chairs to sit back in, a barbecue for a sausage, a telescope for the billboards by day and the moon and constellations by night, string lights at dusk and a helipad. Idle agents come up for a break now and then.
 - **Desks**: walk up behind an agent to watch their monitor. Open it to see their real terminal: every agent is an actual coding agent running on your machine, and you can type into it. It also shows a live browser when they test the UI. Pick the coding agent, model and effort for the whole team or per agent.
-- **The QA lab**: every floor has at least one QA tester.
-- **The whiteboard**: the Kanban board, from backlog to merged. Aim at a sticky and press `E` to read it up close, or peel a Backlog sticky off with `G` and carry it to a free developer's desk to hand them the issue. Red strings join issues to the ones they depend on, and the corner counts today's merges, the issue-to-merge time, the QA queue and anything that needs you.
+- **The whiteboard**: the Kanban board, from backlog to merged. Aim at a sticky and press `E` to read it up close, or peel a Backlog sticky off with `G` and carry it to a free agent's desk to hand them the issue (a pull request sticky asks them to test it). Red strings join issues to the ones they depend on, and the corner counts today's merges, the issue-to-merge time, the QA queue and anything that needs you.
 - **Who's doing what**: a sign over each busy agent says what they're on (📖 reading, ✏️ editing, 🧪 testing, 🌐 browsing, 🐙 git, ⏳ CI, 🔍 QA, 🔧 fixing). Keep someone in your sights for a moment for a card with their task, last steps and cost so far, and an LED ticker over the whiteboard scrolls the floor's news.
-- **The lobby**: the manager's office, where you connect projects, hire, file issues and change settings, and the CEO's corner office.
-- **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model, effort and job description, and "What they're told" shows the full prompt the office gives them.
-- **Merges**: confetti bursts over the developer's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
+- **The lobby**: the manager's office, where you connect projects, meet new agents, file issues and change settings, and the CEO's corner office.
+- **Agent setup**: the ⚙️ Setup button in an agent's panel changes their name, look, coding agent, model and effort, and "What they're told" shows the prompts the office gives them for each kind of task.
+- **Merges**: confetti bursts over the author's desk when their pull request merges, and the floor's gong booms while everyone cheers (press `E` at the gong to bang it yourself).
 - **Chatter**: the team talks about their real work in speech bubbles ("PR #212 is up for QA", "Tests are green! ✅", "Ugh, a merge conflict in store.ts") in a cute babble voice of their own, Animal Crossing style. Aim at someone with nothing to do and press `E` to say hi. Off, quiet or lively, with or without the babble, in help (`H`).
 - **Rituals**: when the CEO files a burst of issues, the free agents gather at the whiteboard and the CEO comes up in the elevator to put up the new stickies (and says so out loud if the CEO's voice is on). The CEO walks the floors now and then (press `E` on them to text them), people eat lunch from noon to one, pizza arrives on Friday afternoons, and in the evening the desk lamps come on, idle agents head home and come back in the morning with a coffee. They follow the sky's clock (in help: a 30-minute day, your own clock, or always afternoon).
 - **Time-lapse**: watch the day (or just what happened while you were away) replay in the office at up to 600×, from the manager's console or the screen in the lobby.
@@ -112,6 +111,7 @@ Running it from a clone of this repo (`npm start`)? Then the office updates itse
 ## Learn more
 
 - [How it works](docs/how-it-works.md): the life of an issue, QA, auto-merge, models and usage, the safety model and floor previews
+- [Agents](docs/agents.md): interchangeable agents, team sizes and the CEO's team changes, each agent's machine and how it signs in
 - [The office in your pocket](docs/pocket.md): pocket mode on your phone, installing the app, notifications (desktop, push, ntfy) and reaching the office safely from your phone
 - [Contributing](CONTRIBUTING.md): run it from source, tests, architecture and publishing
 

@@ -36,7 +36,7 @@ function floor(over: Partial<OpsFloorState> = {}): OpsFloorState {
   return { repoId: 'o/a', floor: 1, ready: 0, agents: [], prs: [], ...over };
 }
 
-const agent = (over: Partial<OpsFloorState['agents'][number]>) => ({ id: 'x', name: 'Ada', role: 'dev' as const, task: null, status: 'idle' as const, endedAt: null, lastError: null, ...over });
+const agent = (over: Partial<OpsFloorState['agents'][number]>) => ({ id: 'x', name: 'Ada', role: 'agent' as const, task: null, status: 'idle' as const, endedAt: null, lastError: null, ...over });
 const pr = (number: number, status: string | null, ceoLooking = false, why: string | null = null) => ({
   number,
   qa: status ? { status: status as 'queued', ceoLooking, updatedAt: NOW - 30 * MIN } : null,
@@ -127,7 +127,8 @@ describe('the numbers', () => {
         agent({ id: '2', task: 'fix', status: 'working' }),
         agent({ id: '3', task: 'issue', status: 'preparing' }),
         agent({ id: '4', status: 'error', endedAt: NOW - MIN }),
-        agent({ id: '5', role: 'qa', task: 'qa', status: 'working' }),
+        agent({ id: '5', task: 'qa', status: 'working' }),
+        agent({ id: '7', role: 'ceo', task: 'issue', status: 'working' }),
         agent({ id: '6', status: 'done' }),
       ],
       prs: [pr(1, null), pr(2, 'queued'), pr(3, 'testing'), pr(4, 'failed'), pr(5, 'fixing'), pr(6, 'passed'), pr(7, 'needs-human'), pr(8, 'needs-human', true)],

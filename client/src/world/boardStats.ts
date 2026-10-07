@@ -16,7 +16,7 @@ export interface BoardStats {
   more: boolean;
   /** Average time from an issue being filed to its PR merging, over the last day's merges (null: none to go on). */
   avgMs: number | null;
-  /** Open PRs waiting for a free QA tester. */
+  /** Open PRs waiting for a free agent to test them. */
   queue: number;
   /** Open PRs only the manager can move on. */
   needsYou: number;

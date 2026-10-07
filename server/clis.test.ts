@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, oneAtATime, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
-import { describeTool, newScreenshots, screenshotFile, summariseResult } from './agentRunner.ts';
+import { describeOfficeTool, describeTool, newScreenshots, screenshotFile, summariseResult } from './agentRunner.ts';
 
 const dir = path.join(os.tmpdir(), 'npm-global');
 
@@ -82,7 +82,7 @@ describe('launchArgs', () => {
     effort: 'medium',
     sessionId: '11111111-1111-1111-1111-111111111111',
     name: 'Ada · #1',
-    role: 'dev',
+    role: 'agent',
     additionalDirectories: [],
     files: { settings: 'settings.json', mcp: null, system: 'instructions.md' },
     notify: { script: 'notify.cjs', url: 'http://127.0.0.1:1/api/hooks/t' },
@@ -141,7 +141,7 @@ describe('launchArgs', () => {
 
   it("lets OpenCode run without stopping to ask, and without updating itself", () => {
     const config = (patch: Partial<LaunchContext>) => JSON.parse(launchArgs('opencode', ctx(patch)).env.OPENCODE_CONFIG_CONTENT);
-    for (const role of ['dev', 'qa'] as const) expect(config({ role }).permission).toEqual({ edit: 'allow', bash: 'allow', webfetch: 'allow' });
+    for (const role of ['agent'] as const) expect(config({ role }).permission).toEqual({ edit: 'allow', bash: 'allow', webfetch: 'allow' });
     expect(config({}).autoupdate).toBe(false);
   });
 });
@@ -186,6 +186,16 @@ describe("Codex's file edits in the log", () => {
     expect(describeTool(dir, 'apply_patch', { command: patch })).toBe('Edit add notes.txt, src/app.ts');
     expect(summariseResult(dir, 'apply_patch', 'Exit code: 0\nOutput:\nSuccess. Updated the following files:\nA notes.txt')).toEqual([{ kind: 'result', text: '  ⎿ Updated' }]);
     expect(summariseResult(dir, 'apply_patch', 'error: patch did not apply')[0].text).toContain('patch did not apply');
+  });
+});
+
+describe("the CEO's office tools in the log", () => {
+  it('says what each one asks for', () => {
+    expect(describeOfficeTool('scale_team', { floor: 2, size: 5, reason: 'Six issues ready, two agents free' })).toBe('📈 scale_team floor 2 → 5: Six issues ready, two agents free');
+    expect(describeOfficeTool('configure_agent', { agent_id: 'ada', cli: 'codex', model: '' })).toBe('⚙️ configure_agent ada: codex');
+    expect(describeOfficeTool('set_dependencies', { floor: 1, number: 7, depends_on: [3, 4] })).toBe('🔗 set_dependencies #7 → floor 1 · depends on #3, #4');
+    expect(describeOfficeTool('set_dependencies', { floor: 1, number: 7, depends_on: [] })).toBe('🔗 set_dependencies #7 → floor 1 · depends on nothing');
+    expect(describeOfficeTool('file_issue', { floor: 1, title: 'Dark mode', body: 'x' })).toBe('📝 file_issue "Dark mode" → floor 1');
   });
 });
 

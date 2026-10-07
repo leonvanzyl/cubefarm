@@ -47,7 +47,7 @@ const STEPS: Step[] = [
     title: 'Your phone',
     body: (c) => (
       <>
-        💬 {c.ceo} texts you here, and you can text back. 📄 <b>Hires</b> shows candidates waiting for your OK. 📊 <b>Company</b> is every project at a glance. Put it away with <Key action="phone" />.
+        💬 {c.ceo} texts you here, and you can text back. 👥 <b>Team</b> shows the CEO's team changes waiting for your OK. 📊 <b>Company</b> is every project at a glance. Put it away with <Key action="phone" />.
       </>
     ),
     done: (s) => s.overlay?.kind !== 'phone',
@@ -63,10 +63,11 @@ const STEPS: Step[] = [
     done: (s) => (s.overlay?.kind === 'terminal' && s.overlay.agentId === CEO_ID) || (s.overlay?.kind === 'manager' && s.overlay.tab === 'ceo'),
   },
   {
-    title: 'Candidates',
+    title: 'New agents',
     body: (c) => (
       <>
-        When {c.ceo} wants to hire someone, the candidate waits on the green chairs along the east wall. Press <Key action="interact" /> or click them to read their resume, then hire or decline. It all works from your phone too.
+        When {c.ceo} wants a bigger team, each new agent waits on the green chairs along the east wall. Press <Key action="interact" /> or click one to see why, change their coding agent, model or effort if
+        you like, then hire or decline. It all works from your phone too.
       </>
     ),
     done: (s) => s.requests.some((r) => r.status !== 'pending' && r.decidedBy === 'manager'),
@@ -98,7 +99,7 @@ const STEPS: Step[] = [
     title: 'Watch the team',
     body: () => (
       <>
-        Walk up behind anyone to watch their screen, or press <Key action="interact" /> or click a desk for their full terminal. The testers in lab coats along the east wall check every pull request before you merge.
+        Walk up behind anyone to watch their screen, or press <Key action="interact" /> or click a desk for their full terminal. Every pull request is tested by an agent before you merge it.
       </>
     ),
     done: (s) => s.overlay?.kind === 'terminal' && s.overlay.agentId !== CEO_ID,

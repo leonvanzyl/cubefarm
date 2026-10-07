@@ -29,7 +29,7 @@ import { cheerVoice } from '../ui/cheerRules';
 import { cheerFrom } from '../ui/cheerSfx';
 import { hearBody, hearing } from '../ui/peopleSounds';
 
-// A cartoon developer. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
+// A cartoon agent. Origin is the floor under the chair; they face -Z (toward the desk). Seated by default; the
 // people controller (people.ts, body.ts) can get them up, walk them about and sit them back down. `children` (the
 // name tag) float over the desk while seated and over their head while up.
 
@@ -53,8 +53,6 @@ const lerp = THREE.MathUtils.lerp;
 /** Marks a person's root, so High's contact-shadow bake (gfx/ContactShadows.tsx) can leave people out of it. */
 const PERSON = { person: true };
 const PANTS = '#3d4a6b';
-// A physics person's ball (chair-space: beside their feet, under the desktop).
-const BALL_AT: [number, number, number] = [-0.5, 0.13, -0.98];
 
 // Hips go from the seat (y 0.5) to the top of straight legs; the knee is `thigh` below the hip (characterParts.ts).
 const HIP = { x: 0.11, seatY: 0.5, seatZ: -0.04, standY: 0.815, thigh: 0.32 };
@@ -246,7 +244,7 @@ export function Character({
   // From the id, so the typing sounds tap in time with these hands.
   const seed = useMemo(() => typingSeed(agent.id), [agent.id]);
   const lastTool = useRef({ name: null as string | null, at: 0 });
-  const look = useMemo(() => appearanceFor(agent), [agent.id, agent.look, agent.role, agent.specialty, agent.title, agent.hair, agent.skin, agent.style]);
+  const look = useMemo(() => appearanceFor(agent), [agent.id, agent.look, agent.role, agent.hair, agent.skin, agent.style]);
   const root = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const seatedLegs = useRef<THREE.Group>(null);
@@ -600,10 +598,6 @@ export function Character({
 
   return (
     <group ref={root} userData={PERSON}>
-      {look.accessory === 'ball' && chair && (
-        // under the desk, where it stays when they get up
-        <Piece position={BALL_AT} geometry={PARTS.ball} color="#e76f51" castShadow outline={0.012} />
-      )}
       <group ref={body} scale={scale}>
         <group ref={bubbleLift}>{hit.bubble}</group>
         <Zzz on={asleep} position={[0.16, 1.34, -0.14]} />

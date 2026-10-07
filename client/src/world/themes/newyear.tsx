@@ -149,7 +149,7 @@ function MonitorCountdown({ s }: { s: NewYearState }) {
   );
 }
 
-/** Who's on the floor: its developers and testers, or the CEO in the lobby. */
+/** Who's on the floor: its agents, or the CEO in the lobby. */
 function usePeople(kind: ThemeProps['kind'], repoId: string | null): Person[] {
   const agents = useStore((s) => s.agents);
   return useMemo(() => {

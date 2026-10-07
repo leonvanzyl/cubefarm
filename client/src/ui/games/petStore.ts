@@ -25,8 +25,8 @@ export function subscribePet(fn: () => void) {
 }
 
 /** What the pet says when someone finishes a job. */
-export function finishedLine(a: Pick<Agent, 'name' | 'role' | 'task' | 'issueNumber' | 'prNumber'>): string {
-  if (a.role === 'qa' || a.task === 'qa') return `Yay! ${a.name} finished testing${a.prNumber ? ` PR #${a.prNumber}` : ' a PR'}! 🧪`;
+export function finishedLine(a: Pick<Agent, 'name' | 'task' | 'issueNumber' | 'prNumber'>): string {
+  if (a.task === 'qa') return `Yay! ${a.name} finished testing${a.prNumber ? ` PR #${a.prNumber}` : ' a PR'}! 🧪`;
   if (a.task === 'fix') return `Yay! ${a.name} fixed${a.prNumber ? ` PR #${a.prNumber}` : ' a PR'}! 🔧`;
   if (a.issueNumber) return `Yay! ${a.name} finished issue #${a.issueNumber}! 🎉`;
   return `Yay! ${a.name} finished a job! 🎉`;

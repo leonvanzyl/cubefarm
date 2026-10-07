@@ -4,6 +4,7 @@ import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import type { HireRequestView } from '../../../shared/types';
 import { useStore, type Agent } from '../store';
+import { cliLabel, hireCli } from '../ui/Phone';
 import { WALK_SPEED } from './body';
 import { playerAt } from './camera/rig';
 import { Character } from './Character';
@@ -21,10 +22,11 @@ import { Box, Cyl } from './Toon';
 import type { Pt } from './toys/roombaBrain';
 import { standable, steer, walkways } from './walkways';
 
-// The lobby's waiting room (#227): a candidate in a chair for each hire the CEO has proposed, up to six, then "+N
-// waiting" on the sign. E on one opens their interview (ui/Interview.tsx). However the manager decides (there, on the
-// phone or in the console), the candidate takes it in person: up out of the chair, a big smile and a handshake, then
-// the elevator up to their floor; or a polite nod and out through the glass door. hiring.ts has the rules.
+// The lobby's waiting room (#227): when the CEO grows a floor's team and team changes wait for the manager, each new
+// agent sits in a chair here, up to six, then "+N waiting" on the sign. E on one opens their card (ui/Interview.tsx),
+// where the manager sets them up (name, coding agent, model, effort) before hiring them. However the manager decides
+// (there, on the phone or in the console), the candidate takes it in person: up out of the chair, a big smile and a
+// handshake, then the elevator up to their floor; or a polite nod and out through the glass door. hiring.ts has the rules.
 
 const SEAT = '#06d6a0';
 const WEST = Math.PI; // walkways.ts facing: into the lobby
@@ -37,11 +39,7 @@ function candidateAgent(r: HireRequestView): Agent {
     id: r.id,
     name: r.name,
     repoId: r.repoId,
-    role: r.role,
-    title: r.title,
-    specialty: r.specialty,
-    brief: r.brief,
-    hiredBy: 'ceo',
+    role: 'agent',
     look: r.look,
     task: null,
     desk: 0,
@@ -51,7 +49,7 @@ function candidateAgent(r: HireRequestView): Agent {
     style: null,
     model: r.model,
     effort: r.effort,
-    cli: '',
+    cli: r.cli,
     terminal: false,
     status: 'idle',
     issueNumber: null,
@@ -88,10 +86,11 @@ const LAP_CV = (
   </group>
 );
 
-/** Name tags take turns high and low, so neighbours' don't overlap. */
+/** Name tags take turns high and low, so neighbours' don't overlap. Under the name: the coding agent they'd run. */
 function CandidateTag({ req, high }: { req: HireRequestView; high: boolean }) {
   const floor = useStore((s) => s.repos.find((r) => r.id === req.repoId)?.floor ?? null);
-  const tex = useCanvasTexture(512, 128, (ctx) => drawCandidateTag(ctx, 512, 128, req.name, req.title, floor, req.color), [req.name, req.title, floor, req.color]);
+  const provider = useStore((s) => cliLabel(s.clis, hireCli(req.cli, s.settings)));
+  const tex = useCanvasTexture(512, 128, (ctx) => drawCandidateTag(ctx, 512, 128, req.name, provider, floor, req.color), [req.name, provider, floor, req.color]);
   return (
     <Billboard position={[0, high ? 2.3 : 1.95, -0.1]} userData={BILLBOARD}>
       <mesh>
@@ -104,7 +103,7 @@ function CandidateTag({ req, high }: { req: HireRequestView; high: boolean }) {
 
 function Candidate({ c, req }: { c: LobbyCandidate; req: HireRequestView }) {
   const waiting = c.phase === 'waiting';
-  const ref = useInteractable<THREE.Group>(waiting ? { id: `candidate-${req.id}`, label: `Interview ${req.name} (${req.title})`, action: { kind: 'interview', requestId: req.id } } : null, 3.4);
+  const ref = useInteractable<THREE.Group>(waiting ? { id: `candidate-${req.id}`, label: `Set up and hire ${req.name}`, action: { kind: 'interview', requestId: req.id } } : null, 3.4);
   const agent = useMemo(() => candidateAgent(req), [req]);
   const lap = useRef<THREE.Group>(null);
   useFrame(() => {
@@ -253,8 +252,8 @@ export function WaitingRoom() {
   }, [lobby, byId, gone]);
   const n = lobby.list.filter((c) => c.phase === 'waiting').length;
   const out = lobby.outside;
-  const sign = useInteractable<THREE.Group>(n + out > 0 ? { id: 'waiting-room', label: 'See every candidate on your phone', action: { kind: 'phone', tab: 'hires' } } : null, 5);
-  const label = n + out ? `${n} candidate${n === 1 ? '' : 's'}${out ? ` · +${out} waiting` : ''}` : 'nobody waiting';
+  const sign = useInteractable<THREE.Group>(n + out > 0 ? { id: 'waiting-room', label: 'See every team change on your phone', action: { kind: 'phone', tab: 'hires' } } : null, 5);
+  const label = n + out ? `${n} new agent${n === 1 ? '' : 's'}${out ? ` · +${out} waiting` : ''}` : 'nobody waiting';
   return (
     <group>
       {WAITING.seats.map((z) => (

@@ -4,13 +4,14 @@ import { agentsOnRepo, kanbanFor, useStore, type Agent, type KanbanCard } from '
 import { confirmDialog } from './Confirm';
 import { Panel } from './Panel';
 
-function AgentChip({ agent }: { agent?: Agent }) {
+/** Who has the card; "QA" while they're testing it. */
+function AgentChip({ agent, card }: { agent?: Agent; card: KanbanCard }) {
   if (!agent) return null;
   return (
     <span className="agent-chip">
       <span className="dot" style={{ background: agent.color }} />
       {agent.name}
-      {agent.role === 'qa' && <span className="chip">QA</span>}
+      {agent.task === 'qa' && card.prNumber != null && agent.prNumber === card.prNumber && <span className="chip">QA</span>}
     </span>
   );
 }
@@ -20,7 +21,7 @@ export function IssueForm({ repoId, agents, onDone }: { repoId: string; agents: 
   const [body, setBody] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [busy, setBusy] = useState(false);
-  const free = agents.filter((a) => a.role === 'dev' && a.status !== 'working' && a.status !== 'preparing');
+  const free = agents.filter((a) => a.role !== 'ceo' && a.status !== 'working' && a.status !== 'preparing');
   return (
     <form
       className="issue-form"
@@ -42,7 +43,7 @@ export function IssueForm({ repoId, agents, onDone }: { repoId: string; agents: 
       }}
     >
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Issue title, e.g. Add a dark mode toggle" aria-label="Issue title" autoFocus />
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Describe what you want. Acceptance criteria help the developer and the QA tester a lot." aria-label="Issue description" rows={5} />
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Describe what you want. Acceptance criteria help the agent who builds it and the one who tests it a lot." aria-label="Issue description" rows={5} />
       <div className="row">
         <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)} aria-label="Who works on it">
           <option value="">Leave in backlog (auto-assign picks it up if enabled)</option>
@@ -109,8 +110,8 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
       setPending(null);
     }
   };
-  const devs = agents.filter((a) => a.role === 'dev');
-  const free = devs.filter((a) => a.status === 'idle' || a.status === 'done' || a.status === 'stopped' || a.status === 'error');
+  const workers = agents.filter((a) => a.role !== 'ceo');
+  const free = workers.filter((a) => a.status === 'idle' || a.status === 'done' || a.status === 'stopped' || a.status === 'error');
   const merge = async (c: KanbanCard) => {
     const passed = c.qa?.status === 'passed';
     const ok = await confirmDialog(
@@ -129,14 +130,14 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
     let note = '';
     const ok = await confirmDialog({
       icon: '🔧',
-      title: `Send PR #${c.number} back to a developer?`,
+      title: `Send PR #${c.number} back for a fix?`,
       body: (
         <>
-          <p>Its author, or any free developer, fixes it with QA's findings, then QA tests it once more.</p>
+          <p>Its author, or any free agent, fixes it with QA's findings, then it's tested once more.</p>
           <input
             maxLength={1000}
             placeholder="Optional note, e.g. merge main and keep both e2e tests"
-            aria-label="Note for the developer"
+            aria-label="Note for whoever fixes it"
             ref={(el) => void (el && setTimeout(() => el.focus(), 0))}
             onChange={(e) => (note = e.target.value)}
           />
@@ -218,7 +219,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
         </button>
         <label className="toggle">
           <input type="checkbox" checked={repo.autoAssign} onChange={(e) => void api.updateRepo(repo.id, { autoAssign: e.target.checked }).catch(() => undefined)} />
-          ⚡ Auto-assign backlog to free developers
+          ⚡ Auto-assign work to free agents
         </label>
         <label className="toggle" title="Merge a PR as soon as QA has signed off on its latest commit and GitHub's checks are green">
           <input type="checkbox" checked={repo.autoMerge} onChange={(e) => void api.updateRepo(repo.id, { autoMerge: e.target.checked }).catch(() => undefined)} />
@@ -234,7 +235,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
         </button>
       </div>
       {repo.syncError && <div className="term-error">⚠️ {repo.syncError}</div>}
-      {showForm && <IssueForm repoId={repo.id} agents={devs} onDone={() => setShowForm(false)} />}
+      {showForm && <IssueForm repoId={repo.id} agents={workers} onDone={() => setShowForm(false)} />}
 
       <div className="kanban kanban-5">
         {column(
@@ -267,7 +268,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
           cols.progress,
           (c) => (
             <div className="kcard-foot">
-              <AgentChip agent={c.agent} />
+              <AgentChip agent={c.agent} card={c} />
               <span className="muted small">{c.note}</span>
               <span className="spacer" />
               {terminalButton(c)}
@@ -283,7 +284,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
             const st = c.qa?.status;
             return (
               <div className="kcard-foot kcard-foot-wrap">
-                <AgentChip agent={c.agent} />
+                <AgentChip agent={c.agent} card={c} />
                 <span className="muted small">{c.note}</span>
                 <span className="spacer" />
                 <QaLink card={c} />
@@ -295,8 +296,8 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
                   </button>
                 )}
                 {(st === 'needs-human' || st === 'failed') && (
-                  <button className="btn btn-small" disabled={pending === c.key} title="Hand it to a developer with QA's findings and your note, without another QA round first" onClick={() => sendBack(c)}>
-                    Send back to dev
+                  <button className="btn btn-small" disabled={pending === c.key} title="Hand it to its author, or any free agent, with QA's findings and your note, without another QA round first" onClick={() => sendBack(c)}>
+                    Send back for a fix
                   </button>
                 )}
                 {st === 'needs-human' && (
@@ -318,7 +319,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
             const pr = repo.pulls.find((p) => p.number === c.prNumber);
             return (
               <div className="kcard-foot kcard-foot-wrap">
-                <AgentChip agent={c.agent} />
+                <AgentChip agent={c.agent} card={c} />
                 <span className="muted small">
                   {c.note}
                   {pr ? ` · +${pr.additions} −${pr.deletions}` : ''}
@@ -341,7 +342,7 @@ export function KanbanView({ repoId, embedded }: { repoId: string; embedded?: bo
           cols.merged,
           (c) => (
             <div className="kcard-foot">
-              <AgentChip agent={c.agent} />
+              <AgentChip agent={c.agent} card={c} />
             </div>
           ),
           'Nothing merged yet.',

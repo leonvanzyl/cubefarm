@@ -2,11 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import type { Backend, DemoHire } from './backend.ts';
+import type { Backend } from './backend.ts';
 import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { CLIS } from './clis.ts';
-import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
+import { FLOOR_SEATS, type GhRepoSummary, type IssueInfo, type PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR, type DemoScale } from './config.ts';
 import { DAY_MS, emptyHistory, HOUR_MS, prune, startOfDay, type OpsHistory } from './metrics.ts';
@@ -17,7 +17,7 @@ import type { WeatherApi } from './weather.ts';
 import type { NotifyTransport } from './notifier.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
-// dev → QA → fix loop) can be explored without spending any usage or touching real repos.
+// build → QA → fix loop) can be explored without spending any usage or touching real repos.
 
 interface FakeRepo {
   fullName: string;
@@ -157,7 +157,7 @@ function seedBigCompany(floors: number) {
   }
 }
 
-/** Files new issues until the repo has `open` of them, so a big floor's developers always have something to pick up. */
+/** Files new issues until the repo has `open` of them, so a big floor's agents always have something to pick up. */
 function topUp(r: FakeRepo, open: number) {
   while (r.issues.length < open) {
     const n = r.nextNumber++;
@@ -167,14 +167,10 @@ function topUp(r: FakeRepo, open: number) {
   }
 }
 
-/**
- * The people on each demo floor: the usual demo's five developers on floor 1 and three on the others, each with one
- * QA tester; a big company's `agents` per floor, about one in five a tester (up to the lab's three stations).
- */
-export function demoTeam(scale: DemoScale | null, floor: number): { dev: number; qa: number } {
-  if (!scale) return { dev: floor === 1 ? 5 : 3, qa: 1 };
-  const qa = Math.max(1, Math.min(3, Math.round(scale.agents / 5)));
-  return { dev: Math.max(0, Math.min(12, scale.agents - qa)), qa };
+/** How many agents each demo floor starts with: six on floor 1 and four on the others, or a big company's `agents`. */
+export function demoTeam(scale: DemoScale | null, floor: number): number {
+  if (!scale) return floor === 1 ? 6 : 4;
+  return Math.max(1, Math.min(FLOOR_SEATS, scale.agents));
 }
 
 function screenshotSvg(title: string, url: string, hue: number) {
@@ -196,7 +192,7 @@ function screenshotSvg(title: string, url: string, hue: number) {
 
 type Step = LogEntry[] | (() => void);
 
-function devScript(opts: SessionOptions, cb: SessionCallbacks, issueNumber: number, issueTitle: string): Step[] {
+function issueScript(opts: SessionOptions, cb: SessionCallbacks, issueNumber: number, issueTitle: string): Step[] {
   const branch = path.basename(opts.cwd);
   const hue = (issueNumber * 67) % 360;
   const file = ['src/App.tsx', 'src/components/TodoList.tsx', 'src/api/routes.ts', 'src/styles.css'][issueNumber % 4];
@@ -310,7 +306,9 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
   }
   const nudged = /^You pushed nothing/.test(opts.prompt); // the office's nudge after a fix that pushed nothing
   const resumedFix = opts.resumeSessionId?.startsWith('demo-fix-') ?? false;
-  const kind = opts.role === 'qa' ? 'qa' : nudged || resumedFix || /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt) ? 'fix' : 'issue';
+  // The task picks the script; a session started without one (a follow-up) is read from its prompt.
+  const fixPrompt = !opts.task && /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt);
+  const kind = opts.task === 'qa' ? 'qa' : opts.task === 'fix' || nudged || resumedFix || fixPrompt ? 'fix' : 'issue';
   // Fix sessions can be resumed (the office's nudge), like real ones.
   if (kind === 'fix') cb.sessionId(opts.resumeSessionId ?? `demo-fix-${crypto.randomUUID()}`);
   const pull = fixPromptPull(opts.prompt);
@@ -326,7 +324,7 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     { kind: 'system', text: `  cwd ${opts.cwd}` },
   ];
   const checks = opts.prompt.match(/^GitHub checks right now: .*$/m)?.[0] ?? 'GitHub checks right now: none';
-  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes, nudged) : devScript(opts, cb, number, title);
+  const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes, nudged) : issueScript(opts, cb, number, title);
   const script = [header, ...body];
 
   const finish = () => {
@@ -581,6 +579,13 @@ function fakeUsageWarning(cb: SessionCallbacks) {
   }, 3000);
 }
 
+/** A made-up install and build of 300-900 MB freed, so the idle-desk setting and its phone message can be seen. */
+async function fakeTrim(stillIdle: () => boolean) {
+  await new Promise((r) => setTimeout(r, 300));
+  if (!stillIdle()) return null;
+  return { freed: Math.round((300 + Math.random() * 600) * 2 ** 20), removed: ['node_modules', 'dist'], skipped: [] };
+}
+
 /** The demo's fake world; `scale` (--floors / --agents) makes it the big company instead of the usual two floors. */
 export function createDemoBackend(scale: DemoScale | null = null): Backend {
   if (scale) seedBigCompany(scale.floors);
@@ -590,7 +595,6 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
   // Desks whose pretend dependencies are installed: the first task on a desk installs, the next ones skip.
   const installedDesks = new Set<string>();
   // The branch each desk has checked out (null: detached), so a PR branch another desk holds plays out as for real (#199).
-  const deskBranches = new Map<string, string | null>();
   // A pretend projects folder: the demo repos, one git folder that isn't on GitHub yet, and one plain folder.
   const folders = new Map<string, LocalFolder>();
   const addFolder = (name: string, github: string | null, git = true) =>
@@ -767,18 +771,27 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     deskDir: (fullName, slug) => `/demo/${fullName}/desks/${slug}`,
     // The fake desks are the ones set up since the demo started: after a restart, every desk is gone.
     deskExists: (dir) => deskRepo.has(dir),
-    prepareDesk: async (fullName, base, slug, branch, note) => {
+    prepareDesk: async (fullName, _base, slug) => {
       await new Promise((r) => setTimeout(r, 900));
       const dir = `/demo/${fullName}/desks/${slug}`;
-      // SWARM_DEMO_HELD_BRANCH=1: your folder has every PR's branch checked out, and a fix's desk fails the way #198's did.
-      if (process.env.SWARM_DEMO_HELD_BRANCH === '1' && base.pr && !branch.startsWith('qa/')) {
-        throw new Error(`git worktree add -B failed: fatal: '${branch}' is already used by worktree at '/demo/${fullName}/main'`);
-      }
-      const holder = [...deskBranches].find(([d, b]) => b === branch && d !== dir && deskRepo.get(d) === fullName)?.[0];
-      if (holder) note?.(`${branch} is checked out at ${holder}, so this desk works on it as a detached HEAD at origin/pr/${base.pr}; push with git push origin HEAD:${branch}.`);
-      deskBranches.set(dir, holder ? null : branch);
       deskRepo.set(dir, fullName);
       return dir;
+    },
+    // Each agent's machine has a clone of its own, so no other desk ever holds its branch.
+    machines: {
+      deskDir: (machine, fullName) => `/demo/machines/${machine}/work/${fullName}`,
+      prepareDesk: async (machine, fullName) => {
+        await new Promise((r) => setTimeout(r, 900));
+        const dir = `/demo/machines/${machine}/work/${fullName}`;
+        deskRepo.set(dir, fullName);
+        return dir;
+      },
+      env: () => ({}),
+      release: async () => undefined,
+      trimDesk: (_machine, _fullName, stillIdle) => fakeTrim(stillIdle),
+      sweep: async () => 0,
+      remove: async () => ({ removed: true, patches: [] }),
+      list: async () => [],
     },
     installDeps: async (dir, cb) => {
       if (installedDesks.has(dir)) {
@@ -794,12 +807,7 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     },
     removeDesk: async () => undefined,
     sweepDesks: async () => ({ desks: 0, folders: 0, branches: 0, patches: [], skipped: [] }),
-    // A made-up install and build of 300-900 MB, so the setting and the phone message can be seen.
-    trimDesk: async (_fullName, _slug, stillIdle) => {
-      await new Promise((r) => setTimeout(r, 300));
-      if (!stillIdle()) return null;
-      return { freed: Math.round((300 + Math.random() * 600) * 2 ** 20), removed: ['node_modules', 'dist'], skipped: [] };
-    },
+    trimDesk: (_fullName, _slug, stillIdle) => fakeTrim(stillIdle),
     releaseDesk: async () => undefined,
     startSession: (opts, cb) => {
       // The big company is for measuring the office at full speed, so it never paces.
@@ -820,12 +828,10 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     seedOps: (ids, at) => demoPastWeek(ids, at),
     demoTeam: (floor) => demoTeam(scale, floor),
     simulateUsage: demoUsage,
-    demoCandidate,
     demoDoctor: {
       dropDesk: (dir) => {
         deskRepo.delete(dir);
         installedDesks.delete(dir);
-        deskBranches.delete(dir);
       },
       finishQuietly: (fullName, kind, n) => {
         const r = repos.get(fullName);
@@ -1033,127 +1039,74 @@ const demoPreviews: PreviewBackend = {
 interface Profile {
   summary: string;
   qa: string;
-  qaTitle: string;
-  qaJob: string;
-  devTitle: string;
-  devSpecialty: string;
-  devJob: string;
-  hires: { title: string; specialty: string; job_description: string; reason: string }[];
 }
 
 const PROFILES: Record<string, Profile> = {
   'pixel-todo': {
     summary: 'Todo web app · React + Vite + TypeScript',
     qa: '- Add, complete, edit and delete todos; they survive a reload\n- Keyboard only: every action reachable, focus always visible\n- Phone width (375px): nothing overflows or gets cut off\n- No errors in the browser console',
-    qaTitle: 'UI QA tester',
-    qaJob: 'You test every PR the way a picky user would: click through the whole flow, try it on a phone-sized screen and with the keyboard only.',
-    devTitle: 'React UI engineer',
-    devSpecialty: 'frontend',
-    devJob: 'You own the React components and styling. Keep components small, reuse the existing hooks, and check every change at desktop and phone widths.',
-    hires: [
-      {
-        title: 'Accessibility engineer',
-        specialty: 'a11y',
-        job_description:
-          'You make the app work for **everyone**:\n\n- Keyboard navigation and focus management\n- ARIA roles, checked with `axe`\n- Colour contrast (WCAG AA)\n\nTest with the keyboard only. The [WAI-ARIA practices](https://www.w3.org/WAI/ARIA/apg/) are your reference.',
-        reason: 'Keyboard shortcuts and drag-and-drop are in the backlog, and both are *easy to get wrong* for keyboard and screen-reader users.',
-      },
-    ],
   },
   'weather-api': {
     summary: 'REST API · Node + Express',
     qa: '- Every endpoint: happy path, bad input (400), unknown city (404)\n- Response shapes match the OpenAPI document\n- Rate limiting returns 429 with Retry-After\n- Tests and lint pass',
-    qaTitle: 'API QA tester',
-    qaJob: 'You test the API from the outside: curl every endpoint, try bad input and edge cases, and compare responses with the OpenAPI document.',
-    devTitle: 'Backend engineer',
-    devSpecialty: 'backend',
-    devJob: 'You own the routes and data layer. Validate input at the edge, return consistent error shapes, and add tests for every endpoint you touch.',
-    hires: [
-      {
-        title: 'API reliability engineer',
-        specialty: 'reliability',
-        job_description: 'You own rate limiting, caching and error handling. Measure before you optimise and document every limit in the OpenAPI spec.',
-        reason: 'Rate limiting is in the backlog and the forecast endpoint will call an upstream service that needs caching and timeouts.',
-      },
-    ],
   },
 };
 
 const GENERIC: Profile = {
   summary: 'Web project · early stage',
   qa: '- The app builds and starts\n- The changed feature works end to end in the browser\n- Phone width: nothing overflows\n- No console errors',
-  qaTitle: 'QA tester',
-  qaJob: 'You check every PR end to end in the browser, at desktop and phone widths.',
-  devTitle: 'Full-stack engineer',
-  devSpecialty: 'fullstack',
-  devJob: 'You build features end to end, from the UI down to the data.',
-  hires: [
-    {
-      title: 'Frontend engineer',
-      specialty: 'frontend',
-      job_description: 'You own the UI:\n\n1. Layout and components\n2. Styling, checked at **desktop and phone** widths',
-      reason: 'The project needs someone who owns the UI from the start.',
-    },
-  ],
 };
 
-/** More people the demo CEO can propose on demand (asked on the phone, or the demo's own button), after a floor's own. */
-const CANDIDATES: DemoHire[] = [
-  {
-    title: 'HTML/CSS front-end developer',
-    specialty: 'css',
-    job_description: 'You own the markup and the styles: semantic HTML, a tidy CSS layer and layouts that hold up from **375px to 1440px**.',
-    reason: 'Half the open issues are layout and styling work, and the developers who have them keep stopping to fight the CSS.',
-  },
-  {
-    title: 'Test automation engineer',
-    specialty: 'testing',
-    job_description: 'You write the tests nobody else gets to: end-to-end flows in Playwright, flaky tests made reliable, and coverage on the risky parts.',
-    reason: 'QA keeps finding the same regressions round after round; tests that catch them first would save every PR a trip.',
-  },
-  {
-    title: 'DevOps engineer',
-    specialty: 'devops',
-    job_description: 'You own the pipeline: CI that stays green and fast, preview deploys, and the scripts everyone else runs.',
-    reason: 'CI runs are slow, and a red check sends a PR back to a developer every few hours.',
-  },
-  {
-    title: 'Database engineer',
-    specialty: 'data',
-    job_description: 'You own the schema and the queries: migrations that run both ways, indexes where they matter, and no N+1s.',
-    reason: 'The next milestone adds sync and history, and nobody on the floor has designed a schema for that before.',
-  },
-  {
-    title: 'Technical writer',
-    specialty: 'docs',
-    job_description: 'You keep the README, the API reference and the in-app help in step with what actually ships.',
-    reason: "Features are shipping faster than the docs: the README still describes last month's app.",
-  },
-  {
-    title: 'Performance engineer',
-    specialty: 'perf',
-    job_description: 'You measure first: bundle size, load time and slow renders, with a budget in CI so they stay fixed.',
-    reason: 'The app got noticeably slower over the last few merges, and nobody owns its speed.',
-  },
-];
-
-/** The next made-up candidate for a floor: its project's own hires first, then the shared ones; null when all are taken. */
-export function demoCandidate(fullName: string, taken: readonly string[]): DemoHire | null {
-  const own = (PROFILES[fullName.split('/')[1] ?? ''] ?? GENERIC).hires;
-  return [...own, ...CANDIDATES].find((c) => !taken.includes(c.specialty)) ?? null;
-}
-
-interface DemoFloor {
+/** A floor in company_status, as far as the demo CEO reads it. */
+export interface DemoFloor {
   floor: number;
   repo: string;
   brief: string | null;
-  team: { id: string; name: string; role: string; specialty: string | null; status: string }[];
-  backlog: unknown[];
+  team: { size: number; max: number; free: number; pendingHires: number; pendingLetGos: number };
+  capacity: { issuesReadyToStart: number; prsAwaitingQa: number };
+  backlog: { number: number; title: string; inProgress: boolean }[];
   pullRequests: unknown[];
-  seats: Record<'dev' | 'qa', { free: number }>;
 }
 
-/** A scripted CEO that uses the real office tools, so proposals, profiles and issues behave exactly as in the real thing. */
+interface DemoStatus {
+  company: { scaling: string }; // how team changes go, in words ("team changes apply straight away")
+  floors: DemoFloor[];
+  pendingChanges: unknown[];
+}
+
+/** The team a floor will have once the changes waiting for the manager are decided. */
+const plannedSize = (t: DemoFloor['team']) => t.size + t.pendingHires - t.pendingLetGos;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The demo CEO grows a floor up to this many agents on its own (the real CEO's "rarely more than 4 to 6"). */
+const DEMO_GROW_TO = 6;
+
+/**
+ * The demo CEO's call to grow a floor: when the issues ready to start (`ready`) outnumber its free agents and the
+ * agents already on their way, up to DEMO_GROW_TO and the floor's max. Null: the team can keep up.
+ */
+export function demoGrow(f: DemoFloor, ready: number): { size: number; reason: string } | null {
+  const now = plannedSize(f.team);
+  const waiting = ready - f.team.free - f.team.pendingHires;
+  const size = Math.min(f.team.max, Math.max(now, DEMO_GROW_TO), now + waiting);
+  if (waiting <= 0 || size <= now) return null;
+  return {
+    size,
+    reason: `${plural(ready, 'issue')} ${ready === 1 ? 'is' : 'are'} ready to start on floor ${f.floor} and ${plural(f.team.free, 'agent')} ${f.team.free === 1 ? 'is' : 'are'} free: with ${size} agents they're worked on side by side instead of waiting.`,
+  };
+}
+
+/** The demo CEO's call to shrink a floor: several agents idle with nothing ready to start or test. Never below one. */
+export function demoShrink(f: DemoFloor): { size: number; reason: string } | null {
+  const now = plannedSize(f.team);
+  const idle = f.team.free - f.team.pendingLetGos;
+  if (idle < 2 || f.capacity.issuesReadyToStart > 0 || f.capacity.prsAwaitingQa > 0) return null;
+  const size = Math.max(1, now - (idle - 1));
+  if (size >= now) return null;
+  return { size, reason: `${idle} of ${f.team.size} agents on floor ${f.floor} are idle with nothing ready to start or test; ${size} can keep up with what comes in.` };
+}
+
+/** A scripted CEO that uses the real office tools, so team changes, profiles and issues behave exactly as in the real thing. */
 function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
   const office = opts.office!;
   const timers: NodeJS.Timeout[] = [];
@@ -1168,11 +1121,11 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
   };
   const status = async () => {
     await step([{ kind: 'tool', tool: 'mcp__office__company_status', text: `⏺ ${describeOfficeTool('company_status', {})}` }]);
-    const s = JSON.parse(await office.call('company_status', {})) as { floors: DemoFloor[]; pendingProposals: unknown[] };
-    const people = s.floors.reduce((n, f) => n + f.team.length, 0);
+    const s = JSON.parse(await office.call('company_status', {})) as DemoStatus;
+    const agents = s.floors.reduce((n, f) => n + f.team.size, 0);
+    const free = s.floors.reduce((n, f) => n + f.team.free, 0);
     const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
-    const free = s.floors.reduce((n, f) => n + f.seats.dev.free + f.seats.qa.free, 0);
-    cb.log([{ kind: 'result', text: `  ⎿ ${s.floors.length} floors · ${people} people · ${free} free seats · ${issues} open issues · ${s.pendingProposals.length} proposals pending` }]);
+    cb.log([{ kind: 'result', text: `  ⎿ ${s.floors.length} floors · ${agents} agents · ${free} free · ${issues} open issues · ${s.pendingChanges.length} team changes pending` }]);
     return s;
   };
   const use = async (name: string, args: Record<string, unknown>) => {
@@ -1184,30 +1137,39 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
   const read = (file: string, lines: number) => step([{ kind: 'tool', tool: 'Read', text: `⏺ Read ${file}` }, { kind: 'result', text: `  ⎿ Read ${lines} lines` }]);
   const think = (text: string) => step([{ kind: 'thinking', text: '✻ Thinking…' }, { kind: 'text', text: `● ${text}` }], 1800);
   const short = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1).trim()}…` : s);
+  const refused = (out: string) => out.replace(/^Refused: /, '');
+  /** What happens next, by Settings → Team changes; `added`: new agents (negative: agents leaving). */
+  const after = (s: DemoStatus, added: number) => {
+    const who = added === 1 ? 'The new agent' : 'The new agents';
+    if (/auto|straight away/i.test(s.company.scaling)) return added > 0 ? `${who} ${added === 1 ? 'is' : 'are'} on the way up.` : 'Idle agents leave first; anyone busy finishes their task.';
+    return added > 0 ? `${who} ${added === 1 ? 'waits' : 'wait'} in the lobby for you to set up and hire.` : "It's an envelope on the desk of whoever I picked to leave, waiting for your decision.";
+  };
+  /** scale_team with the call made, and a sentence on how it went. */
+  const scale = async (s: DemoStatus, f: DemoFloor, call: { size: number; reason: string }) => {
+    const out = await use('scale_team', { floor: f.floor, ...call });
+    return out.startsWith('Refused')
+      ? `I wanted floor ${f.floor} at ${plural(call.size, 'agent')}, but the office said no: ${refused(out)}`
+      : `Floor ${f.floor} goes from ${f.team.size} to ${plural(call.size, 'agent')}: ${call.reason} ${after(s, call.size - plannedSize(f.team))}`;
+  };
 
-  const planIssues = async (floor: number, mission: string, team: DemoFloor['team']) => {
+  /** Files the brief's first three issues; returns the skeleton's number. */
+  const planIssues = async (floor: number, mission: string) => {
     const first = await use('file_issue', {
       floor,
       title: 'Set up the project skeleton',
       body: `Scaffold the app so the rest of the milestone has something to build on.\n\nBrief: ${mission}\n\nAcceptance criteria:\n- The dev server starts\n- A placeholder home page renders\n- Lint, tests and build scripts exist`,
-      specialty: 'frontend',
     });
     const n = Number(first.match(/#(\d+)/)?.[1] ?? 0);
     await use('file_issue', {
       floor,
       title: `Build the core: ${short(mission, 60)}`,
       body: `${n ? `Depends on #${n}\n\n` : ''}Implement the heart of the brief.\n\nAcceptance criteria:\n- The main flow works end to end\n- Covered by tests`,
-      specialty: 'frontend',
     });
     await use('file_issue', {
       floor,
       title: 'Polish: phone layout and empty states',
       body: `${n ? `Depends on #${n}\n\n` : ''}Make every screen work at 375px and add friendly empty states.`,
-      specialty: 'frontend',
     });
-    if (!team.some((a) => a.specialty === 'frontend')) {
-      await use('propose_hire', { floor, role: 'dev', ...GENERIC.hires[0], reason: 'All three issues are UI work and nobody on the floor owns the frontend yet.' });
-    }
     return n;
   };
 
@@ -1220,32 +1182,13 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       await read(`${f.repo}/README.md`, 48);
       await step([{ kind: 'tool', tool: 'Glob', text: '⏺ Glob src/**/*' }, { kind: 'result', text: '  ⎿ Found 23 files' }]);
       await read('package.json', 36);
-      await think(`${p.summary}. Let me shape the team around that.`);
+      await think(`${p.summary}. Let me size the team for the work in sight.`);
       await use('set_floor_profile', { floor, summary: p.summary, qa_brief: p.qa });
-      const qa = f.team.find((a) => a.role === 'qa');
-      if (qa) {
-        await step([{ kind: 'tool', tool: 'mcp__office__agent_detail', text: `⏺ ${describeOfficeTool('agent_detail', { agent_id: qa.id })}` }]);
-        const d = JSON.parse(await office.call('agent_detail', { agent_id: qa.id })) as { title: string; jobDescription: string | null };
-        cb.log([{ kind: 'result', text: `  ⎿ ${d.title} · job description ${d.jobDescription?.length ?? 0} chars` }]);
-        await use('update_job', { agent_id: qa.id, title: p.qaTitle, job_description: p.qaJob });
-      }
-      const dev = f.team.find((a) => a.role === 'dev' && !a.specialty);
-      if (dev) await use('update_job', { agent_id: dev.id, title: p.devTitle, specialty: p.devSpecialty, job_description: p.devJob });
-      const proposed: string[] = [];
-      for (const h of p.hires) if (!(await use('propose_hire', { floor, role: 'dev', ...h })).startsWith('Refused')) proposed.push(h.title);
-      let planned = '';
-      if (f.brief && f.backlog.length === 0) {
-        const n = await planIssues(floor, f.brief, f.team);
-        planned = ` I also turned your brief into three issues; #${n} sets up the skeleton and the other two wait for it.`;
-      }
-      return [
-        `Floor ${floor}: ${p.summary}.`,
-        `I wrote a QA brief for it${qa ? `, made ${qa.name} our ${p.qaTitle}` : ''}${dev ? ` and ${dev.name} our ${p.devTitle}` : ''}.`,
-        proposed.length ? `I've proposed hiring: ${proposed.join(', ')}. The resume${proposed.length === 1 ? ' is' : 's are'} waiting on your phone.` : '',
-        planned,
-      ]
-        .filter(Boolean)
-        .join(' ');
+      const ready = f.capacity.issuesReadyToStart;
+      const grow = demoGrow(f, ready);
+      const team = grow ? await scale(s, f, grow) : `Its ${plural(f.team.size, 'agent')} can keep up with the ${plural(ready, 'issue')} ready to start.`;
+      const next = f.brief ? ' Your brief is next on my list: I plan it as soon as this is done.' : f.backlog.length === 0 ? ' The backlog is empty: tell me what you would like built and I will plan it.' : '';
+      return [`Floor ${floor}: ${p.summary}. I wrote a QA brief for it.`, team, next].filter(Boolean).join(' ');
     },
     async plan(floor: number, mission: string) {
       const s = await status();
@@ -1253,27 +1196,17 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       if (!f) return 'That floor has gone, so there was nothing to plan.';
       await read(`${f.repo}/README.md`, 12);
       await think("Foundation first, so the parallel work doesn't collide.");
-      const n = await planIssues(floor, mission, f.team);
-      return `I turned the brief into three issues on floor ${floor}. #${n} sets up the skeleton; the other two say "Depends on #${n}", so nobody starts them early.`;
+      const n = await planIssues(floor, mission);
+      const grow = demoGrow(f, f.capacity.issuesReadyToStart + (n ? 1 : 0));
+      const team = grow ? ` ${await scale(s, f, grow)}` : '';
+      return `I turned the brief into three issues on floor ${floor}. #${n} sets up the skeleton; the other two say "Depends on #${n}", so nobody starts them early.${team}`;
     },
     async review() {
       const s = await status();
-      await think('Checking each floor for idle people and stuck work.');
+      await think('Checking each floor for work waiting on free agents, and agents waiting on work.');
       for (const f of s.floors) {
-        const idle = f.team.filter((a) => a.role === 'dev' && !a.specialty && (a.status === 'idle' || a.status === 'done'));
-        const devs = f.team.filter((a) => a.role === 'dev').length;
-        if (devs >= 6 && idle.length >= 2 && f.backlog.length < devs) {
-          await use('propose_let_go', { agent_id: idle[idle.length - 1].id, reason: `Floor ${f.floor} has ${devs} developers for ${f.backlog.length} open issues; ${idle.length} of them are idle.` });
-          return `Floor ${f.floor} is overstaffed: ${devs} developers for ${f.backlog.length} open issues. I suggest letting ${idle[idle.length - 1].name} go; it's on your phone.`;
-        }
-      }
-      // An issue nobody routed while the floor has a specialist: re-route it rather than file a duplicate.
-      for (const f of s.floors) {
-        const specialist = f.team.find((a) => a.role === 'dev' && a.specialty);
-        const unrouted = (f.backlog as { number: number; specialty: string | null; inProgress: boolean }[]).find((i) => !i.specialty && !i.inProgress);
-        if (!specialist || !unrouted) continue;
-        const out = await use('route_issue', { floor: f.floor, number: unrouted.number, specialty: specialist.specialty });
-        if (!out.startsWith('Refused')) return `Floor ${f.floor}: #${unrouted.number} had no specialty, so I routed it to ${specialist.specialty}, ${specialist.name}'s lane.`;
+        const call = demoShrink(f) ?? demoGrow(f, f.capacity.issuesReadyToStart);
+        if (call) return scale(s, f, call);
       }
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
       const prs = s.floors.reduce((n, f) => n + f.pullRequests.length, 0);
@@ -1287,7 +1220,7 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
       const again = !/triage 1 of/.test(facts);
       await think(conflict ? 'It only conflicts with main; the change itself is fine.' : red ? 'A red check that looks like a flake.' : again ? 'Stuck a second time. This needs a call from the manager.' : 'The fix sessions stalled, not the code. Another QA round should settle it.');
       const [tool, args, done] = conflict
-        ? ['send_back', { note: 'Merge main and keep both changes working; QA already liked the rest.' }, 'went back to the developer to merge main']
+        ? ['send_back', { note: 'Merge main and keep both changes working; QA already liked the rest.' }, 'went back for a fix: merging main']
         : red
           ? ['rerun_checks', {}, 'had its failed checks re-run']
           : again
@@ -1295,46 +1228,45 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
             : ['retry_qa', {}, 'is back in the QA queue'];
       const out = await use(tool, { floor, pr, ...args });
       if (!out.startsWith('Refused')) return `PR #${pr} on floor ${floor} was stuck. It ${done}.`;
-      await use('escalate', { floor, pr, reason: `I tried ${tool}, but the office refused: ${out.replace(/^Refused: /, '')}` });
+      await use('escalate', { floor, pr, reason: `I tried ${tool}, but the office refused: ${refused(out)}` });
       return `PR #${pr} on floor ${floor} is stuck and I couldn't move it, so it's with you now.`;
     },
     async chat(text: string) {
       const s = await status();
       await think('Reading your message.');
-      // "close #3, superseded by #5": the one request the demo CEO acts on, through the real tool.
+      // "close #3, superseded by #5": through the real tool.
       const close = text.match(/\bclose #(\d+)[\s,:;.-]*(.*)/i);
-      const closeFloor = close && (s.floors.find((f) => (f.backlog as { number: number }[]).some((i) => i.number === Number(close[1]))) ?? s.floors[0]);
+      const closeFloor = close && (s.floors.find((f) => f.backlog.some((i) => i.number === Number(close[1]))) ?? s.floors[0]);
       if (close && closeFloor) {
         const reason = close[2].trim() || 'No longer wanted.';
         const out = await use('close_issue', { floor: closeFloor.floor, number: Number(close[1]), reason });
-        return out.startsWith('Refused') ? `I couldn't close #${close[1]}: ${out.replace(/^Refused: /, '')}` : `Done: ${out} I left "${short(reason, 80)}" on it as a comment.`;
+        return out.startsWith('Refused') ? `I couldn't close #${close[1]}: ${refused(out)}` : `Done: ${out} I left "${short(reason, 80)}" on it as a comment.`;
       }
-      // Asked whether anyone new is needed: a candidate for the first floor with a free desk, through the real tool.
-      if (/\b(hire|hiring|anyone new|candidates?|recruit)\b/i.test(text)) {
-        const proposed = s.pendingProposals as { floor: number | null; specialty: string | null }[];
-        for (const f of s.floors.filter((x) => x.seats.dev.free > 0)) {
-          const taken = [...f.team.map((a) => a.specialty ?? ''), ...proposed.filter((p) => p.floor === f.floor).map((p) => p.specialty ?? '')];
-          const c = demoCandidate(f.repo, taken);
-          if (!c) continue;
-          const out = await use('propose_hire', { floor: f.floor, role: 'dev', ...c });
-          if (out.startsWith('Refused')) return `I wanted to propose a ${c.title} for floor ${f.floor}, but the office said no: ${out.replace(/^Refused: /, '')}`;
-          return `Yes: a **${c.title}** for floor ${f.floor}. ${c.reason} They're waiting in the lobby to meet you, or you can decide in Hires.`;
-        }
-        return "Not right now: every floor either has no free desk or already has the people I'd hire.";
+      // Asked for a bigger team: one more agent where the most work waits, through the real tool.
+      if (/\b(hire|hiring|grow|team|bigger)\b/i.test(text)) {
+        if (!s.floors.length) return 'There are no floors yet: add a project first, and I will size its team.';
+        const room = s.floors.filter((f) => plannedSize(f.team) < f.team.max);
+        if (!room.length) return `Every floor is at its most agents (${s.floors[0].team.max}). Raise it in Settings → Most agents per floor, and I'll grow the busiest one.`;
+        const f = room.sort((a, b) => b.capacity.issuesReadyToStart - b.team.free - (a.capacity.issuesReadyToStart - a.team.free) || a.floor - b.floor)[0];
+        const ready = f.capacity.issuesReadyToStart;
+        return scale(s, f, {
+          size: plannedSize(f.team) + 1,
+          reason: `You asked for a bigger team, and floor ${f.floor} has the most work waiting: ${plural(ready, 'issue')} ready to start, ${plural(f.team.free, 'agent')} free.`,
+        });
       }
-      const people = s.floors.reduce((n, f) => n + f.team.length, 0);
+      const agents = s.floors.reduce((n, f) => n + f.team.size, 0);
       const issues = s.floors.reduce((n, f) => n + f.backlog.length, 0);
-      const pending = s.pendingProposals.length;
+      const pending = s.pendingChanges.length;
       // Real CEOs answer in Markdown, so the demo one does too: every element the phone renders.
-      const rows = s.floors.map((f) => `| ${f.floor} | \`${f.repo.split('/').pop()}\` | ${f.team.length} | ${f.backlog.length} | ${f.pullRequests.length} |`);
+      const rows = s.floors.map((f) => `| ${f.floor} | \`${f.repo.split('/').pop()}\` | ${f.team.size} | ${f.backlog.length} | ${f.pullRequests.length} |`);
       return [
-        `**Quick status:** ${s.floors.length} floor${s.floors.length === 1 ? '' : 's'}, ${people} people and ${issues} open issues.`,
+        `**Quick status:** ${s.floors.length} floor${s.floors.length === 1 ? '' : 's'}, ${agents} agents and ${issues} open issues.`,
         '',
         '- The team is *heads down* on the backlog',
-        `- ${pending ? `**${pending}** proposal${pending === 1 ? ' is' : 's are'} waiting for you in Hires` : 'No hiring decisions waiting on you'}`,
+        `- ${pending ? `**${pending}** team change${pending === 1 ? ' is' : 's are'} waiting for your decision` : 'No team changes waiting on you'}`,
         '  - QA re-tests every PR after a fix',
         '',
-        '| Floor | Repo | People | Issues | PRs |',
+        '| Floor | Repo | Agents | Issues | PRs |',
         '| ---: | --- | ---: | ---: | ---: |',
         ...(rows.length ? rows : ['| – | no projects yet | 0 | 0 | 0 |']),
         '',
@@ -1342,7 +1274,7 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
         '',
         '1. Merge anything that passed QA',
         '2. Run `npm run build` on each floor before the next milestone',
-        '3. Hire only where the backlog is piling up',
+        '3. Grow a team only where work keeps waiting for free agents',
         '',
         '```bash',
         'SWARM_HOME=/tmp/cubefarm-demo SWARM_PORT=5260 node --import tsx server/index.ts --demo',

@@ -6,7 +6,8 @@ import { AgentSetup } from './AgentSettings';
 import { confirmDialog } from './Confirm';
 import { LiveTerminal } from './LiveTerminal';
 import { effectiveModel } from '../../../shared/models';
-import { Markdown } from './Markdown';
+import { assignChoices } from '../pocket/pocketData';
+import { agentLabel, workerCli } from './floorRows';
 import { MessageBox } from './MessageBox';
 import { MicButton } from './MicButton';
 import { closeOverlay, Panel } from './Panel';
@@ -42,7 +43,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const settings = useStore((s) => s.settings);
   const clis = useStore((s) => s.clis);
   const [text, setText] = useState('');
-  const [issue, setIssue] = useState('');
+  const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [showCareer, setShowCareer] = useState(false);
@@ -77,9 +78,9 @@ export function TerminalView({ agentId }: { agentId: string }) {
 
   const qaRecords = useStore((s) => s.qa);
   const cols = useMemo(() => (repo ? kanbanFor(repo, agentsOnRepo(allAgents, repo.id), qaRecords) : null), [repo, allAgents, qaRecords]);
-  const isQa = agent?.role === 'qa';
-  // Devs pick issues from the backlog; QA testers pick untested pull requests.
-  const choices = !cols ? [] : isQa ? cols.qa.filter((c) => !c.qa || c.qa.status === 'needs-human' || c.qa.status === 'queued') : cols.backlog;
+  // Any free agent takes either: an issue from the backlog, or a pull request waiting for QA.
+  const choices = assignChoices(cols);
+  const chosen = choices.find((c) => c.key === pick);
 
   if (!agent || !repo) {
     return (
@@ -100,10 +101,9 @@ export function TerminalView({ agentId }: { agentId: string }) {
     }
   };
   const working = isBusy(agent);
-  const cli = agent.role === 'ceo' ? 'claude' : agent.cli || settings.defaultCli;
-  const cliName = clis.find((c) => c.id === cli)?.label ?? cli;
+  const cli = workerCli(agent, settings);
   const issueUrl = agent.issueNumber ? `https://github.com/${repo.fullName}/issues/${agent.issueNumber}` : null;
-  const canMessage = working || (!isQa && !!agent.branch && agent.status !== 'idle');
+  const canMessage = working || (agent.task !== 'qa' && !!agent.branch && agent.status !== 'idle');
   const qaRec = agent.prNumber ? qaRecords[`${repo.id}#${agent.prNumber}`] : undefined;
   const send = (t: string) => {
     const body = t.trim();
@@ -122,9 +122,8 @@ export function TerminalView({ agentId }: { agentId: string }) {
             {agent.name[0]}
           </span>
           <span>{agent.name}</span>
-          <span className="chip" title={agent.brief || undefined}>
-            {isQa ? '🔍' : '💻'} {agent.title || (isQa ? 'QA tester' : 'Developer')}
-            {agent.specialty ? ` · 🎯 ${agent.specialty}` : ''}
+          <span className="chip" title="Their coding agent">
+            ⌨️ {agentLabel(agent, settings, clis)}
           </span>
           <StatusPill status={agent.status} />
           {working && agent.currentTool && <span className="muted small">{toolVerb(agent.currentTool)}…</span>}
@@ -141,7 +140,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
             className={`btn btn-small setup-toggle ${showSetup ? 'setup-toggle-on' : ''}`}
             aria-expanded={showSetup}
             aria-controls="agent-setup"
-            title={`${agent.name}'s coding agent, model, effort and job`}
+            title={`${agent.name}'s name, look, coding agent, model and effort`}
             onClick={() => setShowSetup((v) => !v)}
           >
             ⚙️ Setup
@@ -163,7 +162,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
             Issue #{agent.issueNumber}: {agent.issueTitle}
           </a>
         ) : (
-          <span className="muted">{isQa ? 'Nothing under test' : 'No issue assigned'}</span>
+          <span className="muted">Nothing assigned</span>
         )}
         {agent.prUrl && agent.task === 'issue' && (
           <a href={agent.prUrl} target="_blank" rel="noreferrer" className="chip chip-good">
@@ -182,9 +181,8 @@ export function TerminalView({ agentId }: { agentId: string }) {
           </a>
         )}
         {agent.branch && <code>{agent.branch}</code>}
-        {settings.runtime === 'terminal' && <span className="chip" title="The coding agent in their terminal">⌨️ {cliName}</span>}
         <span className="muted">
-          {(agent.role === 'ceo' ? agent.model : effectiveModel(agent.model, settings.runtime === 'terminal' ? cli : 'claude', settings, 'claude-opus-5-5')) || 'default model'} ·{' '}
+          {(agent.role === 'ceo' ? agent.model : effectiveModel(agent.model, cli, settings, 'claude-opus-5-5')) || 'default model'} ·{' '}
           {agent.effort || settings.defaultEffort} effort
         </span>
         {agent.startedAt && <span className="muted">⏱ {elapsed(agent.startedAt, working ? null : agent.endedAt)}</span>}
@@ -197,12 +195,6 @@ export function TerminalView({ agentId }: { agentId: string }) {
         <div id="agent-setup" className="setup-wrap">
           <AgentSetup agent={agent} />
         </div>
-      )}
-      {agent.brief && !showSetup && (
-        <details className="small job-brief">
-          <summary>Job description{agent.hiredBy === 'ceo' ? ' (from the CEO)' : ''}</summary>
-          <Markdown text={agent.brief} />
-        </details>
       )}
 
       <div className={`term-split ${agent.hasScreenshot ? 'term-split-2' : ''}`}>
@@ -252,7 +244,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
               ? `Tell ${agent.name} something while they work${agent.terminal ? ' (typed into their terminal)' : ''}…`
               : canMessage
                 ? `Ask ${agent.name} for a follow-up (resumes their session)…`
-                : `Assign an issue to get ${agent.name} started`
+                : `Give ${agent.name} an issue or a PR to test to get them started`
           }
           disabled={!canMessage}
           autoFocus={!agent.terminal}
@@ -270,26 +262,36 @@ export function TerminalView({ agentId }: { agentId: string }) {
           </button>
         ) : (
           <>
-            <select value={issue} onChange={(e) => setIssue(e.target.value)} aria-label={isQa ? 'Pull request to test' : 'Issue to work on'}>
-              <option value="">{isQa ? 'Pick a pull request to test…' : 'Pick an issue from the backlog…'}</option>
-              {choices.map((c) => (
-                <option key={c.key} value={c.number}>
-                  {isQa ? 'PR ' : ''}#{c.number} {c.title}
-                </option>
-              ))}
+            <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Work to give them">
+              <option value="">{choices.length ? 'Pick an issue to build or a PR to test…' : 'Nothing to pick up'}</option>
+              {(['issue', 'qa'] as const).map((kind) => {
+                const group = choices.filter((c) => c.kind === kind);
+                return (
+                  group.length > 0 && (
+                    <optgroup key={kind} label={kind === 'qa' ? 'Pull requests to test' : 'Issues to build'}>
+                      {group.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {kind === 'qa' ? 'PR ' : ''}#{c.number} {c.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )
+                );
+              })}
             </select>
             <button
               className="btn btn-good"
-              disabled={busy || !issue}
+              disabled={busy || !chosen}
               onClick={() =>
+                chosen &&
                 run(async () => {
-                  if (isQa) await api.sendToQa(repo.id, Number(issue));
-                  else await api.assign(agent.id, Number(issue));
-                  setIssue('');
+                  if (chosen.kind === 'qa') await api.sendToQa(repo.id, chosen.number, agent.id);
+                  else await api.assign(agent.id, chosen.number);
+                  setPick('');
                 })
               }
             >
-              {isQa ? '🔍 Send to QA' : '▶ Start issue'}
+              {chosen?.kind === 'qa' ? `🔍 Test PR #${chosen.number}` : '▶ Start issue'}
             </button>
             {agent.status !== 'idle' && (
               <button className="btn" disabled={busy} onClick={() => run(() => api.reset(agent.id))}>

@@ -74,9 +74,9 @@ describe('a roof break, downstairs', () => {
     const team = errandNamed('roof')!;
     const ceo = errandNamed('roof-call')!;
     const restless = { statusFor: 100, seatedFor: 100, restless: 30 };
-    expect(team.when({ id: 'kai', role: 'dev', status: 'idle' }, { ...restless, floor: 'office' })).toBe(true);
-    expect(team.when({ id: 'kai', role: 'dev', status: 'working' }, { ...restless, floor: 'office' })).toBe(false);
-    expect(team.when({ id: 'kai', role: 'dev', status: 'idle' }, { ...restless, seatedFor: 5, floor: 'office' })).toBe(false);
+    expect(team.when({ id: 'kai', role: 'agent', status: 'idle' }, { ...restless, floor: 'office' })).toBe(true);
+    expect(team.when({ id: 'kai', role: 'agent', status: 'working' }, { ...restless, floor: 'office' })).toBe(false);
+    expect(team.when({ id: 'kai', role: 'agent', status: 'idle' }, { ...restless, seatedFor: 5, floor: 'office' })).toBe(false);
     expect(team.when({ id: 'boss', role: 'ceo', status: 'idle' }, { ...restless, floor: 'lobby' })).toBe(false);
     expect(ceo.when({ id: 'boss', role: 'ceo', status: 'idle' }, { ...restless, floor: 'lobby' })).toBe(true);
     expect(team.spot).toEqual(['elevator']);

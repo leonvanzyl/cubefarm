@@ -218,17 +218,13 @@ const compactCareer = (c: CareerView, secrets: readonly string[]): CareerView =>
   recent: c.recent.slice(0, 8).map((r) => ({ n: r.n, title: text(r.title, 100, secrets), at: r.at })),
 });
 
-/** An agent as the journal keeps it: what they're on and the tool in hand, never their errors, screens or brief. */
+/** An agent as the journal keeps it: what they're on and the tool in hand, never their errors or screens. */
 export function compactAgent(a: JournalAgent, secrets: readonly string[] = []): JournalAgent {
   return {
     id: a.id,
     name: text(a.name, 40, secrets),
     repoId: a.repoId,
     role: a.role,
-    title: text(a.title, 80, secrets),
-    specialty: text(a.specialty, 40, secrets),
-    brief: '',
-    hiredBy: a.hiredBy,
     look: a.look,
     task: a.task,
     desk: a.desk,
@@ -285,13 +281,10 @@ function compactRequest(r: HireRequestView, secrets: readonly string[]): HireReq
     id: r.id,
     kind: r.kind,
     repoId: r.repoId,
-    role: r.role,
     agentId: r.agentId,
     name: text(r.name, 40, secrets),
-    title: text(r.title, 80, secrets),
-    specialty: text(r.specialty, 40, secrets),
-    brief: '',
     reason: text(r.reason, 240, secrets),
+    cli: r.cli,
     model: clip(r.model, 60),
     effort: r.effort,
     look: r.look,
@@ -518,6 +511,35 @@ export function compress(lines: readonly JournalLine[]): JournalLine[] {
     if (e) out.push({ t: l.t, e });
   }
   return out;
+}
+
+// ---------- records from before agents were interchangeable ----------
+
+/** Where the old QA lab's stations were: its testers sit at these desks now, the three along the east wall. */
+const LAB_DESK = 12;
+const LAB_STATIONS = 3;
+
+/**
+ * An agent as journals and state files written before interchangeable agents (docs/agents.md) hold them, in today's
+ * shape: developers and QA testers are agents (testers keep their seat: desk 12 + their station), and the title,
+ * specialty, brief and hiredBy go, as does their career's bySpecialty. Today's records come back unchanged. `T`: the
+ * record's type today (the journal's agent unless said otherwise, e.g. the state file's).
+ */
+export function legacyAgent<T extends object = JournalAgent>(a: T | Record<string, unknown>): T {
+  const { title: _title, specialty: _specialty, brief: _brief, hiredBy: _hiredBy, ...rest } = a as Record<string, unknown>;
+  const desk = typeof rest.desk === 'number' ? rest.desk : 0;
+  const out: Record<string, unknown> = { ...rest, role: rest.role === 'ceo' ? 'ceo' : 'agent', desk: rest.role === 'qa' ? LAB_DESK + (desk % LAB_STATIONS) : desk };
+  if (rest.career && typeof rest.career === 'object') {
+    const { bySpecialty: _by, ...career } = rest.career as Record<string, unknown>;
+    out.career = career;
+  }
+  return out as T;
+}
+
+/** A team change as old journals and state files hold it, in today's shape: no role, title, specialty or brief; cli '' when it had none. */
+export function legacyRequest<T extends object = HireRequestView>(r: T | Record<string, unknown>): T {
+  const { role: _role, title: _title, specialty: _specialty, brief: _brief, ...rest } = r as Record<string, unknown>;
+  return { ...rest, cli: typeof rest.cli === 'string' ? rest.cli : '' } as T;
 }
 
 // ---------- reading ----------

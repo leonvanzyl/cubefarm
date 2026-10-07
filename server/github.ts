@@ -1,4 +1,4 @@
-import { gh, ghJson } from './exec.ts';
+import { CommandError, gh, ghJson } from './exec.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
 // All GitHub access goes through the gh CLI so it reuses the user's existing `gh auth login`.
@@ -130,13 +130,18 @@ export async function listPulls(fullName: string): Promise<PullInfo[]> {
   return [...open, ...merged].map(toPull);
 }
 
-// swarm:<specialty> labels route issues to specialists. gh refuses unknown labels, so they're created on first use.
+// gh refuses labels a repository doesn't have, so the ones the office adds are created on first use. A label that
+// already exists keeps its colour and description.
 const labelsMade = new Set<string>();
 
 async function ensureLabel(fullName: string, name: string) {
   const key = `${fullName}#${name}`;
   if (labelsMade.has(key)) return;
-  await gh(['label', 'create', name, '-R', fullName, '--color', 'c77dff', '--description', 'cubefarm: routed to this specialty', '--force']);
+  try {
+    await gh(['label', 'create', name, '-R', fullName, '--color', 'c77dff', '--description', 'Added by cubefarm']);
+  } catch (err) {
+    if (!(err instanceof CommandError && /already exists/i.test(err.stderr))) throw err;
+  }
   labelsMade.add(key);
 }
 

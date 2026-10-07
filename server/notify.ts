@@ -23,7 +23,7 @@ export interface Note {
 const PLURAL: Record<NotifyEvent, string> = {
   needsHuman: 'PRs need you',
   ceoMessage: 'messages from the CEO',
-  hire: 'proposals wait for you',
+  hire: 'team changes wait for you',
   agentError: 'agents need help',
   usage: 'usage changes',
   merge: 'merges',

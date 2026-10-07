@@ -4,7 +4,7 @@ import { branchIssue, issueTaken, issuesResolvedBy, RECENT_MERGE_MS, type ClaimA
 const NOW = Date.parse('2026-10-04T12:00:00Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 const pull = (p: Partial<ClaimPull>): ClaimPull => ({ state: 'OPEN', headRefName: 'feature', closesIssues: [], mergedAt: null, ...p });
-const dev = (a: Partial<ClaimAgent>): ClaimAgent => ({ role: 'dev', task: 'issue', issueNumber: null, status: 'working', ...a });
+const dev = (a: Partial<ClaimAgent>): ClaimAgent => ({ role: 'agent', task: 'issue', issueNumber: null, status: 'working', ...a });
 
 describe('branchIssue', () => {
   it('reads the issue from a swarm branch only', () => {
@@ -31,10 +31,11 @@ describe('issueTaken', () => {
     expect(issueTaken(12, [], [], NOW)).toBe(false);
   });
 
-  it('is taken while a developer works on it', () => {
+  it('is taken while an agent builds it, not while one tests a PR for it', () => {
     expect(issueTaken(12, [dev({ issueNumber: 12 })], [], NOW)).toBe(true);
     expect(issueTaken(12, [dev({ issueNumber: 12, status: 'idle' })], [], NOW)).toBe(false);
     expect(issueTaken(12, [dev({ issueNumber: 12, task: 'qa' })], [], NOW)).toBe(false);
+    expect(issueTaken(12, [dev({ issueNumber: 12, role: 'ceo' })], [], NOW)).toBe(false);
   });
 
   it('is taken by an open PR that closes it', () => {

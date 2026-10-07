@@ -23,7 +23,7 @@ const agent = (over: Partial<WatchAgent> = {}): WatchAgent => ({
   id: 'a1',
   name: 'Dennis',
   repoId: 'r1',
-  role: 'dev',
+  role: 'agent',
   status: 'working',
   task: 'issue',
   issueNumber: 207,
@@ -59,13 +59,13 @@ describe('diagnose', () => {
   });
 
   it('finds a PR in "testing" whose tester is idle, after a grace for the report to post', () => {
-    const tester = (status: string) => agent({ id: 'q1', role: 'qa', task: 'qa', prNumber: 181, status });
+    const tester = (status: string) => agent({ id: 'q1', task: 'qa', prNumber: 181, status });
     expect(diagnose([tester('working')], [rec()], [], NOW)).toEqual([]);
     expect(diagnose([tester('idle')], [rec()], [], NOW)).toMatchObject([{ kind: 'qa-orphan', prNumber: 181, agentId: 'q1' }]);
     expect(diagnose([tester('idle')], [rec({ updatedAt: NOW - ORPHAN_GRACE_MS + 1 })], [], NOW)).toEqual([]);
   });
 
-  it('finds a PR in "fixing" whose developer is on something else', () => {
+  it('finds a PR in "fixing" whose fixer is on something else', () => {
     const fixing = rec({ status: 'fixing' });
     expect(diagnose([agent({ task: 'fix', prNumber: 181 })], [fixing], [], NOW)).toEqual([]);
     expect(diagnose([agent({ task: 'issue', issueNumber: 300 })], [fixing], [], NOW)).toMatchObject([{ kind: 'fix-orphan', agentId: 'a1' }]);
@@ -101,7 +101,7 @@ describe('triage', () => {
 
   it('heals the rest on its own', () => {
     const problems = diagnose(
-      [agent({ status: 'preparing', startedAt: 0 }), agent({ id: 'a2', status: 'error', work: 'merged' }), agent({ id: 'q1', role: 'qa', status: 'idle', task: null })],
+      [agent({ status: 'preparing', startedAt: 0 }), agent({ id: 'a2', status: 'error', work: 'merged' }), agent({ id: 'q1', status: 'idle', task: null })],
       [rec(), rec({ prNumber: 182, status: 'fixing' })],
       [],
       NOW,

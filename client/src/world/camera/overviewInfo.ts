@@ -15,10 +15,10 @@ export const CHIP_COLORS: Record<ChipKind, string> = {
 };
 
 /** The chip for someone: in trouble, testing a PR, fixing one, on an issue, or not busy. */
-export function chipFor(a: Pick<Agent, 'status' | 'role' | 'task'>): ChipKind {
+export function chipFor(a: Pick<Agent, 'status' | 'task'>): ChipKind {
   if (a.status === 'error') return 'error';
   if (a.status !== 'working' && a.status !== 'preparing') return 'idle';
-  if (a.role === 'qa' || a.task === 'qa') return 'testing';
+  if (a.task === 'qa') return 'testing';
   return a.task === 'fix' ? 'fixing' : 'working';
 }
 
@@ -31,7 +31,7 @@ export interface FloorSummary {
   needsYou: number;
   /** People stuck on an error. */
   errors: number;
-  /** Everyone's chip: developers by desk, then the QA lab. */
+  /** Everyone's chip, by desk. */
   chips: ChipKind[];
 }
 
@@ -39,7 +39,7 @@ export interface FloorSummary {
 export function floorSummary(repo: RepoView, agents: Agent[], qa: Record<string, QaView>): FloorSummary {
   const people = agents
     .filter((a) => a.repoId === repo.id && a.role !== 'ceo')
-    .sort((a, b) => (a.role === b.role ? a.desk - b.desk : a.role === 'dev' ? -1 : 1));
+    .sort((a, b) => a.desk - b.desk);
   const chips = people.map(chipFor);
   const prs = floorPrCounts(repo, qa);
   return {

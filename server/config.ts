@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { FLOOR_SEATS } from '../shared/types.ts';
 
 export const PORT = Number(process.env.SWARM_PORT ?? 4317);
 // package.json sits one folder up both from server/ and from the published dist-server/.
@@ -15,11 +16,11 @@ export const DEMO = process.argv.includes('--demo') || process.env.SWARM_DEMO ==
 /** A demo company bigger than the usual two floors, for scale tests: floors, and people on each (#228). */
 export interface DemoScale {
   floors: number;
-  /** People per floor: up to 12 developers and 3 QA testers (the desks and stations a floor has). */
+  /** Agents per floor: up to FLOOR_SEATS, the desks a floor has. */
   agents: number;
 }
 
-export const DEMO_MAX = { floors: 20, agents: 15 };
+export const DEMO_MAX = { floors: 20, agents: FLOOR_SEATS };
 
 /**
  * `--floors 10 --agents 15` (or `--floors=10`, or SWARM_DEMO_FLOORS / SWARM_DEMO_AGENTS) for the demo's big company;

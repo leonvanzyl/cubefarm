@@ -151,8 +151,8 @@ function quietly(fn: () => void) {
 // ---------- CLIs that outlive their session ----------
 
 /**
- * A CLI running in an agent's terminal. It can outlive the office session that started it: when a developer's task
- * is done their CLI waits at its prompt, so the manager can keep using it, and a follow-up picks it up again. It also
+ * A CLI running in an agent's terminal. It can outlive the office session that started it: when an agent has built or
+ * fixed something their CLI waits at its prompt, so the manager can keep using it, and a follow-up picks it up again. It also
  * outlives an office restart, held by the terminal keeper.
  */
 interface LiveCli {
@@ -386,7 +386,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     }
   };
 
-  /** The session is over. A developer's CLI that ended its turn normally stays at its prompt (keep); others close. */
+  /** The session is over. A CLI kept alive (keepAlive) that ended its turn normally stays at its prompt (keep); others close. */
   const finish = (r: Omit<SessionResult, 'costUsd' | 'turns'>, keep = false) => {
     if (done) return;
     done = true;
@@ -689,7 +689,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     if (/^(NO_COLOR|FORCE_COLOR|TERM_PROGRAM|TERM_PROGRAM_VERSION|CODEX_THREAD_ID|OPENCODE_CONFIG_CONTENT)$/i.test(k)) continue;
     env[k] = v;
   }
-  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, launch.env);
+  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, opts.env, launch.env);
 
   if (cli === 'claude' && opts.resumeSessionId) cb.sessionId(sessionId);
   term.note(`── ${label}${opts.label ? ` · ${opts.label}` : ''} ──`);

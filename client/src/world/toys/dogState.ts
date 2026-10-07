@@ -21,7 +21,7 @@ const playerFloor = () => useStore.getState().floor;
 
 const forced = new Set<string>();
 
-/** The developers on the floor of `repoId` having a hard time (dogTravel.ts hardTimes), QA's forced ones included. */
+/** The agents on the floor of `repoId` having a hard time (dogTravel.ts hardTimes), QA's forced ones included. */
 export function troubled(repoId: string): string[] {
   const s = useStore.getState();
   const repo = s.repos.find((r) => r.id === repoId);

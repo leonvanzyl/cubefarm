@@ -78,7 +78,7 @@ function ManagerComputer() {
         ['Sessions running', stats.max ? `${stats.working} / ${stats.max}` : `${stats.working}`],
         ['Open issues', `${stats.issues}`],
         ['PRs in QA / ready to merge', `${stats.inQa} / ${stats.readyToMerge}`],
-        ['📄 Hiring decisions waiting', `${stats.pending}`],
+        ['👥 Team changes waiting', `${stats.pending}`],
       ];
       rows.forEach(([k, v], i) => {
         const y = 150 + i * 68;
@@ -223,12 +223,19 @@ function TrophyCabinet() {
   );
 }
 
-/** The CEO's wall screen: what they're doing, what's next, and who's waiting to be hired. */
+/** The CEO's wall screen: what they're doing, what's next, and the team changes waiting for the manager. */
 function CeoBoard() {
   const ceo = useStore((s) => s.agents[CEO_ID]);
   const info = useStore((s) => s.ceo);
   const requests = useStore((s) => s.requests);
-  const pending = pendingRequests(requests).length;
+  const waiting = pendingRequests(requests);
+  const pending = waiting.length;
+  const hires = waiting.filter((r) => r.kind === 'hire').length;
+  const changes = !pending
+    ? '👥 no team changes waiting'
+    : hires === pending
+      ? `🪑 ${hires} new agent${hires === 1 ? '' : 's'} waiting in the lobby`
+      : `👥 ${pending} team change${pending === 1 ? '' : 's'} waiting`;
   const now = ceo?.status === 'working' ? (info.job?.label ?? 'Working') : 'Free for a chat (press P)';
   const next = info.queue.length ? `${info.queue[0].label}${info.queue.length > 1 ? ` (+${info.queue.length - 1})` : ''}` : 'nothing queued';
   return (
@@ -246,12 +253,12 @@ function CeoBoard() {
             { text: `🧠 ${ceo?.name ?? 'CEO'}'s board`, size: 54 },
             { text: `Now: ${now}`, size: 36, weight: 600 },
             { text: `Next: ${next}`, size: 32, weight: 500, color: 'rgba(255,255,255,0.8)' },
-            { text: pending ? `📄 ${pending} candidate${pending === 1 ? '' : 's'} waiting for you` : '📄 no candidates waiting', size: 34, weight: 600, color: pending ? '#ffe066' : '#ffffff' },
+            { text: changes, size: 34, weight: 600, color: pending ? '#ffe066' : '#ffffff' },
           ],
           '#3c2a63',
         )
       }
-      deps={[ceo?.name, now, next, pending]}
+      deps={[ceo?.name, now, next, changes, pending]}
     />
   );
 }

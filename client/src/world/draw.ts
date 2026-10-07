@@ -103,13 +103,13 @@ export function drawTerminal(
       : agent.role === 'ceo'
         ? (agent.issueTitle ?? 'running the company').toLowerCase()
         : agent.task === 'qa'
-          ? `QA of PR #${agent.prNumber}`
+          ? `testing PR #${agent.prNumber}`
           : agent.task === 'fix'
             ? `fixing PR #${agent.prNumber}`
             : agent.issueNumber
               ? `issue #${agent.issueNumber}`
               : 'idle';
-  const host = agent.role === 'qa' ? 'qa-lab' : agent.role === 'ceo' ? 'hq' : 'swarm';
+  const host = agent.role === 'ceo' ? 'hq' : 'swarm';
   const title = `${agent.name.toLowerCase()}@${host} — ${job} — ${program}`;
   ctx.fillText(title, 84, barH / 2 + 1);
 
@@ -187,7 +187,7 @@ function drawScreensaver(ctx: CanvasRenderingContext2D, x: number, y: number, w:
   ctx.fillText(`${agent.name} is free`, bx, by + 34);
   ctx.fillStyle = '#b8b8dd';
   ctx.font = `18px ${SANS}`;
-  ctx.fillText(agent.role === 'qa' ? 'waiting for a PR to test…' : agent.role === 'ceo' ? 'thinking about the company…' : 'waiting for an issue…', bx, by + 62);
+  ctx.fillText(agent.role === 'ceo' ? 'thinking about the company…' : 'waiting for work…', bx, by + 62);
   ctx.textAlign = 'left';
 }
 
@@ -552,11 +552,9 @@ export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, age
             ? '❗'
             : agent.status === 'stopped'
               ? '⏸️'
-              : agent.role === 'qa'
-                ? '🧪'
-                : agent.role === 'ceo'
-                  ? '🏛️'
-                  : '☕';
+              : agent.role === 'ceo'
+                ? '🏛️'
+                : '☕';
   roundRect(ctx, 4, 4, w - 8, h - 8, (h - 8) / 2);
   ctx.fillStyle = 'rgba(255,255,255,0.94)';
   ctx.fill();
@@ -572,19 +570,13 @@ export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, age
   let label =
     agent.role === 'ceo'
       ? `${agent.name} · CEO`
-      : agent.role === 'qa'
-        ? busy && agent.prNumber
-          ? `${agent.name} · QA PR #${agent.prNumber}`
-          : `${agent.name} · ${agent.title || 'QA'}`
-        : busy && agent.task === 'fix' && agent.prNumber
-          ? `${agent.name} · 🔧 PR #${agent.prNumber}`
-          : busy && agent.task === 'qa' && agent.prNumber
-            ? `${agent.name} · 🧪 PR #${agent.prNumber}`
-            : busy && agent.issueNumber
-              ? `${agent.name} · #${agent.issueNumber}`
-              : agent.title
-                ? `${agent.name} · ${agent.title}`
-                : agent.name;
+      : busy && agent.task === 'fix' && agent.prNumber
+        ? `${agent.name} · 🔧 PR #${agent.prNumber}`
+        : busy && agent.task === 'qa' && agent.prNumber
+          ? `${agent.name} · 🧪 PR #${agent.prNumber}`
+          : busy && agent.issueNumber
+            ? `${agent.name} · #${agent.issueNumber}`
+            : agent.name;
   // With status shapes on, a badge at the right end says the status in shape and colour (the icon on the left is the detail).
   const badge = look.shapes ? h * 0.32 : 0;
   while (label.length > 4 && ctx.measureText(label).width > w - 96 - badge * 2) label = `${label.slice(0, -2)}…`;
@@ -592,8 +584,8 @@ export function drawTag(ctx: CanvasRenderingContext2D, w: number, h: number, age
   if (badge) drawStatusBadge(ctx, w - 14 - badge, h / 2, badge, STATUS_KIND[agent.status], look);
 }
 
-/** Name tag for a candidate in the waiting room: who they are and the job they're up for. */
-export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: number, name: string, title: string, floor: number | null, color: string) {
+/** Name tag for a candidate in the waiting room: who they are, a detail (their coding agent, say) and their floor. */
+export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: number, name: string, detail: string, floor: number | null, color: string) {
   ctx.clearRect(0, 0, w, h);
   roundRect(ctx, 4, 4, w - 8, h - 8, 28);
   ctx.fillStyle = 'rgba(255,255,255,0.95)';
@@ -616,7 +608,7 @@ export function drawCandidateTag(ctx: CanvasRenderingContext2D, w: number, h: nu
   ctx.fillText(fit(`Candidate: ${name}`, w - 100), 80, h * 0.36);
   ctx.fillStyle = '#5c6078';
   ctx.font = `600 28px ${SANS}`;
-  ctx.fillText(fit(`${title}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
+  ctx.fillText(fit(`${detail}${floor ? ` · Floor ${floor}` : ''}`, w - 100), 80, h * 0.72);
 }
 
 export function drawSign(ctx: CanvasRenderingContext2D, w: number, h: number, lines: { text: string; size: number; color?: string; weight?: number }[], bg: string, fg = '#ffffff') {

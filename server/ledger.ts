@@ -29,7 +29,6 @@ import type { PullInfo } from '../shared/types.ts';
 export interface PrTrack {
   author: string | null;
   title: string;
-  specialty: string;
   qaPass: number;
   qaFail: number;
   /** Its first QA round's verdict (a PR first seen after round 1 counts as 'fail': no first-time bonus). */
@@ -68,8 +67,8 @@ export type LedgerEvent =
   | { kind: 'let-go'; agentId: string }
   /** An open PR on GitHub, as a sync sees it. */
   | { kind: 'pr-open'; repoId: string; pr: number; title: string; author: string | null; checks: PullInfo['checks']; at: number }
-  /** A developer's session ended with this PR open. */
-  | { kind: 'opened'; repoId: string; pr: number; title: string; author: string; specialty: string; at: number }
+  /** An agent's session building an issue ended with this PR open. */
+  | { kind: 'opened'; repoId: string; pr: number; title: string; author: string; at: number }
   | { kind: 'qa'; repoId: string; pr: number; round: number; pass: boolean; tester: string | null; author: string | null; at: number }
   /** A fix round started; `key` tells rounds apart. */
   | { kind: 'fix'; repoId: string; pr: number; key: string; at: number }
@@ -134,7 +133,7 @@ function careerOf(s: LedgerState, agentId: string, out: Effects): CareerView | n
 }
 
 function track(s: LedgerState, repoId: string, pr: number, at: number): PrTrack {
-  return (s.prs[prKey(repoId, pr)] ??= { author: null, title: '', specialty: '', qaPass: 0, qaFail: 0, first: null, ci: 'none', fixRounds: 0, needsHuman: false, since: at });
+  return (s.prs[prKey(repoId, pr)] ??= { author: null, title: '', qaPass: 0, qaFail: 0, first: null, ci: 'none', fixRounds: 0, needsHuman: false, since: at });
 }
 
 function unlock(s: LedgerState, out: Effects, id: AchievementId, detail: string, at: number) {
@@ -191,7 +190,6 @@ export function apply(s: LedgerState, ev: LedgerEvent): Effects {
       const t = track(s, ev.repoId, ev.pr, ev.at);
       t.author = ev.author;
       t.title = ev.title.slice(0, 80) || t.title;
-      t.specialty = ev.specialty;
       out.changed = true;
       const c = markSeen(s, `open:${prKey(ev.repoId, ev.pr)}`) ? careerOf(s, ev.author, out) : null;
       if (c) c.opened++;
@@ -325,7 +323,6 @@ function merged(s: LedgerState, ev: Extract<LedgerEvent, { kind: 'merged' }>, ou
   if (c) {
     c.merged++;
     c.fixRounds += t.fixRounds;
-    c.bySpecialty[t.specialty] = (c.bySpecialty[t.specialty] ?? 0) + 1;
     c.recent = [{ n: ev.pr, title, at: ev.at }, ...c.recent].slice(0, RECENT_KEEP);
     c.week = [...c.week.filter((x) => x > ev.at - WEEK_MS), ev.at].slice(-100);
   }
@@ -430,7 +427,6 @@ export function loadLedger(raw: unknown): LedgerState {
     s.prs[key] = {
       author: typeof x.author === 'string' ? x.author : null,
       title: typeof x.title === 'string' ? x.title : '',
-      specialty: typeof x.specialty === 'string' ? x.specialty : '',
       qaPass: num(x.qaPass),
       qaFail: num(x.qaFail),
       first: x.first === 'pass' || x.first === 'fail' ? x.first : null,
@@ -459,8 +455,6 @@ export function loadLedger(raw: unknown): LedgerState {
   }
   for (const [id, c] of Object.entries(obj(r.careers))) {
     const x = obj(c);
-    const by: Record<string, number> = {};
-    for (const [k, n] of Object.entries(obj(x.bySpecialty))) if (num(n) > 0) by[k] = num(n);
     s.careers[id] = {
       ...newCareer(num(x.since, Date.now())),
       opened: num(x.opened),
@@ -472,7 +466,6 @@ export function loadLedger(raw: unknown): LedgerState {
       run: num(x.run),
       best: num(x.best),
       reviews: num(x.reviews),
-      bySpecialty: by,
       costUsd: num(x.costUsd),
       turns: num(x.turns),
       recent: (Array.isArray(x.recent) ? x.recent : [])

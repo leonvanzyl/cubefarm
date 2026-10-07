@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { query, type CanUseTool, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentCli, AgentRole, EffortLevel, LogKind } from '../shared/types.ts';
+import type { AgentCli, AgentRole, AgentTask, EffortLevel, LogKind } from '../shared/types.ts';
 import type { OfficeTools } from './ceo.ts';
 import type { UsageWarning } from './pacing.ts';
 import type { AgentTerminal } from './terminal.ts';
@@ -9,7 +9,7 @@ import { browserProblem, playwrightMcp } from './browser.ts';
 import { CROSS_TURN_TOOLS } from './clis.ts';
 import { VERSION } from './config.ts';
 
-// One Claude Code instance (via the Claude Agent SDK) working one issue in its own git worktree.
+// One Claude Code instance (via the Claude Agent SDK) on one task (building an issue, testing or fixing a PR) in its own git worktree.
 // The CEO runs through here too, with the office tools instead of a shell.
 
 export interface SessionOptions {
@@ -21,6 +21,10 @@ export interface SessionOptions {
   browserTesting: boolean;
   additionalDirectories: string[]; // read-only reference clones of linked repos
   role: AgentRole;
+  /** The task the session is for (an agent's: building an issue, testing a PR or fixing one); null or absent for the CEO. */
+  task?: AgentTask | null;
+  /** The agent's machine's environment (its temp folder), on top of the office's. */
+  env?: Record<string, string>;
   /** JSON schema for a structured final answer (QA reports). */
   outputSchema?: Record<string, unknown>;
   resumeSessionId?: string;
@@ -232,14 +236,16 @@ export function describeOfficeTool(action: string, input: Record<string, unknown
       return `🔎 agent_detail ${String(input.agent_id ?? '')}`;
     case 'set_floor_profile':
       return `🗂️ set_floor_profile${floor}${input.summary ? `: ${clip(String(input.summary), 90)}` : ''}`;
-    case 'update_job':
-      return `🪪 update_job ${input.title ? `"${clip(String(input.title), 60)}"` : String(input.agent_id ?? '')}`;
-    case 'propose_hire':
-      return `🤝 propose_hire ${input.role === 'qa' ? 'QA ' : ''}"${clip(String(input.title ?? ''), 60)}"${floor}`;
-    case 'propose_let_go':
-      return `👋 propose_let_go ${String(input.agent_id ?? '')}`;
+    case 'scale_team':
+      return `📈 scale_team floor ${String(input.floor ?? '?')} → ${String(input.size ?? '?')}${input.reason ? `: ${clip(String(input.reason), 90)}` : ''}`;
+    case 'configure_agent': {
+      const set = [input.cli, input.model, input.effort].filter((x) => typeof x === 'string' && x !== '');
+      return `⚙️ configure_agent ${String(input.agent_id ?? '')}${set.length ? `: ${set.join(' · ')}` : ''}`;
+    }
     case 'file_issue':
-      return `📝 file_issue "${clip(String(input.title ?? ''), 70)}"${floor}${input.specialty ? ` · ${input.specialty}` : ''}`;
+      return `📝 file_issue "${clip(String(input.title ?? ''), 70)}"${floor}`;
+    case 'set_dependencies':
+      return `🔗 set_dependencies #${String(input.number ?? '?')}${floor}${Array.isArray(input.depends_on) ? ` · depends on ${input.depends_on.map((n) => `#${n}`).join(', ') || 'nothing'}` : ''}`;
     case 'close_issue':
       return `🗂️ close_issue #${String(input.number ?? '?')}${floor}`;
     case 'retry_qa':
@@ -252,8 +258,6 @@ export function describeOfficeTool(action: string, input: Record<string, unknown
       return `🗂️ close_pull PR #${String(input.pr ?? '?')}${floor}`;
     case 'escalate':
       return `📣 escalate PR #${String(input.pr ?? '?')}${floor}${input.reason ? `: ${clip(String(input.reason), 90)}` : ''}`;
-    case 'route_issue':
-      return `🔀 route_issue #${String(input.number ?? '?')}${floor}${input.specialty !== undefined ? ` · ${input.specialty || 'no specialty'}` : ''}${Array.isArray(input.depends_on) ? ` · depends on ${input.depends_on.map((n) => `#${n}`).join(', ') || 'nothing'}` : ''}`;
   }
   return `🏢 ${action}(${clip(JSON.stringify(input), 120)})`;
 }
@@ -323,6 +327,7 @@ export function startSession(opts: SessionOptions, callbacks: SessionCallbacks):
     if (/^(ANTHROPIC_|CLAUDE)/i.test(k) && k !== 'CLAUDE_CONFIG_DIR') continue;
     env[k] = v;
   }
+  Object.assign(env, opts.env);
   env.CLAUDE_AGENT_SDK_CLIENT_APP = `cubefarm/${VERSION}`;
 
   const mcpServers: Options['mcpServers'] = {};

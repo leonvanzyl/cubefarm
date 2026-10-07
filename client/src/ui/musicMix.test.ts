@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EYE_HEIGHT, FLOOR_D, FLOOR_W, HALF_D, HALF_W, JUKEBOX, MAX_DESKS, QA_LAB, deskPosition } from '../world/layout';
+import { EYE_HEIGHT, FLOOR_D, FLOOR_W, HALF_D, HALF_W, JUKEBOX, SEATS, deskPosition } from '../world/layout';
 import {
   DEFAULT_MUSIC_LEVEL,
   DUCK_DB,
@@ -72,8 +72,8 @@ describe('music levels', () => {
     expect(db(musicGainAt(MAX_MUSIC_LEVEL, 1) / musicGainAt(MAX_MUSIC_LEVEL, far))).toBeGreaterThan(6);
   });
 
-  it('reaches the farthest desk and QA station at the top level, where the old level was silent', () => {
-    const spots = [...Array.from({ length: MAX_DESKS }, (_, i) => deskPosition(i)), ...QA_LAB.stations.map((z) => ({ x: QA_LAB.x, z }))];
+  it('reaches the farthest desk at the top level, where the old level was silent', () => {
+    const spots = Array.from({ length: SEATS }, (_, i) => deskPosition(i));
     const farthest = Math.max(...spots.map((p) => fromJukebox(JUKEBOX.officeX, p.x, p.z)));
     expect(before(farthest)).toBe(0);
     expect(musicGainAt(MAX_MUSIC_LEVEL, farthest)).toBeGreaterThan(before(2));

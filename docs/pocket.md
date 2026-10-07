@@ -15,7 +15,7 @@ visit. Five tabs, at the bottom:
 | **Chat** | The CEO's phone thread, with ▶ to replay messages read aloud. |
 | **Kanban** | Each floor's board, one column under the other: assign, send to QA, merge, close, file issues. |
 | **Team** | Everyone's status and what they're on, with **Message**, **■ Stop**, **↺ Clear desk**, assigning an issue (or a PR to test) and their terminal. |
-| **Approvals** | Hires and let-gos waiting for you, stuck PRs (**Retry QA**, **Send back**, **Merge anyway**, **Close**) and passed PRs on floors without auto-merge. |
+| **Approvals** | Team changes waiting for you (new agents to set up and hire, agents leaving), stuck PRs (**Retry QA**, **Send back**, **Merge anyway**, **Close**) and passed PRs on floors without auto-merge. |
 
 Pocket mode uses the same live connection and commands as the 3D office, and loads no 3D at all until you tap
 **🏢 Open the 3D office** (Company tab, or ⚙️).
@@ -37,7 +37,7 @@ about:
 
 - a pull request needs you (stuck, and the CEO has handed it to you)
 - a message from the CEO
-- a hire or let-go waits for your decision
+- a team change waits for your decision
 - someone has been stuck in an error for over 10 minutes
 - Claude's usage limit pauses the office, or a usage warning paces it
 - every merge (off unless you turn it on)

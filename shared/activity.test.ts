@@ -137,6 +137,9 @@ describe('toolActivity', () => {
     expect(tool('mcp__playwright__browser_take_screenshot', '🌐 take_screenshot')).toEqual({ kind: 'browse', detail: 'take screenshot' });
     expect(tool('mcp__office__file_issue', '📝 file_issue "Add dark mode" → floor 2')).toEqual({ kind: 'git', detail: 'file issue' });
     expect(tool('mcp__office__escalate', '📣 escalate PR #12 → floor 1: stuck')).toEqual({ kind: 'talk', detail: 'escalate #12' });
+    expect(tool('mcp__office__scale_team', '📈 scale_team floor 1 → 6')).toEqual({ kind: 'talk', detail: 'scale team' });
+    expect(tool('mcp__office__configure_agent', '⚙️ configure_agent ada')).toEqual({ kind: 'edit', detail: 'configure agent' });
+    expect(tool('mcp__office__set_dependencies', '🔗 set_dependencies #4 → floor 1')).toEqual({ kind: 'edit', detail: 'set dependencies #4' });
   });
 
   it('ignores bookkeeping', () => {
@@ -193,7 +196,7 @@ describe('agentActivity', () => {
     expect(agentActivity(base, null)).toEqual({ kind: 'read', detail: 'issue #7' });
   });
 
-  it('QA testers always show 🔍 and fixers 🔧, with what they are doing as the detail', () => {
+  it('agents testing a PR always show 🔍 and fixers 🔧, with what they are doing as the detail', () => {
     expect(agentActivity({ ...base, task: 'qa', prNumber: 12 }, seen('test', 'npm test'))).toEqual({ kind: 'qa', detail: 'npm test' });
     expect(agentActivity({ ...base, task: 'qa', prNumber: 12 }, null)).toEqual({ kind: 'qa', detail: 'PR #12' });
     expect(agentActivity({ ...base, task: 'fix', prNumber: 12 }, seen('edit', 'styles.css'))).toEqual({ kind: 'fix', detail: 'styles.css' });

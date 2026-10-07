@@ -3,16 +3,16 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { AgentLook, AgentRole } from '../../../shared/types';
 import { HAIR_STYLES, OUTFITS, cleanStyle } from '../../../shared/looks';
-import { ACCENTS, BUILD_SHAPE, TALL_HAIR, accessoryFor, appearanceFor, randomStyle, seededAppearance, type Appearance } from './appearance';
+import { ACCENTS, BUILD_SHAPE, TALL_HAIR, appearanceFor, randomStyle, seededAppearance, type Appearance } from './appearance';
 import { PARTS } from './characterParts';
 import { EYES, MORPHS, MORPH_AT, MOUTH } from './face';
 
 const ids = Array.from({ length: 400 }, (_, i) => `${i.toString(16).padStart(4, '0')}-${(i * 2654435761) % 1e9}`);
-const all = (look: AgentLook, role: AgentRole = 'dev') => ids.map((id) => appearanceFor({ id, look, role }));
+const all = (look: AgentLook, role: AgentRole = 'agent') => ids.map((id) => appearanceFor({ id, look, role }));
 
 describe('appearanceFor', () => {
   it('is deterministic for an agent id', () => {
-    const agent = { id: 'b3c1f0de-7d2a-4d6e-9f5b-0a1b2c3d4e5f', look: 'masculine' as const, role: 'dev' as const };
+    const agent = { id: 'b3c1f0de-7d2a-4d6e-9f5b-0a1b2c3d4e5f', look: 'masculine' as const, role: 'agent' as const };
     expect(appearanceFor(agent)).toEqual(appearanceFor({ ...agent }));
   });
 
@@ -32,7 +32,7 @@ describe('appearanceFor', () => {
     expect(BUILD_SHAPE.broad.width).toBeGreaterThan(BUILD_SHAPE.average.width);
   });
 
-  it('uses every hairstyle, facial hair, accessory and outfit', () => {
+  it('uses every hairstyle, facial hair, glasses, hat and outfit', () => {
     const m = all('masculine');
     const f = all('feminine');
     const seen = (key: keyof Appearance, list: Appearance[]) => new Set(list.map((a) => String(a[key])));
@@ -71,23 +71,22 @@ describe('appearanceFor', () => {
     for (const a of all('feminine')) expect(a.facialHair).toBe('none');
   });
 
-  it('keeps QA and the CEO in uniform', () => {
+  it('keeps the CEO in their suit, bare-headed; glasses are for anyone', () => {
     for (const look of ['masculine', 'feminine'] as const) {
-      for (const a of all(look, 'qa')) {
-        expect(a).toMatchObject({ glasses: 'none', headphones: false, headwear: 'none', outfit: 'tee', accessory: null });
-      }
-      for (const a of all(look, 'ceo')) expect(a).toMatchObject({ headphones: false, headwear: 'none', outfit: 'tee', accessory: null });
+      const ceo = all(look, 'ceo');
+      for (const a of ceo) expect(a).toMatchObject({ headphones: false, headwear: 'none', outfit: 'tee' });
+      expect(new Set(ceo.map((a) => a.glasses))).toEqual(new Set(['none', 'round', 'square']));
     }
   });
 
   it('takes their colours from the agent', () => {
-    const a = appearanceFor({ id: 'x', look: 'feminine', role: 'dev', hair: '#123456', skin: '#654321' });
+    const a = appearanceFor({ id: 'x', look: 'feminine', role: 'agent', hair: '#123456', skin: '#654321' });
     expect(a).toMatchObject({ hairColor: '#123456', skin: '#654321' });
   });
 });
 
 describe('the look editor over the seeded look', () => {
-  const agent = { id: 'c0ffee', look: 'masculine' as const, role: 'dev' as const, hair: '#2b2118', skin: '#ffdbac' };
+  const agent = { id: 'c0ffee', look: 'masculine' as const, role: 'agent' as const, hair: '#2b2118', skin: '#ffdbac' };
 
   it('lays the picks over the seeded look', () => {
     const seeded = seededAppearance(agent);
@@ -107,8 +106,8 @@ describe('the look editor over the seeded look', () => {
     }
   });
 
-  it('keeps uniforms: QA their inspector glasses and coat, the CEO their blazer', () => {
-    expect(appearanceFor({ ...agent, role: 'qa', style: { glasses: 'square', outfit: 'hoodie' } })).toMatchObject({ glasses: 'none', outfit: 'tee' });
+  it('keeps the CEO in their blazer', () => {
+    expect(appearanceFor({ ...agent, style: { glasses: 'square', outfit: 'hoodie' } })).toMatchObject({ glasses: 'square', outfit: 'hoodie' });
     expect(appearanceFor({ ...agent, role: 'ceo', style: { outfit: 'hoodie', glasses: 'round' } })).toMatchObject({ glasses: 'round', outfit: 'tee' });
   });
 
@@ -122,38 +121,17 @@ describe('the look editor over the seeded look', () => {
     let seed = 7;
     const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
     for (let i = 0; i < 200; i++) {
-      for (const role of ['dev', 'qa', 'ceo'] as const) {
+      for (const role of ['agent', 'ceo'] as const) {
         const s = randomStyle({ look: i % 2 ? 'feminine' : 'masculine', role }, rand);
         expect(cleanStyle(s)).toEqual(s);
         if (s.headwear !== 'none') expect(TALL_HAIR).not.toContain(s.hair);
         if (i % 2) expect(s.facialHair).toBe('none');
-        if (role !== 'dev') expect(s.outfit).toBeUndefined();
+        if (role === 'ceo') expect(s.outfit).toBeUndefined();
       }
     }
   });
 });
 
-describe('accessoryFor', () => {
-  it("gives developers a nod to their specialty", () => {
-    const dev = (specialty: string, title = '') => accessoryFor({ role: 'dev', specialty, title });
-    expect(dev('audio')).toBe('neckphones');
-    expect(dev('sound-design')).toBe('neckphones');
-    expect(dev('physics')).toBe('ball');
-    expect(dev('game-engine')).toBe('ball');
-    expect(dev('devex')).toBe('wrench');
-    expect(dev('ci')).toBe('wrench');
-    expect(dev('security')).toBe('padlock');
-    expect(dev('auth')).toBe('padlock');
-    expect(dev('ui')).toBe('pencil');
-    expect(dev('front-end')).toBe('pencil');
-    expect(dev('', 'Three.js physics engineer')).toBe('ball');
-    expect(dev('database')).toBeNull();
-    expect(dev('')).toBeNull();
-    expect(dev('chart', 'Author of the docs')).toBeNull(); // no "art" or "auth" hiding inside other words
-    expect(accessoryFor({ role: 'qa', specialty: 'audio' })).toBeNull();
-    expect(accessoryFor({ role: 'ceo', specialty: 'audio' })).toBeNull();
-  });
-});
 
 describe('character parts', () => {
   it('builds every shared geometry with finite positions', () => {
@@ -167,7 +145,6 @@ describe('character parts', () => {
       ...Object.values(PARTS.outfit).flatMap((o) => [o.main, o.trim]),
       ...Object.values(PARTS.blazer),
       ...Object.values(PARTS.lanyard),
-      ...Object.values(PARTS.pencil),
       PARTS.headphones.shell,
       PARTS.headphones.covers,
     ].filter((g) => g !== null);

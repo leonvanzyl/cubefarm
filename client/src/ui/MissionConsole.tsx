@@ -114,8 +114,8 @@ function AlarmCard({ alarm, repo, hot }: { alarm: OpsAlarm; repo: RepoView | und
             <button className="btn btn-small btn-good" onClick={() => void attempt(() => api.sendToQa(alarm.repoId, alarm.prNumber!))}>
               Retry QA
             </button>
-            <button className="btn btn-small" title="Hand it to a developer with QA's findings" onClick={() => void attempt(() => api.sendBack(alarm.repoId, alarm.prNumber!))}>
-              Send back to dev
+            <button className="btn btn-small" title="Hand it to its author, or any free agent, with QA's findings" onClick={() => void attempt(() => api.sendBack(alarm.repoId, alarm.prNumber!))}>
+              Send back for a fix
             </button>
             {pr && (
               <a className="small" href={pr.url} target="_blank" rel="noreferrer">
@@ -149,7 +149,7 @@ const FIXES: Record<DoctorFix, [string, string]> = {
   stop: ['■ Stop', 'Stop their session'],
   requeue: ['↩ Requeue', 'Stop them and put the work back in line, without a strike'],
   'retry-qa': ['Retry QA', 'Queue the PR for a fresh QA run'],
-  'send-back': ['Send back to dev', 'Hand the PR to a developer'],
+  'send-back': ['Send back for a fix', 'Hand the PR to its author, or any free agent'],
   'close-issue': ['Close issue', 'Close the issue on GitHub as completed'],
 };
 
@@ -244,12 +244,12 @@ const COLUMNS: [string, (n: OpsNumbers) => string, string?][] = [
   ['Ready', (n) => String(n.ready), 'Backlog issues that can start now'],
   ['Building', (n) => String(n.building)],
   ['In QA', (n) => String(n.inQa)],
-  ['Fixing', (n) => String(n.fixing), 'Back with a developer: QA findings, checks or a conflict'],
+  ['Fixing', (n) => String(n.fixing), 'Back with an agent: QA findings, checks or a conflict'],
   ['To merge', (n) => String(n.toMerge)],
   ['Needs you', (n) => `${n.needsYou}${n.triage ? ` (+${n.triage} 🧭)` : ''}`, '🧭: the CEO is looking first'],
   ['Merged today', (n) => `${n.mergedToday} (${n.mergedHour} last hour)`],
   ['Lead time', (n) => fmtDuration(n.leadMs), 'Median issue → merge over the last 24 hours'],
-  ['QA wait', (n) => fmtDuration(n.qaWaitMs), 'Median wait for a tester over the last 24 hours'],
+  ['QA wait', (n) => fmtDuration(n.qaWaitMs), 'Median wait for a free agent over the last 24 hours'],
   ['CI', (n) => (n.ciRuns ? `${fmtPct(n.ciPass)} · ${fmtDuration(n.ciMs)}` : '—'), "GitHub's checks over 7 days: pass rate · median time"],
   ['Team', (n) => `${n.busy} busy · ${n.idle} idle${n.errors ? ` · ${n.errors} error` : ''}`],
   ['Cost today', (n) => `~${fmtUsd(n.costToday)}`, "An estimate from finished sessions' reported cost"],

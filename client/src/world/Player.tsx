@@ -131,22 +131,25 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
     return;
   }
   if (focus.action.kind === 'hire') {
-    const { repoId, role } = focus.action;
+    const { repoId } = focus.action;
     const hire = () =>
       api
-        .hireAgent(repoId, { role })
-        .then(() => s.pushToast('success', role === 'qa' ? 'New QA tester hired! They will take the next free station in the QA lab.' : 'New teammate hired! They will sit at the next free desk.'))
+        .hireAgent(repoId, {})
+        .then((a) => {
+          const floor = useStore.getState().repos.find((r) => r.id === repoId)?.floor;
+          s.pushToast('success', floor != null ? `${a.name} joined floor ${floor}` : `${a.name} joined the team`);
+        })
         .catch(() => undefined);
     if (via === 'key') {
       void hire();
       return;
     }
-    // A click is easier to make by accident than E, so hiring by click asks first.
+    // A click is easier to make by accident than E, so adding an agent by click asks first.
     if (document.pointerLockElement) document.exitPointerLock();
     void confirmDialog({
-      icon: role === 'qa' ? '🔍' : '🪑',
-      title: role === 'qa' ? 'Hire a QA tester for this station?' : 'Hire an agent for this desk?',
-      confirm: 'Hire',
+      icon: '🪑',
+      title: 'Add an agent at this desk?',
+      confirm: 'Add',
     }).then((ok) => {
       if (ok) void hire();
     });

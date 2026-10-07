@@ -57,10 +57,10 @@ const careers = {
       .filter((a) => a.role !== 'ceo')
       .map((a) => ({ id: a.id, name: a.name, role: a.role, floor: repoOf(a.repoId)?.floor ?? null, desk: a.desk, career: a.career })),
   get: (ref: string) => agentOf(ref).career,
-  /** What their desk shows right now: plaques, the star, stickers, the plant's size, the photo and the toy. */
+  /** What their desk shows right now: plaques, the star, the plant's size, the photo and the toy. */
   desk: (ref: string) => {
     const a = agentOf(ref);
-    return deskItems(a.career ?? newCareer(Date.now()), a, Date.now());
+    return deskItems(a.career ?? newCareer(Date.now()), a.id, Date.now());
   },
   mvp: (floor?: number | string) => {
     const repo = repoOf(floor);

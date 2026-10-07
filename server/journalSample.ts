@@ -309,27 +309,28 @@ export function sampleDay(base: JournalFrame, midnight: number, rand = seeded(7)
       }
     }
 
-    // free people pick up work: fixes first, then QA, then new issues (not all at once, and slower while pacing)
+    // free people pick up work: their own PR's fixes first, then testing someone else's PR (their own only when they're
+    // the floor's one agent), then new issues (not all at once, and slower while pacing)
     for (const a of agents) {
       if (a.role === 'ceo' || jobs.has(a.id) || (restUntil.get(a.id) ?? 0) > t) continue;
       const repo = repos.find((r) => r.id === a.repoId);
       if (!repo) continue;
-      if (a.role === 'qa') {
-        const q = [...qa.values()].filter((x) => x.repoId === repo.id && x.status === 'queued').sort((x, y) => x.updatedAt - y.updatedAt)[0];
-        if (!q) continue;
-        const pr = repo.pulls.find((p) => p.number === q.prNumber)!;
-        const verdict = !stuck && q.round >= 2 && minute > 870 ? 'stuck' : q.round >= 3 ? 'pass' : rand() < 0.28 ? 'fail' : 'pass';
-        Object.assign(q, { status: 'testing', qaAgentId: a.id });
-        emitQa(q);
-        start(a, { kind: 'qa', repoId: repo.id, n: q.prNumber, until: t + between(7, 18) * MIN, nextTool: t + MIN, verdict }, { status: 'working', task: 'qa', prNumber: q.prNumber, prUrl: pr.url, issueTitle: pr.title, issueNumber: null, currentTool: QA_TOOLS[0] });
-        continue;
-      }
       const fix = [...qa.values()].find((x) => x.repoId === repo.id && x.status === 'failed' && x.devAgentId === a.id);
       if (fix) {
         Object.assign(fix, { status: 'fixing' });
         emitQa(fix);
         const pr = repo.pulls.find((p) => p.number === fix.prNumber)!;
-        start(a, { kind: 'fix', repoId: repo.id, n: fix.prNumber, until: t + between(6, 15) * MIN, nextTool: t + MIN }, { status: 'working', task: 'fix', prNumber: fix.prNumber, prUrl: pr.url, issueTitle: pr.title, currentTool: 'Read' });
+        start(a, { kind: 'fix', repoId: repo.id, n: fix.prNumber, until: t + between(6, 15) * MIN, nextTool: t + MIN }, { status: 'working', task: 'fix', prNumber: fix.prNumber, prUrl: pr.url, issueNumber: pr.closesIssues[0] ?? null, issueTitle: pr.title, currentTool: 'Read' });
+        continue;
+      }
+      const alone = agents.filter((x) => x.repoId === repo.id && x.role !== 'ceo').length === 1;
+      const q = [...qa.values()].filter((x) => x.repoId === repo.id && x.status === 'queued' && (x.devAgentId !== a.id || alone)).sort((x, y) => x.updatedAt - y.updatedAt)[0];
+      if (q) {
+        const pr = repo.pulls.find((p) => p.number === q.prNumber)!;
+        const verdict = !stuck && q.round >= 2 && minute > 870 ? 'stuck' : q.round >= 3 ? 'pass' : rand() < 0.28 ? 'fail' : 'pass';
+        Object.assign(q, { status: 'testing', qaAgentId: a.id });
+        emitQa(q);
+        start(a, { kind: 'qa', repoId: repo.id, n: q.prNumber, until: t + between(7, 18) * MIN, nextTool: t + MIN, verdict }, { status: 'working', task: 'qa', prNumber: q.prNumber, prUrl: pr.url, issueTitle: pr.title, issueNumber: pr.closesIssues[0] ?? null, branch: null, currentTool: QA_TOOLS[0] });
         continue;
       }
       if (rand() > (usage.state === 'pacing' ? 0.06 : 0.3)) continue;

@@ -1,8 +1,8 @@
-// In-person hiring (#227), the pure part: which chair in the lobby's waiting room each candidate takes, how the
-// candidates follow the CEO's proposals (wait, take the manager's decision, leave), where they go, and a new hire's
+// In-person hiring (#227), the pure part: which chair in the lobby's waiting room each new agent the CEO asked for
+// takes, how they follow the requests (wait, take the manager's decision, leave), where they go, and a newcomer's
 // welcome tour of their floor. Candidates.tsx moves the candidates and ErrandDirector.tsx runs the tour; no three.js.
 
-import type { HireRequestView } from '../../../shared/types';
+import type { AgentView, HireRequestView } from '../../../shared/types';
 import type { Gesture } from './body';
 import { headingFor, type Act, type ErrandScript, type Me } from './errands';
 import { BALCONY, HALF_W, SIDE_OPENINGS, WAITING } from './layout';
@@ -73,6 +73,16 @@ export function leave(lobby: Lobby, id: string): Lobby {
 export function newlyHired(prev: readonly HireRequestView[], next: readonly HireRequestView[]): { agentId: string; repoId: string }[] {
   const was = new Map(prev.map((r) => [r.id, r.status]));
   return next.filter((r) => r.kind === 'hire' && r.status === 'approved' && r.agentId && was.get(r.id) === 'pending').map((r) => ({ agentId: r.agentId!, repoId: r.repoId }));
+}
+
+/**
+ * Floor agents `known` hasn't seen: added by the manager, by the CEO with scaling on auto, or hired from the lobby.
+ * They're due a welcome tour too. The CEO never is.
+ */
+export function joined(known: ReadonlySet<string>, agents: Iterable<Pick<AgentView, 'id' | 'role' | 'repoId'>>): { agentId: string; repoId: string }[] {
+  const out: { agentId: string; repoId: string }[] = [];
+  for (const a of agents) if (a.role !== 'ceo' && !known.has(a.id)) out.push({ agentId: a.id, repoId: a.repoId });
+  return out;
 }
 
 // ---------- taking the decision ----------

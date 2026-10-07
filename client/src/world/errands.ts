@@ -71,7 +71,7 @@ export interface Errand {
   bring?: Gesture;
   /** Walking speed (m/s) there and back, when it's brisker than a stroll. */
   speed?: number;
-  /** Work errands that may still start this many seconds into 'working' (a tester fetching the PR they were just given). */
+  /** Work errands that may still start this many seconds into 'working' (fetching the PR they were just given). */
   grace?: number;
   /** Where to for this person, overriding `spot` (an errand to one particular board column). */
   where?(agentId: string): readonly string[];
@@ -243,11 +243,10 @@ export function pickSpot<T extends Pt & { id: string }>(spots: readonly T[], fro
   return close[Math.min(close.length - 1, Math.floor(rand * close.length))];
 }
 
-/** Where someone's errands start and end: their desk's or station's stand-up spot, or the CEO's; null for nobody. */
+/** Where someone's errands start and end: their desk's stand-up spot, or the CEO's in the lobby; null for nobody. */
 export function homeSpotId(floor: FloorKind, agent: { role: string; desk: number }): string | null {
-  if (floor === 'lobby') return agent.role === 'ceo' ? 'ceo' : null;
-  if (agent.role === 'qa') return `qa-${agent.desk}`;
-  return agent.role === 'dev' ? `desk-${agent.desk}` : null;
+  if (agent.role === 'ceo') return floor === 'lobby' ? 'ceo' : null;
+  return floor === 'office' ? `desk-${agent.desk}` : null;
 }
 
 // ---------- following a path ----------

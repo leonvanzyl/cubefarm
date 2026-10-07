@@ -15,7 +15,7 @@ const MAX_ENTRIES = 4000; // per list, however busy the week was
 
 /** A merged PR: when, its floor's repo, its number (0: the demo's made-up past) and issue → merge time (null: unknown). */
 export type MergeEntry = [at: number, repo: string, pr: number, leadMs: number | null];
-/** A QA verdict: when, the repo, whether it passed, and how long the PR waited for a tester (null: unknown). */
+/** A QA verdict: when, the repo, whether it passed, and how long the PR waited for an agent to test it (null: unknown). */
 export type QaEntry = [at: number, repo: string, pass: boolean, waitMs: number | null];
 /** GitHub's check runs on a commit, all finished: when, the repo, the commit (8 characters), passed, how long they took. */
 export type CheckEntry = [at: number, repo: string, sha: string, pass: boolean, ms: number];
@@ -184,7 +184,7 @@ function rightNow(f: OpsFloorState) {
   const people = f.agents.filter((a) => a.role !== 'ceo');
   return {
     ready: f.ready,
-    building: people.filter((a) => a.role === 'dev' && a.task === 'issue' && BUSY.includes(a.status)).length,
+    building: people.filter((a) => a.task === 'issue' && BUSY.includes(a.status)).length,
     inQa: count('inQa'),
     fixing: count('fixing'),
     toMerge: count('toMerge'),

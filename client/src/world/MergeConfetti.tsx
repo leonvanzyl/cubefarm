@@ -1,4 +1,4 @@
-// Confetti over a developer's desk when their PR merges (over the Kanban board when nobody on the floor
+// Confetti over an agent's desk when their PR merges (over the Kanban board when nobody on the floor
 // wrote it), and over the floor's gong when a merge strikes it (gongState.ts). One pooled InstancedMesh per
 // floor: a few slots of flat paper bits, hidden and skipped entirely while no burst is flying. With reduced
 // motion (Settings → Accessibility) a burst is a soft glow that swells and fades on the spot instead.
@@ -37,7 +37,7 @@ interface Controller {
 
 let controller: Controller | null = null;
 
-// window.__swarmConfetti: for QA and Playwright. burst() goes over that developer's desk on this floor,
+// window.__swarmConfetti: for QA and Playwright. burst() goes over that agent's desk on this floor,
 // over the gong for burst('gong'), or over the Kanban board; glowing() counts the reduced-motion glows among active().
 if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, '__swarmConfetti')) {
   Object.defineProperty(window, '__swarmConfetti', {
@@ -140,12 +140,12 @@ export function MergeConfetti({ repo, agents }: { repo: RepoView; agents: Agent[
       const m = mesh.current;
       const kind = burstKind({ hidden: document.hidden, covered: coversView(useStore.getState().overlay), reducedMotion: reduceMotion() });
       if (!m || !kind) return;
-      const dev = agentId ? agentsRef.current.find((a) => a.id === agentId && a.role === 'dev') : undefined;
-      const key = dev?.id ?? (gong ? 'gong' : 'board');
+      const author = agentId ? agentsRef.current.find((a) => a.id === agentId && a.role !== 'ceo') : undefined;
+      const key = author?.id ?? (gong ? 'gong' : 'board');
       if (sim.slots.some((s) => s.key === key)) return; // one per desk
       const s = sim.slots.findIndex((x) => !x.key);
       if (s < 0) return; // full: dropped, never queued
-      const at = dev ? { ...deskPosition(dev.desk), y: 1.5 } : gong ? { x: GONG.x, z: GONG.z + 0.3, y: GONG.h + 0.1 } : { x: 0, z: BOARD.z + 1.2, y: BOARD.y + BOARD.h * 0.6 };
+      const at = author ? { ...deskPosition(author.desk), y: 1.5 } : gong ? { x: GONG.x, z: GONG.z + 0.3, y: GONG.h + 0.1 } : { x: 0, z: BOARD.z + 1.2, y: BOARD.y + BOARD.h * 0.6 };
       if (kind === 'glow') {
         const g = glows.current[s];
         if (!g) return;

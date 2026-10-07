@@ -8,7 +8,7 @@ import type { RepoView } from '../../../../shared/types';
 import { coversView, useStore, type Agent } from '../../store';
 import { reduceMotion } from '../../ui/a11y';
 import { canBurst } from '../confetti';
-import { BOARD, deskPosition, qaDeskPosition } from '../layout';
+import { BOARD, deskPosition } from '../layout';
 import { toon } from '../materials';
 import { pling } from './actions';
 import { onReward } from './rewards';
@@ -57,7 +57,7 @@ export function CoinBurst({ repo, agents }: { repo: RepoView; agents: Agent[] })
     const timers: ReturnType<typeof setTimeout>[] = [];
     const burst = (agentId: string | null) => {
       const a = agentId ? agentsRef.current.find((x) => x.id === agentId) : undefined;
-      const desk = a?.role === 'dev' ? deskPosition(a.desk) : a?.role === 'qa' ? qaDeskPosition(a.desk) : null;
+      const desk = a && a.role !== 'ceo' ? deskPosition(a.desk) : null;
       const at = desk ? { x: desk.x, y: 2.1, z: desk.z } : { x: 0, y: BOARD.y + BOARD.h + 0.2, z: BOARD.z + 1.2 };
       timers.push(
         setTimeout(() => {

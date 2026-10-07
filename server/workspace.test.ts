@@ -35,7 +35,7 @@ process.env.GIT_CONFIG_GLOBAL = gitConfig;
 
 const { git } = await import('./exec.ts');
 const { HOME_DIR, WORKSPACE_ROOT } = await import('./config.ts');
-const { branchHolder, deskDir, fileList, leftoversInDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, removeDesk, setLocalPath, sweepDesks, syncMain: sync, trimDesk } =
+const { branchHolder, deskDir, fileList, leftoversInDesk, listMachines, machineDesk, mainDir, overwrittenPaths, parseWorktrees, planSweep, porcelainPaths, prepareDesk, prepareMachineDesk, removeDesk, removeMachine, setLocalPath, sweepDesks, sweepMachine, syncMain: sync, trimDesk } =
   await import('./workspace.ts');
 // Most tests only care about the status line.
 const syncMain = async (...args: Parameters<typeof sync>) => (await sync(...args))?.status ?? null;
@@ -673,5 +673,85 @@ describe('sweepDesks', { timeout: 120_000 }, () => {
     await removeDesk(r.fullName, 'ada-1234', main);
     expect(await worktreesOf(r.dir)).toEqual(await reals([r.dir]));
     expect(await isDir(desk)).toBe(false);
+  });
+});
+
+describe("agents' machines", { timeout: 60_000 }, () => {
+  const realPaths = async (ps: string[]) => (await Promise.all(ps.map((p) => fs.realpath(p)))).sort();
+  const worktrees = async (cwd: string) => realPaths(parseWorktrees(await git(['worktree', 'list', '--porcelain'], { cwd })).map((w) => w.path));
+  const branches = async (cwd: string) => (await git(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd })).split(/\r?\n/).filter(Boolean).sort();
+  const isDir = (p: string) => fs.stat(p).then((st) => st.isDirectory(), () => false);
+
+  it("works in a clone of its own, never a worktree of the floor's checkout", async () => {
+    const r = await makeRepos();
+    const desk = await prepareMachineDesk('ada00001', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-1-ada');
+    expect(desk).toBe(machineDesk('ada00001', r.fullName));
+    expect(await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: desk })).toBe('swarm/issue-1-ada');
+    expect(await head(desk)).toBe(await originMain(r.dir));
+    expect(await worktrees(r.dir)).toEqual(await realPaths([r.dir])); // the floor's checkout knows nothing of it
+    expect(await git(['remote', 'get-url', 'origin'], { cwd: desk })).toBe(await git(['remote', 'get-url', 'origin'], { cwd: r.dir }));
+    // borrowed objects are copied, not linked: the clone stands on its own
+    const common = await git(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: desk });
+    expect(await fs.readFile(path.join(common, 'objects', 'info', 'alternates'), 'utf8').catch(() => '')).toBe('');
+    expect(await listMachines()).toContain('ada00001');
+  });
+
+  it('reuses its worktree from task to task, at the latest commit', async () => {
+    const r = await makeRepos();
+    await commitFile(r.upstream, '.gitignore', 'node_modules/\n');
+    await git(['push', '-q', 'origin', 'main'], { cwd: r.upstream });
+    const desk = await prepareMachineDesk('ada00002', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-1-ada');
+    await fs.mkdir(path.join(desk, 'node_modules'), { recursive: true });
+    await fs.writeFile(path.join(desk, 'node_modules', 'kept.js'), 'warm');
+    await pushUpstream(r);
+    expect(await prepareMachineDesk('ada00002', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-2-ada')).toBe(desk);
+    expect(await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: desk })).toBe('swarm/issue-2-ada');
+    expect(await head(desk)).toBe(await git(['rev-parse', 'main'], { cwd: r.upstream }));
+    expect(await fs.readFile(path.join(desk, 'node_modules', 'kept.js'), 'utf8')).toBe('warm');
+  });
+
+  it("checks out a branch another agent has out too: each has its own clone", async () => {
+    const r = await makeRepos();
+    const ada = await prepareMachineDesk('ada00003', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-3-ada');
+    await commitFile(ada, 'feature.txt', 'from ada\n');
+    await git(['push', '-q', 'origin', 'swarm/issue-3-ada'], { cwd: ada });
+    const notes: string[] = [];
+    const bob = await prepareMachineDesk('bob00003', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-3-ada', (t) => notes.push(t));
+    expect(notes).toEqual([]);
+    expect(await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: bob })).toBe('swarm/issue-3-ada');
+    expect(await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: ada })).toBe('swarm/issue-3-ada');
+  });
+
+  it('deletes finished branches in its clone, never the one it has out or one still in use', async () => {
+    const r = await makeRepos();
+    const desk = await prepareMachineDesk('ada00004', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-1-ada');
+    await prepareMachineDesk('ada00004', r.fullName, { defaultBranch: 'main' }, 'qa/pr-7-ada');
+    await prepareMachineDesk('ada00004', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-2-ada');
+    const clone = path.dirname(await git(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: desk }));
+    expect(await sweepMachine('ada00004', r.fullName, ['qa/pr-7-ada'])).toBe(1);
+    expect(await branches(clone)).toEqual(['main', 'qa/pr-7-ada', 'swarm/issue-2-ada']);
+    expect(await sweepMachine('nobody00', r.fullName, [])).toBe(0);
+  });
+
+  it('saves work on no remote branch before it goes, and leaves a machine still in use', async () => {
+    const r = await makeRepos();
+    const desk = await prepareMachineDesk('ada00005', r.fullName, { defaultBranch: 'main' }, 'swarm/issue-5-ada');
+    await commitFile(desk, 'unpushed.txt', 'not on GitHub\n');
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { cwd: desk, windowsHide: true, stdio: 'ignore' });
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (process.platform === 'win32') expect(await removeMachine('ada00005')).toEqual({ removed: false, patches: [] });
+    } finally {
+      child.kill();
+      await exited;
+    }
+    const gone = await removeMachine('ada00005');
+    expect(gone.removed).toBe(true);
+    expect(gone.patches).toHaveLength(1);
+    expect(path.basename(gone.patches[0])).toMatch(/^machine-ada00005-\d{8}\.patch$/);
+    expect(await fs.readFile(gone.patches[0], 'utf8')).toContain('unpushed.txt');
+    expect(await isDir(path.dirname(path.dirname(desk)))).toBe(false);
+    expect(await removeMachine('ada00005')).toEqual({ removed: true, patches: [] });
   });
 });

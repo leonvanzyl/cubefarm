@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixGoesTo, PREP_HOLD_MS, prepFailure, prepHeld, type FixAuthor } from './handOut.ts';
+import { fixGoesTo, pickTester, PREP_HOLD_MS, prepFailure, prepHeld, SELF_QA_WAIT_MS, type FixAuthor } from './handOut.ts';
 
 const author = (o: Partial<FixAuthor> = {}): FixAuthor => ({ status: 'done', branch: 'swarm/issue-192-barbara', prNumber: 198, ...o });
 const HEAD = 'swarm/issue-192-barbara';
@@ -63,5 +63,36 @@ describe('prepFailure', () => {
 
   it('is not held without strikes', () => {
     expect(prepHeld(undefined, now)).toBe(false);
+  });
+});
+
+describe('pickTester', () => {
+  const ada = { id: 'ada', desk: 0 };
+  const linus = { id: 'linus', desk: 1 };
+  const grace = { id: 'grace', desk: 2 };
+
+  it("picks anyone but the PR's author, by desk", () => {
+    expect(pickTester([ada, linus, grace], 'ada', new Set(), true, 0)).toBe(linus);
+    expect(pickTester([grace, linus], null, new Set(), true, 0)).toBe(linus);
+  });
+
+  it('keeps agents whose failed PRs wait for them for last', () => {
+    expect(pickTester([ada, linus, grace], 'ada', new Set(['linus']), true, 0)).toBe(grace);
+    expect(pickTester([ada, linus], 'ada', new Set(['linus']), true, 0)).toBe(linus);
+  });
+
+  it('leaves the PR for someone else to come free, rather than have its author test it', () => {
+    // Agents finishing one by one: each PR's author is the only one free when it enters QA (as seen in the demo).
+    expect(pickTester([ada], 'ada', new Set(), true, 0)).toBeNull();
+    expect(pickTester([ada], 'ada', new Set(), true, SELF_QA_WAIT_MS - 1)).toBeNull();
+  });
+
+  it('lets the author test it when nobody else can, or nobody else came free for a while', () => {
+    expect(pickTester([ada], 'ada', new Set(), false, 0)).toBe(ada); // a one-agent floor never stalls
+    expect(pickTester([ada], 'ada', new Set(), true, SELF_QA_WAIT_MS)).toBe(ada);
+  });
+
+  it('has nobody to pick from an empty floor', () => {
+    expect(pickTester([], 'ada', new Set(), false, SELF_QA_WAIT_MS)).toBeNull();
   });
 });

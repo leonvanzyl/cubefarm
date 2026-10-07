@@ -62,9 +62,9 @@ export const FULL = 0.995;
 
 // ---------- where things are ----------
 
-// Both docks sit against the north wall, away from the windows (west), the QA lab and kitchenette (east), the
-// app monitor and whiteboard, and the south-wall spots kept free for other toys. Office: past the "ship it"
-// sign, north of the QA lab. Lobby: the quiet corridor behind reception, between the two glass offices.
+// Both docks sit against the north wall, away from the windows (west), the east wall's desks and kitchenette (east),
+// the app monitor and whiteboard, and the south-wall spots kept free for other toys. Office: past the "ship it"
+// sign, north of the east wall's desks. Lobby: the quiet corridor behind reception, between the two glass offices.
 const DOCK_X: Record<ToyFloor, number> = { office: 12.8, lobby: -3.5 };
 
 // Plants aren't colliders (you brush past the leaves), but the roomba shouldn't drive through the pots.

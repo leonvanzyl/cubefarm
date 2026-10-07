@@ -2,13 +2,13 @@
 // as in their terminal panel), and what's waiting on the manager. Pure, so it's tested without a browser.
 import type { HireRequestView, QaView, RepoView } from '../../../shared/types';
 import { needsManager } from '../qaCard';
-import type { Agent, KanbanCard, KanbanColumns } from '../store';
+import type { Agent, KanbanColumns } from '../store';
 
 export interface Pipeline {
   backlog: number;
-  building: number; // developers on an issue, before their PR
+  building: number; // agents on an issue, before their PR
   qa: number; // PRs waiting for or being tested (and stuck ones the CEO is looking at)
-  fixing: number; // failed QA, waiting for or being fixed by a developer
+  fixing: number; // failed QA, waiting for or being fixed by an agent
   ready: number; // passed QA, waiting to merge
   needsYou: number; // stuck: the manager decides
 }
@@ -25,20 +25,32 @@ export function pipelineOf(cols: KanbanColumns): Pipeline {
 }
 
 /** What the manager can do with an agent right now, as in their terminal panel (ui/TerminalView.tsx). */
-export function agentActions(a: Pick<Agent, 'role' | 'status' | 'branch'>) {
+export function agentActions(a: Pick<Agent, 'task' | 'status' | 'branch'>) {
   const working = a.status === 'preparing' || a.status === 'working';
   return {
     stop: working,
     assign: !working,
     clear: !working && a.status !== 'idle',
-    message: working || (a.role !== 'qa' && !!a.branch && a.status !== 'idle'),
+    message: working || (a.task !== 'qa' && !!a.branch && a.status !== 'idle'),
   };
 }
 
-/** What can be handed to them: backlog issues for a developer; untested, queued or stuck PRs for a QA tester. */
-export function assignChoices(role: Agent['role'], cols: KanbanColumns | null): KanbanCard[] {
+/** Work a free agent can be handed: an issue to build (api.assign), or a PR to test (api.sendToQa with their id). */
+export interface AssignChoice {
+  key: string; // the Kanban card's
+  kind: 'issue' | 'qa';
+  number: number;
+  title: string;
+}
+
+/** What can be handed to an agent: backlog issues, then untested, queued or stuck PRs. */
+export function assignChoices(cols: KanbanColumns | null): AssignChoice[] {
   if (!cols) return [];
-  return role === 'qa' ? cols.qa.filter((c) => !c.qa || c.qa.status === 'needs-human' || c.qa.status === 'queued') : cols.backlog;
+  const testable = cols.qa.filter((c) => !c.qa || c.qa.status === 'needs-human' || c.qa.status === 'queued');
+  return [
+    ...cols.backlog.map((c) => ({ key: c.key, kind: 'issue' as const, number: c.number, title: c.title })),
+    ...testable.map((c) => ({ key: c.key, kind: 'qa' as const, number: c.number, title: c.title })),
+  ];
 }
 
 /** One short line on what they're doing. */

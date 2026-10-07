@@ -22,8 +22,8 @@ const qaRec = (n: number, status: QaStatus): QaView => ({
   updatedAt: 0,
 });
 const prCard = (n: number, status?: QaStatus, ghost = false): KanbanCard => ({ key: `pr-${n}`, number: n, prNumber: n, title: `PR ${n}`, qa: status ? qaRec(n, status) : undefined, ghost });
-const person = (id: string, role: Agent['role'], status: Agent['status'] = 'idle', issueNumber: number | null = null) =>
-  ({ id, name: id[0].toUpperCase() + id.slice(1), role, status, issueNumber }) as Agent;
+const person = (id: string, status: Agent['status'] = 'idle', patch: Partial<Agent> = {}) =>
+  ({ id, name: id[0].toUpperCase() + id.slice(1), role: 'agent', status, task: null, issueNumber: null, prNumber: null, ...patch }) as Agent;
 const middle = (ci: number, i: number) => {
   const r = kanbanNoteRect(ci, i, BOARD_TEX.w);
   return [r.x + r.w / 2, r.y + r.h / 2] as const;
@@ -72,10 +72,11 @@ describe('which stickies come off the board', () => {
 });
 
 describe('putting a carried sticky down', () => {
-  const ada = person('ada', 'dev');
-  const linus = person('linus', 'dev', 'working', 4);
-  const marple = person('marple', 'qa');
-  const agents = [ada, linus, marple];
+  const ada = person('ada');
+  const linus = person('linus', 'working', { task: 'issue', issueNumber: 4 });
+  const marple = person('marple', 'working', { task: 'qa', prNumber: 7, issueNumber: 3 });
+  const ceo = person('ceo', 'idle', { role: 'ceo' });
+  const agents = [ada, linus, marple, ceo];
   const issues = [
     { number: 12, body: 'Make it work' },
     { number: 13, body: 'Depends on #12' },
@@ -85,28 +86,33 @@ describe('putting a carried sticky down', () => {
   const issue = { number: 12, pr: false };
   const pr = { number: 20, pr: true };
 
-  it('gives an issue to a free developer', () => {
+  it('gives an issue to a free agent', () => {
     expect(dropTarget(issue, desk(ada), agents, issues)).toEqual({ kind: 'assign', agentId: 'ada', label: 'Give #12 to Ada', warn: null });
   });
 
-  it('warns, as the office will, about a busy developer or an issue that waits for another', () => {
+  it('warns, as the office will, about a busy agent or an issue that waits for another', () => {
     expect(dropTarget(issue, desk(linus), agents, issues)).toMatchObject({ kind: 'assign', warn: 'Linus is already working on #4', label: '⚠️ Linus is already working on #4' });
+    expect(dropTarget(issue, desk(marple), agents, issues)).toMatchObject({ kind: 'assign', warn: 'Marple is already testing PR #7' });
     expect(dropTarget({ number: 13, pr: false }, desk(ada), agents, issues)).toMatchObject({ kind: 'assign', warn: '#13 waits for #12: it can start once that is closed' });
   });
 
-  it('sends a PR to QA at the QA lab, and keeps issues and PRs where they belong', () => {
-    expect(dropTarget(pr, desk(marple), agents, issues)).toEqual({ kind: 'qa', label: 'Send PR #20 to QA' });
-    expect(dropTarget(pr, at({ kind: 'hire', repoId: 'o/r', role: 'qa' }), agents, issues)).toMatchObject({ kind: 'qa' });
-    expect(dropTarget(issue, desk(marple), agents, issues)).toEqual({ kind: 'refuse', label: 'Marple is a QA tester; they test pull requests rather than issues.' });
-    expect(dropTarget(pr, desk(ada), agents, issues)).toMatchObject({ kind: 'refuse' });
-    expect(dropTarget(issue, at({ kind: 'hire', repoId: 'o/r', role: 'dev' }), agents, issues)).toMatchObject({ kind: 'refuse' });
+  it('gives a PR to an agent to test, warning about a busy one', () => {
+    expect(dropTarget(pr, desk(ada), agents, issues)).toEqual({ kind: 'qa', agentId: 'ada', label: 'Give PR #20 to Ada to test', warn: null });
+    expect(dropTarget(pr, desk(marple), agents, issues)).toMatchObject({ kind: 'qa', agentId: 'marple', warn: 'Marple is already testing PR #7' });
+    expect(dropTarget(pr, desk({ ...linus, task: 'fix', prNumber: 8 }), [{ ...linus, task: 'fix', prNumber: 8 }], issues)).toMatchObject({ warn: 'Linus is already fixing PR #8' });
+  });
+
+  it('an empty desk and the CEO take nothing', () => {
+    expect(dropTarget(issue, at({ kind: 'hire', repoId: 'o/r' }), agents, issues)).toMatchObject({ kind: 'refuse' });
+    expect(dropTarget(pr, at({ kind: 'hire', repoId: 'o/r' }), agents, issues)).toMatchObject({ kind: 'refuse' });
+    expect(dropTarget(pr, desk(ceo), agents, issues)).toEqual({ kind: 'none' });
   });
 
   it('goes back on the board, and leaves everything else alone', () => {
     expect(dropTarget(issue, at({ kind: 'kanban', repoId: 'o/r' }), agents, issues)).toEqual({ kind: 'back', label: 'Put #12 back' });
     expect(dropTarget(pr, at({ kind: 'card', repoId: 'o/r', key: 'i-1', number: 1, pr: false }), agents, issues)).toEqual({ kind: 'back', label: 'Put PR #20 back' });
     expect(dropTarget(issue, at({ kind: 'elevator' }), agents, issues)).toEqual({ kind: 'none' });
-    expect(dropTarget(issue, desk(person('gone', 'dev')), agents, issues)).toEqual({ kind: 'none' });
+    expect(dropTarget(issue, desk(person('gone')), agents, issues)).toEqual({ kind: 'none' });
     expect(dropTarget(issue, null, agents, issues)).toEqual({ kind: 'none' });
   });
 });

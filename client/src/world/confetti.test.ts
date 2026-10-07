@@ -6,10 +6,10 @@ const pr = (number: number, state: PullInfo['state'], headRefName = `swarm/issue
 const repo = (pulls: PullInfo[]) => ({ id: 'o/r', pulls }) as RepoView;
 const qa = (devAgentId: string | null) => ({ repoId: 'o/r', prNumber: 7, devAgentId }) as QaView;
 const agents = [
-  { id: 'a1', name: 'Ada', role: 'dev' as const, repoId: 'o/r' },
-  { id: 'a2', name: 'Grace Hopper', role: 'dev' as const, repoId: 'o/r' },
-  { id: 'q1', name: 'Linus', role: 'qa' as const, repoId: 'o/r' },
-  { id: 'x1', name: 'Ada', role: 'dev' as const, repoId: 'o/other' },
+  { id: 'a1', name: 'Ada', role: 'agent' as const, repoId: 'o/r' },
+  { id: 'a2', name: 'Grace Hopper', role: 'agent' as const, repoId: 'o/r' },
+  { id: 'ceo', name: 'Linus', role: 'ceo' as const, repoId: 'o/r' },
+  { id: 'x1', name: 'Ada', role: 'agent' as const, repoId: 'o/other' },
 ];
 
 describe('newlyMerged', () => {
@@ -28,13 +28,13 @@ describe('mergeAuthor', () => {
   it('falls back to the branch name, ignoring case', () => {
     expect(mergeAuthor('o/r', pr(7, 'MERGED', 'swarm/issue-7-ADA'), undefined, agents)).toBe('a1');
     expect(mergeAuthor('o/r', pr(7, 'MERGED', 'swarm/issue-7-grace-hopper'), qa(null), agents)).toBe('a2');
-    // a QA record whose developer left the floor
+    // a QA record whose author left the floor
     expect(mergeAuthor('o/r', pr(7, 'MERGED', 'swarm/issue-7-ada'), qa('gone'), agents)).toBe('a1');
   });
 
   it('finds nobody for PRs opened outside the office', () => {
     expect(mergeAuthor('o/r', pr(7, 'MERGED', 'feature/login'), undefined, agents)).toBeNull();
-    expect(mergeAuthor('o/r', pr(7, 'MERGED', 'swarm/issue-7-linus'), undefined, agents)).toBeNull(); // QA, not a dev
+    expect(mergeAuthor('o/r', pr(7, 'MERGED', 'swarm/issue-7-linus'), undefined, agents)).toBeNull(); // the CEO writes no PRs
     expect(mergeAuthor('o/r', pr(7, 'MERGED', 'swarm/issue-7-nobody'), undefined, agents)).toBeNull();
   });
 });

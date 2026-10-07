@@ -1,5 +1,6 @@
-// Pocket mode's Approvals tab: everything waiting on the manager's decision. Hires and let-gos (the phone's resumes),
-// stuck PRs with the Kanban's Retry QA / Send back / Merge / Close, and passed PRs on floors that don't merge on their own.
+// Pocket mode's Approvals tab: everything waiting on the manager's decision. Team changes (new agents and let-gos, the
+// phone's cards), stuck PRs with the Kanban's Retry QA / Send back / Merge / Close, and passed PRs on floors that don't
+// merge on their own.
 import { useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -37,11 +38,11 @@ function PrCard({ repo, qa, ready }: { repo: RepoView; qa: QaView; ready?: boole
     let text = '';
     const ok = await confirmDialog({
       icon: '🔧',
-      title: `Send PR #${pr.number} back to a developer?`,
+      title: `Send PR #${pr.number} back for a fix?`,
       body: (
         <>
-          <p>Its author, or any free developer, fixes it with QA's findings, then QA tests it once more.</p>
-          <input maxLength={1000} placeholder="Optional note for the developer" aria-label="Note for the developer" onChange={(e) => (text = e.target.value)} />
+          <p>Its author, or any free agent, fixes it with QA's findings, then it's tested once more.</p>
+          <input maxLength={1000} placeholder="Optional note for whoever fixes it" aria-label="Note for whoever fixes it" onChange={(e) => (text = e.target.value)} />
         </>
       ),
       confirm: 'Send back',
@@ -104,7 +105,7 @@ export function Approvals() {
   return (
     <div className="pk-page">
       {nothing && <p className="pk-empty">Nothing waits on you. The team carries on, and your phone hears when that changes.</p>}
-      {w.requests.length > 0 && <h3 className="pk-h">📄 Hiring decisions</h3>}
+      {w.requests.length > 0 && <h3 className="pk-h">👥 Team changes</h3>}
       {w.requests.map((r) => (
         <Resume key={r.id} req={r} />
       ))}

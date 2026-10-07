@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KANBAN_KEYS } from './draw';
-import { BOARD, PLAYER_RADIUS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders, pongTableRect } from './layout';
+import { BOARD, PLAYER_RADIUS, SEATS, coffeeCorner, elevatorDoorway, lobbyColliders, officeColliders, pongTableRect } from './layout';
 import { BALCONY, BALCONY_OUT, HALF_W, SIDE_OPENINGS, SIDES, sideSign } from './layout';
 import { DOG_R, dogPlaces } from './toys/dogPlaces';
 import { clear, segmentClear, type Pt } from './toys/roombaBrain';
@@ -32,9 +32,9 @@ describe('named spots', () => {
     }
   });
 
-  it('office floors have every desk, QA station, board column and break-area spot', () => {
+  it('office floors have every desk, board column and break-area spot', () => {
     const w = walkways('office');
-    expect(w.homes.map((s) => s.id)).toEqual([...Array.from({ length: 12 }, (_, i) => `desk-${i}`), 'qa-0', 'qa-1', 'qa-2']);
+    expect(w.homes.map((s) => s.id)).toEqual(Array.from({ length: SEATS }, (_, i) => `desk-${i}`));
     for (const id of ['coffee', 'mugs', 'cooler', 'gong', 'couch', 'hoop', 'balls', 'pong-west', 'pong-east', 'jukebox', 'elevator', ...KANBAN_KEYS.map((k) => `board-${k}`)]) expect(spot(w, id), id).toBeDefined();
     expect(spot(w, 'couch')!.sit).toBeDefined();
   });
@@ -120,7 +120,7 @@ describe('the balconies', () => {
 });
 
 describe('findPath', () => {
-  it.each(FLOORS)('on the %s floor, every spot is reachable from every desk and station, round the furniture', (floor) => {
+  it.each(FLOORS)('on the %s floor, every spot is reachable from every desk, round the furniture', (floor) => {
     const w = walkways(floor);
     // the colliders people bump into, plus the elevator doorway: no leg may cross any of them
     const solid = [...(floor === 'office' ? officeColliders() : lobbyColliders()), elevatorDoorway()];

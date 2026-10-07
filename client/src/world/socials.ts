@@ -8,7 +8,6 @@ import { HALF_D } from './layout';
 import type { Pt } from './toys/roombaBrain';
 import { findPath, type Spot, type Walkways } from './walkways';
 
-const NORTH = -Math.PI / 2;
 const restless = (s: ErrandState) => s.seatedFor >= s.restless;
 
 // ---------- arriving and leaving by the elevator ----------
@@ -77,24 +76,25 @@ export const headingTo = (from: Pt, to: Pt) => Math.atan2(-(to.x - from.x), -(to
 
 // ---------- visiting a busy teammate ----------
 
-/** How far (m) an idle developer will walk to look over a busy teammate's shoulder. */
+/** How far (m) an idle agent will walk to look over a busy teammate's shoulder. */
 export const VISIT_RANGE = 9;
 
-/** The busy developer nearest someone's desk, within VISIT_RANGE; null when nobody nearby is working. */
+/** The busy teammate nearest someone's desk, within VISIT_RANGE; null when nobody nearby is working. */
 export function busyNeighbour(me: ErrandPeer | { id: string; home: Pt }, others: readonly ErrandPeer[]): ErrandPeer | null {
-  const busy = others.filter((o) => o.id !== me.id && o.role === 'dev' && o.status === 'working');
+  const busy = others.filter((o) => o.id !== me.id && o.role !== 'ceo' && o.status === 'working');
   const close = busy.filter((o) => Math.hypot(o.home.x - me.home.x, o.home.z - me.home.z) <= VISIT_RANGE);
   return nearest({ id: me.id, ...me.home }, close.map((o) => ({ ...o, x: o.home.x, z: o.home.z })));
 }
 
-/** Just behind a seated developer's shoulder, looking at their screen. */
+/** Just behind a seated teammate's right shoulder, looking at their screen the way their desk faces. */
 export function shoulderSpot(host: ErrandPeer): Spot {
-  return { id: `visit-${host.id}`, x: host.home.x + 0.45, z: host.home.z, facing: NORTH };
+  const { x, z, facing } = host.home;
+  return { id: `visit-${host.id}`, x: x - Math.sin(facing) * 0.45, z: z + Math.cos(facing) * 0.45, facing };
 }
 
 const visit: Errand = {
   name: 'visit',
-  when: (a, s) => a.role === 'dev' && s.floor === 'office' && isFree(a.status) && restless(s) && !!s.home && !!s.others && !!busyNeighbour({ id: a.id, home: s.home }, s.others),
+  when: (a, s) => a.role !== 'ceo' && s.floor === 'office' && isFree(a.status) && restless(s) && !!s.home && !!s.others && !!busyNeighbour({ id: a.id, home: s.home }, s.others),
   spot: [],
   place: (a, s) => {
     const host = s.home && s.others ? busyNeighbour({ id: a.id, home: s.home }, s.others) : null;

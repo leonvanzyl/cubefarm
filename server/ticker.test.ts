@@ -3,7 +3,7 @@ import { TICKER_KEEP, Ticker, agentTicks, qaTicks, repoFacts, repoTicks, type Ag
 import type { AgentView, IssueInfo, PullInfo, QaView, RepoView } from '../shared/types.ts';
 
 const R = 'acme/app';
-const dev = (patch: Partial<AgentFacts> = {}): AgentFacts => ({ name: 'Ken', repoId: R, role: 'dev', status: 'idle', task: null, issueNumber: null, prNumber: null, ...patch });
+const dev = (patch: Partial<AgentFacts> = {}): AgentFacts => ({ name: 'Ken', repoId: R, role: 'agent', status: 'idle', task: null, issueNumber: null, prNumber: null, ...patch });
 const pull = (number: number, patch: Partial<PullInfo> = {}): PullInfo => ({
   number,
   title: `PR ${number}`,
@@ -31,7 +31,7 @@ const qa = (status: QaView['status'], patch: Partial<QaView> = {}): QaView => ({
 const texts = (ticks: { text: string }[]) => ticks.map((t) => t.text);
 
 describe('agentTicks', () => {
-  it('a developer picking up an issue, opening a PR, fixing it and hitting a snag', () => {
+  it('an agent picking up an issue, opening a PR, fixing it and hitting a snag', () => {
     expect(texts(agentTicks(dev(), dev({ status: 'preparing', task: 'issue', issueNumber: 205 })))).toEqual(['Ken picked up #205']);
     expect(agentTicks(dev({ status: 'preparing', task: 'issue', issueNumber: 205 }), dev({ status: 'working', task: 'issue', issueNumber: 205 }))).toEqual([]);
     expect(agentTicks(dev({ status: 'working', task: 'issue', issueNumber: 205 }), dev({ status: 'done', task: 'issue', issueNumber: 205, prNumber: 212 }))).toEqual([
@@ -47,9 +47,9 @@ describe('agentTicks', () => {
     expect(agentTicks(undefined, dev({ status: 'error' }))).toEqual([]);
   });
 
-  it('leaves the CEO and QA testers to their own lines', () => {
+  it('leaves the CEO, and agents testing a PR, to their own lines', () => {
     expect(agentTicks(dev(), dev({ role: 'ceo', repoId: '', status: 'working' }))).toEqual([]);
-    expect(agentTicks(dev({ role: 'qa' }), dev({ role: 'qa', status: 'working', task: 'qa', prNumber: 12 }))).toEqual([]);
+    expect(agentTicks(dev(), dev({ status: 'working', task: 'qa', issueNumber: 7, prNumber: 12 }))).toEqual([]);
   });
 });
 
@@ -66,7 +66,7 @@ describe('qaTicks', () => {
     expect(texts(qaTicks('fixing', qa('queued', { round: 2 }), names))).toEqual(['PR #12 is queued for QA (round 2)']);
   });
 
-  it("doesn't pin the office's own calls on the tester", () => {
+  it("doesn't pin the office's own calls on whoever tested it", () => {
     expect(texts(qaTicks('passed', qa('failed'), names))).toEqual(['PR #12 was sent back']);
     expect(texts(qaTicks(undefined, qa('passed'), names))).toEqual(['PR #12 passed QA ✅']);
   });
@@ -117,7 +117,7 @@ describe('Ticker', () => {
     expect(t.recent()).toEqual(items);
   });
 
-  it('tells of a PR opening once, whether the developer or the sync says so first', () => {
+  it('tells of a PR opening once, whether the agent or the sync says so first', () => {
     const t = new Ticker(lookups);
     t.observe({ type: 'repo', repo: repo([]) });
     t.observe(agentEv('ken', dev({ status: 'working', task: 'issue', issueNumber: 205 })));
@@ -125,7 +125,7 @@ describe('Ticker', () => {
     expect(t.observe({ type: 'repo', repo: repo([pull(212)]) })).toEqual([]);
   });
 
-  it('names the QA tester and ignores the events it makes itself', () => {
+  it('names the agent testing it and ignores the events it makes itself', () => {
     const t = new Ticker(lookups);
     expect(texts(t.observe({ type: 'qa', qa: qa('testing') }))).toEqual(['Marple is testing PR #12']);
     const [item] = t.recent();

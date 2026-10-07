@@ -29,7 +29,7 @@ const STATUSES: AgentStatus[] = ['idle', 'preparing', 'working', 'done', 'error'
 const idleErrand = { work: false };
 const workErrand = { work: true };
 const state = (over: Partial<ErrandState> = {}): ErrandState => ({ floor: 'office', statusFor: 100, seatedFor: 0, restless: 30, ...over });
-const dev = (status: AgentStatus) => ({ id: 'a', status, role: 'dev' });
+const someone = (status: AgentStatus) => ({ id: 'a', status, role: 'agent' });
 
 describe('who may leave their desk', () => {
   it('idle, done and stopped people are free; working, preparing and error ones are not', () => {
@@ -149,11 +149,11 @@ describe('where to', () => {
     expect(pickSpot([], { x: 0, z: 0 }, 0.5)).toBeNull();
   });
 
-  it("finds everyone's desk, station or office, and nobody else's", () => {
-    expect(homeSpotId('office', { role: 'dev', desk: 7 })).toBe('desk-7');
-    expect(homeSpotId('office', { role: 'qa', desk: 1 })).toBe('qa-1');
+  it("finds everyone's desk or office, and nobody else's", () => {
+    expect(homeSpotId('office', { role: 'agent', desk: 7 })).toBe('desk-7');
+    expect(homeSpotId('office', { role: 'agent', desk: 13 })).toBe('desk-13'); // along the east wall
     expect(homeSpotId('lobby', { role: 'ceo', desk: 0 })).toBe('ceo');
-    expect(homeSpotId('lobby', { role: 'dev', desk: 0 })).toBeNull();
+    expect(homeSpotId('lobby', { role: 'agent', desk: 0 })).toBeNull();
     expect(homeSpotId('office', { role: 'ceo', desk: 0 })).toBeNull();
   });
 
@@ -182,9 +182,9 @@ describe('the registry', () => {
     const e = errandNamed('stretch')!;
     expect(e).toBeDefined();
     expect(e.work).toBeFalsy();
-    expect(wanted(errands(), dev('idle'), state({ seatedFor: 31 })).map((x) => x.name)).toContain('stretch');
-    expect(wanted(errands(), dev('idle'), state({ seatedFor: 10 }))).toEqual([]);
-    for (const s of ['working', 'preparing', 'error'] as const) expect(wanted(errands(), dev(s), state({ seatedFor: 999 })), s).toEqual([]);
+    expect(wanted(errands(), someone('idle'), state({ seatedFor: 31 })).map((x) => x.name)).toContain('stretch');
+    expect(wanted(errands(), someone('idle'), state({ seatedFor: 10 }))).toEqual([]);
+    for (const s of ['working', 'preparing', 'error'] as const) expect(wanted(errands(), someone(s), state({ seatedFor: 999 })), s).toEqual([]);
     expect(e.steps.reduce((t, s) => t + s.seconds, 0)).toBeGreaterThan(2);
   });
 
@@ -207,17 +207,17 @@ describe('the registry', () => {
     registerErrand({ name: 'test-board', work: true, when: (a) => a.status === 'preparing', spot: ['board-*'], steps: [{ gesture: 'reach', seconds: 3 }] });
     expect(errands().filter((e) => e.name === 'test-board')).toHaveLength(1);
     expect(errandNamed('test-board')!.steps[0].seconds).toBe(3);
-    expect(wanted(errands(), dev('preparing'), state()).map((e) => e.name)).toEqual(['test-board']);
-    expect(wanted(errands(), dev('working'), state())).toEqual([]);
+    expect(wanted(errands(), someone('preparing'), state()).map((e) => e.name)).toEqual(['test-board']);
+    expect(wanted(errands(), someone('working'), state())).toEqual([]);
   });
 
   it('a free person seated for ages who also has board work gets the board first', () => {
     registerErrand({ name: 'test-sticky', work: true, when: (a) => a.id === 'a', spot: ['board-*'], steps: [{ gesture: 'post', seconds: 1 }] });
-    const names = wanted(errands(), dev('done'), state({ seatedFor: 600 })).map((e) => e.name);
+    const names = wanted(errands(), someone('done'), state({ seatedFor: 600 })).map((e) => e.name);
     expect(names.indexOf('test-sticky')).toBe(0);
     expect(names).toContain('stretch');
     let q: Queued[] = [];
-    for (const e of wanted(errands(), dev('done'), state({ seatedFor: 600 }))) q = enqueue(q, e.name, 0, QUEUE_MAX, e.work);
+    for (const e of wanted(errands(), someone('done'), state({ seatedFor: 600 }))) q = enqueue(q, e.name, 0, QUEUE_MAX, e.work);
     expect(q[0].name).toBe('test-sticky');
     // and it sets off even with the floor's walker cap reached
     expect(admit([{ id: 'a', queue: q }], MAX_WALKERS)).toHaveLength(1);

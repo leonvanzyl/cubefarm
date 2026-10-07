@@ -1,4 +1,4 @@
-// Roof breaks: now and then an idle developer or tester rides the elevator up to the roof for a sit in a deck chair,
+// Roof breaks: now and then an idle agent rides the elevator up to the roof for a sit in a deck chair,
 // and the CEO goes up to take a call. Who is up there is kept here, shared by the floors' errand (roofErrand.ts: into
 // the elevator and, a while later, back out of it) and the roof's own visitors (RoofPeople.tsx: out of the elevator,
 // to a deck chair and back), so whoever you follow up finds them there. The rules are pure; times are Date.now() ms.

@@ -9,7 +9,7 @@ describe('desk reactions', () => {
     expect(newlyErrored({ a: { status: 'error' } }, { a: { status: 'idle' } })).toEqual([]);
   });
 
-  it('fist pumps for the developer whose PR just passed QA', () => {
+  it('fist pumps for the agent whose PR just passed QA', () => {
     const prev = { 'o/r#1': { status: 'testing' as const, devAgentId: 'ada' }, 'o/r#2': { status: 'passed' as const, devAgentId: 'bob' } };
     const next = { 'o/r#1': { status: 'passed' as const, devAgentId: 'ada' }, 'o/r#2': { status: 'passed' as const, devAgentId: 'bob' }, 'o/r#3': { status: 'passed' as const, devAgentId: null } };
     expect(newlyPassed(prev, next)).toEqual(['ada']);

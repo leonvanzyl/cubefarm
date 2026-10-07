@@ -40,7 +40,7 @@ async function phone(page: Page) {
   await page.evaluate(() => (window as unknown as MicWindow).__swarmMic.fake());
   await page.keyboard.press('p');
   await expect(page.locator('.phone')).toBeVisible();
-  if (!(await box(page).isVisible())) await page.locator('.phone-tab').first().click(); // it opens on Hires when someone waits there
+  if (!(await box(page).isVisible())) await page.locator('.phone-tab').first().click(); // it opens on Team when a team change waits there
   await expect(box(page)).toBeFocused();
 }
 
@@ -84,8 +84,8 @@ test('a tap of the 🎙️ listens until you stop talking, sends by itself with 
   await page.request.patch('/api/settings', { data: { listen: { ...LISTEN, autoSend: true } } });
   await button.click();
   await expect.poll(async () => (await mic(page)).live).toBe(true);
-  await say(page, 'do we need anyone new');
-  await expect.poll(async () => (await managerTexts(page)).at(-1), { timeout: 10_000 }).toBe('Do we need anyone new');
+  await say(page, 'should a team grow');
+  await expect.poll(async () => (await managerTexts(page)).at(-1), { timeout: 10_000 }).toBe('Should a team grow');
   const last = (await mic(page)).history.at(-1)!;
   expect(last.outcome).toBe('sent');
   await expect(box(page)).toHaveValue('');

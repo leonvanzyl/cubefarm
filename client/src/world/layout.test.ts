@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { FLOOR_SEATS } from '../../../shared/types';
 import { BALCONY, BALCONY_LIGHTS, BALCONY_OUT, BALCONY_TOP, BENCH, FLOOR_HEIGHT, HALF_W, PLANTER, SIDE_DOOR, SIDE_OPENINGS, SIDES, WALL_H, WALL_T, WINDOW, balconyFloor, balconyFurniture, balconyRailing, floorElevation, inBuilding, outsideAt, outsideColliders, sideDoorway, sideSign, toyOnlyAt } from './layout.ts';
-import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, MANAGER_ROOM, MISSION, missionColumn, missionRects, officeColliders, PLAYER_RADIUS, QA_RUG, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, WAITING_TABLE, type Rect } from './layout.ts';
+import { APP_SCREEN, BOARD, CEO_DESK, CEO_ROOM, COFFEE_CORNER, coffeeCorner, collide, DESK_RUGS, ELEVATOR, GONG, GONG_SPOT, gongRect, HALF_D, LOBBY_RUG, lobbyColliders, MANAGER_DESK, MANAGER_ROOM, MISSION, missionColumn, missionRects, officeColliders, PLAYER_RADIUS, RECEPTION, rect, shellColliders, SPAWN, surfaceAt, WAITING, WAITING_TABLE, type Rect } from './layout.ts';
+import { DESK, DESK_ROWS, EAST_DESKS, EAST_ROTATION, MAX_DESKS, SEATS, deskPosition, deskRotation, isEastDesk } from './layout.ts';
 
 const R = 0.3;
 const box: Rect = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 };
@@ -170,6 +172,36 @@ describe('collide', () => {
   });
 });
 
+describe('the desks', () => {
+  it('numbers the grid first, then the east wall: a desk for every seat on a floor', () => {
+    expect(SEATS).toBe(FLOOR_SEATS);
+    expect(SEATS).toBe(MAX_DESKS + EAST_DESKS.z.length);
+    const at = Array.from({ length: SEATS }, (_, s) => deskPosition(s));
+    expect(new Set(at.map((p) => `${p.x},${p.z}`)).size).toBe(SEATS);
+    for (let s = 0; s < SEATS; s++) {
+      expect(isEastDesk(s), `desk ${s}`).toBe(s >= MAX_DESKS);
+      expect(deskRotation(s), `desk ${s}`).toBe(s >= MAX_DESKS ? EAST_ROTATION : 0);
+    }
+    expect(deskPosition(MAX_DESKS + 1)).toEqual({ x: EAST_DESKS.x, z: EAST_DESKS.z[1] });
+    // the grid fills from the row nearest the elevator
+    expect(deskPosition(0).z).toBe(Math.max(...DESK_ROWS));
+  });
+
+  it("keeps the east wall's desks, turned to face it, clear of the grid's and of each other", () => {
+    const office = officeColliders();
+    for (let s = MAX_DESKS; s < SEATS; s++) {
+      const { x, z } = deskPosition(s);
+      // the turned desk's long side runs along z
+      expect(office.some((b) => b.minX === x - (DESK.d + 0.1) / 2 && b.minZ === z - (DESK.w + 0.1) / 2), `desk ${s}`).toBe(true);
+      for (let o = 0; o < SEATS; o++) {
+        if (o === s) continue;
+        const p = deskPosition(o);
+        expect(Math.hypot(p.x - x, p.z - z), `desks ${s} and ${o}`).toBeGreaterThan(DESK.w + 0.5);
+      }
+    }
+  });
+});
+
 describe('surfaceAt', () => {
   const eps = 1e-6;
 
@@ -194,14 +226,10 @@ describe('surfaceAt', () => {
     }
   });
 
-  it('is rug in the QA lab, which overlaps the east end of the desk rows', () => {
-    const cx = (QA_RUG.minX + QA_RUG.maxX) / 2;
-    expect(surfaceAt('office', cx, -2)).toBe('rug');
-    expect(surfaceAt('office', QA_RUG.maxX, -2)).toBe('rug');
-    expect(surfaceAt('office', QA_RUG.maxX + eps, -2)).toBe('wood');
-    expect(surfaceAt('office', cx, QA_RUG.minZ - eps)).toBe('wood');
-    expect(surfaceAt('office', QA_RUG.minX - eps, 1)).toBe('wood'); // between two desk rows
-    expect(surfaceAt('office', DESK_RUGS[0].maxX + eps, DESK_RUGS[0].maxZ)).toBe('rug'); // still on the QA rug
+  it("is plain floor round the east wall's desks, past the east end of the desk rows", () => {
+    for (const z of EAST_DESKS.z) expect(surfaceAt('office', EAST_DESKS.x, z)).toBe('wood');
+    expect(surfaceAt('office', DESK_RUGS[0].maxX, DESK_RUGS[0].maxZ)).toBe('rug');
+    expect(surfaceAt('office', DESK_RUGS[0].maxX + eps, DESK_RUGS[0].maxZ)).toBe('wood');
   });
 
   it('is rug on the lobby rug and in the carpeted offices, but office rugs are not in the lobby', () => {

@@ -11,6 +11,8 @@ import {
   journalEvent,
   journalFrame,
   keyframeIndex,
+  legacyAgent,
+  legacyRequest,
   marksOf,
   parseLines,
   recorded,
@@ -22,7 +24,7 @@ import {
   type JournalLine,
   type RepoPatch,
 } from './journal.ts';
-import { INSTALL_STEP, type AgentView, type OpsView, type PullInfo, type QaView, type RepoView, type ServerEvent, type WorldSnapshot } from './types.ts';
+import { INSTALL_STEP, type AgentView, type HireRequestView, type OpsView, type PullInfo, type QaView, type RepoView, type ServerEvent, type WorldSnapshot } from './types.ts';
 
 const MIN = 60_000;
 
@@ -85,11 +87,7 @@ function agent(patch: Partial<JournalAgent> = {}): JournalAgent {
     id: 'ada',
     name: 'Ada',
     repoId: 'o/r',
-    role: 'dev',
-    title: '',
-    specialty: '',
-    brief: 'A long job description',
-    hiredBy: 'manager',
+    role: 'agent',
     look: 'feminine',
     task: 'issue',
     desk: 0,
@@ -193,14 +191,14 @@ describe('journalEvent: what is kept', () => {
       expect(journalEvent(ev)?.type).toBe(ev.type);
   });
 
-  it('keeps no secret, env value, error, brief or screen anywhere in what it records', () => {
+  it('keeps no secret, env value, error or screen anywhere in what it records', () => {
     const secrets = [SECRETS.env, SECRETS.eleven];
     const events: ServerEvent[] = [
-      { type: 'agent', agent: agent({ lastError: `crashed with ${SECRETS.anthropic}`, brief: SECRETS.env, issueTitle: `Rotate ${SECRETS.github}`, currentTool: `Bash(${SECRETS.env})` }) },
+      { type: 'agent', agent: agent({ lastError: `crashed with ${SECRETS.anthropic}`, branch: `swarm/${SECRETS.env}`, issueTitle: `Rotate ${SECRETS.github}`, currentTool: `Bash(${SECRETS.env})` }) },
       { type: 'repo', repo: repo({ mission: SECRETS.env, issues: [{ number: 3, title: `Leak ${SECRETS.jwt}`, body: `token=${SECRETS.env}\nDepends on #1`, url: 'u', labels: [], createdAt: '' }] }) },
       { type: 'message', message: { id: 2, from: 'manager', text: `my ElevenLabs key is ${SECRETS.eleven} and env ${SECRETS.env}`, at: 1 } },
       { type: 'qa', qa: qa({ summary: `ran with GITHUB_TOKEN=${SECRETS.github}`, checks: [{ name: 'tests', result: 'fail', details: `stderr: ${SECRETS.env}` }] }) },
-      { type: 'request', request: { id: 'r1', kind: 'hire', repoId: 'o/r', role: 'dev', agentId: null, name: 'Bo', title: 'Dev', specialty: '', brief: SECRETS.env, reason: `needs ${SECRETS.anthropic}`, model: '', effort: '', look: 'masculine', color: '', hair: '', skin: '', status: 'pending', note: '', createdAt: 1, decidedAt: null, decidedBy: null } },
+      { type: 'request', request: { id: 'r1', kind: 'hire', repoId: 'o/r', agentId: null, name: 'Bo', reason: `needs ${SECRETS.anthropic}`, cli: '', model: '', effort: '', look: 'masculine', color: '', hair: '', skin: '', status: 'pending', note: `not now: ${SECRETS.env}`, createdAt: 1, decidedAt: null, decidedBy: null } },
       {
         type: 'ops',
         ops: {
@@ -433,5 +431,35 @@ describe('days and retention', () => {
   it('keeps everything within the limits', () => {
     expect(toPrune([file(6), file(0)], now, { maxBytes: 10_000 })).toEqual([]);
     expect(toPrune([], now)).toEqual([]);
+  });
+});
+
+describe('records from before agents were interchangeable', () => {
+  const { role: _role, ...rest } = agent();
+  const old = (patch: Record<string, unknown>) => ({ ...rest, title: 'Audio engineer', specialty: 'audio', brief: 'Sounds', hiredBy: 'ceo', ...patch });
+
+  it('makes developers agents at the same desk, without their title, specialty, brief or hiredBy', () => {
+    const a = legacyAgent(old({ role: 'dev', desk: 7 }));
+    expect(a).toEqual(agent({ desk: 7 }));
+    for (const k of ['title', 'specialty', 'brief', 'hiredBy']) expect(a).not.toHaveProperty(k);
+  });
+
+  it("seats QA testers at the east wall's desks, where their lab stations were", () => {
+    expect(legacyAgent(old({ role: 'qa', desk: 0, task: 'qa' }))).toMatchObject({ role: 'agent', desk: 12, task: 'qa' });
+    expect(legacyAgent(old({ role: 'qa', desk: 2 })).desk).toBe(14);
+  });
+
+  it("leaves the CEO and records already in the new shape alone, and drops old careers' specialties", () => {
+    expect(legacyAgent(old({ id: 'ceo', role: 'ceo', desk: 0 }))).toMatchObject({ role: 'ceo', desk: 0 });
+    expect(legacyAgent(agent({ desk: 13 }))).toEqual(agent({ desk: 13 }));
+    const career = { since: 1, opened: 2, merged: 1, firstPass: 1, qaPass: 1, qaFail: 0, fixRounds: 0, run: 1, best: 1, reviews: 0, costUsd: 0, turns: 0, recent: [], week: [] };
+    expect(legacyAgent(old({ role: 'dev', career: { ...career, bySpecialty: { audio: 1 } } })).career).toEqual(career);
+  });
+
+  it('turns an old hire proposal into a team change: no role, title, specialty or brief, the default coding agent', () => {
+    const now: HireRequestView = { id: 'r1', kind: 'hire', repoId: 'o/r', agentId: null, name: 'Bo', reason: 'more hands', cli: '', model: '', effort: '', look: 'masculine', color: '', hair: '', skin: '', status: 'pending', note: '', createdAt: 1, decidedAt: null, decidedBy: null };
+    const { cli: _cli, ...before } = now;
+    expect(legacyRequest({ ...before, role: 'qa', title: 'QA tester', specialty: 'testing', brief: 'Test it' })).toEqual(now);
+    expect(legacyRequest({ ...now, cli: 'codex' })).toEqual({ ...now, cli: 'codex' });
   });
 });

@@ -3,7 +3,7 @@ import type { LogLine, RepoView, ServerEvent } from '../shared/types.ts';
 import { agentPatch, FLUSH_MS, Outbox, type Agent, type Tab } from './outbox.ts';
 
 const agent = (id: string, patch: Partial<Agent> = {}): Agent =>
-  ({ id, name: id, repoId: 'r1', role: 'dev', status: 'working', currentTool: null, activity: null, desk: 0, color: '#fff', ...patch }) as Agent;
+  ({ id, name: id, repoId: 'r1', role: 'agent', status: 'working', currentTool: null, activity: null, desk: 0, color: '#fff', ...patch }) as Agent;
 const line = (id: number, kind: LogLine['kind'] = 'tool'): LogLine => ({ id, t: id, kind, text: `line ${id}` });
 
 /** A tab that keeps what it's sent, parsed. */

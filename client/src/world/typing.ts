@@ -2,7 +2,7 @@
 // (TypingSounds.tsx), so key clicks land on the taps and stop in the "reading" pauses. Pure: no three, no audio.
 
 import type { AgentRole, AgentStatus } from '../../../shared/types';
-import { CEO_DESK, QA_ROTATION, deskPosition, qaDeskPosition } from './layout';
+import { CEO_DESK, deskPosition, deskRotation } from './layout';
 
 export type PoseName = 'typing' | 'browsing' | 'thinking' | 'relaxed' | 'cheer' | 'slump';
 
@@ -105,12 +105,13 @@ export interface Vec3 {
 }
 
 /**
- * World position of someone's keyboard (or mouse) on their desk: developers' desks, the QA lab's
- * rotated stations, or the CEO's desk in the lobby. Writes into `out` so callers don't allocate.
+ * World position of someone's keyboard (or mouse) on their desk: a floor's desk `slot` (the east wall's are turned
+ * to face it), or the CEO's desk in the lobby. Writes into `out` so callers don't allocate.
  */
 export function keyboardSpot(role: AgentRole, slot: number, mouse: boolean, out: Vec3): Vec3 {
-  const desk = role === 'qa' ? qaDeskPosition(slot) : role === 'ceo' ? CEO_DESK : deskPosition(slot);
-  const rot = role === 'qa' ? QA_ROTATION : 0;
+  const ceo = role === 'ceo';
+  const desk = ceo ? CEO_DESK : deskPosition(slot);
+  const rot = ceo ? 0 : deskRotation(slot);
   const o = mouse ? MOUSE_OFFSET : KEYBOARD_OFFSET;
   const c = Math.cos(rot);
   const s = Math.sin(rot);

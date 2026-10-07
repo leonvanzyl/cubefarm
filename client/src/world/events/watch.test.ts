@@ -47,8 +47,8 @@ describe('where people watch from', () => {
 
 describe('the watch errand', () => {
   const watch = errandNamed('watch')!;
-  const idle = { id: 'ada', status: 'idle' as const, role: 'dev' };
-  const busy = { id: 'linus', status: 'working' as const, role: 'dev' };
+  const idle = { id: 'ada', status: 'idle' as const, role: 'agent' };
+  const busy = { id: 'linus', status: 'working' as const, role: 'agent' };
 
   it('is registered with the errand director', () => {
     expect(watch).toBeTruthy();

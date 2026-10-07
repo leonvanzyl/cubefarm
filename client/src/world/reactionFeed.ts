@@ -24,7 +24,7 @@ const lives = new Map<string, DeskLife>();
 const recent: { id: string; fidget: Fidget; at: number }[] = [];
 /** Who wrote each PR QA has seen (`${repoId}#${number}`), kept after QA lets go of it, for when it merges. */
 const devOf = new Map<string, string>();
-/** When (Date.now()) each developer's PR last merged, for their proud face (face.ts). */
+/** When (Date.now()) each agent's PR last merged, for their proud face (face.ts). */
 const merges = new Map<string, number>();
 
 /** When someone's PR last merged (Date.now() time), or -Infinity. */

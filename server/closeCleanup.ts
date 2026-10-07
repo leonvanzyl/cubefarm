@@ -174,8 +174,8 @@ function mergedEnd(a: Holder, c: Closure) {
 
 /**
  * What happens to the floor's agents and QA records when an issue or PR closes. Whoever works on a closed issue or an
- * unmerged closed PR stops; a merge stops nobody. Agents who only have it on their card are cleared, except a QA tester
- * after a merge, whose last run stays on their monitor until their next one. A PR's record leaves QA, unless it merged
+ * unmerged closed PR stops; a merge stops nobody. Agents who only have it on their card are cleared, except one who
+ * tested it, after a merge: their last run stays on their monitor until their next one. A PR's record leaves QA, unless it merged
  * while a QA run or fix is still going (that one leaves once it ends).
  */
 export function afterClose(c: Closure, agents: readonly Holder[], records: readonly HeldRecord[], busy: readonly string[]): CloseActions {
@@ -185,7 +185,7 @@ export function afterClose(c: Closure, agents: readonly Holder[], records: reado
   for (const a of agents.filter((x) => holding(x) && onIt(x, c))) {
     if (live(a)) {
       if (!mergedEnd(a, c)) stop.push(a.id);
-    } else if (!(c.kind === 'pr' && c.merged && a.role === 'qa')) clear.push(a.id);
+    } else if (!(c.kind === 'pr' && c.merged && a.task === 'qa')) clear.push(a.id);
   }
   const rec = c.kind === 'pr' ? records.find((r) => r.prNumber === c.number) : undefined;
   const running =

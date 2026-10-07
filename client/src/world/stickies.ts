@@ -1,16 +1,16 @@
-// Stickies, the pure side: which Kanban moves send someone to the whiteboard (a developer opening a PR, a QA tester
-// picking it up or finishing, a merge), what the 3D board shows while their sticky is on its way, and the per-agent
+// Stickies, the pure side: which Kanban moves send someone to the whiteboard (an agent opening a PR, an agent testing
+// it picking it up or finishing, a merge), what the 3D board shows while their sticky is on its way, and the per-agent
 // job queue that keeps a burst of moves orderly. StickyNotes.tsx runs it; the HTML Kanban panel never waits for it.
 
 import type { KanbanCard, KanbanColumns } from '../store';
 import { kanbanCapacity, kanbanNoteRect, KANBAN_KEYS } from './draw';
-import { BOARD, deskPosition, QA_ROTATION, qaDeskPosition } from './layout';
+import { BOARD, deskPosition, deskRotation } from './layout';
 
 export type Col = keyof KanbanColumns;
 
 /**
- * toQa: a developer moves their sticky from In progress to In QA. take: a tester takes it off In QA to their station.
- * pass / fail: the tester brings it back, to Ready to merge or to the QA column. merge: its developer moves it to Merged.
+ * toQa: its author moves their sticky from In progress to In QA. take: a tester takes it off In QA to their desk.
+ * pass / fail: the tester brings it back, to Ready to merge or to the QA column. merge: its author moves it to Merged.
  */
 export type MoveKind = 'toQa' | 'take' | 'pass' | 'fail' | 'merge';
 
@@ -40,7 +40,8 @@ export function findCard(cols: KanbanColumns, key: string): Spot | null {
   return null;
 }
 
-const devOf = (c: KanbanCard) => c.qa?.devAgentId ?? (c.agent?.role === 'dev' ? c.agent.id : null);
+/** Who wrote a card's PR: QA's record, else the card's agent unless that's someone testing it. */
+const authorOf = (c: KanbanCard) => c.qa?.devAgentId ?? (c.agent && c.agent.role !== 'ceo' && c.agent.task !== 'qa' ? c.agent.id : null);
 
 /** The moves between two versions of a floor's board that someone could walk over and make. */
 export function stickyMoves(prev: KanbanColumns, next: KanbanColumns): Move[] {
@@ -48,12 +49,12 @@ export function stickyMoves(prev: KanbanColumns, next: KanbanColumns): Move[] {
   for (const c of next.qa) {
     const was = findCard(prev, c.key);
     if (!was) {
-      // a new PR: its developer's In progress card has gone
-      const dev = devOf(c);
-      const index = dev ? prev.progress.findIndex((p) => p.agent?.id === dev) : -1;
-      if (dev && index >= 0) {
+      // a new PR: its author's In progress card has gone
+      const author = authorOf(c);
+      const index = author ? prev.progress.findIndex((p) => p.agent?.id === author) : -1;
+      if (author && index >= 0) {
         const card = prev.progress[index];
-        if (!next.progress.some((p) => p.key === card.key && p.number === card.number)) out.push({ kind: 'toQa', agentId: dev, from: { col: 'progress', index, card }, to: 'qa', key: c.key });
+        if (!next.progress.some((p) => p.key === card.key && p.number === card.number)) out.push({ kind: 'toQa', agentId: author, from: { col: 'progress', index, card }, to: 'qa', key: c.key });
       }
       continue;
     }
@@ -71,8 +72,8 @@ export function stickyMoves(prev: KanbanColumns, next: KanbanColumns): Move[] {
     if (findCard(prev, c.key)) continue;
     const was = findCard(prev, `pr-${c.number}`);
     if (!was) continue;
-    const dev = c.agent?.id ?? devOf(was.card);
-    if (dev) out.push({ kind: 'merge', agentId: dev, from: was, to: 'merged', key: c.key });
+    const author = c.agent?.id ?? authorOf(was.card);
+    if (author) out.push({ kind: 'merge', agentId: author, from: was, to: 'merged', key: c.key });
   }
   return out;
 }
@@ -97,7 +98,7 @@ export function holdFor(move: Move, taken: boolean): Hold {
 
 /**
  * The columns as the 3D board draws them: the real ones with the held moves held back, and every card a tester has
- * at their station drawn as an outline (its sticky is on their monitor).
+ * at their desk drawn as an outline (its sticky is on their monitor).
  */
 export function displayColumns(cols: KanbanColumns, holds: readonly Hold[]): KanbanColumns {
   const hidden = new Set(holds.flatMap((h) => h.hide));
@@ -138,7 +139,7 @@ export const BOARD_MAX = 2;
 /**
  * Adds a move to the queue. One thing at a time per person: a move waits (`after`) for the job they already have, and
  * replaces one already waiting behind it (the stale one is skipped). A move of a sticky someone else is still bringing
- * over (a tester taking the PR its developer is putting up) waits for them instead, and a move of a sticky someone else
+ * over (a tester taking the PR its author is putting up) waits for them instead, and a move of a sticky someone else
  * already has is skipped. Returns the queue to keep and the jobs dropped (the board shows those as they are).
  */
 export function addMove(jobs: readonly Job[], move: Move, at: number, id: number): { jobs: Job[]; dropped: Job[] } {
@@ -219,13 +220,12 @@ export function boardPose(col: Col, index: number, number: number, out: Pose): P
   return out;
 }
 
-/** The little sticky on a tester's monitor (a QA station's, or a developer's desk when they test): its top corner, facing them. */
-export function monitorPose(who: { role: string; desk: number }, out: Pose): Pose {
-  const qa = who.role === 'qa';
-  const { x, z } = qa ? qaDeskPosition(who.desk) : deskPosition(who.desk);
+/** The little sticky on a tester's monitor (at their desk, `desk`): its top corner, facing them. */
+export function monitorPose(who: { desk: number }, out: Pose): Pose {
+  const { x, z } = deskPosition(who.desk);
   const lx = -0.43; // desk space (Desk.tsx): the monitor's front is at z -0.275, its top edge at y 1.645
   const lz = -0.268;
-  const turn = qa ? QA_ROTATION : 0;
+  const turn = deskRotation(who.desk);
   const c = Math.cos(turn);
   const s = Math.sin(turn);
   out.x = x + lx * c + lz * s;

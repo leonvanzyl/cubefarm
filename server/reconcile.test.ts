@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { reconcileStep, restartMessage, sessionStart, workState, type ReconcileAgent } from './reconcile.ts';
 
 const agent = (over: Partial<ReconcileAgent> = {}): ReconcileAgent => ({
-  role: 'dev',
+  role: 'agent',
   status: 'working',
   task: 'issue',
   work: 'open',
@@ -30,7 +30,7 @@ describe('reconcileStep', () => {
   });
 
   it('clears work that closed or merged while the office was down, whatever the agent was doing', () => {
-    // This morning: seven developers on issues and a PR that were all finished, their desks gone.
+    // This morning: seven agents on issues and a PR that were all finished, their desks gone.
     for (const status of ['working', 'preparing', 'error', 'stopped', 'done']) {
       expect(reconcileStep(agent({ status, work: 'closed', deskExists: false }))).toBe('clear');
       expect(reconcileStep(agent({ status, task: 'fix', work: 'merged', cliAlive: true }))).toBe('clear');

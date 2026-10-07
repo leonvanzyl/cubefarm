@@ -3,7 +3,7 @@ import type { QaStatus, QaView } from '../../../shared/types';
 import type { Agent, KanbanCard, KanbanColumns } from '../store';
 import { KANBAN_KEYS } from './draw';
 import { mayStart } from './errands';
-import { BOARD, deskPosition, qaDeskPosition, QA_ROTATION } from './layout';
+import { BOARD, deskPosition, EAST_ROTATION, MAX_DESKS, SEATS } from './layout';
 import {
   addMove,
   BOARD_MAX,
@@ -26,8 +26,8 @@ import {
 } from './stickies';
 import { spot, walkways } from './walkways';
 
-const person = (id: string, role: 'dev' | 'qa') => ({ id, role, name: id, color: '#3a86ff' }) as Agent;
-const dev = person('dev', 'dev');
+const person = (id: string, task: Agent['task'] = null) => ({ id, role: 'agent', task, name: id, color: '#3a86ff' }) as Agent;
+const dev = person('dev', 'issue');
 const tester = person('qa', 'qa');
 const qaRec = (n: number, status: QaStatus): QaView => ({
   repoId: 'o/r',
@@ -56,8 +56,8 @@ const merged = (n: number): KanbanCard => ({ key: `m-${n}`, number: n, prNumber:
 const board = (over: Partial<KanbanColumns> = {}): KanbanColumns => ({ backlog: [], progress: [], qa: [], ready: [], merged: [], ...over });
 
 describe('which moves send someone to the board', () => {
-  it('a developer opening a PR moves their sticky from In progress to In QA', () => {
-    const other: KanbanCard = { key: 'a-x', number: 3, title: 'Other', agent: person('x', 'dev') };
+  it('an agent opening a PR moves their sticky from In progress to In QA', () => {
+    const other: KanbanCard = { key: 'a-x', number: 3, title: 'Other', agent: person('x', 'issue') };
     const moves = stickyMoves(board({ progress: [other, working()] }), board({ progress: [other], qa: [pr(12, 'queued')] }));
     expect(moves).toEqual([{ kind: 'toQa', agentId: 'dev', from: { col: 'progress', index: 1, card: working() }, to: 'qa', key: 'pr-12' }]);
   });
@@ -65,6 +65,12 @@ describe('which moves send someone to the board', () => {
   it('a PR from someone still busy on their card, or from nobody on the floor, sends no one', () => {
     expect(stickyMoves(board({ progress: [working()] }), board({ progress: [working()], qa: [pr(12, 'queued')] }))).toEqual([]);
     expect(stickyMoves(board(), board({ qa: [{ ...pr(12), agent: undefined }] }))).toEqual([]);
+  });
+
+  it("a new PR shown with someone testing it isn't theirs to bring over", () => {
+    const theirs: KanbanCard = { ...working(), key: 'a-qa', agent: tester };
+    const testing: KanbanCard = { key: 'pr-12', number: 12, prNumber: 12, title: 'Fix it', agent: tester };
+    expect(stickyMoves(board({ progress: [theirs] }), board({ qa: [testing] }))).toEqual([]);
   });
 
   it('a tester picking up a PR takes its sticky to their monitor', () => {
@@ -77,7 +83,7 @@ describe('which moves send someone to the board', () => {
     expect(stickyMoves(board({ qa: [pr(12, 'testing')] }), board({ qa: [pr(12, 'failed')] }))).toMatchObject([{ kind: 'fail', agentId: 'qa', to: 'qa' }]);
   });
 
-  it('a merge sends its developer to move it to Merged', () => {
+  it('a merge sends its author to move it to Merged', () => {
     expect(stickyMoves(board({ ready: [pr(12, 'passed')] }), board({ merged: [merged(12)] }))).toMatchObject([
       { kind: 'merge', agentId: 'dev', to: 'merged', key: 'm-12', from: { col: 'ready', index: 0 } },
     ]);
@@ -104,7 +110,7 @@ describe('what the 3D board shows', () => {
     expect(displayColumns(real, []).qa.map((c) => c.key)).toEqual(['pr-11', 'pr-12']);
   });
 
-  it("keeps the old card in place of the new one, but not a developer's next issue under the same key", () => {
+  it("keeps the old card in place of the new one, but not the author's next issue under the same key", () => {
     const take: Move = { kind: 'take', agentId: 'qa', from: { col: 'qa', index: 1, card: pr(12, 'queued') }, to: 'monitor', key: 'pr-12' };
     const now = board({ qa: [pr(11, 'queued'), pr(12, 'testing')] });
     expect(displayColumns(now, [holdFor(take, false)]).qa.map((c) => c.qa?.status)).toEqual(['queued', 'queued']);
@@ -149,7 +155,7 @@ describe('the queue', () => {
     expect(addMove(going, move('b', 'pr-5'), 2, 6).jobs.map((j) => j.id)).toEqual([1, 6]);
   });
 
-  it("a tester's take waits for the developer still putting that sticky up on In QA", () => {
+  it("a tester's take waits for the author still putting that sticky up on In QA", () => {
     const toQa = move('dev', 'pr-12');
     const take: Move = { kind: 'take', agentId: 'qa', from: { col: 'qa', index: 0, card: pr(12, 'queued') }, to: 'monitor', key: 'pr-12' };
     let r = addMove([], toQa, 0, 1);
@@ -159,7 +165,7 @@ describe('the queue', () => {
       [1, undefined],
       [2, 1],
     ]);
-    // the developer goes first; the tester doesn't, and isn't skipped for waiting
+    // the author goes first; the tester doesn't, and isn't skipped for waiting
     expect(mayGo(r.jobs, 'dev', 1)).toBe(true);
     expect(mayGo(r.jobs, 'qa', 1)).toBe(false);
     expect(overdue(r.jobs[1], 0.2 + START_BY + 1)).toBe(false);
@@ -167,7 +173,7 @@ describe('the queue', () => {
     const shown = displayColumns(board({ qa: [pr(12, 'testing')] }), boardHolds(r.jobs));
     expect(shown.progress.map((c) => c.key)).toEqual(['a-dev']);
     expect(shown.qa).toEqual([]);
-    // also while the developer is on their way, and once placed the take may go, its START_BY from then
+    // also while the author is on their way, and once placed the take may go, its START_BY from then
     const going = r.jobs.map((j) => (j.id === 1 ? { ...j, stage: 'going' as const } : j));
     expect(addMove(going, take, 0.3, 3).jobs.find((j) => j.id === 3)?.after).toBe(1);
     const after = release(going.slice(1), [going[0]], 15);
@@ -176,7 +182,7 @@ describe('the queue', () => {
     expect(displayColumns(board({ qa: [pr(12, 'testing')] }), boardHolds(after)).qa.map((c) => c.qa?.status)).toEqual(['queued']);
   });
 
-  it('a developer who also tests puts their own PR up before taking the next one off the board', () => {
+  it('an agent who also tests puts their own PR up before taking the next one off the board', () => {
     const take: Move = { kind: 'take', agentId: 'dev', from: { col: 'qa', index: 0, card: pr(7, 'queued') }, to: 'monitor', key: 'pr-7' };
     let r = addMove([], move('dev', 'pr-8'), 0, 1);
     r = addMove(r.jobs, take, 0.2, 2);
@@ -260,16 +266,16 @@ describe('where the stickies are', () => {
   });
 
   it("the monitor sticky sits on the tester's monitor, facing them", () => {
-    for (const slot of [0, 1, 2]) {
-      const m = monitorPose({ role: 'qa', desk: slot }, p());
-      const desk = qaDeskPosition(slot);
+    for (let slot = MAX_DESKS; slot < SEATS; slot++) {
+      const m = monitorPose({ desk: slot }, p());
+      const desk = deskPosition(slot);
       expect(Math.hypot(m.x - desk.x, m.z - desk.z)).toBeLessThan(0.6);
-      expect(m.x).toBeGreaterThan(desk.x); // testers sit west of their desk and face east, so the screen faces west
-      expect(m.yaw).toBe(QA_ROTATION);
+      expect(m.x).toBeGreaterThan(desk.x); // at the east wall they sit west of their desk and face east, so the screen faces west
+      expect(m.yaw).toBe(EAST_ROTATION);
       expect(m.y).toBeGreaterThan(1.3);
     }
-    // a developer testing a PR at their own desk: its monitor faces south, towards their chair
-    const d = monitorPose({ role: 'dev', desk: 5 }, p());
+    // at a desk in the grid: its monitor faces south, towards their chair
+    const d = monitorPose({ desk: 5 }, p());
     const desk = deskPosition(5);
     expect(Math.hypot(d.x - desk.x, d.z - desk.z)).toBeLessThan(0.6);
     expect(d.z).toBeLessThan(desk.z);

@@ -138,7 +138,7 @@ export interface LaunchContext {
   resumeId?: string;
   sessionId: string; // the id the office gives a new Claude Code session
   name: string; // shown in Claude Code's prompt box and the terminal title
-  role: 'dev' | 'qa' | 'ceo';
+  role: 'agent' | 'ceo';
   additionalDirectories: string[];
   /** Files the office wrote for this session (settings, MCP config, instructions). */
   files: { settings: string; mcp: string | null; system: string };

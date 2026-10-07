@@ -13,6 +13,7 @@ import {
   declinedRoute,
   greetSpot,
   hiredRoute,
+  joined,
   leave,
   newlyHired,
   planTour,
@@ -93,6 +94,22 @@ describe('the waiting room', () => {
     ];
     expect(newlyHired(before, after)).toEqual([{ agentId: 'ada', repoId: 'o/r' }]);
     expect(newlyHired(before, [{ ...before[0], kind: 'let-go', status: 'approved', agentId: 'x' }])).toEqual([]);
+  });
+
+  it('knows who joined a floor any other way (the manager, scaling on auto), but never the CEO', () => {
+    const known = new Set(['ada', 'ceo']);
+    const agents = [
+      { id: 'ada', role: 'agent' as const, repoId: 'o/r' },
+      { id: 'ceo', role: 'ceo' as const, repoId: '' },
+      { id: 'grace', role: 'agent' as const, repoId: 'o/r' },
+      { id: 'linus', role: 'agent' as const, repoId: 'o/s' },
+    ];
+    expect(joined(known, agents)).toEqual([
+      { agentId: 'grace', repoId: 'o/r' },
+      { agentId: 'linus', repoId: 'o/s' },
+    ]);
+    expect(joined(new Set(), [{ id: 'ceo', role: 'ceo', repoId: '' }])).toEqual([]);
+    expect(joined(new Set(['ada', 'grace', 'linus']), agents)).toEqual([]);
   });
 });
 

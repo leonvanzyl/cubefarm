@@ -24,9 +24,6 @@ import {
 
 export type { Build, FacialHair, Glasses, HairStyle, Headwear, Outfit };
 
-/** A developer's little nod to their specialty (accessoryFor). */
-export type Accessory = 'neckphones' | 'ball' | 'wrench' | 'pencil' | 'padlock';
-
 export interface Appearance {
   hair: HairStyle;
   facialHair: FacialHair;
@@ -41,7 +38,6 @@ export interface Appearance {
   build: Build;
   /** Index into a small accent palette (glasses frames, beanie/cap, stripe). */
   accent: number;
-  accessory: Accessory | null;
   hairColor: string;
   skin: string;
 }
@@ -127,27 +123,7 @@ function pick<T>(r: number, options: Weighted<T>): T {
   return options[options.length - 1][0];
 }
 
-const ACCESSORIES: [RegExp, Accessory][] = [
-  [/audio|sound|music|voice|sfx/, 'neckphones'],
-  [/physic|rapier|game|simulat/, 'ball'],
-  [/devex|\bdx\b|tooling|infra|devops|platform|\bci\b|\bbuild|deploy/, 'wrench'],
-  [/secur|\bauth\b|authn|authz|authenticat|privacy|crypt/, 'padlock'],
-  [/\bui\b|\bux\b|design|css|front ?end|styling|\bart\b|artist/, 'pencil'],
-];
-
-/** A developer's accessory from their specialty (or job title): headphones round the neck for audio, and so on. */
-export function accessoryFor(agent: { role: AgentRole; specialty?: string; title?: string }): Accessory | null {
-  if (agent.role !== 'dev') return null;
-  for (const text of [agent.specialty, agent.title]) {
-    const t = (text ?? '').toLowerCase().replace(/[-_]/g, ' ');
-    if (!t.trim()) continue;
-    const hit = ACCESSORIES.find(([re]) => re.test(t));
-    if (hit) return hit[1];
-  }
-  return null;
-}
-
-type Who = { id: string; look: AgentLook; role: AgentRole; specialty?: string; title?: string; hair?: string; skin?: string; style?: AgentStyle | null };
+type Who = { id: string; look: AgentLook; role: AgentRole; hair?: string; skin?: string; style?: AgentStyle | null };
 
 /** The look picked from their id alone (the look editor's "Back to their seeded look"). */
 export function seededAppearance(agent: Who): Appearance {
@@ -155,7 +131,8 @@ export function seededAppearance(agent: Who): Appearance {
   // Always draw every number in the same order, so tweaking one rule doesn't reshuffle everything else; new draws
   // go on the end.
   const [rHair, rFacial, rGlasses, rPhones, rHat, rOutfit, rHeight, rShoulders, rAccent, rBuild, rNewHair, rNewOutfit] = Array.from({ length: 12 }, next);
-  const dev = agent.role === 'dev';
+  // the CEO keeps their suit and a bare head; hats, headphones and outfits are for everyone else
+  const staff = agent.role !== 'ceo';
   const masculine = agent.look === 'masculine';
 
   // (the CEO's id is the same in every office: they keep the hair everyone knows them by)
@@ -168,23 +145,22 @@ export function seededAppearance(agent: Who): Appearance {
         ['moustache', 1],
       ])
     : 'none';
-  // QA keep their inspector glasses, so only developers and the CEO get their own pair.
-  const glasses = agent.role === 'qa' ? 'none' : pick<Glasses>(rGlasses, [
+  const glasses = pick<Glasses>(rGlasses, [
     ['none', 6],
     ['round', 2],
     ['square', 2],
   ]);
-  // Headphones and hats are for developers; both sit on the head, so a person gets at most one of them.
-  const headphones = dev && hair !== 'afro' && hair !== 'mohawk' && rPhones < 0.3;
+  // Headphones and hats both sit on the head, so a person gets at most one of them.
+  const headphones = staff && hair !== 'afro' && hair !== 'mohawk' && rPhones < 0.3;
   const headwear =
-    dev && !headphones && !TALL_HAIR.includes(hair)
+    staff && !headphones && !TALL_HAIR.includes(hair)
       ? pick<Headwear>(rHat, [
           ['none', 7],
           ['beanie', 1],
           ['cap', 1],
         ])
       : 'none';
-  const outfit = !dev
+  const outfit = !staff
     ? 'tee'
     : rNewOutfit < NEW_OUTFIT_SHARE
       ? pick<Outfit>(rOutfit, [
@@ -213,7 +189,6 @@ export function seededAppearance(agent: Who): Appearance {
       ['broad', 1],
     ]),
     accent: Math.floor(rAccent * ACCENTS.length),
-    accessory: accessoryFor(agent),
     hairColor: agent.hair ?? '#2b2118',
     skin: agent.skin ?? '#f1c27d',
   };
@@ -228,9 +203,9 @@ export function randomStyle(agent: { look: AgentLook; role: AgentRole }, rand: (
     hairColor: one(HAIR_COLORS),
     skin: one(SKIN_TONES),
     facialHair: agent.look === 'masculine' && rand() < 0.5 ? one(FACIAL_HAIR) : 'none',
-    glasses: agent.role !== 'qa' && rand() < 0.4 ? one(GLASSES) : 'none',
+    glasses: rand() < 0.4 ? one(GLASSES) : 'none',
     headwear: !TALL_HAIR.includes(hair) && rand() < 0.3 ? one(HEADWEAR) : 'none',
-    ...(agent.role === 'dev' ? { outfit: one(OUTFITS) } : {}),
+    ...(agent.role !== 'ceo' ? { outfit: one(OUTFITS) } : {}),
     accent: Math.floor(rand() * ACCENTS.length),
     build: one(BUILDS),
   };
@@ -238,8 +213,8 @@ export function randomStyle(agent: { look: AgentLook; role: AgentRole }, rand: (
 
 /**
  * How they're drawn: the seeded look with the manager's picks (agent.style) over it. The picks still never stack
- * things that would clip: a hat only goes on hair that fits under it, headphones only where there's room. QA keep
- * their inspector glasses and lab coat, the CEO their blazer.
+ * things that would clip: a hat only goes on hair that fits under it, headphones only where there's room. The CEO
+ * keeps their blazer.
  */
 export function appearanceFor(agent: Who): Appearance {
   const seeded = seededAppearance(agent);
@@ -251,10 +226,10 @@ export function appearanceFor(agent: Who): Appearance {
     ...seeded,
     hair,
     facialHair: s.facialHair ?? seeded.facialHair,
-    glasses: agent.role === 'qa' ? 'none' : (s.glasses ?? seeded.glasses),
+    glasses: s.glasses ?? seeded.glasses,
     headphones: seeded.headphones && headwear === 'none' && hair !== 'afro' && hair !== 'mohawk',
     headwear,
-    outfit: agent.role === 'dev' ? (s.outfit ?? seeded.outfit) : 'tee',
+    outfit: agent.role !== 'ceo' ? (s.outfit ?? seeded.outfit) : 'tee',
     build: s.build ?? seeded.build,
     accent: s.accent ?? seeded.accent,
     hairColor: s.hairColor ?? seeded.hairColor,

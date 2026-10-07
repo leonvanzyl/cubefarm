@@ -2,9 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { agentsOnRepo, coversView, useStore } from '../../store';
-import { deskPosition, qaDeskPosition, QA_ROTATION } from '../layout';
+import { deskPosition, deskRotation, isEastDesk } from '../layout';
 import { say } from '../people';
-import { deskSpot, qaSpot } from '../walkways';
+import { deskSpot } from '../walkways';
 import { addProbe, useThemeRuntime } from './active';
 import { useCostumes } from './kit/costumes';
 import { free, sendHome, sendTo, type Person } from './kit/crowd';
@@ -61,9 +61,8 @@ interface Sticky {
 
 /** The heart on a monitor: its top right corner (the QA sticky goes on the left), facing the desk's owner. */
 function stickyAt(p: Person) {
-  const qa = p.role === 'qa';
-  const { x, z } = qa ? qaDeskPosition(p.desk) : deskPosition(p.desk);
-  const turn = qa ? QA_ROTATION : 0;
+  const { x, z } = deskPosition(p.desk);
+  const turn = deskRotation(p.desk);
   const [lx, lz] = [0.4, -0.262];
   return { x: x + lx * Math.cos(turn) + lz * Math.sin(turn), y: 1.58, z: z - lx * Math.sin(turn) + lz * Math.cos(turn), yaw: turn };
 }
@@ -94,16 +93,16 @@ export default function Valentines({ kind, repoId }: ThemeProps) {
   const sendHeart = useCallback((): string | null => {
     if (kind !== 'office' || busy.current) return null;
     const all = peopleRef.current;
-    const givers = all.filter((p) => p.role === 'dev' && free(p.id));
+    const givers = all.filter((p) => p.role !== 'ceo' && free(p.id));
     if (!givers.length || all.length < 2) return null;
     const giver = givers[Math.floor(Math.random() * givers.length)];
     const others = all.filter((p) => p.id !== giver.id);
     const to = others[Math.floor(Math.random() * others.length)];
-    const behind = to.role === 'qa' ? qaSpot(to.desk) : deskSpot(to.desk);
-    // beside the chair, facing the monitor
-    const stand = to.role === 'qa' ? { x: behind.x, z: behind.z - 0.6 } : { x: behind.x + 0.6, z: behind.z };
+    const behind = deskSpot(to.desk);
+    // beside the chair, facing the monitor (the way the desk faces)
+    const stand = isEastDesk(to.desk) ? { x: behind.x, z: behind.z - 0.6 } : { x: behind.x + 0.6, z: behind.z };
     busy.current = giver.id;
-    sendTo('office', giver, stand, to.role === 'qa' ? -Math.PI / 2 : 0, 'post', () => {
+    sendTo('office', giver, stand, deskRotation(to.desk), 'post', () => {
       setTimeout(() => {
         setStickies((l) => [...l.filter((s) => s.to.id !== to.id), { to, from: giver.id }].slice(-8));
         say(giver.id, '💘');

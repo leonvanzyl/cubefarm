@@ -55,7 +55,7 @@ describe('the Playwright MCP server', () => {
       effort: '',
       sessionId: 's',
       name: 'n',
-      role: 'qa',
+      role: 'agent',
       additionalDirectories: [],
       files: { settings: 's', mcp: null, system: 'i' },
       notify: { script: 'n.cjs', url: 'http://127.0.0.1:1/x' },

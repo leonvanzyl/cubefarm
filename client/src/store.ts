@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CEO_ID, DEFAULT_DOG_NAME, type AgentView, type CeoInfo, type CliView, type DoctorFinding, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PongRow, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
+import { CEO_ID, DEFAULT_DOG_NAME, DEFAULT_MAX_AGENTS, type AgentView, type CeoInfo, type CliView, type DoctorFinding, type HireRequestView, type LogLine, type NotifyChannelsView, type OfficeUpdateView, type OpsView, type PhoneMessage, type PongRow, type PrPreviewView, type QaView, type RepoView, type ServerEvent, type SwarmSettings, type TickerItem, type UsageView, type VisitorView, type VoiceCacheView, type WorldSnapshot } from '../../shared/types';
 import { blockers } from '../../shared/issues';
 import { latestListed } from '../../shared/watch';
 import { DEFAULT_WEATHER, DEFAULT_WORLD_EVENTS, EMPTY_WEATHER_VIEW, type WeatherView } from '../../shared/outside';
@@ -32,7 +32,7 @@ export type Overlay =
   | { kind: 'elevator' }
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string; card?: string } // card: an OpsAlarm id, or 'usage', to open at
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
-  /** A proposal face to face: a candidate's interview in the lobby, or the CEO's let-go note on a desk. */
+  /** A team change face to face: a new agent waiting in the lobby, or the CEO's let-go note on a desk. */
   | { kind: 'interview'; requestId: string }
   | { kind: 'help'; tab?: HelpTab }
   | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
@@ -51,7 +51,7 @@ export interface Focus {
   // resume: the usage meter while pacing, resume full speed (asks first)
   action:
     | Overlay
-    | { kind: 'hire'; repoId: string; role: 'dev' | 'qa' }
+    | { kind: 'hire'; repoId: string }
     | { kind: 'pickup'; toyId: string }
     | { kind: 'poke'; toyId: string }
     | { kind: 'coffee'; op: 'place' | 'brew' | 'take' }
@@ -76,7 +76,7 @@ export type Held =
   | { kind: 'blaster'; id: string; ammo: number; reloadAt: number | null }
   /** A coffee mug: sips of coffee left, 0 (empty) to 3 (full). */
   | { kind: 'mug'; id: string; sips: number }
-  /** A sticky peeled off the whiteboard (boardHands.ts): an issue for a developer's desk, or a PR for the QA lab. */
+  /** A sticky peeled off the whiteboard (boardHands.ts): an issue to build, or a PR to test, for a free agent's desk. */
   | { kind: 'sticky'; id: string; repoId: string; key: string; number: number; pr: boolean }
   /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
   | { kind: 'sausage'; id: string; bites: number; charred: boolean }
@@ -98,7 +98,7 @@ interface State {
   ghReady: boolean;
   ghError?: string;
   demo: boolean;
-  workspaceRoot: string;
+  machinesRoot: string;
   settings: SwarmSettings;
   clis: CliView[]; // the coding-agent CLIs installed where the office runs
   repos: RepoView[];
@@ -203,7 +203,7 @@ export const useStore = create<State>((set, get) => ({
   user: null,
   ghReady: true,
   demo: false,
-  workspaceRoot: '',
+  machinesRoot: '',
   // Until the server's snapshot arrives; setupDone stays true so the wizard doesn't flash while loading.
   settings: {
     sessionLimit: 0,
@@ -211,8 +211,8 @@ export const useStore = create<State>((set, get) => ({
     defaultEffort: 'medium',
     runtime: 'terminal',
     defaultCli: 'claude',
-    hiring: 'approve',
-    teamCap: 6,
+    scaling: 'approve',
+    maxAgents: DEFAULT_MAX_AGENTS,
     ceoHeartbeatMin: 60,
     managerName: '',
     companyName: '',
@@ -296,7 +296,7 @@ export const useStore = create<State>((set, get) => ({
           ghReady: d.ghReady,
           ghError: d.ghError,
           demo: d.demo,
-          workspaceRoot: d.workspaceRoot,
+          machinesRoot: d.machinesRoot,
           settings: d.settings,
           repos: d.repos.sort((a, b) => a.floor - b.floor),
           agents,
@@ -592,7 +592,7 @@ export const repoOnFloor = (repos: RepoView[], floor: number) => repos.find((r) 
 export const agentsOnRepo = (agents: Record<string, Agent>, repoId: string) =>
   Object.values(agents)
     .filter((a) => a.repoId === repoId)
-    .sort((a, b) => (a.role === b.role ? a.desk - b.desk : a.role === 'dev' ? -1 : 1));
+    .sort((a, b) => a.desk - b.desk);
 
 /**
  * Panels that hide the whole office (the wide ones: Kanban, terminals and the manager's console), so the
@@ -625,7 +625,7 @@ export interface KanbanCard {
   tone?: CardTone;
   prNumber?: number;
   qa?: QaView;
-  /** The 3D board draws it as an outline: its sticky is off the board, with a QA tester (StickyNotes.tsx). */
+  /** The 3D board draws it as an outline: its sticky is off the board, with the agent testing it (StickyNotes.tsx). */
   ghost?: boolean;
 }
 
@@ -644,11 +644,13 @@ export interface KanbanColumns {
 export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<string, QaView>, usage?: Pick<UsageView, 'state'>): KanbanColumns {
   const openPulls = repo.pulls.filter((p) => p.state === 'OPEN');
   const byId = new Map(agents.map((a) => [a.id, a]));
-  const devs = agents.filter((a) => a.role === 'dev');
-  const authorOf = (n: number, head: string) => devs.find((a) => a.prNumber === n) ?? devs.find((a) => a.branch && a.branch === head);
+  const workers = agents.filter((a) => a.role !== 'ceo');
+  // While testing, an agent's prNumber is the PR under test, not one of theirs.
+  const authors = workers.filter((a) => a.task !== 'qa');
+  const authorOf = (n: number, head: string) => authors.find((a) => a.prNumber === n) ?? authors.find((a) => a.branch && a.branch === head);
 
   const progress: KanbanCard[] = [];
-  for (const a of devs) {
+  for (const a of workers) {
     if (a.issueNumber == null || a.task !== 'issue' || a.status === 'idle') continue;
     // Their PR's card is the work now; once it's closed or merged there is no card ("finished · no PR" was wrong).
     if (a.prNumber != null) continue;
@@ -684,7 +686,7 @@ export function kanbanFor(repo: RepoView, agents: Agent[], qaRecords: Record<str
     .filter((i) => !claimed.has(i.number))
     .map((i) => {
       const waits = blockers(i.body, open);
-      const labels = i.labels.map((l) => l.replace(/^swarm:/i, '🎯 ')).slice(0, 2).join(', ');
+      const labels = i.labels.slice(0, 2).join(', ');
       const card = { key: `i-${i.number}`, number: i.number, title: i.title, url: i.url };
       // Its PR was closed: it waits for the manager rather than going back to auto-assign.
       if (held.has(i.number)) return { ...card, note: `⏸ PR #${held.get(i.number)} closed · assign by hand`, tone: 'warn' as const };

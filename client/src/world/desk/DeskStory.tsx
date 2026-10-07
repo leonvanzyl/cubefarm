@@ -1,17 +1,17 @@
 // Desks that tell a story (#226): a plaque for each merged PR on a plank on top of the monitor (eight and a "+N"), a
-// gold star for ten first-time QA passes, specialty stickers on the bezel, and the personal things that pile up with
-// tenure: a plant that grows, a photo, a desk toy. Drawn per floor rather than per desk, one InstancedMesh per kind
-// of thing plus one mesh for every label (PR numbers, stickers, photos) from a shared canvas atlas, so a floor of
-// fully decorated desks costs about a dozen draw calls. The MVP of the week gets a strip above the floor's sign.
+// gold star for ten first-time QA passes, and the personal things that pile up with tenure: a plant that grows, a
+// photo, a desk toy. Drawn per floor rather than per desk, one InstancedMesh per kind of thing plus one mesh for every
+// label (PR numbers, photos) from a shared canvas atlas, so a floor of fully decorated desks costs about a dozen draw
+// calls. The MVP of the week gets a strip above the floor's sign.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { deskItems, mvpOfWeek, newCareer, stickerFor, type DeskToy } from '../../../../shared/careers';
+import { deskItems, mvpOfWeek, newCareer, type DeskToy } from '../../../../shared/careers';
 import type { Agent } from '../../store';
 import { roundRect, SANS } from '../draw';
 import { useCanvasTexture } from '../interact';
-import { HALF_D, QA_ROTATION, deskPosition, qaDeskPosition } from '../layout';
+import { HALF_D, deskPosition, deskRotation } from '../layout';
 import { ball, box, cone, cyl, model, ramp, torus, vertexToon, type Part } from '../decor/parts';
-import { deskLayout, MONITOR, PLAQUE, SHELF, STICKER, type Spot } from './deskLayout';
+import { deskLayout, PLAQUE, SHELF, type Spot } from './deskLayout';
 
 /** Re-render every `ms` (the plants grow, the week moves on). */
 function useNow(ms: number) {
@@ -90,8 +90,8 @@ const CELL = 64;
 const COLS = 16; // a 1024 x 1024 canvas: 256 labels a floor
 const PHOTOS = 4;
 
-type Label = { kind: 'plaque'; n: number } | { kind: 'more'; n: number } | { kind: 'sticker'; slug: string } | { kind: 'photo'; i: number };
-const labelKey = (l: Label) => (l.kind === 'plaque' || l.kind === 'more' ? `${l.kind}:${l.n}` : l.kind === 'sticker' ? `sticker:${l.slug}` : `photo:${l.i}`);
+type Label = { kind: 'plaque'; n: number } | { kind: 'more'; n: number } | { kind: 'photo'; i: number };
+const labelKey = (l: Label) => (l.kind === 'photo' ? `photo:${l.i}` : `${l.kind}:${l.n}`);
 
 function drawLabel(ctx: CanvasRenderingContext2D, l: Label, x: number, y: number) {
   const c = CELL;
@@ -114,19 +114,6 @@ function drawLabel(ctx: CanvasRenderingContext2D, l: Label, x: number, y: number
     while (size > 12 && ctx.measureText(text).width > c - 12) ctx.font = `700 ${(size -= 2)}px ${SANS}`;
     ctx.fillStyle = '#4a3410';
     ctx.fillText(text, c / 2, c / 2 + 2);
-  } else if (l.kind === 'sticker') {
-    const s = stickerFor(l.slug);
-    ctx.beginPath();
-    ctx.arc(c / 2, c / 2, c / 2 - 2, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(c / 2, c / 2, c / 2 - 6, 0, Math.PI * 2);
-    ctx.fillStyle = s.color;
-    ctx.fill();
-    ctx.fillStyle = '#1f1d2b';
-    ctx.font = `700 ${s.text.length > 2 ? 22 : 30}px ${SANS}`;
-    ctx.fillText(s.text, c / 2, c / 2 + 2);
   } else {
     // a few tiny snapshots: a sunset, a heart, a cat, the mountains
     const scenes = [
@@ -174,10 +161,10 @@ function idHash(id: string) {
 function buildStory(agents: Agent[], now: number): Story {
   const story: Story = { shelves: [], plaques: [], stars: [], pots: [], foliage: [], frames: [], toys: { duck: [], speaker: [], cradle: [], magnifier: [] }, labels: [] };
   for (const a of agents) {
-    if (a.role !== 'dev' && a.role !== 'qa') continue;
-    const p = a.role === 'qa' ? qaDeskPosition(a.desk) : deskPosition(a.desk);
-    const frame = new THREE.Matrix4().makeRotationY(a.role === 'qa' ? QA_ROTATION : 0).setPosition(p.x, 0, p.z);
-    const lay = deskLayout(deskItems(a.career ?? newCareer(now), a, now), a.role);
+    if (a.role === 'ceo') continue;
+    const p = deskPosition(a.desk);
+    const frame = new THREE.Matrix4().makeRotationY(deskRotation(a.desk)).setPosition(p.x, 0, p.z);
+    const lay = deskLayout(deskItems(a.career ?? newCareer(now), a.id, now));
     if (lay.shelf) story.shelves.push(at(frame, { x: 0, y: SHELF.y, z: SHELF.z }));
     for (const { n, at: s } of lay.plaques) {
       story.plaques.push(at(frame, s));
@@ -188,8 +175,6 @@ function buildStory(agents: Agent[], now: number): Story {
       story.labels.push({ label: { kind: 'more', n: lay.more.n }, m: at(frame, lay.more.at, offset(0, 0.003, PLAQUE.d / 2 + 0.001)), w: PLAQUE.w - 0.01, h: PLAQUE.h - 0.016 });
     }
     if (lay.star) story.stars.push(at(frame, lay.star));
-    const monitor = frame.clone().multiply(new THREE.Matrix4().makeRotationX(MONITOR.tilt).setPosition(0, MONITOR.y, MONITOR.z));
-    for (const { slug, at: s } of lay.stickers) story.labels.push({ label: { kind: 'sticker', slug }, m: at(monitor, s), w: STICKER, h: STICKER });
     story.pots.push(at(frame, lay.plant.at));
     story.foliage.push(at(frame, lay.plant.at, offset(0, 0.09, 0).multiply(new THREE.Matrix4().makeScale(lay.plant.grow, lay.plant.grow, lay.plant.grow))));
     if (lay.photo) {
@@ -258,10 +243,10 @@ function Instances({ geometry, matrices, shadow = false }: { geometry: THREE.Buf
 /** What a floor's desk story depends on: who sits where, and the parts of their careers the desks show. */
 function storyKey(agents: Agent[]) {
   return agents
-    .filter((a) => a.role === 'dev' || a.role === 'qa')
+    .filter((a) => a.role !== 'ceo')
     .map((a) => {
       const c = a.career;
-      return `${a.id}:${a.role}:${a.desk}:${a.specialty}:${c ? `${c.since}:${c.merged}:${c.firstPass}:${c.recent.map((r) => r.n).join('.')}:${Object.keys(c.bySpecialty).join('.')}` : '-'}`;
+      return `${a.id}:${a.desk}:${c ? `${c.since}:${c.merged}:${c.reviews}:${c.firstPass}:${c.recent.map((r) => r.n).join('.')}` : '-'}`;
     })
     .join('|');
 }

@@ -16,7 +16,7 @@ import { Character } from './Character';
 import { NameTag } from './Desk';
 import { FoodLook, OpenPizza, PIZZA_STACK, PizzaBox } from './food';
 import { useInteractable } from './interact';
-import { QA_ROTATION, deskPosition, qaDeskPosition } from './layout';
+import { deskPosition, deskRotation } from './layout';
 import { meals, mealsVersion, subscribeMeals } from './meals';
 import { isHidden } from './people';
 import { COURIER_ID, LobbyRitualRunner, OfficeRitualRunner } from './ritualRunner';
@@ -88,11 +88,7 @@ const COURIER: Agent = {
   id: COURIER_ID,
   name: 'Pizza delivery',
   repoId: '',
-  role: 'dev',
-  title: '',
-  specialty: '',
-  brief: '',
-  hiredBy: 'manager',
+  role: 'agent',
   look: 'masculine',
   task: null,
   desk: 0,
@@ -138,9 +134,8 @@ function Visitor({ agent, ceo = false, carrying, scale }: { agent: Agent; ceo?: 
 
 /** Where something on a desk is in the world: the desk's place and turn, then the spot on it (desk space). */
 function onDesk(a: Agent, x: number, y: number, z: number) {
-  const qa = a.role === 'qa';
-  const d = qa ? qaDeskPosition(a.desk) : deskPosition(a.desk);
-  const turn = qa ? QA_ROTATION : 0;
+  const d = deskPosition(a.desk);
+  const turn = deskRotation(a.desk);
   return { x: d.x + x * Math.cos(turn) + z * Math.sin(turn), y, z: d.z - x * Math.sin(turn) + z * Math.cos(turn), turn };
 }
 
@@ -183,7 +178,7 @@ function DeskLamps({ agents }: { agents: Agent[] }) {
   const lamps = useRef<THREE.InstancedMesh>(null);
   const bulbs = useRef<THREE.InstancedMesh>(null);
   const pools = useRef<THREE.InstancedMesh>(null);
-  const desks = useMemo(() => agents.filter((a) => a.role === 'dev' || a.role === 'qa').slice(0, LAMP_MAX), [agents]);
+  const desks = useMemo(() => agents.filter((a) => a.role !== 'ceo').slice(0, LAMP_MAX), [agents]);
   const seen = useMemo(() => ({ key: '', level: -1, m: new THREE.Matrix4(), off: new THREE.Matrix4().makeScale(0, 0, 0), q: new THREE.Quaternion(), up: new THREE.Vector3(0, 1, 0) }), []);
   const place = (a: Agent) => {
     const p = onDesk(a, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
@@ -239,7 +234,7 @@ function DeskLunch({ agents }: { agents: Agent[] }) {
   return (
     <>
       {agents
-        .filter((a) => (a.role === 'dev' || a.role === 'qa') && (a.status === 'working' || a.status === 'preparing'))
+        .filter((a) => a.role !== 'ceo' && (a.status === 'working' || a.status === 'preparing'))
         .map((a) => {
           const p = onDesk(a, -0.56, 0.81, 0.2);
           return (

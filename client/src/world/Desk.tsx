@@ -157,7 +157,8 @@ function LiveMonitor({ agent, accent }: { agent: Agent; accent: string }) {
   );
 }
 
-function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
+/** An empty desk's screen: how to add an agent here, or that the team is at its most (`full`, 0 when there's room). */
+function VacantMonitor({ accent, full }: { accent: string; full: number }) {
   const use = useKeyName('interact');
   const tex = useCanvasTexture(
     640,
@@ -166,12 +167,12 @@ function VacantMonitor({ accent, qa }: { accent: string; qa: boolean }) {
       ctx.fillStyle = '#151621';
       ctx.fillRect(0, 0, 640, 384);
       drawSign(ctx, 640, 384, [
-        { text: qa ? '🔍' : '🪑', size: 70 },
-        { text: qa ? 'QA STATION' : 'VACANT', size: 70, color: '#ffd6a5' },
-        { text: qa ? `press ${use} or click to hire a tester` : `press ${use} or click to hire an agent`, size: 36, color: '#a9adc6', weight: 500 },
+        { text: '🪑', size: 70 },
+        { text: 'VACANT', size: 70, color: '#ffd6a5' },
+        { text: full ? `Team is full (${full})` : `press ${use} or click to add an agent`, size: 36, color: '#a9adc6', weight: 500 },
       ], 'rgba(0,0,0,0)');
     },
-    [qa, use],
+    [full, use],
   );
   return (
     <Monitor accent={accent}>
@@ -246,8 +247,8 @@ function DeskMug({ agentId, color }: { agentId: string; color: string }) {
 }
 
 /**
- * The CEO suggests letting this person go: a sealed envelope on their desk with a ✉️ bobbing over it. E on it opens
- * the CEO's note (ui/Interview.tsx), where the manager lets them go or keeps them.
+ * The CEO wants this person to leave the team: a sealed envelope on their desk with a ✉️ bobbing over it. E on it
+ * opens the CEO's note (ui/Interview.tsx), where the manager lets them go or keeps them.
  */
 function LetGoEnvelope({ agentId, name }: { agentId: string; name: string }) {
   const req = useStore((s) => s.requests.find((r) => r.kind === 'let-go' && r.status === 'pending' && r.agentId === agentId));
@@ -296,57 +297,57 @@ function Envelope({ requestId, name }: { requestId: string; name: string }) {
   );
 }
 
-const LAB_BENCH = '#dfe7ef';
-const QA_ORANGE = '#ff9f68';
-
 /**
  * Memoised: the floor re-renders on every agent event (a tool call, a log line), and without this every desk,
  * person and monitor on it would re-render with it. Give it stable props (a position that isn't a new array).
+ * `full`: the team's most agents while the floor has that many (an empty desk then offers no hire), else 0. `spare`:
+ * an empty desk past what a team may use (Settings → Most agents per floor), just the furniture: no screen to ask for.
  */
 export const Desk = memo(function Desk({
   agent,
   accent,
   repoId,
   position,
-  role = 'dev',
   rotationY = 0,
+  full = 0,
+  spare = false,
 }: {
   agent: Agent | null;
   accent: string;
   repoId: string;
   position: [number, number, number];
-  role?: 'dev' | 'qa';
   rotationY?: number;
+  full?: number;
+  spare?: boolean;
 }) {
-  const qa = role === 'qa';
   // Aiming at the person themselves, while they've nothing to do, says hi instead (Chatter.tsx).
   const agentId = agent?.id;
-  const desk = agent?.role === 'ceo' ? 'to open it' : qa ? 'for their test run' : 'for their terminal';
+  const desk = agent?.role === 'ceo' ? 'to open it' : 'for their terminal';
   const greeting = useMemo(() => (agentId ? greetPick(agentId, desk) : undefined), [agentId, desk]);
   const ref = useInteractable<THREE.Group>(
     agent
       ? {
           id: `agent-${agent.id}`,
-          label: agent.role === 'ceo' ? `Open ${agent.name}'s desk (CEO) · P texts them from anywhere` : `View ${agent.name}'s ${qa ? 'test run' : 'terminal'} · ⚙️ Setup inside`,
+          label: agent.role === 'ceo' ? `Open ${agent.name}'s desk (CEO) · P texts them from anywhere` : `View ${agent.name}'s terminal · ⚙️ Setup inside`,
           action: { kind: 'terminal', agentId: agent.id },
         }
-      : {
-          id: `vacant-${role}-${repoId}-${position.join()}`,
-          label: qa ? 'Hire a QA tester for this station' : 'Hire an agent for this desk',
-          action: { kind: 'hire', repoId, role },
-        },
+      : full || spare
+        ? null
+        : {
+            id: `vacant-${repoId}-${position.join()}`,
+            label: 'Add an agent at this desk',
+            action: { kind: 'hire', repoId },
+          },
     3.6,
     greeting,
   );
   const mug = agent ? shade(agent.color, 0.1) : '#ffffff';
-  const top = qa ? LAB_BENCH : WOOD;
-  const chair = qa ? QA_ORANGE : accent;
   const chairRef = useRef<THREE.Group>(null);
   const mugRef = useRef<THREE.Group>(null);
   return (
     <group ref={ref} position={position} rotation={[0, rotationY, 0]}>
       {/* desk */}
-      <Box size={[1.9, 0.06, 0.95]} position={[0, 0.74, 0]} color={top} outline />
+      <Box size={[1.9, 0.06, 0.95]} position={[0, 0.74, 0]} color={WOOD} outline />
       {[
         [-0.88, -0.42],
         [0.88, -0.42],
@@ -355,7 +356,7 @@ export const Desk = memo(function Desk({
       ].map(([x, z]) => (
         <Box key={`${x}${z}`} size={[0.06, 0.71, 0.06]} position={[x, 0.355, z]} color="#5c677d" />
       ))}
-      <Box size={[1.76, 0.4, 0.03]} position={[0, 0.5, -0.44]} color={shade(top, -0.08)} />
+      <Box size={[1.76, 0.4, 0.03]} position={[0, 0.5, -0.44]} color={shade(WOOD, -0.08)} />
 
       {agent ? (
         <>
@@ -368,29 +369,21 @@ export const Desk = memo(function Desk({
           {agent.role !== 'ceo' && <LetGoEnvelope agentId={agent.id} name={agent.name} />}
         </>
       ) : (
-        <VacantMonitor accent={accent} qa={qa} />
+        !spare && <VacantMonitor accent={accent} full={full} />
       )}
-      <DeskGlow color={accent} />
-      {qa ? (
-        // test-tube rack: every good QA desk has one
-        <group position={[-0.72, 0.77, -0.2]}>
-          <Box size={[0.3, 0.05, 0.1]} position={[0, 0.06, 0]} color="#adb5bd" outline />
-          {['#ff6b6b', '#4cc9f0', '#80ed99'].map((c, i) => (
-            <Cyl key={c} r={0.022} h={0.16} position={[-0.09 + i * 0.09, 0.1, 0]} color={c} outline />
-          ))}
-        </group>
-      ) : !agent || agent.role === 'ceo' ? (
+      {!spare && <DeskGlow color={accent} />}
+      {(!agent || agent.role === 'ceo') && (
         // a team member's plant grows with them (desk/DeskStory.tsx)
         <>
           <Cyl r={0.06} rTop={0.07} h={0.09} position={[-0.76, 0.815, -0.22]} color="#e07a5f" outline />
           <Ball r={0.09} position={[-0.76, 0.92, -0.22]} color="#52b788" outline />
         </>
-      ) : null}
+      )}
 
       {/* chair (it rolls back when its owner gets up) */}
       <group ref={chairRef} position={[0, 0, agent ? 0.8 : 0.6]}>
-        <Box size={[0.52, 0.08, 0.5]} position={[0, 0.44, 0]} color={chair} outline />
-        <Box size={[0.48, 0.42, 0.07]} position={[0, 0.72, 0.28]} color={chair} outline />
+        <Box size={[0.52, 0.08, 0.5]} position={[0, 0.44, 0]} color={accent} outline />
+        <Box size={[0.48, 0.42, 0.07]} position={[0, 0.72, 0.28]} color={accent} outline />
         <Cyl r={0.035} h={0.36} position={[0, 0.22, 0]} color="#444a5c" />
         <Cyl r={0.26} h={0.04} position={[0, 0.03, 0]} color="#444a5c" />
       </group>

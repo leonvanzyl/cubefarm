@@ -1,5 +1,5 @@
-// Who in the office has something to say, and what, worked out from how the office changed: a developer starting an
-// issue or opening a PR, asking the tester to look at it, QA's verdict, a merge (and a teammate's "Nice one!"), a
+// Who in the office has something to say, and what, worked out from how the office changed: an agent starting an
+// issue or opening a PR, asking whoever tests it to look at it, QA's verdict, a merge (and a teammate's "Nice one!"), a
 // conflict, slow or red CI on someone's PR, an error; and from the new lines in someone's log, tests going green or
 // red, a fix pushed, a merge conflict. Also what they'd say when you greet them. Pure, so every rule is tested;
 // Chatter.tsx feeds it the store and speaks the lines.
@@ -36,20 +36,20 @@ export const SHIPPED_MS = 10 * 60_000;
 /** The author speaks once the gong has rung, and a teammate after them (s). */
 const MERGE_DELAY = 2.6;
 const CONGRATS_DELAY = 4.4;
-/** The tester answers the developer's request after this long (s). */
+/** The tester answers the author's request after this long (s). */
 const REPLY_DELAY = 2.6;
 
 const isBusy = (a: Agent | undefined) => a?.status === 'working' || a?.status === 'preparing';
 
 /**
- * The developer who wrote a PR on a floor: by QA's record, else the one whose PR number or branch it is (not a
- * developer testing it, whose PR number is the one under test).
+ * The agent who wrote a PR on a floor: by QA's record, else the one whose PR number or branch it is (not one testing
+ * it, whose PR number is the one under test).
  */
 export function authorOf(agents: Record<string, Agent>, repoId: string, pr: Pick<PullInfo, 'number' | 'headRefName'>, qa?: QaView): Agent | undefined {
   const byQa = qa?.devAgentId ? agents[qa.devAgentId] : undefined;
   if (byQa) return byQa;
-  const devs = Object.values(agents).filter((a) => a.role === 'dev' && a.repoId === repoId && a.task !== 'qa');
-  return devs.find((a) => a.prNumber === pr.number) ?? devs.find((a) => !!a.branch && a.branch === pr.headRefName);
+  const team = Object.values(agents).filter((a) => a.role !== 'ceo' && a.repoId === repoId && a.task !== 'qa');
+  return team.find((a) => a.prNumber === pr.number) ?? team.find((a) => !!a.branch && a.branch === pr.headRefName);
 }
 
 const said = (who: string, event: ChatterEvent, delay = 0, priority: Priority = 'event', near?: boolean): Said => ({ who, event, delay, priority, ...(near ? { near } : {}) });
@@ -61,10 +61,10 @@ export function storeNews(prev: OfficeSlice, next: OfficeSlice, lastFile: (id: s
     const p = prev.agents[a.id];
     if (!p) continue; // a new hire: their arrival is news of its own (the elevator, the welcome jingle)
     const started = !isBusy(p) && isBusy(a);
-    if (started && a.role === 'dev' && a.task === 'issue' && a.issueNumber != null) out.push(said(a.id, { kind: 'start', issue: a.issueNumber }));
-    if (started && a.role === 'dev' && a.task === 'fix' && a.prNumber != null) out.push(said(a.id, { kind: 'fixing', pr: a.prNumber }));
+    if (started && a.task === 'issue' && a.issueNumber != null) out.push(said(a.id, { kind: 'start', issue: a.issueNumber }));
+    if (started && a.task === 'fix' && a.prNumber != null) out.push(said(a.id, { kind: 'fixing', pr: a.prNumber }));
     // The office learns an issue's PR as the session ends (from its last words, or the branch): that's when it's up for QA.
-    if (a.role === 'dev' && a.task === 'issue' && a.prNumber != null && p.prNumber !== a.prNumber) out.push(said(a.id, { kind: 'prOpened', pr: a.prNumber }));
+    if (a.task === 'issue' && a.prNumber != null && p.prNumber !== a.prNumber) out.push(said(a.id, { kind: 'prOpened', pr: a.prNumber }));
     if (p.status !== 'error' && a.status === 'error') out.push(said(a.id, { kind: 'error' }));
   }
 
@@ -91,7 +91,8 @@ export function storeNews(prev: OfficeSlice, next: OfficeSlice, lastFile: (id: s
     if (!tester) continue;
     const dev = q.devAgentId ? next.agents[q.devAgentId] : undefined;
     if (q.status === 'testing' && was !== 'testing') {
-      if (dev && dev.repoId === q.repoId) {
+      // the author asks a teammate to look; testing their own PR, they just get on with it
+      if (dev && dev.repoId === q.repoId && dev.id !== tester.id) {
         out.push(said(dev.id, { kind: 'askQa', pr: q.prNumber, tester: tester.name }));
         out.push(said(tester.id, { kind: 'qaStart', pr: q.prNumber }, REPLY_DELAY));
       } else out.push(said(tester.id, { kind: 'qaStart', pr: q.prNumber }));
@@ -175,8 +176,8 @@ export function greeting(a: Agent, office: Pick<OfficeSlice, 'qa' | 'repos'>, ma
   const repo = office.repos.find((r) => r.id === a.repoId);
   const pull = a.prNumber != null ? repo?.pulls.find((p) => p.number === a.prNumber) : undefined;
   const qa = a.prNumber != null ? office.qa[`${a.repoId}#${a.prNumber}`] : undefined;
-  // testers, and developers lending QA a hand (their PR number is the one under test)
-  if (a.role === 'qa' || a.task === 'qa') return { ...base, mood: isBusy(a) && a.prNumber != null ? 'testing' : 'free' };
+  // testing a PR (their PR number is the one under test)
+  if (a.task === 'qa') return { ...base, mood: isBusy(a) && a.prNumber != null ? 'testing' : 'free' };
   if (pull?.state === 'MERGED' && pull.mergedAt && now - Date.parse(pull.mergedAt) < SHIPPED_MS) return { ...base, mood: 'shipped' };
   if (isBusy(a) && a.task === 'fix') return { ...base, mood: 'fixing' };
   if (pull?.state === 'OPEN' && (qa?.status === 'queued' || qa?.status === 'testing')) return { ...base, mood: 'inQa' };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { THEME_IDS, type ThemeId } from '../../../../shared/themes';
-import { DECOR_SLOT_AT, DESK, ELEVATOR, HALF_D, HALF_W, BALCONY, BALCONY_OUT, decorRuns, decorSlots, deskPosition, lobbyColliders, MAX_DESKS, officeColliders, QA_LAB, type Rect } from '../layout';
+import { DECOR_SLOT_AT, DESK, ELEVATOR, HALF_D, HALF_W, BALCONY, BALCONY_OUT, decorRuns, decorSlots, deskPosition, isEastDesk, lobbyColliders, officeColliders, SEATS, type Rect } from '../layout';
 import { segmentClear } from '../toys/roombaBrain';
 import { findPath, walkways, WALK_R, type FloorKind } from '../walkways';
 import { costumeFor, decorColliders, FOOTPRINT, placeDecor, THEMES } from './themes';
@@ -20,19 +20,15 @@ describe('decoration slots', () => {
     }
   });
 
-  it('puts a slot on every desk and QA station, on its top', () => {
+  it('puts a slot on every desk, on its top', () => {
     const slots = decorSlots('office');
-    for (let i = 0; i < MAX_DESKS; i++) {
+    for (let i = 0; i < SEATS; i++) {
       const s = slots.find((x) => x.id === `desk-${i}`)!;
       const d = deskPosition(i);
-      expect(Math.abs(s.x - d.x), s.id).toBeLessThan(DESK.w / 2);
-      expect(Math.abs(s.z - d.z), s.id).toBeLessThan(DESK.d / 2);
-    }
-    for (let i = 0; i < QA_LAB.stations.length; i++) {
-      const s = slots.find((x) => x.id === `qa-${i}`)!;
-      // QA desks are turned: their long side runs along z
-      expect(Math.abs(s.x - QA_LAB.x)).toBeLessThan(DESK.d / 2);
-      expect(Math.abs(s.z - QA_LAB.stations[i])).toBeLessThan(DESK.w / 2);
+      // the east wall's desks are turned: their long side runs along z
+      const [w, d2] = isEastDesk(i) ? [DESK.d, DESK.w] : [DESK.w, DESK.d];
+      expect(Math.abs(s.x - d.x), s.id).toBeLessThan(w / 2);
+      expect(Math.abs(s.z - d.z), s.id).toBeLessThan(d2 / 2);
     }
   });
 
@@ -48,8 +44,7 @@ describe('placeDecor', () => {
   it('Halloween puts pumpkins on every desk, cobwebs in the corners and its showpieces in the lobby', () => {
     const office = placeDecor('halloween', 'office');
     const items = (id: string) => office.filter((p) => p.slot.id.startsWith(id)).map((p) => p.item);
-    expect(items('desk-')).toEqual(Array(MAX_DESKS).fill('jackOLantern'));
-    expect(items('qa-')).toEqual(Array(QA_LAB.stations.length).fill('jackOLantern'));
+    expect(items('desk-')).toEqual(Array(SEATS).fill('jackOLantern'));
     expect(items('corner-')).toEqual(Array(4).fill('cobweb'));
     expect(items('balcony-')).toEqual(Array(4).fill('bigPumpkin'));
     expect(items('elevator-e')).toEqual(['broom']);
@@ -125,18 +120,17 @@ describe('decorations stay out of the way', () => {
 });
 
 describe('costumeFor', () => {
-  const people = Array.from({ length: 60 }, (_, i) => ({ id: `agent-${i}`, role: 'dev' as const }));
+  const people = Array.from({ length: 60 }, (_, i) => ({ id: `agent-${i}`, role: 'agent' as const }));
 
-  it('dresses developers from the theme, testers as detectives and the CEO in a crown for Halloween', () => {
+  it('dresses agents from the theme and the CEO in a crown for Halloween', () => {
     const worn = new Set(people.map((p) => costumeFor('halloween', p)));
-    expect([...worn].sort()).toEqual([...THEMES.halloween.costumes.dev].sort());
-    expect(costumeFor('halloween', { id: 'q', role: 'qa' })).toBe('deerstalker');
+    expect([...worn].sort()).toEqual([...THEMES.halloween.costumes.agent].sort());
     expect(costumeFor('halloween', { id: 'ceo', role: 'ceo' })).toBe('crown');
   });
 
   it('is the same for the same person every time, and nothing without a theme', () => {
     for (const p of people.slice(0, 10)) expect(costumeFor('christmas', p)).toBe(costumeFor('christmas', { ...p }));
     expect(costumeFor(null, people[0])).toBe(null);
-    for (const id of THEME_IDS) for (const role of ['dev', 'qa', 'ceo'] as const) expect(costumeFor(id, { id: 'x', role }), `${id} ${role}`).not.toBe(null);
+    for (const id of THEME_IDS) for (const role of ['agent', 'ceo'] as const) expect(costumeFor(id, { id: 'x', role }), `${id} ${role}`).not.toBe(null);
   });
 });

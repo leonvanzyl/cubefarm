@@ -1,64 +1,62 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
-import { MAX_DESKS, QA_LAB } from '../client/src/world/layout.ts';
-import type { QaStatus } from '../shared/types.ts';
+import { EAST_DESKS, MAX_DESKS } from '../client/src/world/layout.ts';
+import { FLOOR_SEATS, type QaStatus } from '../shared/types.ts';
 import type { HttpError } from './httpError.ts';
-import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, checkPendingLimit, createOfficeTools, FLOOR_DESKS, floorCapacity, IssueCap, jobLabel, MAX_PENDING_PROPOSALS, planRoute, seatCount, specialtyLabel, specialtySlug, type CeoJob, type RouteRequest } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, planDependencies, plannedSize, scalePlan, type CeoJob, type DependsRequest, type TeamNow } from './ceo.ts';
 
 describe('seats', () => {
-  it('match the desks and QA stations the client draws', () => {
-    expect(FLOOR_DESKS.dev).toBe(MAX_DESKS);
-    expect(FLOOR_DESKS.qa).toBe(QA_LAB.stations.length);
-  });
-
-  it('count pending proposals as taken, never below zero', () => {
-    expect(seatCount(12, 3, 2)).toEqual({ total: 12, taken: 3, proposed: 2, free: 7 });
-    expect(seatCount(3, 3, 1).free).toBe(0);
-  });
-
-  it('let one empty floor be fully staffed in one go', () => {
-    // A new floor starts with one QA tester: 12 developers and 2 more testers.
-    expect(MAX_PENDING_PROPOSALS).toBeGreaterThanOrEqual(FLOOR_DESKS.dev + FLOOR_DESKS.qa - 1);
-    for (let n = 0; n < FLOOR_DESKS.dev + FLOOR_DESKS.qa - 1; n++) expect(() => checkPendingLimit(n)).not.toThrow();
-    expect(() => checkPendingLimit(MAX_PENDING_PROPOSALS)).toThrow(`${MAX_PENDING_PROPOSALS} proposals are already waiting for the manager; propose the rest after they decide.`);
+  it('match the desks the client draws', () => {
+    expect(MAX_DESKS + EAST_DESKS.z.length).toBe(FLOOR_SEATS);
   });
 });
 
-describe('specialtySlug', () => {
-  it('turns a specialty into a lowercase slug', () => {
-    expect(specialtySlug('Three.js graphics')).toBe('three-js-graphics');
-    expect(specialtySlug('Testing')).toBe('testing');
-    expect(specialtySlug('front_end / UI')).toBe('front-end-ui');
+describe('scalePlan (scale_team)', () => {
+  // Desks 0-3: Ada and Linus are free, Grace and Alan busy; one new agent waits in the lobby.
+  const team = (over: Partial<TeamNow> = {}): TeamNow => ({
+    agents: [
+      { id: 'ada', desk: 0, free: true },
+      { id: 'grace', desk: 1, free: false },
+      { id: 'linus', desk: 2, free: true },
+      { id: 'alan', desk: 3, free: false },
+    ],
+    pendingHires: ['h1'],
+    pendingLetGos: [],
+    ...over,
   });
 
-  it('trims separators from both ends', () => {
-    expect(specialtySlug('  --Backend!!  ')).toBe('backend');
+  it('counts waiting team changes as decided', () => {
+    expect(plannedSize(team())).toBe(5);
+    expect(plannedSize(team({ pendingLetGos: [{ id: 'l1', agentId: 'ada' }] }))).toBe(4);
   });
 
-  it('keeps at most 24 characters', () => {
-    expect(specialtySlug('a'.repeat(40))).toBe('a'.repeat(24));
-    expect(specialtySlug('infrastructure and devops tooling')).toHaveLength(24);
+  it('grows by the difference', () => {
+    expect(scalePlan(team(), 7, 10)).toEqual({ size: 7, hire: 2, cancelHires: [], letGo: [], cancelLetGos: [] });
   });
 
-  // Known bug: the cut happens after the trim, so 'abcdefghijklmnopqrstuvw xyz' becomes 'abcdefghijklmnopqrstuvw-'.
-  it.todo('does not end in "-" when the 24-character cut lands on a separator');
-
-  it('is empty for no specialty', () => {
-    expect(specialtySlug(undefined)).toBe('');
-    expect(specialtySlug('')).toBe('');
-    expect(specialtySlug('!!!')).toBe('');
+  it('withdraws a waiting let-go before asking for anyone new', () => {
+    expect(scalePlan(team({ pendingHires: [], pendingLetGos: [{ id: 'l1', agentId: 'ada' }] }), 5, 10)).toEqual({ size: 5, hire: 1, cancelHires: [], letGo: [], cancelLetGos: ['l1'] });
   });
 
-  it('never returns "skip", which means "leave this issue alone"', () => {
-    expect(specialtySlug('skip')).toBe('');
-    expect(specialtySlug('SKIP')).toBe('');
-    expect(specialtySlug(' -skip- ')).toBe('');
-    expect(specialtySlug('skipping')).toBe('skipping');
+  it('withdraws waiting new agents, the newest first, before letting anyone go', () => {
+    expect(scalePlan(team({ pendingHires: ['h1', 'h2'] }), 4, 10)).toEqual({ size: 4, hire: 0, cancelHires: ['h2', 'h1'], letGo: [], cancelLetGos: [] });
+    expect(scalePlan(team({ pendingHires: ['h1', 'h2', 'h3'] }), 1, 10).cancelHires).toEqual(['h3', 'h2', 'h1']);
   });
 
-  it('round-trips through specialtyLabel', () => {
-    expect(specialtyLabel(specialtySlug('Three.js graphics'))).toBe('swarm:three-js-graphics');
+  it('lets idle agents go first, from the highest desk', () => {
+    expect(scalePlan(team(), 3, 10)).toEqual({ size: 3, hire: 0, cancelHires: ['h1'], letGo: ['linus'], cancelLetGos: [] });
+    expect(scalePlan(team(), 1, 10).letGo).toEqual(['linus', 'ada', 'alan']);
+  });
+
+  it('skips agents already leaving', () => {
+    expect(scalePlan(team({ pendingHires: [], pendingLetGos: [{ id: 'l1', agentId: 'linus' }] }), 2, 10).letGo).toEqual(['ada']);
+  });
+
+  it("keeps at least one agent, and no more than the floor's max", () => {
+    expect(scalePlan(team(), 0, 10).size).toBe(1);
+    expect(scalePlan(team(), 40, 10)).toMatchObject({ size: 10, hire: 5 });
+    expect(scalePlan(team({ pendingHires: [] }), 4, 10)).toEqual({ size: 4, hire: 0, cancelHires: [], letGo: [], cancelLetGos: [] });
   });
 });
 
@@ -100,11 +98,10 @@ describe('office tools', () => {
       companyStatus: () => '{}',
       agentDetail: () => '{}',
       setFloorProfile: (a) => (floors.push(a), 'saved'),
-      updateJob: () => '',
-      proposeHire: () => '',
-      proposeLetGo: () => '',
+      scaleTeam: () => '',
+      configureAgent: () => '',
       fileIssue: async () => '',
-      routeIssue: async () => '',
+      setDependencies: async () => '',
       closeIssue: async () => '',
       retryQa: async () => '',
       sendBack: async () => '',
@@ -127,16 +124,15 @@ describe('office tools', () => {
       'close_issue',
       'close_pull',
       'company_status',
+      'configure_agent',
       'escalate',
       'file_issue',
-      'propose_hire',
-      'propose_let_go',
       'rerun_checks',
       'retry_qa',
-      'route_issue',
+      'scale_team',
       'send_back',
+      'set_dependencies',
       'set_floor_profile',
-      'update_job',
     ]);
   });
 
@@ -179,75 +175,61 @@ describe('checkCloseIssue (close_issue)', () => {
   });
 });
 
-describe('planRoute (route_issue)', () => {
+describe('planDependencies (set_dependencies)', () => {
   // #1 ← #2 ← #3 is a two-step chain; #5 waits for #4; #9 is closed.
-  const base: RouteRequest = {
+  const base: DependsRequest = {
     floor: 1,
     number: 4,
+    dependsOn: [],
     issues: [
-      { number: 1, body: 'Set up the skeleton', labels: ['swarm:frontend'] },
-      { number: 2, body: 'Depends on #1', labels: [] },
-      { number: 3, body: 'Depends on #2\n\nThe rest', labels: [] },
-      { number: 4, body: 'Some text', labels: ['swarm:backend', 'bug'] },
-      { number: 5, body: 'Intro\n\nDepends on #4\n\nMore', labels: [] },
-      { number: 6, body: 'Free', labels: [] },
+      { number: 1, body: 'Set up the skeleton' },
+      { number: 2, body: 'Depends on #1' },
+      { number: 3, body: 'Depends on #2\n\nThe rest' },
+      { number: 4, body: 'Some text' },
+      { number: 5, body: 'Intro\n\nDepends on #4\n\nMore' },
+      { number: 6, body: 'Free' },
     ],
     closed: (n) => n === 9,
     inProgress: false,
-    specialties: ['frontend', 'backend'],
   };
-  const route = (over: Partial<RouteRequest>) => planRoute({ ...base, ...over });
-
-  it('re-routes to a specialty on the floor, dropping the old swarm label only', () => {
-    expect(route({ specialty: 'Frontend' })).toEqual({ addLabels: ['swarm:frontend'], removeLabels: ['swarm:backend'], body: null, summary: '#4 on floor 1: routed to frontend.' });
-    expect(route({ specialty: '' })).toMatchObject({ addLabels: [], removeLabels: ['swarm:backend'], summary: '#4 on floor 1: no specialty.' });
-  });
-
-  it('refuses a specialty nobody on the floor or in a pending proposal has', () => {
-    expect(() => route({ specialty: 'wizardry' })).toThrow('Nobody on floor 1 has the specialty "wizardry", and no pending proposal does. Specialties there: frontend, backend.');
-    expect(() => route({ specialty: '!!!' })).toThrow(/is not a specialty/);
-  });
+  const deps = (over: Partial<DependsRequest>) => planDependencies({ ...base, ...over });
 
   it('rewrites the Depends on line and leaves the rest of the body alone', () => {
-    expect(route({ number: 5, dependsOn: [6] }).body).toBe('Depends on #6\n\nIntro\n\nMore');
-    expect(route({ number: 5, dependsOn: [] }).body).toBe('Intro\n\nMore');
-    expect(route({ number: 6, dependsOn: [1, 4] })).toMatchObject({ body: 'Depends on #1, #4\n\nFree', summary: '#6 on floor 1: depends on #1, #4.' });
+    expect(deps({ number: 5, dependsOn: [6] }).body).toBe('Depends on #6\n\nIntro\n\nMore');
+    expect(deps({ number: 5, dependsOn: [] }).body).toBe('Intro\n\nMore');
+    expect(deps({ number: 6, dependsOn: [1, 4] })).toEqual({ body: 'Depends on #1, #4\n\nFree', summary: '#6 on floor 1: depends on #1, #4.' });
+    expect(deps({ number: 4, dependsOn: [] })).toEqual({ body: null, summary: '#4 on floor 1: no dependencies.' });
   });
 
   it('refuses a closed or unknown issue', () => {
-    expect(() => route({ number: 9, specialty: 'frontend' })).toThrow('#9 is closed.');
-    expect(() => route({ number: 42, specialty: 'frontend' })).toThrow('There is no open issue #42 on floor 1.');
+    expect(() => deps({ number: 9 })).toThrow('#9 is closed.');
+    expect(() => deps({ number: 42 })).toThrow('There is no open issue #42 on floor 1.');
   });
 
   it('refuses dependencies on itself, on closed and on unknown issues', () => {
-    expect(() => route({ dependsOn: [4] })).toThrow("#4 can't depend on itself.");
-    expect(() => route({ dependsOn: [9] })).toThrow("#9 is closed, so there's nothing to wait for.");
-    expect(() => route({ dependsOn: [42] })).toThrow('There is no open issue #42 on floor 1.');
+    expect(() => deps({ dependsOn: [4] })).toThrow("#4 can't depend on itself.");
+    expect(() => deps({ dependsOn: [9] })).toThrow("#9 is closed, so there's nothing to wait for.");
+    expect(() => deps({ dependsOn: [42] })).toThrow('There is no open issue #42 on floor 1.');
   });
 
   it('refuses a cycle', () => {
-    expect(() => route({ number: 1, dependsOn: [3] })).toThrow('#3 already waits for #1, directly or through other issues, so that would be a cycle.');
-    expect(() => route({ number: 4, dependsOn: [5] })).toThrow(/#5 already waits for #4/);
+    expect(() => deps({ number: 1, dependsOn: [3] })).toThrow('#3 already waits for #1, directly or through other issues, so that would be a cycle.');
+    expect(() => deps({ number: 4, dependsOn: [5] })).toThrow(/#5 already waits for #4/);
   });
 
   it('refuses a chain deeper than two steps', () => {
-    expect(() => route({ number: 1, dependsOn: [6] })).toThrow('That makes a dependency chain 3 steps deep through #1. Keep chains to 2 steps at most: fold the dependent pieces into one issue instead of splitting further.');
-    expect(() => route({ number: 6, dependsOn: [3] })).toThrow(/3 steps deep/);
-    expect(route({ number: 6, dependsOn: [2] }).body).toBe('Depends on #2\n\nFree');
+    expect(() => deps({ number: 1, dependsOn: [6] })).toThrow('That makes a dependency chain 3 steps deep through #1. Keep chains to 2 steps at most: fold the dependent pieces into one issue instead of splitting further.');
+    expect(() => deps({ number: 6, dependsOn: [3] })).toThrow(/3 steps deep/);
+    expect(deps({ number: 6, dependsOn: [2] }).body).toBe('Depends on #2\n\nFree');
   });
 
-  it('keeps the specialty but not the dependencies of an issue in progress', () => {
-    expect(() => route({ inProgress: true, dependsOn: [] })).toThrow("#4 is already in progress, so its dependencies can't change. Changing its specialty is fine.");
-    expect(route({ inProgress: true, specialty: 'frontend' }).addLabels).toEqual(['swarm:frontend']);
-  });
-
-  it('needs something to change', () => {
-    expect(() => route({})).toThrow(/Nothing to change/);
+  it('leaves an issue in progress alone', () => {
+    expect(() => deps({ inProgress: true })).toThrow("#4 is already in progress, so its dependencies can't change.");
   });
 });
 
 describe('planning guidance', () => {
-  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, teamCap: 6, hiring: 'approve' });
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
   const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: 'Add voice messages', backlog: 0 };
   const plan = ceoJobPrompt({ kind: 'plan', repoId: 'r1', at: 0 }, floor);
   const review = ceoJobPrompt({ kind: 'review', at: 0 }, null);
@@ -256,15 +238,14 @@ describe('planning guidance', () => {
     for (const old of ['small, well-specified', 'one agent-session each', 'at least one per developer', 'split big pieces', 'keep foundation issues small']) expect(system).not.toContain(old);
     expect(system).toContain('An issue is a whole feature the manager would recognise');
     expect(system).toContain('Split a feature only when its parts are truly independent AND touch different files, or when one risky foundation part should land and be tested first.');
-    expect(system).toContain('Never split a feature just to give idle developers something to do');
+    expect(system).toContain('Never split a feature just to give idle agents something to do');
   });
 
   it('keeps the dependency rules and the issue cap, and points at the QA queue', () => {
-    expect(system).toContain('QA is usually the scarcer resource');
-    expect(system).toContain('capacity.prsAwaitingQa');
+    expect(system).toContain('the same agents build and test, so PRs queued for QA (capacity.prsAwaitingQa) mean fewer, bigger issues');
     expect(system).toContain('Most briefs need 1 to 4 issues.');
     expect(system).toContain('Keep dependency chains to two steps at most.');
-    expect(system).toContain('with route_issue');
+    expect(system).toContain('with set_dependencies');
     expect(system).toContain('File at most 12 issues per job');
   });
 
@@ -274,15 +255,37 @@ describe('planning guidance', () => {
     expect(plan).toContain('Only for an empty or nearly empty repository does a skeleton issue come first');
   });
 
-  it('review job: flags QA pile-ups, not idle developers', () => {
-    expect(review).not.toContain('free developers');
+  it('review job: sizes teams from throughput, and idle agents are no reason to slice features', () => {
+    expect(review).toContain('team size against throughput');
     expect(review).toContain('PRs piling up in QA (then plan fewer, bigger issues)');
-    expect(review).toContain('Idle developers are not a reason to slice features');
+    expect(review).toContain('Idle agents are not a reason to slice features');
+  });
+});
+
+describe('team guidance', () => {
+  const prompt = (scaling: 'approve' | 'auto') => ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 8, scaling });
+
+  it('sizes teams from throughput, within the floor max, and keeps one agent', () => {
+    expect(prompt('approve')).toContain("Size each floor's team from its throughput");
+    expect(prompt('approve')).toContain('A floor holds at most 8.');
+    expect(prompt('approve')).toContain('Every floor keeps at least one agent.');
+    for (const old of ['QA tester', 'job description', 'specialty', 'propose_hire', 'update_job']) expect(prompt('approve')).not.toContain(old);
+  });
+
+  it('says who decides on team changes', () => {
+    expect(prompt('approve')).toContain('The manager approves every change, and sets up each new agent before hiring them.');
+    expect(prompt('auto')).toContain("Team changes apply straight away, within the floor's max, so be deliberate.");
+  });
+
+  it('onboarding sizes the team instead of hiring specialists', () => {
+    const onboard = ceoJobPrompt({ kind: 'onboard', repoId: 'r1', at: 0 }, { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: '', backlog: 3 });
+    expect(onboard).toContain('scale_team');
+    expect(onboard).not.toContain('update_job');
   });
 });
 
 describe('triage', () => {
-  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, teamCap: 6, hiring: 'approve' });
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
   const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: '', backlog: 3 };
   const job: CeoJob = { kind: 'triage', repoId: 'r1', prNumber: 108, at: 0 };
   const pr = {

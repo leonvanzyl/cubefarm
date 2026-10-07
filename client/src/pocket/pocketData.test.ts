@@ -22,22 +22,28 @@ describe("a floor's pipeline", () => {
 });
 
 describe("an agent's actions", () => {
-  const a = (status: Agent['status'], role: Agent['role'] = 'dev', branch: string | null = null) => ({ status, role, branch });
+  const a = (status: Agent['status'], task: Agent['task'] = 'issue', branch: string | null = null) => ({ status, task, branch });
 
   it('match the terminal panel', () => {
     expect(agentActions(a('working'))).toEqual({ stop: true, assign: false, clear: false, message: true });
     expect(agentActions(a('preparing'))).toEqual({ stop: true, assign: false, clear: false, message: true });
     expect(agentActions(a('idle'))).toEqual({ stop: false, assign: true, clear: false, message: false });
-    expect(agentActions(a('done', 'dev', 'swarm/12-x'))).toEqual({ stop: false, assign: true, clear: true, message: true });
+    expect(agentActions(a('done', 'issue', 'swarm/12-x'))).toEqual({ stop: false, assign: true, clear: true, message: true });
+    expect(agentActions(a('done', 'fix', 'swarm/12-x'))).toEqual({ stop: false, assign: true, clear: true, message: true });
     expect(agentActions(a('error', 'qa', 'qa/4'))).toEqual({ stop: false, assign: true, clear: true, message: false });
     expect(agentActions(a('stopped'))).toEqual({ stop: false, assign: true, clear: true, message: false });
   });
 
-  it('offer issues to developers and testable PRs to QA testers', () => {
-    const c = cols({ backlog: [card(1)], qa: [card(4), card(5, qa(5, 'queued')), card(6, qa(6, 'testing')), card(9, qa(9, 'needs-human'))] });
-    expect(assignChoices('dev', c).map((x) => x.number)).toEqual([1]);
-    expect(assignChoices('qa', c).map((x) => x.number)).toEqual([4, 5, 9]);
-    expect(assignChoices('dev', null)).toEqual([]);
+  it('offer every agent backlog issues to build and testable PRs to test', () => {
+    const c = cols({ backlog: [card(1)], qa: [card(4), card(5, qa(5, 'queued')), card(6, qa(6, 'testing')), card(7, qa(7, 'failed')), card(9, qa(9, 'needs-human'))] });
+    expect(assignChoices(c).map((x) => [x.kind, x.number])).toEqual([
+      ['issue', 1],
+      ['qa', 4],
+      ['qa', 5],
+      ['qa', 9],
+    ]);
+    expect(assignChoices(c)[0]).toEqual({ key: 'k1', kind: 'issue', number: 1, title: 'T1' });
+    expect(assignChoices(null)).toEqual([]);
   });
 
   it('say what they are doing', () => {

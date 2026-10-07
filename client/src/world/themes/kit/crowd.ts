@@ -1,7 +1,7 @@
 import type { Gesture } from '../../body';
 import { bodyState, claimBody, isSeated, onErrand, seatBody } from '../../people';
 import type { Pt } from '../../toys/roombaBrain';
-import { deskSpot, findPath, qaSpot, spot, standable, walkways, type FloorKind } from '../../walkways';
+import { deskSpot, findPath, spot, standable, walkways, type FloorKind } from '../../walkways';
 import { stopWalk, walkAlong } from './walker';
 
 // Getting the floor's people up for a moment of a theme (everyone to the windows for the New Year fireworks, one of
@@ -17,10 +17,10 @@ export interface Person {
 /** A walkways facing (0 east, π/2 south) as a body heading (0 facing -Z). */
 export const headingOf = (facing: number) => Math.atan2(-Math.cos(facing), -Math.sin(facing));
 
-/** Where someone sits down again: behind their chair (developers, testers) or the CEO's desk. */
+/** Where someone sits down again: behind their chair, or the CEO's desk. */
 function home(kind: FloorKind, p: Person): Pt | undefined {
   if (kind === 'lobby') return spot(walkways('lobby'), 'ceo');
-  return p.role === 'qa' ? qaSpot(p.desk) : deskSpot(p.desk);
+  return deskSpot(p.desk);
 }
 
 /** Whether someone's free to join in: in their chair, not off on an errand. */

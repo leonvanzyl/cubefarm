@@ -144,8 +144,14 @@ export interface ProjectFolderView {
   floor: number | null; // already a floor in the office
 }
 
-/** dev and qa are the two pipeline lanes on every floor; the one CEO works in the lobby and runs the company. */
-export type AgentRole = 'dev' | 'qa' | 'ceo';
+/** Every agent on a floor is the same kind of worker (docs/agents.md); the one CEO works in the lobby and runs the company. */
+export type AgentRole = 'agent' | 'ceo';
+
+/** Desks in a floor's room: 12 in the open-plan grid and 3 along the east wall. A team is at most this big. */
+export const FLOOR_SEATS = 15;
+
+/** A floor's most agents unless the manager changes it (Settings). */
+export const DEFAULT_MAX_AGENTS = 10;
 
 /** Fixed id of the CEO agent. */
 export const CEO_ID = 'ceo';
@@ -196,13 +202,9 @@ export interface AgentView {
   name: string;
   repoId: string;
   role: AgentRole;
-  title: string; // job title, e.g. "Three.js graphics engineer" ('' = plain developer / QA tester)
-  specialty: string; // routes issues labelled swarm:<specialty> to this agent first ('' = generalist)
-  brief: string; // job description for this project, added to the agent's instructions
-  hiredBy: 'manager' | 'ceo';
   look: AgentLook;
   task: AgentTask | null;
-  desk: number; // desk slot on the floor (dev desks and QA lab stations are numbered separately)
+  desk: number; // desk slot on the floor, 0 to FLOOR_SEATS - 1
   color: string; // shirt color
   hair: string; // hair color
   skin: string;
@@ -212,10 +214,10 @@ export interface AgentView {
   cli: AgentCli | ''; // the CLI they run in the terminal runtime ('' = the office default)
   terminal: boolean; // they have a terminal to watch (the terminal runtime); otherwise their log lines are the screen
   status: AgentStatus;
-  issueNumber: number | null; // devs: the issue being worked on
-  issueTitle: string | null; // devs: issue title; QA: title of the PR under test
+  issueNumber: number | null; // the issue being built, or the one the PR under test or fix closes
+  issueTitle: string | null; // the issue's title, or the PR's while testing or fixing it
   branch: string | null;
-  prNumber: number | null; // devs: the PR they opened; QA: the PR under test
+  prNumber: number | null; // the PR they opened, are testing or are fixing
   prUrl: string | null;
   currentTool: string | null; // while preparing: the setup step (INSTALL_STEP), null for the worktree
   startedAt: number | null;
@@ -249,29 +251,26 @@ export interface TickerItem {
   tone: 'good' | 'bad' | 'info';
 }
 
-/** One piece of an agent's prompt; the parts' texts concatenated are the whole prompt. */
+/** What an agent is told for one kind of task (the CEO: its one prompt). */
 export interface PromptPart {
-  label: string;
+  label: string; // e.g. "Building an issue", "Testing a pull request"
   text: string;
-  /** The manager can change it (the job description); the rest is the office's workflow and safety rules. */
-  editable: boolean;
 }
 
-/** GET /api/agents/:id/prompt: what the agent is told on a task, with placeholders for the task's details. */
+/** GET /api/agents/:id/prompt: what the agent is told on each kind of task, with placeholders for the task's details. */
 export interface AgentPromptView {
-  kind: 'dev' | 'qa' | 'ceo';
-  text: string;
+  kind: 'agent' | 'ceo';
   parts: PromptPart[];
 }
 
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type QaStatus =
-  | 'queued' // waiting for a free QA tester
-  | 'testing' // a QA tester is on it
+  | 'queued' // waiting for a free agent to test it
+  | 'testing' // an agent is testing it
   | 'passed' // ready to merge
-  | 'failed' // failed; waiting for the dev who wrote it to be free
-  | 'fixing' // the dev is fixing what QA found
+  | 'failed' // failed; waiting for its author (or any free agent) to fix it
+  | 'fixing' // an agent is fixing what QA found
   | 'needs-human'; // failed too many rounds, or nobody can fix it automatically
 
 export interface QaCheck {
@@ -285,8 +284,8 @@ export interface QaView {
   prNumber: number;
   status: QaStatus;
   round: number; // 1-based QA round
-  devAgentId: string | null; // who wrote it (null for PRs opened outside the swarm)
-  qaAgentId: string | null; // who is testing / last tested it
+  devAgentId: string | null; // the agent who wrote it, or took over its fixes (null for PRs opened outside the swarm)
+  qaAgentId: string | null; // the agent testing it, or who last did
   summary: string | null; // latest QA summary
   checks: QaCheck[];
   commentUrl: string | null; // the PR comment with the latest QA report
@@ -304,13 +303,13 @@ export interface QaShotView {
 }
 
 export interface SwarmSettings {
-  sessionLimit: number; // most Claude Code sessions running at once; 0 = no limit
+  sessionLimit: number; // most agent sessions running at once; 0 = no limit
   defaultModel: string;
   defaultEffort: EffortLevel;
   runtime: AgentRuntime;
-  defaultCli: AgentCli; // what developers and QA testers run in their terminals unless they have their own
-  hiring: 'approve' | 'auto'; // CEO proposals wait for the manager, or go through while the floor is under teamCap
-  teamCap: number; // most agents per floor the CEO may reach without the manager's approval (auto mode)
+  defaultCli: AgentCli; // what agents run in their terminals unless they have their own
+  scaling: 'approve' | 'auto'; // the CEO's team changes wait for the manager (new agents wait in the lobby), or apply at once
+  maxAgents: number; // most agents on a floor: 1 to FLOOR_SEATS (DEFAULT_MAX_AGENTS)
   ceoHeartbeatMin: number; // minutes between the CEO's periodic reviews; 0 = off
   managerName: string; // what the office calls you
   companyName: string;
@@ -430,7 +429,7 @@ export interface OpsNumbers {
   spark: number[]; // merges per clock hour over the last 24 hours, oldest first (the current hour last)
   // flow, over the last 24 hours
   leadMs: number | null; // median issue → merge
-  qaWaitMs: number | null; // median wait for a QA tester
+  qaWaitMs: number | null; // median wait for an agent to start testing a PR
   qaPass: number | null; // share of QA rounds that passed over 7 days, 0-1
   // GitHub's checks, over 7 days
   ciPass: number | null; // share of check runs that passed, 0-1
@@ -500,19 +499,19 @@ export interface OfficeUpdateView {
   detail: string | null;
 }
 
-/** A CEO proposal to hire someone or let someone go. The manager (the board) decides. */
+/**
+ * One change to a floor's team: a new agent (they wait in the lobby, where the manager can set them up before they're
+ * created) or an agent leaving. The CEO's scale_team makes them; with scaling on auto they're decided at once.
+ */
 export interface HireRequestView {
   id: string;
   kind: 'hire' | 'let-go';
   repoId: string;
-  role: 'dev' | 'qa';
   agentId: string | null; // let-go: who; hire: who was hired once approved
-  name: string; // the candidate's name (let-go: the agent's name)
-  title: string;
-  specialty: string;
-  brief: string;
+  name: string; // the new agent's name (let-go: the agent's name)
   reason: string;
-  model: string;
+  cli: AgentCli | ''; // the coding agent they'll run ('' = the office default)
+  model: string; // '' = the default model
   effort: EffortLevel | '';
   look: AgentLook;
   color: string;
@@ -560,7 +559,7 @@ export interface WorldSnapshot {
   ghReady: boolean;
   ghError?: string;
   demo: boolean;
-  workspaceRoot: string;
+  machinesRoot: string; // where agents' machines live (server/machines.ts)
   settings: SwarmSettings;
   repos: RepoView[];
   agents: AgentView[];

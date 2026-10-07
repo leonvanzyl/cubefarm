@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Agent } from '../store';
 import { Character } from './Character';
-import { QA_ROTATION, deskPosition, qaDeskPosition } from './layout';
+import { deskPosition, deskRotation } from './layout';
 import { Ball, Box } from './Toon';
 
 // People let go from the floor you're on: the store forgets them at once (their desk shows vacant), but they're
@@ -36,10 +36,9 @@ const BOX = (
 
 /** Someone on their way out, drawn where they sat (a desk's chair is 0.8 m behind it). */
 export function Leaver({ agent }: { agent: Agent }) {
-  const qa = agent.role === 'qa';
-  const { x, z } = qa ? qaDeskPosition(agent.desk) : deskPosition(agent.desk);
+  const { x, z } = deskPosition(agent.desk);
   return (
-    <group position={[x, 0, z]} rotation={[0, qa ? QA_ROTATION : 0, 0]}>
+    <group position={[x, 0, z]} rotation={[0, deskRotation(agent.desk), 0]}>
       <group position={[0, 0, 0.8]}>
         <Character agent={agent} carrying={BOX} />
       </group>

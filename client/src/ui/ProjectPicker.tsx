@@ -256,7 +256,7 @@ export function ProjectPicker({ onConnected, initial = 'folder' }: { onConnected
       />
       <label className="toggle small">
         <input type="checkbox" checked={autoAssign} onChange={(e) => setAutoAssign(e.target.checked)} />
-        ⚡ Start work automatically: free developers pick up issues as soon as they're filed (you can switch this off per floor)
+        ⚡ Start work automatically: free agents pick up issues as soon as they're filed (you can switch this off per floor)
       </label>
       {mode === 'folder' && <FolderMode floor={floor} onDone={done} />}
       {mode === 'github' && <GithubMode floor={floor} onDone={done} />}

@@ -28,9 +28,9 @@ export function issuesResolvedBy(pr: Pick<PullInfo, 'headRefName' | 'closesIssue
   return [...new Set(n == null ? pr.closesIssues : [...pr.closesIssues, n])];
 }
 
-/** Issue n is taken (a developer is on it, or a PR is open for it) or done (a PR for it merged recently). */
+/** Issue n is taken (an agent is building or fixing it, or a PR is open for it) or done (a PR for it merged recently). */
 export function issueTaken(n: number, agents: ClaimAgent[], pulls: ClaimPull[], now: number): boolean {
-  if (agents.some((a) => a.role === 'dev' && a.task !== 'qa' && a.issueNumber === n && a.status !== 'idle' && a.status !== 'error')) return true;
+  if (agents.some((a) => a.role !== 'ceo' && a.task !== 'qa' && a.issueNumber === n && a.status !== 'idle' && a.status !== 'error')) return true;
   return pulls.some((p) => {
     if (p.state === 'CLOSED') return false; // closed without merging: the issue is free again
     if (p.state === 'MERGED' && (!p.mergedAt || now - Date.parse(p.mergedAt) > RECENT_MERGE_MS)) return false;

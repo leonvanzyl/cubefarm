@@ -5,7 +5,7 @@ import type { AgentView, PullInfo, QaView, RepoView } from '../../../shared/type
 export interface MergeBurst {
   repoId: string;
   prNumber: number;
-  /** The developer whose desk gets the burst; null sends it over the floor's Kanban board. */
+  /** The agent whose desk gets the burst; null sends it over the floor's Kanban board. */
   agentId: string | null;
 }
 
@@ -20,16 +20,16 @@ export function newlyMerged(before: PullInfo[] | undefined, after: PullInfo[]): 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 /**
- * Who wrote a merged PR: the QA record's developer if they're still on the floor, else the developer
- * whose name matches the head branch (`swarm/issue-<n>-<name>`, any case), else nobody.
+ * Who wrote a merged PR: the QA record's author if they're still on the floor, else the agent whose name
+ * matches the head branch (`swarm/issue-<n>-<name>`, any case), else nobody.
  */
 export function mergeAuthor(repoId: string, pr: Pick<PullInfo, 'headRefName'>, qa: QaView | undefined, agents: Author[]): string | null {
-  const devs = agents.filter((a) => a.repoId === repoId && a.role === 'dev');
-  if (qa?.devAgentId && devs.some((a) => a.id === qa.devAgentId)) return qa.devAgentId;
+  const team = agents.filter((a) => a.repoId === repoId && a.role !== 'ceo');
+  if (qa?.devAgentId && team.some((a) => a.id === qa.devAgentId)) return qa.devAgentId;
   const m = /^swarm\/issue-\d+-(.+)$/i.exec(pr.headRefName);
   if (!m) return null;
   const name = slug(m[1]);
-  return devs.find((a) => slug(a.name) === name)?.id ?? null;
+  return team.find((a) => slug(a.name) === name)?.id ?? null;
 }
 
 /**

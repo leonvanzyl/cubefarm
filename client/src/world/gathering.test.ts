@@ -7,7 +7,7 @@ import { spot, walkways } from './walkways';
 
 const office = walkways('office');
 const g = () => errandNamed('gathering')!;
-const agent = (id: string, status: AgentStatus = 'idle', role = 'dev'): ErrandAgent => ({ id, status, role });
+const agent = (id: string, status: AgentStatus = 'idle', role = 'agent'): ErrandAgent => ({ id, status, role });
 const at = (desk: string, over: Partial<ErrandState> = {}): ErrandState => ({ floor: 'office', statusFor: 100, seatedFor: 0, restless: 30, home: spot(office, desk)!, ...over });
 const me = (id: string): Me => ({ id, x: 0, z: 0, heading: 0, arrived: true, dt: 0.1, player: { x: 0, z: 0 } });
 

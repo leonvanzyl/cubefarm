@@ -1,7 +1,7 @@
-// Careers (#226) in the HUD and the panels: an agent's career card (portrait, title, badges, stats, last merged PRs and
+// Careers (#226) in the HUD and the panels: an agent's career card (portrait, rank, badges, stats, last merged PRs and
 // what they're known for), the card that pops up when you look at a desk for a moment, and the Team tab's table.
 import { useEffect, useRef, useState } from 'react';
-import { avgFixRounds, knownFor, mergesThisWeek, passRate, rank, stickerFor, tenureDays, topSpecialty, type CareerView } from '../../../shared/careers';
+import { avgFixRounds, knownFor, mergesThisWeek, passRate, rank, tenureDays, type CareerView } from '../../../shared/careers';
 import { useStore, type Agent } from '../store';
 import { drawPortrait } from './portrait';
 
@@ -52,8 +52,6 @@ export function CareerCard({ agent, compact = false }: { agent: Agent; compact?:
   const now = Date.now();
   const c = agent.career;
   if (!c) return <div className="career-card muted small">{agent.name} runs the company; their record is the whole office.</div>;
-  const qa = agent.role === 'qa';
-  const badges = [...new Set([agent.specialty, ...Object.entries(c.bySpecialty).filter(([k, n]) => k && n > 0).sort((a, b) => b[1] - a[1]).map(([k]) => k)])].filter(Boolean).slice(0, 4);
   return (
     <div className={`career-card ${compact ? 'career-compact' : ''}`} style={{ ['--accent' as string]: agent.color }}>
       <div className="career-head">
@@ -61,18 +59,15 @@ export function CareerCard({ agent, compact = false }: { agent: Agent; compact?:
         <div className="career-who">
           <div className="career-name">{agent.name}</div>
           <div className="career-title">
-            {rank(c, agent.role)} · {agent.title || (qa ? 'QA tester' : 'Developer')}
+            {rank(c)}
             {repo ? ` · floor ${repo.floor}` : ''}
           </div>
-          <div className="career-badges">
-            {badges.map((b) => (
-              <span key={b} className="career-badge" style={{ background: stickerFor(b).color }}>
-                {stickerFor(b).text} {b}
-              </span>
-            ))}
-            {c.firstPass >= 10 && <span className="career-badge career-star">⭐ 10 first-time passes</span>}
-          </div>
-          <div className="career-known">“{knownFor(c, agent.role)}”</div>
+          {c.firstPass >= 10 && (
+            <div className="career-badges">
+              <span className="career-badge career-star">⭐ 10 first-time passes</span>
+            </div>
+          )}
+          <div className="career-known">“{knownFor(c)}”</div>
         </div>
       </div>
       <div className="career-stats">
@@ -140,7 +135,6 @@ const COLS: Col[] = [
   { key: 'reviews', label: 'Reviews', title: 'QA reviews done', value: (_a, c) => c.reviews },
   { key: 'best', label: 'Streak', title: 'Longest run of PRs passing QA first time', value: (_a, c) => c.best },
   { key: 'week', label: 'This week', value: (_a, c, now) => mergesThisWeek(c, now) },
-  { key: 'top', label: 'Mostly', title: 'The specialty they merged most', value: (_a, c) => topSpecialty(c)?.slug ?? '', show: (_a, c) => topSpecialty(c)?.slug ?? '—' },
   { key: 'since', label: 'On the team', value: (_a, c) => -c.since, show: (_a, c, now) => tenureText(c, now) },
   { key: 'cost', label: 'Cost', title: 'Estimated, as the coding agents report it', value: (_a, c) => c.costUsd, show: (_a, c) => `$${c.costUsd.toFixed(2)}` },
   { key: 'turns', label: 'Turns', value: (_a, c) => c.turns },
@@ -196,8 +190,7 @@ export function TeamStats() {
                   <span className="dot" style={{ background: a.color }} />{' '}
                   <button className="link-btn" title="Open their desk" onClick={() => openOverlay({ kind: 'terminal', agentId: a.id })}>
                     {a.name}
-                  </button>{' '}
-                  <span className="muted small">{a.role === 'qa' ? '🔍' : '💻'}</span>
+                  </button>
                 </td>
                 <td>{repos.find((r) => r.id === a.repoId)?.floor ?? '—'}</td>
                 {COLS.map((c) => (

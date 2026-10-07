@@ -191,7 +191,7 @@ export function finding(p: Problem, name: (id: string | null) => string | null, 
           : p.kind === 'qa-orphan'
             ? [`PR #${p.prNumber} is marked as in QA, but nobody is testing it. Test it again?`, ['retry-qa', 'send-back']]
             : p.kind === 'fix-orphan'
-              ? [`PR #${p.prNumber} is waiting for a fix, but ${p.agentId ? `${who} is on something else` : 'nobody is on it'}. Hand it to a developer?`, ['send-back', 'retry-qa']]
+              ? [`PR #${p.prNumber} is waiting for a fix, but ${p.agentId ? `${who} is on something else` : 'nobody is on it'}. Hand it to a free agent?`, ['send-back', 'retry-qa']]
               : [`Issue #${p.issueNumber} is still open, but PR #${p.prNumber}, which closes it, was merged ${ago(now - p.since)} ago. Close it?`, ['close-issue']];
   return { id: p.key, kind: p.kind, repoId: p.repoId, agentId: p.agentId, prNumber: p.prNumber, issueNumber: p.issueNumber, text, fixes, since: p.since };
 }

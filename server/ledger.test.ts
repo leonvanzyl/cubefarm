@@ -13,7 +13,7 @@ function run(s: LedgerState, ...events: LedgerEvent[]) {
   return events.map((e) => apply(s, e)).at(-1)!;
 }
 
-const open = (pr: number, extra: Partial<Extract<LedgerEvent, { kind: 'opened' }>> = {}): LedgerEvent => ({ kind: 'opened', repoId: R, pr, title: `PR ${pr}`, author: 'ada', specialty: '', at: NOON, ...extra });
+const open = (pr: number, extra: Partial<Extract<LedgerEvent, { kind: 'opened' }>> = {}): LedgerEvent => ({ kind: 'opened', repoId: R, pr, title: `PR ${pr}`, author: 'ada', at: NOON, ...extra });
 const qa = (pr: number, pass: boolean, round = 1, t = NOON): LedgerEvent => ({ kind: 'qa', repoId: R, pr, round, pass, tester: 'marple', author: null, at: t });
 const merge = (pr: number, t = NOON, author: string | null = null): LedgerEvent => ({ kind: 'merged', repoId: R, repoName: NAME, pr, title: `PR ${pr}`, author, at: t });
 
@@ -101,12 +101,12 @@ describe('careers', () => {
   it('count opened, merged, QA rounds, first-time passes, streaks, reviews and fix rounds', () => {
     const s = emptyLedger();
     run(s, { kind: 'hired', agentId: 'ada', at: at(9) }, { kind: 'hired', agentId: 'marple', at: at(9) });
-    run(s, open(1, { specialty: 'frontend' }), qa(1, true), merge(1));
-    run(s, open(2, { specialty: 'frontend' }), qa(2, true), merge(2));
+    run(s, open(1), qa(1, true), merge(1));
+    run(s, open(2), qa(2, true), merge(2));
     run(s, open(3), qa(3, false), { kind: 'fix', repoId: R, pr: 3, key: '1:0', at: NOON }, { kind: 'fix', repoId: R, pr: 3, key: '1:0', at: NOON }, qa(3, true, 2), merge(3));
     run(s, open(4), qa(4, true));
     const ada = s.careers.ada;
-    expect(ada).toMatchObject({ since: at(9), opened: 4, merged: 3, firstPass: 3, qaPass: 4, qaFail: 1, fixRounds: 1, run: 1, best: 2, bySpecialty: { frontend: 2, '': 1 } });
+    expect(ada).toMatchObject({ since: at(9), opened: 4, merged: 3, firstPass: 3, qaPass: 4, qaFail: 1, fixRounds: 1, run: 1, best: 2 });
     expect(ada.recent.map((r) => r.n)).toEqual([3, 2, 1]);
     expect(s.careers.marple.reviews).toBe(5);
   });
@@ -264,6 +264,17 @@ describe('the state file', () => {
     expect(cleaned.achievements.map((a) => a.id)).toEqual(s.achievements.map((a) => a.id));
     expect(loadLedger(undefined)).toEqual(emptyLedger());
     expect(loadLedger({ careers: 'nope', floors: 7 })).toEqual(emptyLedger());
+  });
+
+  it('loads a ledger saved before agents were interchangeable, dropping specialties', () => {
+    const old = loadLedger({
+      prs: { [`${R}#3`]: { author: 'ada', title: 'Sound', specialty: 'audio', qaPass: 1, since: NOON } },
+      careers: { ada: { since: NOON, merged: 2, reviews: 1, bySpecialty: { audio: 2 } } },
+    });
+    expect(old.prs[`${R}#3`]).not.toHaveProperty('specialty');
+    expect(old.prs[`${R}#3`]).toMatchObject({ author: 'ada', title: 'Sound', qaPass: 1 });
+    expect(old.careers.ada).not.toHaveProperty('bySpecialty');
+    expect(old.careers.ada).toMatchObject({ merged: 2, reviews: 1 });
   });
 
   it('shows connected floors only, with empty ones for floors that earned nothing yet', () => {

@@ -30,19 +30,17 @@ export function drawPortrait(ctx: CanvasRenderingContext2D, s: number, agent: Pi
   ctx.strokeStyle = '#1f1d2b';
   ctx.lineWidth = 3;
 
-  // body: shoulders in their shirt (QA wear a lab coat over it)
+  // body: shoulders in their shirt
   const shoulders = 52 * look.shoulders;
   ctx.beginPath();
   ctx.moveTo(80 - shoulders, 162);
   ctx.quadraticCurveTo(80 - shoulders, 116, 80, 112);
   ctx.quadraticCurveTo(80 + shoulders, 116, 80 + shoulders, 162);
   ctx.closePath();
-  ctx.fillStyle = agent.role === 'qa' ? '#f8f9fa' : agent.color;
+  ctx.fillStyle = agent.color;
   ctx.fill();
   ctx.stroke();
-  if (agent.role === 'qa') {
-    ellipse(ctx, 80, 140, 13, 26, agent.color);
-  } else if (look.outfit === 'stripe') {
+  if (look.outfit === 'stripe') {
     ctx.fillStyle = accent;
     for (const y of [132, 146]) ctx.fillRect(80 - shoulders + 6, y, shoulders * 2 - 12, 6);
   } else if (look.outfit === 'hoodie') {
@@ -129,8 +127,8 @@ export function drawPortrait(ctx: CanvasRenderingContext2D, s: number, agent: Pi
   ctx.beginPath();
   ctx.arc(80, hy + 13, 9, 0.15 * Math.PI, 0.85 * Math.PI);
   ctx.stroke();
-  if (look.glasses !== 'none' || agent.role === 'qa') {
-    ctx.strokeStyle = agent.role === 'qa' ? '#495057' : accent === '#ffffff' ? '#2b2d42' : accent;
+  if (look.glasses !== 'none') {
+    ctx.strokeStyle = accent === '#ffffff' ? '#2b2d42' : accent;
     ctx.lineWidth = 3;
     for (const x of [69, 91]) {
       ctx.beginPath();

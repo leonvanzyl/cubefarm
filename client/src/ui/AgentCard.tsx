@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ACTIVITY_ICONS, ACTIVITY_LABELS, clipText, recentActions, redact } from '../../../shared/activity';
 import { isBusy, qaKey, useStore, type Agent } from '../store';
 import { reportCard } from '../world/activityProbe';
+import { agentLabel } from './floorRows';
 
 // The card beside the crosshair when you keep someone in your sights for a moment: who they are, what they're on and
 // for how long, what they're doing now and their last few steps, turns and cost on this task, and the QA round while
@@ -24,8 +25,6 @@ function onWhat(a: Agent): string | null {
   return null;
 }
 
-const roleTitle = (a: Agent) => a.title || (a.role === 'qa' ? 'QA tester' : a.role === 'ceo' ? 'CEO' : 'Developer');
-
 export function AgentCard() {
   const aimed = useStore((s) => (s.started && !s.overlay && !s.travel && s.focus?.action.kind === 'terminal' ? s.focus.action.agentId : null));
   const [held, setHeld] = useState<string | null>(null);
@@ -40,6 +39,8 @@ export function AgentCard() {
   const agent = useStore((s) => (id ? s.agents[id] : undefined));
   const log = useStore((s) => (id ? s.logs[id] : undefined));
   const qa = useStore((s) => (agent?.prNumber ? s.qa[qaKey(agent.repoId, agent.prNumber)] : undefined));
+  const settings = useStore((s) => s.settings);
+  const clis = useStore((s) => s.clis);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!id) return;
@@ -66,7 +67,7 @@ export function AgentCard() {
         <span className="ac-dot" />
         <span className="ac-who">
           <span className="ac-name">{agent.name}</span>
-          <span className="ac-title">{roleTitle(agent)}</span>
+          <span className="ac-title">{agentLabel(agent, settings, clis)}</span>
         </span>
         <span className="ac-time">{busy && agent.startedAt ? `⏱ ${elapsed(now - agent.startedAt)}` : STATUS[agent.status]}</span>
       </div>

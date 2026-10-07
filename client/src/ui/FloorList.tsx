@@ -16,7 +16,7 @@ function People({ rows, caption }: { rows: FloorRow[]; caption: string }) {
       <thead>
         <tr>
           <th scope="col">Name</th>
-          <th scope="col">Job</th>
+          <th scope="col">Agent</th>
           <th scope="col">Status</th>
           <th scope="col">Doing</th>
           <th scope="col">
@@ -28,7 +28,7 @@ function People({ rows, caption }: { rows: FloorRow[]; caption: string }) {
         {rows.map((r) => (
           <tr key={r.id}>
             <th scope="row">{r.name}</th>
-            <td>{r.role}</td>
+            <td>{r.agent}</td>
             <td>
               <span className={`status-kind status-kind-${r.kind}`}>
                 <span aria-hidden>{r.icon}</span> {r.status}
@@ -52,11 +52,16 @@ export function FloorList() {
   const repos = useStore((s) => s.repos);
   const agents = useStore((s) => s.agents);
   const qa = useStore((s) => s.qa);
+  const settings = useStore((s) => s.settings);
+  const clis = useStore((s) => s.clis);
   const openOverlay = useStore((s) => s.openOverlay);
   const goToFloor = useStore((s) => s.goToFloor);
   const [shown, setShown] = useState(floor);
   const repo = repos.find((r) => r.floor === shown) ?? null;
-  const rows = useMemo(() => (repo ? floorRows(agentsOnRepo(agents, repo.id)) : floorRows(agents[CEO_ID] ? [agents[CEO_ID]] : [])), [repo, agents]);
+  const rows = useMemo(
+    () => floorRows(repo ? agentsOnRepo(agents, repo.id) : agents[CEO_ID] ? [agents[CEO_ID]] : [], settings, clis),
+    [repo, agents, settings, clis],
+  );
   const counts = repo ? floorPrCounts(repo, qa) : null;
   const busy = rows.filter((r) => r.kind === 'busy' || r.kind === 'waiting').length;
 

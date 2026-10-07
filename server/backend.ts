@@ -3,6 +3,7 @@ import * as github from './github.ts';
 import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
 import { hooksReady, officeProcesses, reconnectClis, releaseClis, startCliSession, terminalsAvailable, type ReconnectedCli } from './cliRunner.ts';
+import { localMachines, type MachineProvider } from './machines.ts';
 import { detectClis } from './clis.ts';
 import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
 import { realPreviews, type PreviewBackend } from './previewRunner.ts';
@@ -16,19 +17,9 @@ import type { OpsHistory } from './metrics.ts';
 import type { UsageWarning } from './pacing.ts';
 import type { CliView, GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
-/** A made-up candidate the demo CEO proposes: the propose_hire tool's arguments, bar the floor and role. */
-export interface DemoHire {
-  title: string;
-  specialty: string;
-  job_description: string;
-  reason: string;
-}
-
 /** Everything the swarm needs from the outside world. The demo backend fakes all of it. */
 export interface Backend {
   demo: boolean;
-  /** Demo only: a made-up developer for this floor whose specialty isn't in `taken`; null once they've all been used. */
-  demoCandidate?(fullName: string, taken: readonly string[]): DemoHire | null;
   user(): Promise<string>;
   listMyRepos(owner?: string): Promise<GhRepoSummary[]>;
   repoMeta(fullName: string): Promise<github.RepoMeta>;
@@ -63,6 +54,9 @@ export interface Backend {
   publishFolder(dir: string, opts: { name: string; visibility: 'private' | 'public'; owner?: string; description?: string }): Promise<string>;
   createProject(root: string, name: string, opts: { visibility: 'private' | 'public'; owner?: string; description?: string }): Promise<{ fullName: string; path: string }>;
   mainDir(fullName: string): string;
+  /** Agents' machines (server/machines.ts): each agent's own clone, worktree and temp folder. */
+  machines: MachineProvider;
+  /** A floor desk: the preview's worktrees, and agents' desks from before machines. */
   deskDir(fullName: string, agentSlug: string): string;
   /** The desk folder is there: a session started in a missing one dies at once (Windows exit 267). */
   deskExists(dir: string): boolean;
@@ -102,8 +96,8 @@ export interface Backend {
   notify: NotifyTransport;
   /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
   seedOps?(repos: string[], now: number): OpsHistory;
-  /** The demo only: how many developers and QA testers a fresh demo office hires on floor `floor`. */
-  demoTeam?(floor: number): { dev: number; qa: number };
+  /** The demo only: how many agents a fresh demo office hires on floor `floor`. */
+  demoTeam?(floor: number): number;
   /** The demo only: Claude's usage warning, or its limit, on demand, as a session would report it. */
   simulateUsage?(kind: 'warning' | 'limit', now: number): UsageWarning | { limitResetsAt: number };
   /** The demo only: the office doctor's scenarios (a restart with desks gone and work finished, a stuck session). */
@@ -151,6 +145,7 @@ export const realBackend: Backend = {
   publishFolder: workspace.publishFolder,
   createProject: workspace.createProject,
   mainDir: workspace.mainDir,
+  machines: localMachines(officeProcesses),
   deskDir: workspace.deskDir,
   deskExists: (dir) => existsSync(dir),
   prepareDesk: workspace.prepareDesk,
