@@ -1,7 +1,23 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { CommandError, gh, ghJson } from './exec.ts';
 import type { GhRepoSummary, IssueInfo, PullInfo } from '../shared/types.ts';
 
 // All GitHub access goes through the gh CLI so it reuses the user's existing `gh auth login`.
+
+/**
+ * A read the board syncs on, tried twice: GitHub's API blips (a 502, a GraphQL timeout on the PRs' checks) and a gh
+ * that hangs on the network would otherwise put an error on the Kanban until the next sync.
+ */
+export async function readTwice<T>(read: () => Promise<T>, pauseMs = 2_000): Promise<T> {
+  try {
+    return await read();
+  } catch {
+    await sleep(pauseMs);
+    return read();
+  }
+}
+
+const SYNC_READ = { timeoutMs: 60_000 };
 
 export async function currentUser(): Promise<string> {
   return gh(['api', 'user', '--jq', '.login']);
@@ -39,9 +55,12 @@ export async function repoMeta(fullName: string): Promise<RepoMeta> {
 }
 
 export async function listIssues(fullName: string): Promise<IssueInfo[]> {
-  const raw = await ghJson<
-    { number: number; title: string; body: string; url: string; labels: { name: string }[]; createdAt: string }[]
-  >(['issue', 'list', '-R', fullName, '--state', 'open', '--limit', '100', '--json', 'number,title,body,url,labels,createdAt']);
+  const raw = await readTwice(() =>
+    ghJson<{ number: number; title: string; body: string; url: string; labels: { name: string }[]; createdAt: string }[]>(
+      ['issue', 'list', '-R', fullName, '--state', 'open', '--limit', '100', '--json', 'number,title,body,url,labels,createdAt'],
+      SYNC_READ,
+    ),
+  );
   return raw
     .map((i) => ({ number: i.number, title: i.title, body: i.body ?? '', url: i.url, labels: i.labels.map((l) => l.name), createdAt: i.createdAt }))
     .sort((a, b) => a.number - b.number);
@@ -124,8 +143,8 @@ function toPull(p: RawPull): PullInfo {
 
 export async function listPulls(fullName: string): Promise<PullInfo[]> {
   const [open, merged] = await Promise.all([
-    ghJson<RawPull[]>(['pr', 'list', '-R', fullName, '--state', 'open', '--limit', '50', '--json', PR_FIELDS]),
-    ghJson<RawPull[]>(['pr', 'list', '-R', fullName, '--state', 'merged', '--limit', '8', '--json', PR_FIELDS]),
+    readTwice(() => ghJson<RawPull[]>(['pr', 'list', '-R', fullName, '--state', 'open', '--limit', '50', '--json', PR_FIELDS], SYNC_READ)),
+    readTwice(() => ghJson<RawPull[]>(['pr', 'list', '-R', fullName, '--state', 'merged', '--limit', '8', '--json', PR_FIELDS], SYNC_READ)),
   ]);
   return [...open, ...merged].map(toPull);
 }
