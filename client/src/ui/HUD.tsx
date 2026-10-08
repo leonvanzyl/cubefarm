@@ -189,7 +189,11 @@ export function HUD() {
       {/* the centre dot (Settings → Accessibility) is a bolder crosshair that stays through the elevator's fade too */}
       {started && !overlay && (!travel || centerDot) && onFoot && !scope && held?.kind !== 'paddle' && <div className={`crosshair ${focus ? 'crosshair-hot' : ''} ${centerDot ? 'crosshair-dot' : ''}`} />}
       {started && !overlay && !travel && onFoot && <RoofHud />}
-      <AgentCard />
+      {/* the cards for whoever you're looking at, docked at the left edge: the middle is their screen */}
+      <div className="aim-cards">
+        <AgentCard />
+        {started && !overlay && !travel && onFoot && <CareerPeek />}
+      </div>
       {started && !overlay && onFoot && (focus || sip) && (
         <div className="hud-hint">
           <Key action="interact" /> {!held && <>/ <kbd>Click</kbd> </>}
@@ -209,7 +213,6 @@ export function HUD() {
         </div>
       )}
       {started && !overlay && !travel && onFoot && <HeldHint />}
-      {started && !overlay && !travel && onFoot && <CareerPeek />}
       {started && !overlay && !locked && !travel && onFoot && <div className="hud-resume">Click to look around</div>}
       {started && !(settings.setupDone && settings.tutorialStep >= 0) && (
         <div className="hud-help">

@@ -4,9 +4,9 @@ import { isBusy, qaKey, useStore, type Agent } from '../store';
 import { reportCard } from '../world/activityProbe';
 import { agentLabel } from './floorRows';
 
-// The card beside the crosshair when you keep someone in your sights for a moment: who they are, what they're on and
-// for how long, what they're doing now and their last few steps, turns and cost on this task, and the QA round while
-// they're testing or fixing a PR. It only reads the store: E still opens their terminal.
+// The card at the left edge (clear of their monitor) when you keep someone in your sights for a moment: who they are,
+// what they're on and for how long, what they're doing now and their last few steps, turns and cost on this task, and
+// the QA round while they're testing or fixing a PR. It only reads the store: E still opens their terminal.
 
 const AIM_MS = 400;
 const STATUS: Record<Agent['status'], string> = { idle: 'free', preparing: 'setting up', working: 'working', done: 'done', error: 'stuck', stopped: 'stopped' };

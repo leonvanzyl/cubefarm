@@ -446,13 +446,27 @@ input.inline:focus {
   white-space: nowrap;
   pointer-events: none;
 }
-/* the hover card beside the crosshair (ui/AgentCard.tsx) */
-.agent-card {
+/* The cards for whoever you're looking at (ui/AgentCard.tsx, then the career peek in ui/CareerCard.tsx): docked at
+   the left edge, under the floor card's chips, so the monitor you're watching in the middle stays clear. */
+.aim-cards {
   position: absolute;
-  top: 50%;
-  right: calc(50% + 34px);
-  width: min(290px, calc(50vw - 50px));
-  transform: translateY(-50%);
+  top: max(22%, 160px);
+  left: 16px;
+  width: min(280px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  .aim-cards {
+    top: auto;
+    bottom: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+.agent-card {
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -4536,34 +4550,47 @@ input.inline:focus {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The card that pops up while you look at a desk: beside the crosshair, never under the mouse. */
-.career-peek {
-  position: absolute;
-  top: 50%;
-  left: calc(50% + 40px);
-  transform: translateY(-50%);
-  width: min(380px, calc(50vw - 56px));
-  pointer-events: none;
-}
+/* The card that pops up while you look at a desk: under the hover card at the left edge (.aim-cards), kept small. */
 .career-peek .career-card {
-  box-shadow: 0 5px 0 var(--ink);
+  box-shadow: 0 4px 0 var(--ink);
   margin: 0;
+  animation: fadein 0.15s ease-out;
+}
+.career-compact {
+  gap: 6px;
+  padding: 8px 10px;
+  border-width: 3px 3px 3px 8px;
+  border-radius: 14px;
+  font-size: 0.82rem;
+}
+.career-compact .career-head {
+  gap: 8px;
+  align-items: center;
 }
 .career-compact .career-name {
-  font-size: 1.05rem;
+  font-size: 0.95rem;
+}
+.career-compact .career-title,
+.career-compact .career-known {
+  font-size: 0.75rem;
 }
 .career-compact .career-stats {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
 }
-@media (max-width: 700px) {
-  .career-peek {
-    left: 16px;
-    right: 16px;
-    width: auto;
-    top: auto;
-    bottom: 16px;
-    transform: none;
-  }
+.career-compact .career-stat {
+  padding: 2px 5px;
+  border-radius: 8px;
+}
+.career-compact .career-stat b {
+  font-size: 0.88rem;
+}
+.career-compact .career-stat span {
+  font-size: 0.62rem;
+  line-height: 1.15;
+}
+.career-compact .career-pr {
+  font-size: 0.75rem;
 }
 .team-stats-scroll {
   overflow-x: auto;

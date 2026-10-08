@@ -55,7 +55,7 @@ export function CareerCard({ agent, compact = false }: { agent: Agent; compact?:
   return (
     <div className={`career-card ${compact ? 'career-compact' : ''}`} style={{ ['--accent' as string]: agent.color }}>
       <div className="career-head">
-        <Portrait agent={agent} size={compact ? 64 : 88} />
+        <Portrait agent={agent} size={compact ? 44 : 88} />
         <div className="career-who">
           <div className="career-name">{agent.name}</div>
           <div className="career-title">
@@ -84,9 +84,10 @@ export function CareerCard({ agent, compact = false }: { agent: Agent; compact?:
       </div>
       {c.recent.length > 0 && (
         <div className="career-recent">
-          <div className="muted small">Last merged</div>
-          {c.recent.slice(0, compact ? 3 : LAST).map((r) => (
+          {!compact && <div className="muted small">Last merged</div>}
+          {c.recent.slice(0, compact ? 1 : LAST).map((r) => (
             <div key={r.n} className="career-pr">
+              {compact && <span className="muted">Last merged </span>}
               {repo ? (
                 <a href={`https://github.com/${repo.fullName}/pull/${r.n}`} target="_blank" rel="noreferrer">
                   #{r.n}
@@ -103,7 +104,7 @@ export function CareerCard({ agent, compact = false }: { agent: Agent; compact?:
   );
 }
 
-/** Look at someone's desk for a moment and their card pops up beside the crosshair. */
+/** Look at someone's desk for a moment and their card pops up at the left edge, under the hover card. */
 export function CareerPeek() {
   const id = useStore((s) => (s.focus?.id.startsWith('agent-') ? s.focus.id.slice(6) : null));
   const agent = useStore((s) => (id ? s.agents[id] : undefined));
