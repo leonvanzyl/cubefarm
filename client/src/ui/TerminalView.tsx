@@ -182,7 +182,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
         )}
         {agent.branch && <code>{agent.branch}</code>}
         <span className="muted">
-          {(agent.role === 'ceo' ? agent.model : effectiveModel(agent.model, cli, settings, 'claude-opus-5-5')) || 'default model'} ·{' '}
+          {effectiveModel(agent.model, cli, settings, 'claude-opus-5-5') || 'default model'} ·{' '}
           {agent.effort || settings.defaultEffort} effort
         </span>
         {agent.startedAt && <span className="muted">⏱ {elapsed(agent.startedAt, working ? null : agent.endedAt)}</span>}

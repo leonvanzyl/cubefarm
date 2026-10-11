@@ -89,6 +89,7 @@ describe('launchArgs', () => {
     codexHook: 'codex-hook.cjs',
     plugin: 'file:///plugin.mjs',
     browser: null,
+    office: null,
     ...patch,
   });
   it('starts Claude Code on a chosen session id, with the prompt after --', () => {
@@ -143,6 +144,23 @@ describe('launchArgs', () => {
     const config = (patch: Partial<LaunchContext>) => JSON.parse(launchArgs('opencode', ctx(patch)).env.OPENCODE_CONFIG_CONTENT);
     for (const role of ['agent'] as const) expect(config({ role }).permission).toEqual({ edit: 'allow', bash: 'allow', webfetch: 'allow' });
     expect(config({}).autoupdate).toBe(false);
+  });
+
+  it("gives the CEO's office tools to whichever CLI runs them", () => {
+    const office = { url: 'http://127.0.0.1:4317/api/mcp/tok' };
+    const browser = { command: 'npx', args: ['-y', '@playwright/mcp@latest'] };
+    // Claude Code reads them from the MCP config file cliRunner wrote, so it takes no -c of its own.
+    expect(launchArgs('claude', ctx({ office })).args.some((a) => a.startsWith('mcp_servers.office'))).toBe(false);
+    const codex = launchArgs('codex', ctx({ office })).args;
+    expect(codex).toContain('mcp_servers.office={url="http://127.0.0.1:4317/api/mcp/tok"}');
+    expect(launchArgs('codex', ctx()).args.some((a) => a.startsWith('mcp_servers.office'))).toBe(false);
+    const config = (patch: Partial<LaunchContext>) => JSON.parse(launchArgs('opencode', ctx(patch)).env.OPENCODE_CONFIG_CONTENT);
+    expect(config({ office }).mcp.office).toEqual({ type: 'remote', url: office.url, enabled: true });
+    expect(config({}).mcp).toBeUndefined();
+    expect(config({ browser, office }).mcp).toEqual({
+      playwright: { type: 'local', command: ['npx', '-y', '@playwright/mcp@latest'], enabled: true },
+      office: { type: 'remote', url: office.url, enabled: true },
+    });
   });
 });
 

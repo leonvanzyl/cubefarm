@@ -64,9 +64,18 @@ export function NameInput({ agent, id, className = 'inline', style }: FieldProps
 export function CliSelect({ agent, id, style }: FieldProps) {
   const settings = useStore((s) => s.settings);
   const clis = useStore((s) => s.clis);
+  // The CEO always runs a concrete coding agent, so unlike the other roles they never fall back to the office default.
+  const ceo = agent.role === 'ceo';
   return (
-    <select id={id} value={agent.cli} title="Their coding agent" aria-label={id ? undefined : 'Coding agent'} style={style} onChange={(e) => void save(agent.id, { cli: e.target.value as AgentCli | '' })}>
-      <option value="">{cliName(clis, settings.defaultCli)} (default)</option>
+    <select
+      id={id}
+      value={ceo ? agent.cli || 'claude' : agent.cli}
+      title={ceo ? "The CEO's coding agent" : 'Their coding agent'}
+      aria-label={id ? undefined : 'Coding agent'}
+      style={style}
+      onChange={(e) => void save(agent.id, { cli: e.target.value as AgentCli | '' })}
+    >
+      {!ceo && <option value="">{cliName(clis, settings.defaultCli)} (default)</option>}
       <CliOptions clis={clis} />
     </select>
   );
@@ -85,7 +94,7 @@ export function ModelInput({ agent, id, className = 'inline', style }: FieldProp
         style={style}
         list={listId}
         defaultValue={agent.model}
-        placeholder={(agent.role === 'ceo' ? CLAUDE_MODELS[0] : effectiveModel('', cli, settings, CLAUDE_MODELS[0])) || 'agent default'}
+        placeholder={effectiveModel('', cli, settings, CLAUDE_MODELS[0]) || 'agent default'}
         title={agent.role === 'ceo' ? "The CEO's model" : "Their model ('' = the default for their coding agent)"}
         aria-label={id ? undefined : 'Model'}
         onBlur={(e) => e.target.value !== agent.model && void save(agent.id, { model: e.target.value })}
@@ -279,7 +288,7 @@ export function PromptPreview({ agent }: { agent: Agent }) {
   );
 }
 
-/** The ⚙️ Setup section of an agent's panel. The CEO always runs Claude Code, so they only get model and effort. */
+/** The ⚙️ Setup section of an agent's panel. The CEO picks a coding agent like everyone else; only their look is the office's. */
 export function AgentSetup({ agent }: { agent: Agent }) {
   const terminal = useStore((s) => s.settings.runtime === 'terminal');
   const id = useId();
@@ -307,7 +316,7 @@ export function AgentSetup({ agent }: { agent: Agent }) {
             <LookSelect agent={agent} id={`${id}-look`} />
           </label>
         )}
-        {!ceo && terminal && (
+        {terminal && (
           <label className="field" htmlFor={`${id}-cli`}>
             <span>Coding agent</span>
             <CliSelect agent={agent} id={`${id}-cli`} />
