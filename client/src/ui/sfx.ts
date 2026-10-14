@@ -608,6 +608,84 @@ export function slurp(pos: Vec3) {
   noise({ ...o, at: 0.24, dur: 0.05, peak: 0.05, filter: 'bandpass', freq: 1800, q: 1.5, attack: 0.002 });
 }
 
+// ---------- the kitchenette fridge (world/FridgeModel.tsx) ----------
+
+/** The fridge door coming open: the seal letting go with a soft suck and a pop. */
+export function fridgePop(pos: Vec3) {
+  const o = { name: 'fridge:open', group: 'toys', pos } as const;
+  noise({ ...o, dur: 0.18, peak: 0.05, filter: 'bandpass', freq: 600, to: 1600, q: 1.4, attack: 0.04 });
+  tone({ ...o, at: 0.12, freq: 260, to: 180, dur: 0.07, peak: 0.05, attack: 0.003 });
+}
+
+/** The door swinging shut: a soft, padded thunk. */
+export function fridgeThunk(pos: Vec3) {
+  const o = { name: 'fridge:close', group: 'toys', pos } as const;
+  tone({ ...o, freq: 120, to: 70, dur: 0.14, peak: 0.07, attack: 0.004 });
+  noise({ ...o, dur: 0.1, peak: 0.035, filter: 'lowpass', freq: 500, attack: 0.003 });
+}
+
+/** The "door left open" beep: three short, quiet, high pips. */
+export function fridgeBeep(pos: Vec3) {
+  for (let i = 0; i < 3; i++) tone({ name: 'fridge:beep', group: 'toys', pos, freq: 2350, type: 'square', at: i * 0.16, dur: 0.07, peak: 0.018, attack: 0.003 });
+}
+
+/** The fridge's compressor hum: very quiet and positional. `set(level)` fades it (0 silent), `stop()` ends it for good. */
+export interface FridgeHum {
+  set(level: number): void;
+  stop(): void;
+}
+
+const FRIDGE_HUM_PEAK = 0.012;
+
+export function fridgeHum(pos: Vec3): FridgeHum | null {
+  const a = audio();
+  const out = groupOutput('toys');
+  if (!a || !out) return null;
+  try {
+    const c = a.ctx;
+    const env = c.createGain();
+    env.gain.value = 0;
+    const panner = createPanner(c, pos);
+    env.connect(panner).connect(out);
+    const motor = c.createOscillator();
+    motor.type = 'sawtooth';
+    motor.frequency.value = 58;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 220;
+    const buzz = c.createOscillator();
+    buzz.type = 'sine';
+    buzz.frequency.value = 120;
+    const buzzG = c.createGain();
+    buzzG.gain.value = 0.4;
+    motor.connect(lp).connect(env);
+    buzz.connect(buzzG).connect(env);
+    motor.start();
+    buzz.start();
+    recordSfx('fridge:hum', { group: 'toys', pos, peak: FRIDGE_HUM_PEAK, played: true });
+    let level = 0;
+    return {
+      set(v) {
+        if (Math.abs(v - level) < 0.02) return;
+        level = v;
+        env.gain.setTargetAtTime(FRIDGE_HUM_PEAK * v, c.currentTime, 0.3);
+      },
+      stop() {
+        try {
+          env.gain.setTargetAtTime(0, c.currentTime, 0.05);
+          motor.stop(c.currentTime + 0.3);
+          buzz.stop(c.currentTime + 0.3);
+          motor.onended = () => panner.disconnect();
+        } catch {
+          // already stopped
+        }
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** A basket: the net's swish, then a small cheer. */
 export function swish() {
   noise({ dur: 0.3, peak: 0.14, filter: 'bandpass', freq: 5200, to: 2600, q: 0.8, attack: 0.03, group: 'toys' });

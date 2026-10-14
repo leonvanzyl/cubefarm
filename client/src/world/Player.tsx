@@ -20,6 +20,7 @@ import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
+import { fridgeAction } from './fridgeState';
 import { jukeboxAction } from './Jukebox';
 import { themeAction } from './themes/active';
 import { tuneChannel } from '../ui/theatre';
@@ -92,6 +93,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
   }
   if (focus.action.kind === 'coffee') {
     coffeeAction(focus.action.op);
+    return;
+  }
+  if (focus.action.kind === 'fridge') {
+    fridgeAction(focus.action.op, focus.action.snack);
     return;
   }
   if (focus.action.kind === 'jukebox') {

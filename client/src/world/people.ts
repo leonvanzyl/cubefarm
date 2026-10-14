@@ -7,6 +7,7 @@ import type { Appearance } from './appearance';
 import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gesture } from './body';
 import { EXPRESSIONS, type Expression } from './face';
 import type { Food } from './ritualSchedule';
+import type { HandSnack } from './fridgeBreak';
 
 const targets = new Map<string, BodyTarget>();
 const live = new Map<string, BodyState>();
@@ -205,6 +206,17 @@ export function setHandFood(id: string, f: Food | null) {
 
 export const handFood = (id: string) => food.get(id) ?? null;
 
+const snacks = new Map<string, HandSnack>();
+
+/** A snack from the fridge in someone's hand (fridgeBreak.ts), shorter with each bite; null for none. Redraws like the mugs. */
+export function setHandSnack(id: string, s: HandSnack | null) {
+  if (s) snacks.set(id, s);
+  else snacks.delete(id);
+  changed();
+}
+
+export const handSnack = (id: string) => snacks.get(id) ?? null;
+
 /** Someone gone home for the night, the CEO off round the floors, or up on the roof: Character.tsx doesn't draw them. */
 export function setHidden(id: string, on: boolean) {
   if (on) hidden.add(id);
@@ -262,6 +274,7 @@ const probe = {
       lid: round(faces.get(id)?.lid ?? 0),
       look: faces.get(id)?.look ?? null,
       food: food.get(id) ?? null,
+      snack: snacks.get(id) ?? null,
       hidden: hidden.has(id),
     }));
   },

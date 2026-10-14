@@ -23,6 +23,7 @@ import { Beacon, useFloorAlarm } from './MissionControl';
 import { CoinBurst } from './decor/CoinBurst';
 import { Decorations } from './decor/Decorations';
 import { DeskStory, MvpSign } from './desk/DeskStory';
+import { HeldSnack } from './HeldSnack';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
 import { OfficeRituals } from './Rituals';
 import { PongTable } from './PongTable';
@@ -166,6 +167,7 @@ export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView 
       <Couch position={[-HALF_W + 0.9, 0, 6.5]} rotationY={-Math.PI / 2} color={shade(repo.color, -0.05)} />
       <CoffeeTable position={[-HALF_W + 2.6, 0, 6.5]} rotationY={Math.PI / 2} />
       <Kitchenette position={[HALF_W - 0.45, 0, 7]} />
+      <HeldSnack />
       <WaterCooler position={[HALF_W - 0.5, 0, -9.5]} />
       <Jukebox x={JUKEBOX.officeX} floor={repo.floor} />
       <WallClock position={[-10, 2.75, -HALF_D + 0.05]} />

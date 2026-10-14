@@ -8,6 +8,7 @@ import { CoinChip } from './CoinChip';
 import './progressProbe';
 import './doctorProbe';
 import { eAction } from '../world/toys/sip';
+import { snackOf } from '../world/fridge';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { PresenceHud } from './PresenceHud';
@@ -197,7 +198,7 @@ export function HUD() {
       {started && !overlay && onFoot && (focus || sip) && (
         <div className="hud-hint">
           <Key action="interact" /> {!held && <>/ <kbd>Click</kbd> </>}
-          {sip ? (held?.kind === 'sausage' ? 'Take a bite' : 'Sip coffee') : (dropLabel ?? focus?.label)}
+          {sip ? (held?.kind === 'sausage' || (held?.kind === 'snack' && snackOf(held.snack)?.kind === 'food') ? 'Take a bite' : held?.kind === 'snack' ? 'Take a sip' : 'Sip coffee') : (dropLabel ?? focus?.label)}
           {!held && focus?.action.kind === 'card' && focus.action.peel && (
             <>
               {' '}

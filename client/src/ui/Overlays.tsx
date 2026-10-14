@@ -227,6 +227,13 @@ function Help({ tab: initial }: { tab?: HelpTab }) {
             <Key action="drop" /> drops your mug at any time, and mugs can't be thrown. Aim at a dropped mug and press <Key action="interact" /> to pick it up again, coffee and all. Any mug that isn't full can go back under
             the machine for a refill.
           </p>
+          <h3>The fridge</h3>
+          <p>
+            The fridge at the south end of the kitchenette counter is stocked like a software team's: Overclock energy drinks, sparkling water, cold brew, yerba mate soda, cold leftover pizza, protein bars,
+            string cheese and chocolate. Press <Key action="interact" /> on it to open the door, then aim at a snack and press <Key action="interact" /> to grab it. With it in hand, <Key action="interact" /> takes a sip or a
+            bite (two or three to each; the last finishes it) and <Key action="drop" /> gets rid of it. <Key action="interact" /> on the door shuts it, and it shuts by itself once everyone has walked away (it beeps if it's left
+            open). Each floor's fridge has its own stock, shared with the agents, who go for a snack now and then: one item comes back every few minutes. The tupperware is somebody's lunch. The dog begs for food you're holding.
+          </p>
           <h3>Sound</h3>
           <p>
             The office chimes when a PR is ready to merge, fails QA or gets merged, when someone hits an error and when a new teammate arrives. A merge on the floor you're on bangs its gong (by the whiteboard) and the

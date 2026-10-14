@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { CHARGE, chargePower } from '../world/toys/hands';
 import { BlasterHud } from './BlasterHud';
 import { decorName } from '../world/decor/actions';
+import { snackOf } from '../world/fridge';
 import { Key } from './Key';
 import { PongHud } from './PongHud';
 
@@ -39,6 +40,15 @@ export function HeldHint() {
     return (
       <div className="hud-hint hud-held">
         🌭 {held.bites} {held.bites === 1 ? 'bite' : 'bites'} left{held.charred ? ' (a bit charred)' : ''} · <Key action="interact" /> eat · <Key action="drop" /> drop
+      </div>
+    );
+  }
+  if (held.kind === 'snack') {
+    const s = snackOf(held.snack);
+    const food = s?.kind === 'food';
+    return (
+      <div className="hud-hint hud-held">
+        {s?.emoji} {s?.name}: {held.left} {food ? (held.left === 1 ? 'bite' : 'bites') : held.left === 1 ? 'sip' : 'sips'} left · <Key action="interact" /> {food ? 'eat' : 'drink'} · <Key action="drop" /> drop
       </div>
     );
   }

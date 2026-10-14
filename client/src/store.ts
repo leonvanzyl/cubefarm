@@ -18,6 +18,7 @@ import { takeEmote, takePing, takePose, takeRoster } from './world/presence/pres
 import { gongForMerge } from './world/gongRunner';
 import { ROOF } from './world/layout';
 import { emitReward } from './world/decor/rewards';
+import type { SnackId } from './world/fridge';
 
 export type Agent = Omit<AgentView, 'log'>;
 
@@ -66,7 +67,9 @@ export interface Focus {
     /** E on a holiday theme's thing (themes/active.ts). */
     | { kind: 'theme'; id: string }
     /** Pick up a paddle at that end of the ping-pong table (toys/pongState.ts). */
-    | { kind: 'pong'; end: 'west' | 'east' };
+    | { kind: 'pong'; end: 'west' | 'east' }
+    /** The kitchenette fridge (fridgeState.ts): open or close its door, take a snack, or leave someone's lunch alone. */
+    | { kind: 'fridge'; op: 'open' | 'close' | 'take' | 'lunch'; snack?: SnackId };
 }
 
 /** What the player is carrying. Other items (a blaster, say) join the union with their own kind. */
@@ -80,6 +83,8 @@ export type Held =
   | { kind: 'sticky'; id: string; repoId: string; key: string; number: number; pr: boolean }
   /** A sausage in a bun off the roof's grill: bites left, eaten like coffee is sipped. */
   | { kind: 'sausage'; id: string; bites: number; charred: boolean }
+  /** A snack or cold drink from the kitchenette fridge (world/fridge.ts): sips or bites left, had like coffee or the sausage. */
+  | { kind: 'snack'; id: string; snack: SnackId; left: number }
   /** A decoration on its way to a slot (#210): from the floor's decor box (from null) or from the slot it stood in. */
   | { kind: 'decor'; id: string; item: DecorItem; from: string | null }
   /** A ping-pong paddle, playing at that end of the table (toys/pongState.ts): mouse and camera belong to the match. */

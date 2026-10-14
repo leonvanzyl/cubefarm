@@ -14,7 +14,8 @@ import { malletHolder } from './gongRunner';
 import { isCelebrating } from './gongState';
 import { toon } from './materials';
 import { FoodLook } from './food';
-import { bodyTarget, forcedExpression, handFood, handMug, isHidden, seatBody, setBody, subscribeMugs, trackBody, trackFace } from './people';
+import { SnackLook } from './snackLook';
+import { bodyTarget, forcedExpression, handFood, handMug, handSnack, isHidden, seatBody, setBody, subscribeMugs, trackBody, trackFace } from './people';
 import { mergedAt, takeReaction, trackLife } from './reactionFeed';
 import { SpeechBubble } from './SpeechBubble';
 import { ThemeCostume } from './themes/ThemeCostume';
@@ -263,6 +264,7 @@ export function Character({
   const handCup = useRef<THREE.Group>(null);
   const carried = useSyncExternalStore(subscribeMugs, () => handMug(agent.id));
   const food = useSyncExternalStore(subscribeMugs, () => handFood(agent.id));
+  const snack = useSyncExternalStore(subscribeMugs, () => handSnack(agent.id));
   // Everything the body needs between frames, made once: the walk state, a gait to write into and the gesture arms.
   const move = useMemo(
     () => ({
@@ -642,6 +644,11 @@ export function Character({
                     <Piece geometry={PARTS.phone} color={INK} />
                     <mesh geometry={PARTS.phoneScreen} material={toon('#8ecae6', { emissive: '#8ecae6', emissiveIntensity: 0.5 })} />
                   </group>
+                  {snack && (
+                    <group position={HAND_MUG.at}>
+                      <SnackLook snack={snack.snack} left={snack.left} />
+                    </group>
+                  )}
                   {food && (
                     <group position={HAND_MUG.at}>
                       <FoodLook kind={food} />

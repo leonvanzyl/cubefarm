@@ -10,14 +10,16 @@ export type EAction = 'sip' | 'empty' | 'target';
  * E with a mug of coffee sips it, whatever the crosshair is on, except the coffee machine (where E puts the mug
  * under the spout or presses the button). With an empty mug E acts on the target as usual, or hints when there is none.
  */
-export function eAction(held: { kind: string; sips?: number; bites?: number } | null, focusKind: string | null): EAction {
+export function eAction(held: { kind: string; sips?: number; bites?: number; left?: number } | null, focusKind: string | null): EAction {
+  // A snack from the fridge: E at the fridge itself still opens, closes or takes (and says your hands are full).
+  if (held?.kind === 'snack') return (held.left ?? 0) > 0 && focusKind !== 'fridge' ? 'sip' : focusKind ? 'target' : 'empty';
   if (held?.kind === 'sausage') return (held.bites ?? 0) > 0 ? 'sip' : focusKind ? 'target' : 'empty';
   if (held?.kind !== 'mug' || focusKind === 'coffee') return 'target';
   if ((held.sips ?? 0) > 0) return 'sip';
   return focusKind ? 'target' : 'empty';
 }
 
-export type SipCue = 'slurp' | 'drink' | 'mm' | 'gulp' | 'ahh' | 'drop' | 'chomp' | 'munch';
+export type SipCue = 'slurp' | 'drink' | 'mm' | 'gulp' | 'ahh' | 'drop' | 'chomp' | 'munch' | 'pssht' | 'twist' | 'rustle' | 'crunch';
 
 export interface SipPlan {
   /** Seconds the whole thing takes. */
@@ -101,6 +103,32 @@ export const LAST_BITE: SipPlan = {
 export function biteFor(bites: number): SipPlan | null {
   if (!(bites > 0)) return null;
   return bites <= 1 ? LAST_BITE : BITE;
+}
+
+/** How a snack opens and ends: a can's "pssht" and its crunch once empty, a bottle cap's twist, a wrapper's rustle. */
+export interface SnackPack {
+  kind: 'drink' | 'food';
+  pack: 'can' | 'bottle' | 'wrapper' | 'none';
+  sips: number;
+}
+
+/**
+ * The next sip or bite of a snack from the fridge with `left` to go: drinks like coffee (SIP, the last a GULP), food
+ * like the sausage (BITE, the last a LAST_BITE). The first one opens it, and an empty can is crunched before it goes.
+ */
+export function snackPlanFor(snack: SnackPack, left: number): SipPlan | null {
+  if (!(left > 0)) return null;
+  const base = snack.kind === 'drink' ? (left <= 1 ? GULP : SIP) : left <= 1 ? LAST_BITE : BITE;
+  const open: SipCue | null = left < snack.sips ? null : snack.pack === 'can' ? 'pssht' : snack.pack === 'bottle' ? 'twist' : snack.pack === 'wrapper' ? 'rustle' : null;
+  const crunch = left <= 1 && snack.pack === 'can';
+  if (!open && !crunch) return base;
+  const cues = [...base.cues];
+  if (open) cues.unshift({ at: 0, cue: open });
+  if (crunch) {
+    const drop = cues.findIndex((c) => c.cue === 'drop');
+    cues.splice(drop, 0, { at: cues[drop].at - 0.05, cue: 'crunch' });
+  }
+  return { ...base, cues };
 }
 
 /** The index of the first cue still to come `t` seconds in, having played those before `from`. */
