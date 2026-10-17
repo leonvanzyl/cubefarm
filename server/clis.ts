@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { run } from './exec.ts';
-import type { AgentCli, CliView, EffortLevel } from '../shared/types.ts';
+import type { AgentCli, AgentRole, AgentRuntime, CliView, EffortLevel } from '../shared/types.ts';
 
 // The coding-agent CLIs an agent can run in its terminal, how to find them on this machine, and how to start one on
 // a task. Claude Code is fully wired in: its hooks report every tool call to the office.
@@ -24,6 +24,24 @@ export const CLIS: CliDef[] = [
 
 export const isCli = (v: unknown): v is AgentCli => CLIS.some((c) => c.id === v);
 export const cliLabel = (id: AgentCli) => CLIS.find((c) => c.id === id)?.label ?? id;
+
+/**
+ * The CLI an agent's next session runs on, and the session it may pick up. Only the CLI that made a session can resume it,
+ * so a follow-up normally stays with that CLI. When the manager has since changed the agent's coding agent, though, their
+ * pick wins: the next session starts fresh on it, rather than a terminal quietly running the CLI the old session belongs to
+ * while the dropdown says something else. The Agent SDK is Claude Code, so there a Claude session stays resumable either way.
+ */
+export function nextSession(
+  a: { role: AgentRole; cli: AgentCli | ''; sessionCli: AgentCli | null },
+  settings: { runtime: AgentRuntime; defaultCli: AgentCli },
+  inTerminal: boolean,
+  resume?: string,
+): { cli: AgentCli; resume: string | undefined } {
+  const cli: AgentCli = a.role === 'ceo' ? a.cli || 'claude' : a.cli || settings.defaultCli;
+  if (!resume || !a.sessionCli || a.sessionCli === cli) return { cli, resume };
+  const keep = !inTerminal && a.sessionCli === 'claude';
+  return { cli, resume: keep ? resume : undefined };
+}
 
 // ---------- finding a CLI ----------
 
@@ -149,6 +167,8 @@ export interface LaunchContext {
   plugin: string; // file URL of the OpenCode plugin
   /** The Playwright MCP server, when the floor tests in a browser. Claude Code gets it through its MCP config file. */
   browser: { command: string; args: string[] } | null;
+  /** The office's own MCP server (the CEO's tools), over HTTP at a token URL. Claude Code reads it from its MCP config file. */
+  office: { url: string } | null;
 }
 
 export interface Launch {
@@ -215,6 +235,7 @@ export function launchArgs(id: AgentCli, ctx: LaunchContext): Launch {
         ...(ctx.model ? ['-m', ctx.model] : []),
         ...(ctx.effort ? ['-c', `model_reasoning_effort=${toml(EFFORT_CODEX[ctx.effort])}`] : []),
         ...(ctx.browser ? ['-c', `mcp_servers.playwright={command=${toml(ctx.browser.command)},args=[${ctx.browser.args.map(toml).join(',')}]}`] : []),
+        ...(ctx.office ? ['-c', `mcp_servers.office={url=${toml(ctx.office.url)}}`] : []),
         ...CODEX_HOOK_EVENTS.flatMap((e) => ['-c', `hooks.${e}=[{hooks=[{type="command",command=${toml(codexHookCommand(process.execPath, ctx.codexHook))},timeout=10}]}]`]),
         // Like the manager's own Codex, but it can't stop to ask: no approvals and no sandbox (its sandbox can't reach
         // the credential store, so git and gh fail in it).
@@ -223,12 +244,15 @@ export function launchArgs(id: AgentCli, ctx: LaunchContext): Launch {
       return { args: ctx.resumeId ? ['resume', ...args, ctx.resumeId, ctx.prompt] : [...args, '--', ctx.prompt], env: { CUBEFARM_HOOK_URL: ctx.notify.url } };
     }
     case 'opencode': {
+      const mcp: Record<string, unknown> = {};
+      if (ctx.browser) mcp.playwright = { type: 'local', command: [ctx.browser.command, ...ctx.browser.args], enabled: true };
+      if (ctx.office) mcp.office = { type: 'remote', url: ctx.office.url, enabled: true };
       const config = {
         plugin: [ctx.plugin],
         instructions: [ctx.files.system],
         autoupdate: false, // several agents starting at once must not each reinstall it
         permission: { edit: 'allow', bash: 'allow', webfetch: 'allow' }, // it can't stop to ask either
-        ...(ctx.browser ? { mcp: { playwright: { type: 'local', command: [ctx.browser.command, ...ctx.browser.args], enabled: true } } } : {}),
+        ...(Object.keys(mcp).length ? { mcp } : {}),
       };
       // No project argument: it starts in its terminal's folder, and a desk path in its command line would make the
       // desk clean-up take it for a leftover.

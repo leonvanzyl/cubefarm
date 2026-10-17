@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { EAST_DESKS, MAX_DESKS } from '../client/src/world/layout.ts';
 import { FLOOR_SEATS, type QaStatus } from '../shared/types.ts';
 import type { HttpError } from './httpError.ts';
-import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, planDependencies, plannedSize, scalePlan, type CeoJob, type DependsRequest, type TeamNow } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, officeToolPrefix, planDependencies, plannedSize, scalePlan, type CeoJob, type DependsRequest, type TeamNow } from './ceo.ts';
 
 describe('seats', () => {
   it('match the desks the client draws', () => {
@@ -229,7 +229,7 @@ describe('planDependencies (set_dependencies)', () => {
 });
 
 describe('planning guidance', () => {
-  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve', tools: 'mcp__office__' });
   const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: 'Add voice messages', backlog: 0 };
   const plan = ceoJobPrompt({ kind: 'plan', repoId: 'r1', at: 0 }, floor);
   const review = ceoJobPrompt({ kind: 'review', at: 0 }, null);
@@ -263,7 +263,7 @@ describe('planning guidance', () => {
 });
 
 describe('team guidance', () => {
-  const prompt = (scaling: 'approve' | 'auto') => ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 8, scaling });
+  const prompt = (scaling: 'approve' | 'auto') => ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 8, scaling, tools: 'mcp__office__' });
 
   it('sizes teams from throughput, within the floor max, and keeps one agent', () => {
     expect(prompt('approve')).toContain("Size each floor's team from its throughput");
@@ -285,7 +285,7 @@ describe('team guidance', () => {
 });
 
 describe('triage', () => {
-  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve', tools: 'mcp__office__' });
   const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: '', backlog: 3 };
   const job: CeoJob = { kind: 'triage', repoId: 'r1', prNumber: 108, at: 0 };
   const pr = {
@@ -380,5 +380,37 @@ describe('IssueCap', () => {
     cap.record('a/b');
     expect(cap.total).toBe(3);
     expect([...cap.repos]).toEqual(['a/b', 'c/d']);
+  });
+});
+
+describe('the CEO prompt names its tools the way the running CLI does', () => {
+  const prompt = (cli: 'claude' | 'codex' | 'opencode') =>
+    ceoSystemPrompt({
+      name: 'Ada',
+      company: 'Acme',
+      manager: 'Grace',
+      notesFile: 'NOTES.md',
+      sessionLimit: 0,
+      maxAgents: 4,
+      scaling: 'approve',
+      tools: officeToolPrefix(cli),
+    });
+
+  it('matches each CLI\'s MCP namespace', () => {
+    expect(officeToolPrefix('claude')).toBe('mcp__office__');
+    expect(officeToolPrefix('codex')).toBe('mcp__office__'); // Codex namespaces MCP tools the same way
+    expect(officeToolPrefix('opencode')).toBe('office_');
+  });
+
+  it('never leaves a tool name the CEO cannot call', () => {
+    expect(prompt('claude')).toContain('Call mcp__office__company_status first');
+    expect(prompt('opencode')).toContain('Call office_company_status first');
+    for (const cli of ['claude', 'opencode'] as const) {
+      const p = prompt(cli);
+      const named = [...p.matchAll(/(?:mcp__office__|office_)([a-z_]+)/g)].map((m) => m[0]);
+      expect(named.length).toBeGreaterThan(0);
+      const wrong = cli === 'opencode' ? 'mcp__office__' : 'office_';
+      expect(p.includes(`through the ${wrong}`)).toBe(false);
+    }
   });
 });

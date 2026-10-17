@@ -20,7 +20,7 @@ describe('who asks for new work', () => {
   });
 
   it('is in the prompts: reviews and onboarding suggest work instead of filing it', () => {
-    const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
+    const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve', tools: 'mcp__office__' });
     expect(system).toContain('Never decide on new work yourself.');
     const review = ceoJobPrompt({ kind: 'review', at: 0 }, null);
     expect(review).not.toContain('plan the next milestone');
