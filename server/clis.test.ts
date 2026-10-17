@@ -2,10 +2,42 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, oneAtATime, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
+import { CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, nextSession, oneAtATime, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
 import { describeOfficeTool, describeTool, newScreenshots, screenshotFile, summariseResult } from './agentRunner.ts';
 
 const dir = path.join(os.tmpdir(), 'npm-global');
+
+describe('nextSession', () => {
+  const terminal = { runtime: 'terminal', defaultCli: 'claude' } as const;
+  const sdk = { runtime: 'sdk', defaultCli: 'claude' } as const;
+  const agent = { role: 'agent', cli: '', sessionCli: null } as const;
+
+  it("runs the CLI the agent picked, not the one their last session belongs to", () => {
+    // The manager moved this agent to OpenCode after a Claude Code session existed: the next session is OpenCode's, and
+    // the Claude session is left alone rather than resumed behind their back.
+    expect(nextSession({ ...agent, cli: 'opencode', sessionCli: 'claude' }, terminal, true, 'claude-1')).toEqual({ cli: 'opencode', resume: undefined });
+    expect(nextSession({ role: 'ceo', cli: 'codex', sessionCli: 'claude' }, terminal, true, 'claude-1')).toEqual({ cli: 'codex', resume: undefined });
+  });
+
+  it('follows up in the same session while the CLI is unchanged', () => {
+    expect(nextSession({ ...agent, cli: 'opencode', sessionCli: 'opencode' }, terminal, true, 'oc-1')).toEqual({ cli: 'opencode', resume: 'oc-1' });
+    expect(nextSession({ ...agent, cli: '', sessionCli: 'claude' }, terminal, true, 'claude-1')).toEqual({ cli: 'claude', resume: 'claude-1' });
+  });
+
+  it('gives the CEO a concrete coding agent, always', () => {
+    expect(nextSession({ role: 'ceo', cli: '', sessionCli: null }, terminal, true).cli).toBe('claude');
+    expect(nextSession({ role: 'ceo', cli: 'opencode', sessionCli: null }, terminal, true).cli).toBe('opencode');
+  });
+
+  it('runs an agent with no pick of their own on the office default', () => {
+    expect(nextSession(agent, { runtime: 'terminal', defaultCli: 'codex' }, true).cli).toBe('codex');
+  });
+
+  it('keeps a Claude session in the Agent SDK, which only ever runs Claude Code', () => {
+    expect(nextSession({ ...agent, cli: 'opencode', sessionCli: 'claude' }, sdk, false, 'claude-1')).toEqual({ cli: 'opencode', resume: 'claude-1' });
+    expect(nextSession({ ...agent, cli: '', sessionCli: 'codex' }, sdk, false, 'codex-1').resume).toBe(undefined);
+  });
+});
 
 describe('unwrapCmdShim', () => {
   it('runs node on the script a node shim points at, keeping its node flags', () => {

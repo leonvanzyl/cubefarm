@@ -34,7 +34,7 @@ import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type La
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, resumeRefusal, usageLabel, usageView, waived, warningView, type UsageWarning, type Waiver, type WorkKind } from './pacing.ts';
 import { emptyHistory, loadHistory, opsView, recordChecks, recordCost, recordMerges, recordQa, type OpsFloorState, type OpsHistory } from './metrics.ts';
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
-import { cliLabel, isCli } from './clis.ts';
+import { cliLabel, isCli, nextSession } from './clis.ts';
 import { machineName } from './machines.ts';
 import { MACHINES_DIR, type DeskTrim } from './workspace.ts';
 import { envSecrets, Journal } from './journal.ts';
@@ -2230,20 +2230,13 @@ export class Swarm {
     return repo.links.map((id) => this.state.repos.find((r) => r.id === id)).filter((r): r is PersistedRepo => !!r);
   }
 
-  /**
-   * How an agent's next session runs: the CLI in their terminal (the terminal runtime), or Claude Code through the
-   * SDK. A session can only be resumed by the CLI that made it, so a follow-up stays with that CLI.
-   */
+  /** How an agent's next session runs: the CLI in their terminal (the terminal runtime), or Claude Code through the SDK. */
   private sessionRuntime(a: PersistedAgent, resume?: string): { terminal?: AgentTerminal; cli?: AgentCli; label?: string; resumeSessionId?: string } {
     const inTerminal = this.state.settings.runtime === 'terminal' && this.backend.terminals;
-    let cli: AgentCli = a.role === 'ceo' ? a.cli || 'claude' : a.cli || this.state.settings.defaultCli;
-    if (resume && a.sessionCli && a.sessionCli !== cli) {
-      if (inTerminal) cli = a.sessionCli;
-      else if (a.sessionCli !== 'claude') resume = undefined;
-    }
-    if (!inTerminal) return { resumeSessionId: resume };
+    const { cli, resume: resumeId } = nextSession(a, this.state.settings, inTerminal, resume);
+    if (!inTerminal) return { resumeSessionId: resumeId };
     const what = a.role === 'ceo' ? a.issueTitle : a.task === 'qa' ? `QA · PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : a.issueNumber ? `#${a.issueNumber} ${a.issueTitle ?? ''}` : null;
-    return { terminal: this.terminalFor(a), cli, label: `${a.name}${what ? ` · ${what}` : ''}`.slice(0, 80).trim(), resumeSessionId: resume };
+    return { terminal: this.terminalFor(a), cli, label: `${a.name}${what ? ` · ${what}` : ''}`.slice(0, 80).trim(), resumeSessionId: resumeId };
   }
 
   /** The model to ask for (the Agent SDK runs Claude Code). '' lets another coding agent use its own default. */
