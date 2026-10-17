@@ -30,8 +30,9 @@ describe("an agent's actions", () => {
     expect(agentActions(a('idle'))).toEqual({ stop: false, assign: true, clear: false, message: false });
     expect(agentActions(a('done', 'issue', 'swarm/12-x'))).toEqual({ stop: false, assign: true, clear: true, message: true });
     expect(agentActions(a('done', 'fix', 'swarm/12-x'))).toEqual({ stop: false, assign: true, clear: true, message: true });
-    expect(agentActions(a('error', 'qa', 'qa/4'))).toEqual({ stop: false, assign: true, clear: true, message: false });
+    expect(agentActions(a('error', 'qa', 'qa/4'))).toEqual({ stop: false, assign: true, clear: true, message: true });
     expect(agentActions(a('stopped'))).toEqual({ stop: false, assign: true, clear: true, message: false });
+    expect(agentActions(a('stopped', 'qa', 'qa/4-linus'))).toEqual({ stop: false, assign: true, clear: true, message: true });
   });
 
   it('offer every agent backlog issues to build and testable PRs to test', () => {

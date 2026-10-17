@@ -103,7 +103,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const working = isBusy(agent);
   const cli = workerCli(agent, settings);
   const issueUrl = agent.issueNumber ? `https://github.com/${repo.fullName}/issues/${agent.issueNumber}` : null;
-  const canMessage = working || (agent.task !== 'qa' && !!agent.branch && agent.status !== 'idle');
+  const canMessage = working || (!!agent.branch && agent.status !== 'idle');
   const qaRec = agent.prNumber ? qaRecords[`${repo.id}#${agent.prNumber}`] : undefined;
   const send = (t: string) => {
     const body = t.trim();

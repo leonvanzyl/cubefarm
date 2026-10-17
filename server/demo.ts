@@ -309,8 +309,8 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
   // The task picks the script; a session started without one (a follow-up) is read from its prompt.
   const fixPrompt = !opts.task && /FAILED|taking over pull request|git push origin HEAD:/.test(opts.prompt);
   const kind = opts.task === 'qa' ? 'qa' : opts.task === 'fix' || nudged || resumedFix || fixPrompt ? 'fix' : 'issue';
-  // Fix sessions can be resumed (the office's nudge), like real ones.
-  if (kind === 'fix') cb.sessionId(opts.resumeSessionId ?? `demo-fix-${crypto.randomUUID()}`);
+  // Fix and QA sessions can be resumed (the office's nudge, or the manager's follow-up), like real ones.
+  if (kind === 'fix' || kind === 'qa') cb.sessionId(opts.resumeSessionId ?? `demo-${kind}-${crypto.randomUUID()}`);
   const pull = fixPromptPull(opts.prompt);
   const issueMatch = opts.prompt.match(/#(\d+):\s*(.+)/);
   const number = kind === 'issue' ? Number(issueMatch?.[1] ?? 0) : pull.number;

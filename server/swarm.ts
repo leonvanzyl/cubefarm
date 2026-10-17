@@ -3167,15 +3167,55 @@ export class Swarm {
       return;
     }
     if (a.status === 'preparing') throw new HttpError(409, `${a.name} is still setting up; try again in a moment`);
-    if (!a.sessionId || !a.branch || a.task === 'qa') throw new HttpError(409, `${a.name} has no session to continue. Give them an issue or a PR to test instead.`);
+    if (!a.sessionId || !a.branch) throw new HttpError(409, `${a.name} has no session to continue. Give them an issue or a PR to test instead.`);
     this.ensureSlot();
     this.appendLog(a, [{ kind: 'manager', text: `▶ Manager: ${text}` }]);
     const cwd = this.deskOf(a, repo);
     a.lastError = null;
     a.startedAt = Date.now();
+    a.endedAt = null;
     if (a.task === null) a.task = 'issue';
+    if (a.task === 'qa') return this.messageQa(a, repo, cwd, text, typed);
     const fixing = a.task === 'fix' && a.prNumber ? { pr: a.prNumber, headRef: a.branch } : undefined;
     this.startAgentSession(a, repo, cwd, text, this.buildSystemAppend(a, repo, cwd, a.branch, fixing), a.sessionId, undefined, typed ? 'typed' : null);
+  }
+
+  /** A follow-up for a stopped QA tester resumes the same session (a stopped one never finished, so its CLI can still resume), with the QA report schema; its record goes back to testing. */
+  private async messageQa(a: PersistedAgent, repo: PersistedRepo, cwd: string, text: string, typed: boolean) {
+    const rt = this.agentRt.get(a.id)!;
+    const branch = a.branch;
+    const sessionId = a.sessionId;
+    const prNumber = a.prNumber;
+    if (!branch || !sessionId || !prNumber) throw new HttpError(409, `${a.name} has no session to continue. Give them an issue or a PR to test instead.`);
+    const rec = this.state.qa.find((q) => q.repoId === repo.id && q.prNumber === prNumber);
+    if (rec && (rec.status === 'queued' || rec.status === 'needs-human' || rec.status === 'failed') && (!rec.qaAgentId || rec.qaAgentId === a.id)) {
+      this.setQa(rec, { status: 'testing', qaAgentId: a.id });
+    }
+    let systemAppend: string;
+    if (rt.qaResume?.systemAppend) {
+      systemAppend = rt.qaResume.systemAppend;
+      rt.qaResume = null;
+    } else {
+      const pr = await this.backend.prDetails(repo.fullName, prNumber).catch(() => null);
+      if (!pr || pr.state !== 'OPEN') throw new HttpError(409, `PR #${prNumber} is no longer open; pick another PR for ${a.name} to test.`);
+      Object.assign(a, { issueTitle: pr.title, prUrl: pr.url });
+      this.emitAgent(a);
+      const qi = qaInstructions({
+        headSha: pr.headSha,
+        checks: pr.checks,
+        checkNames: pr.checkNames,
+        failedChecks: pr.failedChecks,
+        pendingChecks: pr.pendingChecks,
+        round: rec?.round ?? 1,
+        fixReason: rec?.fixReason ?? null,
+        lastTestedSha: rec?.testedSha ?? null,
+        summary: rec?.summary ?? null,
+        fixInstructions: rec?.fixInstructions ?? null,
+        defaultBranch: repo.defaultBranch,
+      });
+      systemAppend = this.buildQaSystemAppend(a, repo, cwd, branch, pr, qi.testStep);
+    }
+    this.startAgentSession(a, repo, cwd, text, systemAppend, sessionId, QA_SCHEMA, typed ? 'typed' : null);
   }
 
   updateSettings(patch: Partial<SwarmSettings>) {
