@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Ref } from 'react';
 import { api } from '../api';
 import { qaKey, useStore } from '../store';
+import { PREVIEW_ENV_MAX_CHARS, previewEnvChars, previewEnvTooBig } from '../../../shared/previewEnv';
 import type { PreviewStatus, PreviewView, PullInfo, QaView, RepoView } from '../../../shared/types';
 import { atPath, channelLabel, channelLed, channelPulls, comparePath, newPathSync, prAsPreview, QA_BADGE, qaShotUrl, relayPath, type Channel, type Side } from './channels';
 import { Markdown } from './Markdown';
@@ -71,6 +72,7 @@ export function PreviewSettings({ repo, saveLabel = 'Save', onSaved }: { repo: R
 
   const dirty = command.trim() !== saved.command || env.trim() !== saved.env;
   const unconfigured = repo.preview.status === 'unconfigured';
+  const envChars = previewEnvChars(parseEnv(env).env);
   return (
     <form
       className="preview-form"
@@ -78,6 +80,8 @@ export function PreviewSettings({ repo, saveLabel = 'Save', onSaved }: { repo: R
         e.preventDefault();
         const parsed = parseEnv(env);
         if (parsed.error) return setError(parsed.error);
+        const tooBig = previewEnvTooBig(parsed.env);
+        if (tooBig) return setError(tooBig);
         setError(null);
         setBusy(true);
         try {
@@ -107,6 +111,11 @@ export function PreviewSettings({ repo, saveLabel = 'Save', onSaved }: { repo: R
         Runs from the repo root in the floor's own preview worktree. <code>{'{port}'}</code> is this floor's port ({repo.preview.port}) and <code>PORT</code> is always set;{' '}
         <code>{'{tmp}'}</code> is a scratch folder.{!unconfigured && ' Leave the command empty to use the auto-detected npm script.'}
       </p>
+      {envChars > PREVIEW_ENV_MAX_CHARS * 0.8 && (
+        <p className="muted small">
+          Environment: {envChars.toLocaleString('en-US')} of {PREVIEW_ENV_MAX_CHARS.toLocaleString('en-US')} characters (each variable counts as KEY=value).
+        </p>
+      )}
       {error && <div className="term-error">⚠️ {error}</div>}
       <div className="row">
         <button className="btn btn-small btn-good" disabled={busy || (!dirty && !onSaved) || (unconfigured && !command.trim())}>
