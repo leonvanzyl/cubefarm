@@ -2,11 +2,43 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { boxVersions, CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, localUrl, oneAtATime, signedOutScreen, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
+import { boxVersions, CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, localUrl, nextSession, oneAtATime, openCodePromptReady, OPENCODE_PLUGIN_SOURCE, signedOutScreen, trustKey, unwrapCmdShim, writeOpenCodeVariantState, type LaunchContext } from './clis.ts';
 import { LOCAL_PROVIDERS } from '../shared/models.ts';
 import { describeOfficeTool, describeTool, newScreenshots, screenshotFile, summariseResult } from './agentRunner.ts';
 
 const dir = path.join(os.tmpdir(), 'npm-global');
+
+describe('nextSession', () => {
+  const terminal = { runtime: 'terminal', defaultCli: 'claude' } as const;
+  const sdk = { runtime: 'sdk', defaultCli: 'claude' } as const;
+  const agent = { role: 'agent', cli: '', sessionCli: null } as const;
+
+  it("runs the CLI the agent picked, not the one their last session belongs to", () => {
+    // The manager moved this agent to OpenCode after a Claude Code session existed: the next session is OpenCode's, and
+    // the Claude session is left alone rather than resumed behind their back.
+    expect(nextSession({ ...agent, cli: 'opencode', sessionCli: 'claude' }, terminal, true, 'claude-1')).toEqual({ cli: 'opencode', resume: undefined });
+    expect(nextSession({ role: 'ceo', cli: 'codex', sessionCli: 'claude' }, terminal, true, 'claude-1')).toEqual({ cli: 'codex', resume: undefined });
+  });
+
+  it('follows up in the same session while the CLI is unchanged', () => {
+    expect(nextSession({ ...agent, cli: 'opencode', sessionCli: 'opencode' }, terminal, true, 'oc-1')).toEqual({ cli: 'opencode', resume: 'oc-1' });
+    expect(nextSession({ ...agent, cli: '', sessionCli: 'claude' }, terminal, true, 'claude-1')).toEqual({ cli: 'claude', resume: 'claude-1' });
+  });
+
+  it('gives the CEO a concrete coding agent, always', () => {
+    expect(nextSession({ role: 'ceo', cli: '', sessionCli: null }, terminal, true).cli).toBe('claude');
+    expect(nextSession({ role: 'ceo', cli: 'opencode', sessionCli: null }, terminal, true).cli).toBe('opencode');
+  });
+
+  it('runs an agent with no pick of their own on the office default', () => {
+    expect(nextSession(agent, { runtime: 'terminal', defaultCli: 'codex' }, true).cli).toBe('codex');
+  });
+
+  it('keeps a Claude session in the Agent SDK, which only ever runs Claude Code', () => {
+    expect(nextSession({ ...agent, cli: 'opencode', sessionCli: 'claude' }, sdk, false, 'claude-1')).toEqual({ cli: 'opencode', resume: 'claude-1' });
+    expect(nextSession({ ...agent, cli: '', sessionCli: 'codex' }, sdk, false, 'codex-1').resume).toBe(undefined);
+  });
+});
 
 describe('unwrapCmdShim', () => {
   it('runs node on the script a node shim points at, keeping its node flags', () => {
@@ -106,6 +138,7 @@ describe('launchArgs', () => {
     codexHook: 'codex-hook.cjs',
     plugin: 'file:///plugin.mjs',
     browser: null,
+    office: null,
     ...patch,
   });
   it('starts Claude Code on a chosen session id, with the prompt after --', () => {
@@ -123,6 +156,19 @@ describe('launchArgs', () => {
     expect(args.slice(0, 2)).toEqual(['--resume', 'abc']);
     expect(args).toContain('--mcp-config');
     expect(args.slice(args.indexOf('--disallowedTools'), args.indexOf('--'))).toEqual(['--disallowedTools', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', ...CROSS_TURN_TOOLS, 'Bash', 'PowerShell', 'NotebookEdit']);
+  });
+
+  it('keeps the CEO off the shell in Codex and OpenCode', () => {
+    const codex = launchArgs('codex', ctx({ role: 'ceo' })).args;
+    expect(codex).toContain('features.shell_tool=false');
+    expect(codex).toContain('features.multi_agent=false');
+    expect(codex).toContain('--sandbox');
+    expect(codex[codex.indexOf('--sandbox') + 1]).toBe('read-only');
+    expect(codex).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+    const opencode = JSON.parse(launchArgs('opencode', ctx({ role: 'ceo' })).env.OPENCODE_CONFIG_CONTENT);
+    expect(opencode.permission.bash).toBe('deny');
+    expect(opencode.permission.edit).toBe('deny');
+    expect(opencode.permission.task).toBe('deny');
   });
 
   it('keeps tools that wait across turns away from Claude Code, but not background shells', () => {
@@ -160,6 +206,89 @@ describe('launchArgs', () => {
     const config = (patch: Partial<LaunchContext>) => JSON.parse(launchArgs('opencode', ctx(patch)).env.OPENCODE_CONFIG_CONTENT);
     for (const role of ['agent'] as const) expect(config({ role }).permission).toEqual({ edit: 'allow', bash: 'allow', webfetch: 'allow' });
     expect(config({}).autoupdate).toBe(false);
+  });
+
+  it('keeps the manager-selected OpenCode agent when setting effort', () => {
+    const launch = launchArgs('opencode', ctx({ model: 'opencode/space-bunny-free', effort: 'high' }));
+    expect(launch.args).not.toContain('--agent');
+    expect(JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).agent).toBeUndefined();
+  });
+
+  it('resumes OpenCode without --prompt so the terminal can submit it after loading', () => {
+    const args = launchArgs('opencode', ctx({ resumeId: 'old-session', prompt: 'New question' })).args;
+    expect(args).toContain('--session');
+    expect(args).toContain('old-session');
+    expect(args).not.toContain('--prompt');
+    expect(args).not.toContain('New question');
+    expect(launchArgs('opencode', ctx({ prompt: 'First question' })).args).toContain('--prompt');
+  });
+
+  it('recognizes the OpenCode prompt only after its terminal is ready', () => {
+    expect(openCodePromptReady('Sisyphus · GLM-5.3-Flash Free OpenCode · max\nctrl+p commands')).toBe(true);
+    expect(openCodePromptReady('Loading session…')).toBe(false);
+  });
+
+  it('passes the selected OpenCode effort to its prompt hook', async () => {
+    const { env } = launchArgs('opencode', ctx({ model: 'opencode/space-bunny-free', effort: 'high' }));
+    expect(env.CUBEFARM_OPENCODE_VARIANT).toBe('high');
+    const before = process.env.CUBEFARM_OPENCODE_VARIANT;
+    const beforeUrl = process.env.CUBEFARM_NOTIFY_URL;
+    const beforeFetch = globalThis.fetch;
+    const posted: unknown[] = [];
+    globalThis.fetch = async (_url, init) => {
+      posted.push(JSON.parse(String(init?.body)));
+      return new Response(null, { status: 200 });
+    };
+    process.env.CUBEFARM_OPENCODE_VARIANT = env.CUBEFARM_OPENCODE_VARIANT;
+    process.env.CUBEFARM_NOTIFY_URL = env.CUBEFARM_NOTIFY_URL;
+    try {
+      const { default: plugin } = await import(`data:text/javascript,${encodeURIComponent(OPENCODE_PLUGIN_SOURCE)}`);
+      const hooks = await plugin({ client: {} });
+      const output = { message: { model: { providerID: 'opencode', modelID: 'space-bunny-free', variant: 'max' } }, parts: [] };
+      await hooks['chat.message']({ sessionID: 'session-high' }, output);
+      expect(output.message.model.variant).toBe('high');
+      expect(posted).toEqual([{ hook_event_name: 'PromptAccepted', session_id: 'session-high' }]);
+    } finally {
+      globalThis.fetch = beforeFetch;
+      if (before === undefined) delete process.env.CUBEFARM_OPENCODE_VARIANT;
+      else process.env.CUBEFARM_OPENCODE_VARIANT = before;
+      if (beforeUrl === undefined) delete process.env.CUBEFARM_NOTIFY_URL;
+      else process.env.CUBEFARM_NOTIFY_URL = beforeUrl;
+    }
+  });
+
+  it('seeds OpenCode TUI state for the selected model without sharing variants between sessions', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cubefarm-opencode-'));
+    try {
+      writeOpenCodeVariantState(home, 'opencode/space-bunny-free', 'high');
+      const saved = JSON.parse(fs.readFileSync(path.join(home, 'opencode', 'model.json'), 'utf8'));
+      expect(saved.variant).toEqual({ 'opencode/space-bunny-free': 'high' });
+      writeOpenCodeVariantState(home, 'glm-5.3-flash-free', 'medium');
+      const bare = JSON.parse(fs.readFileSync(path.join(home, 'opencode', 'model.json'), 'utf8'));
+      expect(bare.variant).toEqual({ 'opencode/glm-5.3-flash-free': 'medium' });
+      writeOpenCodeVariantState(home, 'llama.cpp/qwen/coder', 'low');
+      const local = JSON.parse(fs.readFileSync(path.join(home, 'opencode', 'model.json'), 'utf8'));
+      expect(local.variant).toEqual({ 'llamacpp/qwen/coder': 'low' });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("gives the CEO's office tools to whichever CLI runs them", () => {
+    const office = { url: 'http://127.0.0.1:4317/api/mcp/tok' };
+    const browser = { command: 'npx', args: ['-y', '@playwright/mcp@latest'] };
+    // Claude Code reads them from the MCP config file cliRunner wrote, so it takes no -c of its own.
+    expect(launchArgs('claude', ctx({ office })).args.some((a) => a.startsWith('mcp_servers.office'))).toBe(false);
+    const codex = launchArgs('codex', ctx({ office })).args;
+    expect(codex).toContain('mcp_servers.office={url="http://127.0.0.1:4317/api/mcp/tok"}');
+    expect(launchArgs('codex', ctx()).args.some((a) => a.startsWith('mcp_servers.office'))).toBe(false);
+    const config = (patch: Partial<LaunchContext>) => JSON.parse(launchArgs('opencode', ctx(patch)).env.OPENCODE_CONFIG_CONTENT);
+    expect(config({ office }).mcp.office).toEqual({ type: 'remote', url: office.url, enabled: true });
+    expect(config({}).mcp).toBeUndefined();
+    expect(config({ browser, office }).mcp).toEqual({
+      playwright: { type: 'local', command: ['npx', '-y', '@playwright/mcp@latest'], enabled: true },
+      office: { type: 'remote', url: office.url, enabled: true },
+    });
   });
 
   it('runs Codex on a local model through its own --oss, or a provider of the office\'s', () => {

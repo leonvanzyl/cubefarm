@@ -12,7 +12,7 @@ import { CloudError } from './box.ts';
 import { Cloud, officeId, redact } from './cloud.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, VERSION } from './config.ts';
-import { askedFor, ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, NOT_ASKED, planDependencies, plannedSize, scalePlan, type CeoJob, type OfficeTools, type TeamNow } from './ceo.ts';
+import { askedFor, ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, NOT_ASKED, officeReader, officeToolPrefix, planDependencies, plannedSize, scalePlan, type CeoJob, type OfficeTools, type TeamNow } from './ceo.ts';
 import { afterClose, ASK_AGAIN_MS, closedWhy, closuresHeld, forgettable, issueOpen, nameList, pullNow, stillOpen, stoppedMessage, toAsk, toHold, type Closure, type FloorState, type KnownPull, type LearnedPull } from './closeCleanup.ts';
 import { depsPromptLine, type DepsOutcome } from './deps.ts';
 import { setUpDesk } from './deskSetup.ts';
@@ -40,7 +40,7 @@ import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type La
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, resumeRefusal, usageLabel, usageView, waived, warningView, type UsageWarning, type Waiver, type WorkKind } from './pacing.ts';
 import { emptyHistory, loadHistory, opsView, recordChecks, recordCost, recordMerges, recordQa, type OpsFloorState, type OpsHistory } from './metrics.ts';
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
-import { boxVersions, cliLabel, isCli } from './clis.ts';
+import { boxVersions, cliLabel, isCli, nextSession } from './clis.ts';
 import { machineName, type MachineProvider } from './machines.ts';
 import { MACHINES_DIR, type DeskTrim } from './workspace.ts';
 import { envSecrets, Journal } from './journal.ts';
@@ -157,6 +157,7 @@ interface PersistedAgent {
   turns: number;
   sessionId: string | null;
   sessionCli: AgentCli | null; // the CLI whose session sessionId is: only it can resume it
+  sessionEffort?: EffortLevel; // OpenCode CEO: absent on older sessions, which must start fresh to select today's variant
   lastError: string | null;
   logTail: LogLine[];
 }
@@ -534,8 +535,22 @@ export class Swarm {
    * a shared one left the next session connected but without any tools while an earlier session still held it.
    */
   private officeTools(): OfficeTools {
+    const reader = officeReader([CEO_DIR, ...this.state.repos.map((repo) => this.backend.mainDir(repo.fullName))]);
     return createOfficeTools({
       companyStatus: () => this.companyStatus(),
+      listDirectory: (a) => reader.listDirectory(a),
+      readFile: (a) => reader.readFile(a),
+      saveNotes: async ({ content }) => {
+        const file = path.join(CEO_DIR, 'NOTES.md');
+        const temp = `${file}.${crypto.randomUUID()}.tmp`;
+        try {
+          await fs.writeFile(temp, content, { flag: 'wx' });
+          await fs.rename(temp, file);
+          return 'Notes saved.';
+        } finally {
+          await fs.rm(temp, { force: true });
+        }
+      },
       agentDetail: (a) => this.agentDetail(a),
       setFloorProfile: (a) => this.setFloorProfile(a),
       scaleTeam: (a) => this.scaleTeam(a),
@@ -2520,14 +2535,15 @@ export class Swarm {
   updateAgent(id: string, patch: { name?: string; model?: string; effort?: string; cli?: string; host?: string; look?: string; color?: string; hair?: string; style?: unknown }) {
     const a = this.agent(id);
     if (patch.host !== undefined && a.role !== 'ceo' && (patch.host === 'box' || patch.host === 'local')) this.moveAgent(a, patch.host);
-    if (patch.cli !== undefined && a.role !== 'ceo') {
+    if (patch.cli !== undefined) {
       const cli = isCli(patch.cli) ? patch.cli : '';
-      if (a.host === 'box' && (cli || this.state.settings.defaultCli) === 'opencode') throw new HttpError(400, `${a.name} works in the cloud, where OpenCode can't run yet: move them to this computer first.`);
-      if (cli && a.host !== 'box' && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
+      if (a.role !== 'ceo' && a.host === 'box' && (cli || this.state.settings.defaultCli) === 'opencode') throw new HttpError(400, `${a.name} works in the cloud, where OpenCode can't run yet: move them to this computer first.`);
+      if (cli && (a.role === 'ceo' || a.host !== 'box') && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
       const changed = cli !== a.cli;
-      a.cli = cli;
+      // The CEO always runs a concrete coding agent; floor agents may inherit the office default.
+      a.cli = cli || (a.role === 'ceo' ? 'claude' : '');
       // Another coding agent in their Box has a login of its own (or needs one).
-      if (changed && a.host === 'box') void this.checkSignIn(a, true);
+      if (changed && a.role !== 'ceo' && a.host === 'box') void this.checkSignIn(a, true);
     }
     if (patch.name?.trim() && patch.name.trim() !== a.name) {
       a.name = patch.name.trim().slice(0, 24);
@@ -2538,7 +2554,16 @@ export class Swarm {
     if (patch.hair && /^#[0-9a-f]{6}$/i.test(patch.hair)) a.hair = patch.hair;
     if (patch.style !== undefined) a.style = cleanStyle(patch.style); // null: back to the seeded look
     if (patch.model !== undefined) a.model = String(patch.model).trim();
-    if (patch.effort !== undefined) a.effort = EFFORTS.includes(patch.effort as EffortLevel) ? (patch.effort as EffortLevel) : '';
+    if (patch.effort !== undefined) {
+      const effort = EFFORTS.includes(patch.effort as EffortLevel) ? (patch.effort as EffortLevel) : '';
+      if (a.role === 'ceo' && a.cli === 'opencode' && a.sessionCli === 'opencode' && effort !== a.effort) {
+        // OpenCode restores a resumed TUI's last variant over its startup selection.
+        a.sessionId = null;
+        a.sessionCli = null;
+        a.sessionEffort = undefined;
+      }
+      a.effort = effort;
+    }
     this.save();
     this.emitAgent(a);
   }
@@ -2672,26 +2697,24 @@ export class Swarm {
     return repo.links.map((id) => this.state.repos.find((r) => r.id === id)).filter((r): r is PersistedRepo => !!r);
   }
 
-  /**
-   * How an agent's next session runs: the CLI in their terminal (the terminal runtime), or Claude Code through the
-   * SDK. A session can only be resumed by the CLI that made it, so a follow-up stays with that CLI.
-   */
+  /** How an agent's next session runs: the CLI in their terminal (the terminal runtime), or Claude Code through the SDK. */
   private sessionRuntime(a: PersistedAgent, resume?: string): { terminal?: AgentTerminal; cli?: AgentCli; label?: string; resumeSessionId?: string } {
-    // A cloud agent's CLI always runs in a terminal: their Box's, which needs nothing from this computer.
+    // A cloud agent's CLI always runs in its Box; the CEO always stays local.
     const inTerminal = a.host === 'box' || (this.state.settings.runtime === 'terminal' && this.backend.terminals);
-    let cli: AgentCli = a.role === 'ceo' ? 'claude' : a.cli || this.state.settings.defaultCli;
-    if (resume && a.sessionCli && a.sessionCli !== cli) {
-      if (inTerminal) cli = a.sessionCli;
-      else if (a.sessionCli !== 'claude') resume = undefined;
-    }
-    if (!inTerminal) return { resumeSessionId: resume };
+    const { cli, resume: resumeId } = nextSession(a, this.state.settings, inTerminal, resume);
+    if (!inTerminal) return { resumeSessionId: resumeId };
     const what = a.role === 'ceo' ? a.issueTitle : a.task === 'qa' ? `QA · PR #${a.prNumber}` : a.task === 'fix' ? `fixing PR #${a.prNumber}` : a.issueNumber ? `#${a.issueNumber} ${a.issueTitle ?? ''}` : null;
-    return { terminal: this.terminalFor(a), cli, label: `${a.name}${what ? ` · ${what}` : ''}`.slice(0, 80).trim(), resumeSessionId: resume };
+    return { terminal: this.terminalFor(a), cli, label: `${a.name}${what ? ` · ${what}` : ''}`.slice(0, 80).trim(), resumeSessionId: resumeId };
   }
 
   /** The model to ask for (the Agent SDK runs Claude Code). '' lets another coding agent use its own default. */
   private modelFor(a: PersistedAgent, cli: AgentCli | undefined) {
     return effectiveModel(a.model, cli ?? 'claude', this.state.settings, DEFAULT_MODEL);
+  }
+
+  /** The CEO's model: their own if it suits their coding agent, else that agent's default, else Claude Code's. */
+  private ceoModel(a: PersistedAgent, cli: AgentCli | '' | undefined) {
+    return effectiveModel(a.model || CEO_MODEL, cli || 'claude', this.state.settings, CEO_MODEL);
   }
 
   // ---------- terminals ----------
@@ -2751,7 +2774,10 @@ export class Swarm {
   /** What an agent is told on a task, previewed with placeholders for the task's details. */
   agentPrompt(id: string): AgentPromptView {
     const a = this.agent(id);
-    if (a.role === 'ceo') return ceoPromptPreview(ceoSystemPrompt(this.ceoPromptInput(a)));
+    if (a.role === 'ceo') {
+      const cli = this.state.settings.runtime === 'terminal' && this.backend.terminals ? a.cli || 'claude' : 'claude';
+      return ceoPromptPreview(ceoSystemPrompt(this.ceoPromptInput(a, cli)));
+    }
     const repo = this.repo(a.repoId);
     return agentPromptPreview({ agent: a, repo, port: this.port(a), slug: slugify(a.name), linked: this.linkedDirs(repo, a) });
   }
@@ -4308,9 +4334,9 @@ export class Swarm {
     void this.runCeoJob(a, job);
   }
 
-  private ceoPromptInput(a: PersistedAgent): Parameters<typeof ceoSystemPrompt>[0] {
+  private ceoPromptInput(a: PersistedAgent, cli: AgentCli): Parameters<typeof ceoSystemPrompt>[0] {
     const s = this.state.settings;
-    return { name: a.name, company: s.companyName, manager: s.managerName, notesFile: path.join(CEO_DIR, 'NOTES.md'), sessionLimit: s.sessionLimit, maxAgents: s.maxAgents, scaling: s.scaling };
+    return { name: a.name, company: s.companyName, manager: s.managerName, notesFile: path.join(CEO_DIR, 'NOTES.md'), sessionLimit: s.sessionLimit, maxAgents: s.maxAgents, scaling: s.scaling, tools: officeToolPrefix(cli), readViaOffice: cli === 'codex', saveNotesViaOffice: cli !== 'claude' };
   }
 
   private async runCeoJob(a: PersistedAgent, job: CeoJob) {
@@ -4343,14 +4369,16 @@ export class Swarm {
       return;
     }
     // A chat carries on from the CEO's last session, so "why did you propose that?" has an answer.
-    const how = this.sessionRuntime(a, job.kind === 'chat' ? (a.sessionId ?? undefined) : undefined);
+    const selectedEffort = a.effort || CEO_EFFORT;
+    const resume = job.kind === 'chat' && (a.sessionCli !== 'opencode' || a.sessionEffort === selectedEffort) ? (a.sessionId ?? undefined) : undefined;
+    const how = this.sessionRuntime(a, resume);
     rt.session = this.backend.startSession(
       {
         cwd: CEO_DIR,
         prompt: ceoJobPrompt(job, floor, triage),
-        systemAppend: ceoSystemPrompt(this.ceoPromptInput(a)),
-        model: a.model || CEO_MODEL,
-        effort: a.effort || CEO_EFFORT,
+        systemAppend: ceoSystemPrompt(this.ceoPromptInput(a, how.cli ?? 'claude')),
+        model: this.ceoModel(a, how.cli),
+        effort: selectedEffort,
         browserTesting: false,
         additionalDirectories: this.state.repos.filter((r) => this.repoRt.get(r.id)?.cloneStatus === 'ready').map((r) => this.backend.mainDir(r.fullName)),
         role: 'ceo',
@@ -4365,8 +4393,10 @@ export class Swarm {
           this.emitAgent(a);
         },
         sessionId: (id) => {
+          if (how.cli === 'opencode' && (a.effort || CEO_EFFORT) !== selectedEffort) return;
           a.sessionId = id;
-          a.sessionCli = id ? 'claude' : null;
+          a.sessionCli = id ? (how.cli ?? 'claude') : null;
+          a.sessionEffort = id && how.cli === 'opencode' ? selectedEffort : undefined;
         },
         browserUrl: () => undefined,
         screenshot: () => undefined,
@@ -4399,6 +4429,13 @@ export class Swarm {
       this.appendLog(a, [{ kind: 'error', text: `✗ ${a.lastError}` }]);
       const what = job ? jobLabel(job, this.ceoFloor(job.repoId)).toLowerCase() : 'working';
       this.postMessage('office', `⚠️ ${a.name} hit a problem while ${what}: ${a.lastError.slice(0, 240)}`);
+      // A resumed OpenCode TUI that never took the prompt can safely retry this chat in a fresh session. Keep messages
+      // the manager sent while it was stuck after the original one.
+      if (job?.kind === 'chat' && /^OpenCode did not (accept the resumed prompt|show a ready prompt)/.test(a.lastError)) {
+        const waiting = this.state.ceo.queue.find((queued) => queued.kind === 'chat');
+        if (waiting) waiting.text = `${job.text}\n${waiting.text}`;
+        else this.state.ceo.queue.unshift(job);
+      }
     } else {
       a.status = 'done';
       const filed = this.ceoIssues.total ? ` · ${this.ceoIssues.total} issue${this.ceoIssues.total === 1 ? '' : 's'} filed` : '';
@@ -4418,7 +4455,8 @@ export class Swarm {
     const a = this.ceo();
     this.postMessage('manager', t);
     const rt = this.agentRt.get(a.id)!;
-    if (rt.session) {
+    const openCodeTerminal = a.cli === 'opencode' && this.state.settings.runtime === 'terminal' && this.backend.terminals;
+    if (rt.session && !openCodeTerminal) {
       this.appendLog(a, [{ kind: 'manager', text: `▶ Manager: ${t}` }]);
       this.ceoIssues.managerMessage(); // a new request: the issue cap counts from here
       this.ceoAsked = true;
@@ -5345,10 +5383,12 @@ export class Swarm {
   /** What an agent runs, defaults resolved, for the CEO. */
   private agentSetup(a: PersistedAgent) {
     const ceo = a.role === 'ceo';
-    const cli = ceo ? 'claude' : a.cli || this.state.settings.defaultCli;
+    const cli = ceo
+      ? this.state.settings.runtime === 'terminal' && this.backend.terminals ? a.cli || 'claude' : 'claude'
+      : a.cli || this.state.settings.defaultCli;
     return {
       codingAgent: cli,
-      model: ceo ? a.model || CEO_MODEL : this.modelFor(a, cli) || 'the coding agent default',
+      model: ceo ? this.ceoModel(a, cli) : this.modelFor(a, cli) || 'the coding agent default',
       effort: a.effort || (ceo ? CEO_EFFORT : this.state.settings.defaultEffort),
     };
   }

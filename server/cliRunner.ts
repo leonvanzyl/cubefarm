@@ -9,7 +9,7 @@ import { HOME_DIR } from './config.ts';
 import { BOX_CDP, BoxPty, boxHooksReady, finishedTurn, lookAtBoxCli, readFrom, type BoxCliRecord } from './boxCli.ts';
 import { BOX_BIN, BOX_CLI_BIN, BOX_HOME, boxSessionDir, signInCommand, tmuxKill } from './boxScripts.ts';
 import { BOX_ENV } from './cloud.ts';
-import { cliLabel, CLIS, CODEX_HOOK_SOURCE, codexThread, commandFor, hookReviewKey, interruptions, isCli, launchArgs, NOTIFY_SOURCE, OPENCODE_PLUGIN_SOURCE, signedOutScreen, STATUSLINE_SOURCE, trustKey } from './clis.ts';
+import { cliLabel, CLIS, CODEX_HOOK_SOURCE, codexThread, commandFor, hookReviewKey, interruptions, isCli, launchArgs, NOTIFY_SOURCE, openCodePromptReady, OPENCODE_PLUGIN_SOURCE, signedOutScreen, STATUSLINE_SOURCE, trustKey, writeOpenCodeVariantState } from './clis.ts';
 import { adoptPty, discardPty, hooksReady as keeperHooksReady, keeperHookUrl, keeperPid, leaveKeeper, spawnPty, startKeeper, terminalsAvailable, type Pty } from './ptyClient.ts';
 import type { BoxApi } from './box.ts';
 import {
@@ -507,6 +507,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
   let begun = false; // the CLI took its first prompt
   let finishTimer: NodeJS.Timeout | undefined;
   let bootTimer: NodeJS.Timeout | undefined;
+  let resumePromptTimer: NodeJS.Timeout | undefined;
   let screenTimer: NodeJS.Timeout | undefined;
   let shotTimer: NodeJS.Timeout | undefined;
   const nudged = new Set<string>();
@@ -556,7 +557,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
       r = { ...r, ok: false, signedOut: true, errors: [`${label}'s sign-in in their cloud machine expired or was turned away.`] };
       keep = false;
     }
-    for (const t of [finishTimer, bootTimer]) clearTimeout(t);
+    for (const t of [finishTimer, bootTimer, resumePromptTimer]) clearTimeout(t);
     clearInterval(screenTimer);
     clearInterval(shotTimer);
     collectShots(true);
@@ -748,6 +749,12 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
         turnError = `${label}: ${clip(String(b.error ?? 'error'), 200)}`;
         log([{ kind: 'error', text: `✗ ${turnError}` }]);
         return {};
+      case 'PromptAccepted':
+        if (cli === 'opencode' && b.session_id === opts.resumeSessionId) {
+          clearTimeout(resumePromptTimer);
+          busy();
+        }
+        return {};
     }
     return {};
   };
@@ -830,12 +837,14 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     prompt += `\n\nWhen you are done, end your final message with your report as one JSON object in a \`\`\`json block, matching this JSON schema:\n${JSON.stringify(opts.outputSchema)}`;
   }
   let files: { settings: string; mcp: string | null; system: string };
+  const openCodeStateHome = path.join(dir, 'opencode-state');
   const boxFiles: [string, string][] = []; // written into the Box when the CLI starts
   const put = (file: string, text: string) => (box ? boxFiles.push([file, text]) : fs.writeFileSync(file, text));
   try {
     if (!box) {
       writeHelpers();
       fs.mkdirSync(dir, { recursive: true });
+      if (cli === 'opencode') writeOpenCodeVariantState(openCodeStateHome, opts.model, opts.effort);
     }
     const boxHook = `node ${BOX_BIN}/hook.cjs ${events}`;
     const settings = {
@@ -879,6 +888,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     codexHook: box ? `${BOX_BIN}/codex-hook.cjs` : path.join(BIN_DIR, 'codex-hook.cjs'),
     plugin: box ? '' : pathToFileURL(path.join(BIN_DIR, 'opencode-plugin.mjs')).href,
     browser,
+    office: opts.office ? { url: `${officeUrl}/api/mcp/${token}` } : null,
     ...(box ? { node: 'node', posix: true } : {}),
   });
 
@@ -895,20 +905,37 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
       if (/^(NO_COLOR|FORCE_COLOR|TERM_PROGRAM|TERM_PROGRAM_VERSION|CODEX_THREAD_ID|OPENCODE_CONFIG_CONTENT)$/i.test(k)) continue;
       env[k] = v;
     }
-    Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, opts.env, launch.env);
+    Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, opts.env, launch.env, cli === 'opencode' ? { XDG_STATE_HOME: openCodeStateHome } : {});
   }
 
   if (cli === 'claude' && opts.resumeSessionId) cb.sessionId(sessionId);
+  // The previous full-screen TUI may still show its ready footer. Clear it so startup cannot mistake that stale frame
+  // for the newly resumed OpenCode composer and type before the new process is ready.
+  if (cli === 'opencode' && opts.resumeSessionId) term.write('\x1b[2J\x1b[H');
   term.note(`── ${label}${opts.label ? ` · ${opts.label}` : ''}${box ? ' · ☁ cloud machine' : ''} ──`);
   const resumeId = cli === 'claude' ? sessionId : (opts.resumeSessionId ?? null);
   const l: LiveCli = { agentId: opts.agentId ?? '', cli, term, proc: null, token, dir, resumeId, statusLine, shots: new Set(), session: { hook, exited }, ...(box ? { box: { api: box.api, boxId: box.boxId } } : {}) };
+  const resumeOpenCode = cli === 'opencode' && !!opts.resumeSessionId;
+  let resumePromptSent = false;
 
   // Starting up: answer the folder-trust question for the office's own worktrees (the answer that trusts it), and say
   // so when a CLI is waiting on something only the manager can do (signing in).
   const watchBoot = (pty: Pty) => {
+    let freshDisplay = false;
+    if (resumeOpenCode) pty.onData(() => { freshDisplay = true; });
     screenTimer = setInterval(() => {
       if (done || Date.now() - started > BOOT_MS * 2) return clearInterval(screenTimer);
       const screen = term.screen();
+      if (resumeOpenCode && !resumePromptSent && freshDisplay && openCodePromptReady(screen)) {
+        resumePromptSent = true;
+        handle.send(opts.prompt);
+        resumePromptTimer = setTimeout(() => {
+          if (!done) {
+            cb.sessionId(null);
+            finish({ ok: false, text: '', errors: [`${label} did not accept the resumed prompt.`] });
+          }
+        }, BOOT_MS);
+      }
       const review = hookReviewKey(screen);
       const key = trustKeys < 12 && Date.now() - trustedAt > 3000 ? (trustKey(screen) ?? review) : null;
       if (key === 'down') {
@@ -936,6 +963,11 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
       }
     }, 1000);
     bootTimer = setTimeout(() => {
+      if (!done && resumeOpenCode && !resumePromptSent) {
+        cb.sessionId(null);
+        finish({ ok: false, text: '', errors: [`${label} did not show a ready prompt after resuming.`] });
+        return;
+      }
       if (!done && !begun && cli === 'claude') log([{ kind: 'error', text: `⚠ ${label} hasn't started on the task yet. Open the terminal to see what it's waiting for.` }]);
     }, BOOT_MS);
   };
@@ -951,9 +983,9 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     }
     l.proc = pty;
     live = l;
+    watchBoot(pty);
     wire(l, opts.office);
     shotTimer = setInterval(collectShots, 2000);
-    watchBoot(pty);
   };
 
   /** The same in the agent's Box: the session's files go there first, then the CLI starts under tmux. */

@@ -34,7 +34,7 @@ type Runtime = Pick<SwarmSettings, 'runtime' | 'defaultCli'>;
 
 /** The coding agent someone runs: their own pick in Real terminals; the Agent SDK is Claude Code for everyone. */
 export const workerCli = (a: Pick<Agent, 'cli' | 'role'>, settings: Runtime): AgentCli =>
-  a.role === 'ceo' || settings.runtime !== 'terminal' ? 'claude' : a.cli || settings.defaultCli;
+  settings.runtime !== 'terminal' ? 'claude' : a.role === 'ceo' ? a.cli || 'claude' : a.cli || settings.defaultCli;
 
 /** What someone is, in a word or two: the CEO, or the coding agent they run. */
 export function agentLabel(a: Pick<Agent, 'cli' | 'role'>, settings: Runtime, clis: CliView[]): string {

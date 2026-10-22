@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Backend } from './backend.ts';
 import type { PreviewBackend } from './previewRunner.ts';
 import { describeOfficeTool, type LogEntry, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
-import { CLIS } from './clis.ts';
+import { CLIS, cliLabel } from './clis.ts';
 import { FLOOR_SEATS, type GhRepoSummary, type IssueInfo, type PullInfo } from '../shared/types.ts';
 import type { LocalFolder } from './workspace.ts';
 import { HOME_DIR, type DemoScale } from './config.ts';
@@ -1337,7 +1337,7 @@ function ceoSession(opts: SessionOptions, cb: SessionCallbacks): SessionHandle {
   timers.push(
     setTimeout(async () => {
       try {
-        cb.log([{ kind: 'system', text: `✻ Claude Code (demo) · ${opts.model} · ${opts.effort} effort · CEO` }]);
+        cb.log([{ kind: 'system', text: `✻ ${cliLabel(opts.cli ?? 'claude')} (demo) · ${opts.model} · ${opts.effort} effort · CEO` }]);
         const reply = await run();
         cb.log([{ kind: 'text', text: `● ${reply}` }]);
         cb.turn?.(reply);

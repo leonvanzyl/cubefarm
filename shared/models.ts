@@ -11,7 +11,15 @@ export const isClaudeModel = (model: string) => /^(claude|opus|sonnet|haiku|fabl
  * default agent, else `claudeDefault` for Claude Code, or '' to let any other agent use its own default.
  */
 export function effectiveModel(own: string, cli: AgentCli, office: { defaultCli: AgentCli; defaultModel: string }, claudeDefault: string): string {
-  const suits = (m: string) => m.trim() !== '' && (cli === 'claude') === isClaudeModel(m);
+  const suits = (m: string) => {
+    const model = m.trim();
+    if (!model) return false;
+    if (cli === 'claude') return isClaudeModel(model);
+    if (isClaudeModel(model)) return false;
+    // Codex runs bare ids; OpenCode's models are `provider/model`, and a stray bare name there now passes through
+    // instead of being dropped: dropping one made the TUI run on its own default while the office sat at 0 turns.
+    return cli === 'opencode' || !model.includes('/');
+  };
   if (suits(own)) return own.trim();
   if (cli === office.defaultCli && suits(office.defaultModel)) return office.defaultModel.trim();
   return cli === 'claude' ? claudeDefault : '';

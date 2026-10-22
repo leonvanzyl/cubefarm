@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { run } from './exec.ts';
 import { localModel, type LocalProvider } from '../shared/models.ts';
-import type { AgentCli, CliView, EffortLevel } from '../shared/types.ts';
+import type { AgentCli, AgentRole, AgentRuntime, CliView, EffortLevel } from '../shared/types.ts';
 import type { BoxVersions } from './boxScripts.ts';
 
 // The coding-agent CLIs an agent can run in its terminal, how to find them on this machine, and how to start one on
@@ -26,6 +26,24 @@ export const CLIS: CliDef[] = [
 
 export const isCli = (v: unknown): v is AgentCli => CLIS.some((c) => c.id === v);
 export const cliLabel = (id: AgentCli) => CLIS.find((c) => c.id === id)?.label ?? id;
+
+/**
+ * The CLI an agent's next session runs on, and the session it may pick up. Only the CLI that made a session can resume it,
+ * so a follow-up normally stays with that CLI. When the manager has since changed the agent's coding agent, though, their
+ * pick wins: the next session starts fresh on it, rather than a terminal quietly running the CLI the old session belongs to
+ * while the dropdown says something else. The Agent SDK is Claude Code, so there a Claude session stays resumable either way.
+ */
+export function nextSession(
+  a: { role: AgentRole; cli: AgentCli | ''; sessionCli: AgentCli | null },
+  settings: { runtime: AgentRuntime; defaultCli: AgentCli },
+  inTerminal: boolean,
+  resume?: string,
+): { cli: AgentCli; resume: string | undefined } {
+  const cli: AgentCli = a.role === 'ceo' ? a.cli || 'claude' : a.cli || settings.defaultCli;
+  if (!resume || !a.sessionCli || a.sessionCli === cli) return { cli, resume };
+  const keep = !inTerminal && a.sessionCli === 'claude';
+  return { cli, resume: keep ? resume : undefined };
+}
 
 // ---------- finding a CLI ----------
 
@@ -151,6 +169,8 @@ export interface LaunchContext {
   plugin: string; // file URL of the OpenCode plugin
   /** The Playwright MCP server, when the floor tests in a browser. Claude Code gets it through its MCP config file. */
   browser: { command: string; args: string[] } | null;
+  /** The office's own MCP server (the CEO's tools), over HTTP at a token URL. Claude Code reads it from its MCP config file. */
+  office: { url: string } | null;
   /** The node that runs the office's helper scripts where the CLI runs (default: the office's own). */
   node?: string;
   /** The CLI runs on Linux (a cloud agent's Box), whatever this computer is. */
@@ -220,6 +240,23 @@ function opencodeLocal(local: ReturnType<typeof localModel>): Record<string, unk
 }
 
 const EFFORT_CODEX: Record<EffortLevel, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' };
+const openCodeModel = (model: string) => {
+  const typed = model.trim();
+  const local = localModel(typed);
+  if (local) return `${local.provider.id}/${local.model}`;
+  return /^[^/]+$/.test(typed) ? `opencode/${typed}` : typed;
+};
+
+/** OpenCode's TUI reads the selected variant from its per-model state before it sends the startup prompt. */
+export function writeOpenCodeVariantState(stateHome: string, model: string, effort: EffortLevel | ''): void {
+  const dir = path.join(stateHome, 'opencode');
+  fs.mkdirSync(dir, { recursive: true });
+  const selected = openCodeModel(model);
+  fs.writeFileSync(path.join(dir, 'model.json'), JSON.stringify({ variant: selected && effort ? { [selected]: effort } : {} }));
+}
+
+/** A resumed OpenCode TUI accepts terminal input only after its composer has rendered. */
+export const openCodePromptReady = (screen: string): boolean => /ctrl\+p\s+commands/i.test(screen);
 
 /** Codex hooks the office listens to: its steps, and Esc interrupting a turn. Turn endings come from notify. */
 export const CODEX_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Interrupt'];
@@ -278,33 +315,44 @@ export function launchArgs(id: AgentCli, ctx: LaunchContext): Launch {
         ...codexLocal(ctx.model, toml),
         ...(ctx.effort ? ['-c', `model_reasoning_effort=${toml(EFFORT_CODEX[ctx.effort])}`] : []),
         ...(ctx.browser ? ['-c', `mcp_servers.playwright={command=${toml(ctx.browser.command)},args=[${ctx.browser.args.map(toml).join(',')}]}`] : []),
+        ...(ctx.office ? ['-c', `mcp_servers.office={url=${toml(ctx.office.url)}}`] : []),
         ...CODEX_HOOK_EVENTS.flatMap((e) => ['-c', `hooks.${e}=[{hooks=[{type="command",command=${toml(codexHookCommand(ctx.node ?? process.execPath, ctx.codexHook, ctx.posix ? false : WIN))},timeout=10}]}]`]),
-        // Like the manager's own Codex, but it can't stop to ask: no approvals and no sandbox (its sandbox can't reach
-        // the credential store, so git and gh fail in it).
-        '--dangerously-bypass-approvals-and-sandbox',
+        // The CEO reads repositories and writes notes through office MCP tools, without shell or filesystem writes.
+        ...(ctx.role === 'ceo'
+          ? ['-c', 'features.shell_tool=false', '-c', 'features.multi_agent=false', '--sandbox', 'read-only', '--ask-for-approval', 'never']
+          : ['--dangerously-bypass-approvals-and-sandbox']),
       ];
       return { args: ctx.resumeId ? ['resume', ...args, ctx.resumeId, ctx.prompt] : [...args, '--', ctx.prompt], env: { CUBEFARM_HOOK_URL: ctx.notify.url } };
     }
     case 'opencode': {
+      const mcp: Record<string, unknown> = {};
+      if (ctx.browser) mcp.playwright = { type: 'local', command: [ctx.browser.command, ...ctx.browser.args], enabled: true };
+      if (ctx.office) mcp.office = { type: 'remote', url: ctx.office.url, enabled: true };
+      // OpenCode only takes `provider/model` and dies with a server error on a bare id. Models opened under the
+      // office's own curated OpenCode provider are named the same way in shared/models.ts, so a bare name gets
+      // that provider: it runs, while '' still leaves the CLI on its own default.
+      const model = openCodeModel(ctx.model);
       const local = localModel(ctx.model);
       const config = {
         plugin: [ctx.plugin],
         instructions: [ctx.files.system],
         autoupdate: false, // several agents starting at once must not each reinstall it
-        permission: { edit: 'allow', bash: 'allow', webfetch: 'allow' }, // it can't stop to ask either
+        permission: ctx.role === 'ceo'
+          ? { edit: 'deny', bash: 'deny', task: 'deny', webfetch: 'allow' }
+          : { edit: 'allow', bash: 'allow', webfetch: 'allow' },
         ...opencodeLocal(local),
-        ...(ctx.browser ? { mcp: { playwright: { type: 'local', command: [ctx.browser.command, ...ctx.browser.args], enabled: true } } } : {}),
+        ...(Object.keys(mcp).length ? { mcp } : {}),
       };
       // No project argument: it starts in its terminal's folder, and a desk path in its command line would make the
       // desk clean-up take it for a leftover.
       const args = [
         '--auto',
-        ...(ctx.model ? ['--model', local ? `${local.provider.id}/${local.model}` : ctx.model] : []),
+        ...(model ? ['--model', model] : []),
         ...(ctx.resumeId ? ['--session', ctx.resumeId] : []),
-        '--prompt',
-        ctx.prompt,
+        // OpenCode 1.x ignores --prompt with --session; cliRunner types it after the resumed TUI is ready.
+        ...(!ctx.resumeId ? ['--prompt', ctx.prompt] : []),
       ];
-      return { args, env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config), CUBEFARM_NOTIFY_URL: ctx.notify.url } };
+      return { args, env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config), CUBEFARM_NOTIFY_URL: ctx.notify.url, CUBEFARM_OPENCODE_VARIANT: ctx.effort } };
     }
   }
 }
@@ -447,6 +495,7 @@ export const OPENCODE_PLUGIN_SOURCE = String.raw`// cubefarm: tells the office w
 export default async function CubefarmPlugin({ client } = {}) {
   const url = process.env.CUBEFARM_NOTIFY_URL;
   if (!url) return {};
+  const variant = process.env.CUBEFARM_OPENCODE_VARIANT;
   let root;
   const post = (body) =>
     fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) }).catch(() => {});
@@ -460,6 +509,10 @@ export default async function CubefarmPlugin({ client } = {}) {
     }
   };
   return {
+    'chat.message': async (input, output) => {
+      if (variant) output.message.model.variant = variant;
+      post({ hook_event_name: 'PromptAccepted', session_id: input.sessionID });
+    },
     event: async ({ event }) => {
       const props = event?.properties ?? {};
       if (event?.type === 'session.created' && !props.info?.parentID && !root) root = props.info?.id;

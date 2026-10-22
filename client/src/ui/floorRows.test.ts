@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CliView } from '../../../shared/types';
 import type { Agent } from '../store';
-import { agentLabel, doingText, floorRows, signInFor } from './floorRows';
+import { agentLabel, doingText, floorRows, signInFor, workerCli } from './floorRows';
 
 const agent = (p: Partial<Agent>): Agent =>
   ({ id: 'a', name: 'Ada', role: 'agent', cli: '', status: 'idle', task: null, issueNumber: null, issueTitle: null, prNumber: null, desk: 0, ...p }) as Agent;
@@ -27,6 +27,10 @@ describe('agentLabel', () => {
     expect(agentLabel(agent({ cli: 'codex' }), { runtime: 'sdk', defaultCli: 'codex' }, clis)).toBe('Claude Code'); // the Agent SDK is Claude Code
     expect(agentLabel(agent({ role: 'ceo', cli: 'codex' }), terminals, clis)).toBe('CEO');
   });
+});
+
+it('shows Claude Code for a CEO when the Agent SDK runtime is active', () => {
+  expect(workerCli(agent({ role: 'ceo', cli: 'opencode' }), { runtime: 'sdk', defaultCli: 'codex' })).toBe('claude');
 });
 
 describe('signInFor', () => {
