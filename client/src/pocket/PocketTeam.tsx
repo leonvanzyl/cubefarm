@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { agentsOnRepo, kanbanFor, useStore, type Agent } from '../store';
 import { CEO_ID, type RepoView } from '../../../shared/types';
-import { agentLabel } from '../ui/floorRows';
+import { agentLabel, signInFor } from '../ui/floorRows';
 import { MessageBox } from '../ui/MessageBox';
 import { toolVerb } from '../world/draw';
 import { agentActions, assignChoices, doing } from './pocketData';
@@ -47,6 +47,7 @@ function AgentCard({ agent, repo }: { agent: Agent; repo: RepoView }) {
   const choices = assignChoices(cols);
   const chosen = choices.find((c) => c.key === pick);
   const working = agent.status === 'working' || agent.status === 'preparing';
+  const signIn = signInFor(agent, settings);
   const send = async () => {
     const t = text.trim();
     if (!t) return;
@@ -71,7 +72,13 @@ function AgentCard({ agent, repo }: { agent: Agent; repo: RepoView }) {
         <Status status={agent.status} />
       </div>
       {agent.lastError && !working && <div className="term-error small pk-error">⚠️ {agent.lastError}</div>}
+      {signIn && <div className="small pk-sign-in">🔑 Waiting for you to sign {signIn} in, in their terminal.</div>}
       <div className="pk-actions">
+        {signIn && (
+          <button className="btn btn-small btn-good" onClick={() => openOverlay({ kind: 'terminal', agentId: agent.id })}>
+            🔑 Sign in
+          </button>
+        )}
         {can.stop && (
           <button className="btn btn-small btn-bad" disabled={busy} onClick={() => void run(() => api.stop(agent.id))}>
             ■ Stop

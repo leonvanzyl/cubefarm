@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, oneAtATime, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
+import { boxVersions, CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, oneAtATime, signedOutScreen, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
 import { describeOfficeTool, describeTool, newScreenshots, screenshotFile, summariseResult } from './agentRunner.ts';
 
 const dir = path.join(os.tmpdir(), 'npm-global');
@@ -71,6 +71,22 @@ describe('interruptions', () => {
     expect(interruptions(['● Bash(sleep 4)', '  ⎿  Interrupted · What should Claude do instead?', '❯ '].join('\n'))).toBe(1);
     expect(interruptions('■ Conversation interrupted - tell the model what to do differently.\n› ')).toBe(1);
     expect(interruptions('● done\n❯ ')).toBe(0);
+  });
+});
+
+describe('signedOutScreen', () => {
+  it("spots a CLI saying its login is gone, in each CLI's own words", () => {
+    expect(signedOutScreen('⎿  API Error: 401 · Login expired · Please run /login')).toBe(true);
+    expect(signedOutScreen('Not logged in · Please run /login')).toBe(true);
+    expect(signedOutScreen('OAuth token revoked · Please run /login')).toBe(true);
+    expect(signedOutScreen('Failed to authenticate: OAuth session expired and could not be refreshed')).toBe(true);
+    expect(signedOutScreen('■ Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.')).toBe(true);
+    expect(signedOutScreen("Not signed in. Please run 'codex login' to sign in with ChatGPT")).toBe(true);
+  });
+
+  it('leaves ordinary failures alone', () => {
+    expect(signedOutScreen('● The tests fail: expected 401 from /api/login, got 200\n❯ ')).toBe(false);
+    expect(signedOutScreen('Claude Code exited with code 1 before finishing.')).toBe(false);
   });
 });
 
@@ -215,5 +231,14 @@ describe('newScreenshots', () => {
     expect(newScreenshots(dir, seen, later).map((s) => s.name)).toEqual(['page-2026-09-29T10-00-02-000Z.jpeg']);
     expect(newScreenshots(path.join(dir, 'missing'), seen, later)).toEqual([]);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('boxVersions', () => {
+  it("pins cloud agents' Claude Code and Playwright MCP to the office's own versions", () => {
+    const v = boxVersions();
+    expect(v.claude).toMatch(/^\d+\.\d+\.\d+/);
+    expect(v.playwrightMcp).toMatch(/^\d+\.\d+\.\d+/);
+    expect(v.codex).toMatch(/^\d+\.\d+\.\d+/);
   });
 });

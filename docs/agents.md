@@ -33,7 +33,7 @@ The phone and the manager's console show the same requests. You can always add o
 
 ## Machines
 
-Each agent works on a **machine** of its own: today a folder on your computer, later a container or a cloud VM. The office talks to a machine through one interface (`server/machines.ts`), so where it runs can change without touching the scheduler.
+Each agent works on a **machine** of its own: a folder on your computer (the default), or an [Upstash Box](cloud.md) in the cloud, which keeps working while the office is closed. The office talks to a machine through one interface (`server/machines.ts`), so where it runs can change without touching the scheduler. An agent's ⚙️ Setup shows where they work (*Works on*), and moves them while they have no task.
 
 A local machine lives in `<SWARM_HOME>/machines/<machine>/`, named after the start of its agent's id:
 
@@ -51,21 +51,23 @@ Agents from before machines keep their old desk until their current task is over
 
 ### Signing in
 
-Today every machine uses the coding agents' logins and settings on this computer, as before: your Claude Code, Codex and OpenCode sign-ins, skills, plugins and MCP servers, and your `gh` login. That works because the machines are folders on the same computer. Machines elsewhere (containers, cloud VMs) need credentials of their own, and the rules differ per provider:
+Machines on your computer use the coding agents' logins and settings there: your Claude Code, Codex and OpenCode sign-ins, skills, plugins and MCP servers, and your `gh` login. That works because the machines are folders on the same computer. Machines elsewhere need credentials of their own, and the rules differ per provider:
 
-- **Never copy a login file** (`~/.claude/.credentials.json`, Codex's `auth.json`) into several machines. Their refresh tokens rotate, so the copies log each other out.
-- **Third-party apps may not collect or store claude.ai credentials or session tokens** (Anthropic's terms). cubefarm won't run the Claude sign-in itself or save a Claude token.
+- **Never copy a login file** (`~/.claude/.credentials.json`, Codex's `auth.json`) into several machines, or from your computer into one. Their refresh tokens rotate, so the copies log each other out.
+- **Third-party apps may not collect or store claude.ai credentials or session tokens** (Anthropic's terms). cubefarm never handles a sign-in itself: it starts the coding agent's own login in that agent's terminal, you finish Anthropic's or OpenAI's flow there, and the login stays with that copy of the coding agent. cubefarm only asks whether it's signed in.
 
-So the plan for per-machine logins (roadmap step 3) is:
+Cloud agents work this way today ([Signing a cloud agent in](cloud.md#signing-a-cloud-agent-in)):
 
-- **Claude Code**: each machine gets its own config folder (`CLAUDE_CONFIG_DIR`), with onboarding and folder trust filled in. It signs in with `CLAUDE_CODE_OAUTH_TOKEN` when the office was started with it (you run `claude setup-token` yourself and keep the one-year token in your own environment; the office passes it to its machines and never writes it down), or with an API key, or you sign in once in that agent's terminal.
-- **Codex and OpenCode**: their own `CODEX_HOME` / XDG folders, signed in once per machine (or with an API key).
+- **Claude Code**: signs in once per Box with its own login (`claude auth login` in the agent's terminal), kept in the Box user's `~/.claude`. Before each task the office checks it (`claude auth status`); signed out, or failing on an expired login mid-task, the agent is marked *needs sign-in* and their task waits for you. Or, for every Box at once: `CLAUDE_CODE_OAUTH_TOKEN` from the office's environment (`CUBEFARM_CLAUDE_TOKEN`: you run `claude setup-token` yourself; the office never writes it down) or an Anthropic API key.
+- **Codex**: the same with `codex login --device-auth` (a link and a one-time code, since nobody can open a browser on the Box) and `codex login status`, kept in `~/.codex`; or an OpenAI API key for every Box.
 - **GitHub**: `GH_TOKEN` for each machine (a fine-grained token scoped to the floors' repos, or your `gh auth token`), later a GitHub App's short-lived tokens.
+
+Other machines elsewhere (roadmap step 3) will get their own config folders (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, OpenCode's XDG folders) with onboarding and folder trust filled in, signed in the same way.
 
 ## Roadmap
 
 1. **Interchangeable agents** (done): no roles, titles or QA lab; any free agent takes any task; the CEO scales teams; lobby candidates with provider, model and effort.
 2. **Local machines** (done): an own clone and worktree per agent, its own temp folder and port.
-3. **Per-machine logins**: own sign-in folders, tokens from the environment, a sign-in check in the office doctor.
+3. **Per-machine logins** (done for cloud agents: a sign-in check before each task, the coding agent's own sign-in in their terminal): own sign-in folders for other machines, a sign-in check in the office doctor.
 4. **Container machines**: [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`, microVMs, no Docker Desktop needed; Windows 11 needs the Hypervisor Platform feature), reaching the office at `host.docker.internal`.
-5. **Cloud machines**: Upstash Box, Docker's cloud sandboxes, E2B or Daytona behind the same interface, with GitHub App tokens instead of your own login.
+5. **Cloud machines** (Upstash Box done, see [Cloud agents](cloud.md)): an agent's machine can be an Upstash Box that keeps working while the office is closed. Later: Docker's cloud sandboxes, E2B or Daytona behind the same interface, GitHub App tokens instead of your own login, and the office itself in the cloud.

@@ -109,6 +109,8 @@ export function Interview({ requestId }: { requestId: string }) {
             <dd>{effectiveModel(req.model, cli, settings, CLAUDE_MODELS[0]) || 'its default model'}</dd>
             <dt>Effort</dt>
             <dd>{req.effort || settings.defaultEffort}</dd>
+            <dt>Works on</dt>
+            <dd>{req.host === 'box' ? '☁️ An Upstash Box' : '🖥️ This computer'}</dd>
           </dl>
         )}
         {pending ? (

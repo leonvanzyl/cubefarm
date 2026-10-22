@@ -52,6 +52,7 @@ Every agent, the CEO included, is the actual coding-agent CLI in a terminal on y
 - **Codex's hooks.** The first time, Codex asks you to review the office's hooks: type `/hooks` in a Codex agent's terminal and press `t` to trust them. Until then the office shows a Codex agent's task rather than each step.
 - **Usage.** Agents on the same coding agent share its usage limits. When Claude warns that usage is getting high, the office slows down new work until the window resets. To cap how many agents run at once, set a session limit in the manager's console.
 - **Restarts.** Agents keep working while the office restarts (an update, a crash): their terminals live in a small process of their own and reconnect when the office is back.
+- **Cloud agents.** Optionally, agents work in an [Upstash Box](docs/cloud.md) each instead of on your computer, so they finish their task even with the office closed or your laptop shut. Connect your Upstash account in Settings → Cloud agents; your Claude subscription, API keys and GitHub are set up once for every Box.
 
 More in [How it works](docs/how-it-works.md#agents-terminals).
 
@@ -154,6 +155,7 @@ Running it from a clone of this repo (`npm start`)? Then the office updates itse
 
 - [How it works](docs/how-it-works.md): the life of an issue, QA, auto-merge, models and usage, agents' terminals, the safety model and floor previews
 - [Agents](docs/agents.md): interchangeable agents, team sizes and the CEO's team changes, each agent's machine and how it signs in
+- [Cloud agents](docs/cloud.md): agents in Upstash Boxes that keep working while the office is closed: setup, sign-in, costs and limits
 - [The office in your pocket](docs/pocket.md): pocket mode on your phone, installing the app, notifications (desktop, push, ntfy) and reaching the office safely from your phone
 - [Voice messages](docs/voice.md): the CEO's messages read aloud, ElevenLabs voices and talking instead of typing
 - [Contributing](CONTRIBUTING.md): run it from source, tests, architecture and publishing

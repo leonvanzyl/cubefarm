@@ -177,6 +177,43 @@ export type AgentRuntime = 'terminal' | 'sdk';
 /** The coding-agent CLI an agent runs in its terminal. The CEO is always Claude Code. */
 export type AgentCli = 'claude' | 'codex' | 'opencode';
 
+/** Where an agent's machine is (docs/cloud.md): a folder on this computer, or an Upstash Box in the cloud. */
+export type MachineHost = 'local' | 'box';
+
+/** An Upstash Box's size. */
+export type BoxSize = 'small' | 'medium' | 'large';
+
+/** Settings → Cloud agents. */
+export interface CloudSettings {
+  machineKind: MachineHost; // where new agents work ('local' unless the manager turns the cloud on)
+  boxSize: BoxSize;
+  boxLimit: number; // the Upstash plan's most Boxes (the free plan's 10), counted before a cloud agent is hired
+}
+
+/** How a cloud agent's machine is doing, on their card. */
+export type CloudMachineState = 'none' | 'creating' | 'setting-up' | 'ready' | 'paused' | 'disconnected' | 'error';
+
+/** Where a cloud credential comes from (never its value). 'login': each cloud agent signs in in their own terminal. */
+export type CloudCredentialSource = 'token' | 'gh' | 'subscription' | 'apiKey' | 'login' | null;
+
+/** One credential cloud agents sign in with: whether it's there and where it comes from. */
+export interface CloudCredentialView {
+  ready: boolean;
+  source: CloudCredentialSource;
+  hint: string; // the last 4 characters of a saved key or token, '' otherwise
+}
+
+/** The cloud account as the manager sees it in Settings → Cloud agents. Keys and tokens never leave the server. */
+export interface CloudView {
+  keySet: boolean; // an Upstash Box API key is saved
+  keyHint: string;
+  keyError: string | null; // Upstash turned the key away, or couldn't be reached, at the last check
+  github: CloudCredentialView;
+  claude: CloudCredentialView;
+  codex: CloudCredentialView;
+  boxes: { total: number; running: number; paused: number; orphans: number } | null; // null until counted
+}
+
 /** A coding-agent CLI the office knows how to run, and whether it's installed on this machine. */
 export interface CliView {
   id: AgentCli;
@@ -212,6 +249,9 @@ export interface AgentView {
   model: string; // '' = use the swarm default model, or a model id / alias
   effort: EffortLevel | ''; // '' = use the swarm default effort
   cli: AgentCli | ''; // the CLI they run in the terminal runtime ('' = the office default)
+  host?: MachineHost; // where their machine is: an Upstash Box, or this computer (absent: local; the CEO always is)
+  cloud?: CloudMachineState; // their Box's state (absent for local agents)
+  needsSignIn?: boolean; // a cloud agent whose coding agent waits for the manager to sign it in, in their terminal (docs/cloud.md)
   terminal: boolean; // they have a terminal to watch (the terminal runtime); otherwise their log lines are the screen
   status: AgentStatus;
   issueNumber: number | null; // the issue being built, or the one the PR under test or fix closes
@@ -326,6 +366,7 @@ export interface SwarmSettings {
   worldEvents: WorldEventSettings; // Settings → World events: how often something happens outside
   listen: ListenSettings;
   notify: NotifySettings;
+  cloud: CloudSettings;
 }
 
 /** What the office tells the manager about when they're away (docs/pocket.md). */
@@ -511,6 +552,7 @@ export interface HireRequestView {
   name: string; // the new agent's name (let-go: the agent's name)
   reason: string;
   cli: AgentCli | ''; // the coding agent they'll run ('' = the office default)
+  host?: MachineHost | ''; // where they'll work ('' or absent = the office default, Settings → Cloud agents)
   model: string; // '' = the default model
   effort: EffortLevel | '';
   look: AgentLook;
@@ -582,6 +624,7 @@ export interface WorldSnapshot {
   weather: WeatherView; // the real local weather's place and latest reading (Settings → Weather)
   ticker?: TickerItem[]; // the floors' recent ticker lines, oldest first
   notifyChannels: NotifyChannelsView;
+  cloud?: CloudView; // Settings → Cloud agents: the Upstash account and the credentials cloud agents use
   progress: ProgressView; // coins, decorations and achievements (#210)
   pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard by repo id, best first
 }
@@ -625,6 +668,7 @@ export type ServerEvent =
   | { type: 'weather'; weather: WeatherView }
   | { type: 'ticker'; item: TickerItem }
   | { type: 'notifyChannels'; notifyChannels: NotifyChannelsView }
+  | { type: 'cloud'; cloud: CloudView }
   | { type: 'notify'; note: NoteView }
   | { type: 'progress'; progress: ProgressView }
   | { type: 'reward'; reward: RewardView }

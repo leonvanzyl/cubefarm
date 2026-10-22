@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { blockers, holdUps, setDependsOn } from '../shared/issues.ts';
+import { PREVIEW_ENV_MAX_CHARS } from '../shared/previewEnv.ts';
 import { FLOOR_SEATS, type AgentCli, type CeoJobKind, type QaStatus } from '../shared/types.ts';
 import { HttpError } from './httpError.ts';
 import { ONE_TURN } from './prompts.ts';
@@ -93,7 +94,9 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
           .object({})
           .catchall(z.string())
           .optional()
-          .describe('Extra environment variables for the preview; {port} and {tmp} are replaced in the values. Replaces the whole set.'),
+          .describe(
+            `Extra environment variables for the preview; {port} and {tmp} are replaced in the values. Replaces the whole set. At most ${PREVIEW_ENV_MAX_CHARS} characters in all, each variable counted as KEY=value plus 2: only what the app needs to run.`,
+          ),
       },
       (a) => run(() => h.setFloorProfile(a)),
     ),

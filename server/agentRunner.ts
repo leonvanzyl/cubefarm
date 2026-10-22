@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { query, type CanUseTool, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentCli, AgentRole, AgentTask, EffortLevel, LogKind } from '../shared/types.ts';
+import type { BoxTarget } from './boxCli.ts';
 import type { OfficeTools } from './ceo.ts';
 import type { UsageWarning } from './pacing.ts';
 import type { AgentTerminal } from './terminal.ts';
@@ -43,6 +44,8 @@ export interface SessionOptions {
   agentId?: string;
   /** Follow the session of the CLI still running in the terminal after the office restarted; start nothing. */
   reattach?: boolean;
+  /** A cloud agent's: the CLI runs in their Upstash Box (docs/cloud.md), always in the terminal runtime. */
+  box?: BoxTarget;
 }
 
 export interface LogEntry {
@@ -60,6 +63,8 @@ export interface SessionResult {
   structured?: unknown;
   /** The manager interrupted the turn in the agent's terminal (Esc). */
   interrupted?: boolean;
+  /** A cloud agent's CLI isn't signed in, or its login expired: the task waits for the manager to sign it in again. */
+  signedOut?: boolean;
 }
 
 export interface SessionCallbacks {

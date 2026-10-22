@@ -82,6 +82,11 @@ export class AgentTerminal {
     return this.sink !== null;
   }
 
+  /** Someone has it open right now. */
+  get watched() {
+    return this.viewers.size > 0;
+  }
+
   /** The CLI asked for application cursor keys: arrows are sent as ESC O A… rather than ESC [ A… */
   get appCursor() {
     return this.term.modes.applicationCursorKeysMode;

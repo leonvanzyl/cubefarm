@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { floorPrCounts, isBusy, pendingRequests, unreadMessages, useStore, type PhoneTab } from '../store';
-import { CEO_ID, type AgentCli, type CliView, type EffortLevel, type HireRequestView, type PhoneMessage, type SwarmSettings } from '../../../shared/types';
+import { CEO_ID, type AgentCli, type CliView, type EffortLevel, type HireRequestView, type MachineHost, type PhoneMessage, type SwarmSettings } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { MessageBox } from './MessageBox';
 import { MicButton } from './MicButton';
@@ -54,12 +54,13 @@ export interface HireSetup {
   cli: AgentCli | '';
   model: string;
   effort: EffortLevel | '';
+  host: MachineHost | ''; // where they'll work ('' = the office default, Settings → Cloud agents)
 }
 
-export const setupOf = (r: HireRequestView): HireSetup => ({ name: r.name, cli: r.cli, model: r.model, effort: r.effort });
+export const setupOf = (r: HireRequestView): HireSetup => ({ name: r.name, cli: r.cli, model: r.model, effort: r.effort, host: r.host ?? '' });
 
 /** The approval's overrides: the setup as the manager left it, an emptied name back to the CEO's pick. */
-export const hireOverrides = (r: HireRequestView, s: HireSetup) => ({ name: s.name.trim() || r.name, cli: s.cli, model: s.model.trim(), effort: s.effort });
+export const hireOverrides = (r: HireRequestView, s: HireSetup) => ({ name: s.name.trim() || r.name, cli: s.cli, model: s.model.trim(), effort: s.effort, host: s.host });
 
 /** "Claude Code · claude-opus-5-5 · medium effort": what they'll run, the office defaults filled in. */
 export function setupLine(s: Pick<HireSetup, 'cli' | 'model' | 'effort'>, settings: SwarmSettings, clis: CliView[]) {
@@ -72,6 +73,7 @@ export function HireSetupFields({ value, onChange, disabled }: { value: HireSetu
   const settings = useStore((s) => s.settings);
   const clis = useStore((s) => s.clis);
   const id = useId();
+  const cloudKey = useStore((s) => s.cloud.keySet);
   const sdk = settings.runtime !== 'terminal';
   const cli = hireCli(value.cli, settings);
   const set = (patch: Partial<HireSetup>) => onChange({ ...value, ...patch });
@@ -129,6 +131,18 @@ export function HireSetupFields({ value, onChange, disabled }: { value: HireSetu
           ))}
         </select>
       </label>
+      {(cloudKey || value.host === 'box') && (
+        <label className="field" htmlFor={`${id}-host`}>
+          <span>Works on</span>
+          <select id={`${id}-host`} value={value.host} disabled={disabled} onChange={(e) => set({ host: e.target.value as MachineHost | '' })}>
+            <option value="">{settings.cloud.machineKind === 'box' ? '☁️ Upstash Box' : '🖥️ This computer'} (default)</option>
+            <option value="local">🖥️ This computer</option>
+            <option value="box" disabled={cli === 'opencode'}>
+              ☁️ Upstash Box{cli === 'opencode' ? " (OpenCode can't run there)" : ''}
+            </option>
+          </select>
+        </label>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { confirmDialog } from './Confirm';
 import { LiveTerminal } from './LiveTerminal';
 import { effectiveModel } from '../../../shared/models';
 import { assignChoices } from '../pocket/pocketData';
-import { agentLabel, workerCli } from './floorRows';
+import { agentLabel, signInFor, workerCli } from './floorRows';
 import { MessageBox } from './MessageBox';
 import { MicButton } from './MicButton';
 import { closeOverlay, Panel } from './Panel';
@@ -105,6 +105,7 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const issueUrl = agent.issueNumber ? `https://github.com/${repo.fullName}/issues/${agent.issueNumber}` : null;
   const canMessage = working || (agent.task !== 'qa' && !!agent.branch && agent.status !== 'idle');
   const qaRec = agent.prNumber ? qaRecords[`${repo.id}#${agent.prNumber}`] : undefined;
+  const signIn = signInFor(agent, settings);
   const send = (t: string) => {
     const body = t.trim();
     if (!body) return;
@@ -126,6 +127,11 @@ export function TerminalView({ agentId }: { agentId: string }) {
             ⌨️ {agentLabel(agent, settings, clis)}
           </span>
           <StatusPill status={agent.status} />
+          {signIn && (
+            <span className="chip sign-in-chip" title={`Waiting for you to sign ${signIn} in, in their terminal`}>
+              🔑 needs sign-in
+            </span>
+          )}
           {working && agent.currentTool && <span className="muted small">{toolVerb(agent.currentTool)}…</span>}
           <span className="spacer" />
           <button className="btn btn-small" title={`Trail ${agent.name} with the camera wherever they go (a movement key or Esc gives you the controls back)`} onClick={() => followAgent(agent.id)}>
@@ -189,7 +195,24 @@ export function TerminalView({ agentId }: { agentId: string }) {
         {agent.turns > 0 && <span className="muted">{agent.turns} turns</span>}
         {agent.costUsd > 0 && <span className="muted" title="API-equivalent cost reported by the coding agent; subscription usage is billed by plan">≈${agent.costUsd.toFixed(2)}</span>}
       </div>
-      {agent.lastError && agent.status !== 'working' && <div className="term-error">⚠️ {agent.lastError}</div>}
+      {agent.lastError && agent.status !== 'working' && !signIn && <div className="term-error">⚠️ {agent.lastError}</div>}
+      {signIn && (
+        <div className="sign-in-note" role="status">
+          <span className="grow">
+            <b>
+              🔑 Sign {agent.name}'s {signIn} in
+            </b>
+            <br />
+            {signIn === 'Codex'
+              ? 'Open the link in their terminal, sign in to ChatGPT there and enter the one-time code the terminal shows.'
+              : 'Open the link in their terminal, approve it with your Claude account, then paste the code the page gives you into the terminal and press Enter.'}{' '}
+            Their cloud machine keeps the sign-in{agent.task && isBusy(agent) ? ', and their task starts once it’s done' : ''}.
+          </span>
+          <button className="btn btn-small" disabled={busy} title="Close this sign-in and show a new link" onClick={() => run(() => api.signIn(agent.id))}>
+            ↻ Start over
+          </button>
+        </div>
+      )}
       {showCareer && <CareerCard agent={agent} />}
       {showSetup && (
         <div id="agent-setup" className="setup-wrap">

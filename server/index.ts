@@ -163,6 +163,8 @@ app.post(
     swarm.hireAgent(repoId(req), {
       name: str(req.body.name),
       cli: str(req.body.cli),
+      host: str(req.body.host),
+      strict: true,
       model: str(req.body.model),
       effort: str(req.body.effort),
       look: str(req.body.look),
@@ -176,6 +178,7 @@ app.post('/api/agents/:id/assign', route((req) => swarm.assign(String(req.params
 app.post('/api/agents/:id/stop', route((req) => swarm.stopAgent(String(req.params.id))));
 app.post('/api/agents/:id/reset', route((req) => swarm.resetAgent(String(req.params.id))));
 app.post('/api/agents/:id/message', route((req) => swarm.message(String(req.params.id), str(req.body.text))));
+app.post('/api/agents/:id/sign-in', route((req) => swarm.signIn(String(req.params.id))));
 app.get('/api/agents/:id/prompt', route((req) => swarm.agentPrompt(String(req.params.id))));
 app.get('/api/agents/:id/screen', (req, res) => {
   const shot = swarm.screenshot(String(req.params.id));
@@ -200,6 +203,18 @@ const sendAudio = (res: Response, audio: Buffer, cache = 'private, max-age=3600'
   res.end(audio);
 };
 app.put('/api/voice/key', route((req) => swarm.voice.setKey(parse(z.object({ key: z.string().max(400) }), req.body).key)));
+// Settings → Cloud agents (docs/cloud.md): keys and tokens go in, never come back out.
+app.put('/api/cloud/key', route((req) => swarm.setCloudKey(parse(z.object({ key: z.string().max(400) }), req.body).key)));
+app.put(
+  '/api/cloud/token',
+  route((req) => {
+    const body = parse(z.object({ kind: z.enum(['github', 'anthropic', 'openai']), value: z.string().max(400) }), req.body);
+    return swarm.setCloudToken(body.kind, body.value);
+  }),
+);
+app.post('/api/cloud/test', route(() => swarm.testCloud()));
+app.post('/api/cloud/orphans', route(() => swarm.deleteCloudOrphans()));
+app.post('/api/cloud/demo-expire', route(() => swarm.expireSignIns()));
 app.get('/api/voice/voices', route(() => swarm.voice.voices()));
 app.get(
   '/api/voice/messages/:id',
@@ -275,6 +290,7 @@ app.post(
       cli: typeof req.body?.cli === 'string' ? req.body.cli : undefined,
       model: typeof req.body?.model === 'string' ? req.body.model : undefined,
       effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
+      host: typeof req.body?.host === 'string' ? req.body.host : undefined,
       note: str(req.body?.note),
     }),
   ),

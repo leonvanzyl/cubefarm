@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { ACTIVITY_ICONS, ACTIVITY_LABELS, clipText, recentActions, redact } from '../../../shared/activity';
 import { isBusy, qaKey, useStore, type Agent } from '../store';
 import { reportCard } from '../world/activityProbe';
-import { agentLabel } from './floorRows';
+import { useKeyName } from './controls';
+import { agentLabel, signInFor } from './floorRows';
 
 // The card at the left edge (clear of their monitor) when you keep someone in your sights for a moment: who they are,
 // what they're on and for how long, what they're doing now and their last few steps, turns and cost on this task, and
@@ -41,6 +42,7 @@ export function AgentCard() {
   const qa = useStore((s) => (agent?.prNumber ? s.qa[qaKey(agent.repoId, agent.prNumber)] : undefined));
   const settings = useStore((s) => s.settings);
   const clis = useStore((s) => s.clis);
+  const use = useKeyName('interact');
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!id) return;
@@ -61,16 +63,30 @@ export function AgentCard() {
   const act = busy ? agent.activity : null;
   const on = onWhat(agent);
   const round = (agent.task === 'fix' || agent.task === 'qa') && qa ? qa.round : null;
+  const signIn = signInFor(agent, settings);
   return (
     <div className="agent-card" style={{ ['--who' as string]: agent.color }}>
       <div className="ac-head">
         <span className="ac-dot" />
         <span className="ac-who">
-          <span className="ac-name">{agent.name}</span>
+          <span className="ac-name">
+            {agent.name}
+            {agent.host === 'box' && (
+              <span className="cloud-badge" title="Works in an Upstash Box: carries on when the office is closed">
+                {' '}
+                ☁ cloud
+              </span>
+            )}
+          </span>
           <span className="ac-title">{agentLabel(agent, settings, clis)}</span>
         </span>
         <span className="ac-time">{busy && agent.startedAt ? `⏱ ${elapsed(now - agent.startedAt)}` : STATUS[agent.status]}</span>
       </div>
+      {signIn && (
+        <div className="ac-sign-in">
+          🔑 Sign {signIn} in: <kbd>{use}</kbd> opens their terminal
+        </div>
+      )}
       {on && <div className="ac-on">{clipText(redact(on), 64)}</div>}
       {act && (
         <div className="ac-now">

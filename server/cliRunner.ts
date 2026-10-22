@@ -6,8 +6,12 @@ import type { Request, Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { browserProblem, playwrightMcp } from './browser.ts';
 import { HOME_DIR } from './config.ts';
-import { cliLabel, CODEX_HOOK_SOURCE, codexThread, commandFor, hookReviewKey, interruptions, isCli, launchArgs, NOTIFY_SOURCE, OPENCODE_PLUGIN_SOURCE, STATUSLINE_SOURCE, trustKey } from './clis.ts';
-import { adoptPty, discardPty, hooksReady, keeperHookUrl, keeperPid, leaveKeeper, spawnPty, startKeeper, terminalsAvailable, type Pty } from './ptyClient.ts';
+import { BOX_CDP, BoxPty, boxHooksReady, finishedTurn, lookAtBoxCli, readFrom, type BoxCliRecord } from './boxCli.ts';
+import { BOX_BIN, BOX_CLI_BIN, BOX_HOME, boxSessionDir, signInCommand, tmuxKill } from './boxScripts.ts';
+import { BOX_ENV } from './cloud.ts';
+import { cliLabel, CLIS, CODEX_HOOK_SOURCE, codexThread, commandFor, hookReviewKey, interruptions, isCli, launchArgs, NOTIFY_SOURCE, OPENCODE_PLUGIN_SOURCE, signedOutScreen, STATUSLINE_SOURCE, trustKey } from './clis.ts';
+import { adoptPty, discardPty, hooksReady as keeperHooksReady, keeperHookUrl, keeperPid, leaveKeeper, spawnPty, startKeeper, terminalsAvailable, type Pty } from './ptyClient.ts';
+import type { BoxApi } from './box.ts';
 import {
   clip,
   describeTool,
@@ -36,7 +40,8 @@ import type { AgentCli } from '../shared/types.ts';
 // hooks in its /hooks, reports its steps through them too. OpenCode's plugin only says when a turn ends.
 //
 // The CLIs run in the office's terminal keeper (ptyClient.ts) and call their hooks there, so an office restart doesn't
-// stop them: the office picks them up again when it's back (reconnectClis).
+// stop them: the office picks them up again when it's back (reconnectClis). A cloud agent's CLI runs in their Upstash
+// Box instead (boxCli.ts): its hooks are read from a file there, and it carries on while the office is closed.
 
 export { terminalsAvailable };
 
@@ -169,12 +174,16 @@ interface LiveCli {
   /** The office session driving it; null while it waits at its prompt. */
   session: { hook(b: Record<string, unknown>): Record<string, unknown>; exited(code: number): void } | null;
   idleTimer?: NodeJS.Timeout;
+  /** The cloud agent's Box it runs in (absent: this computer). */
+  box?: { api: BoxApi; boxId: string };
 }
 const lives = new Map<AgentTerminal, LiveCli>();
 /** How to trust Codex's hooks was said once this run (Codex asks at the start of every session until they are). */
 let hooksHinted = false;
 /** A CLI left at its prompt this long is closed; its session can still be resumed. */
 const IDLE_MS = 30 * 60_000;
+/** The same in a Box: closed sooner, so the Box can pause and stop costing. */
+const BOX_IDLE_MS = 5 * 60_000;
 
 /** PreToolUse's answer: nobody may be watching to answer a permission question, so every tool call is approved. */
 const ALLOW = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'Approved by cubefarm' } };
@@ -200,6 +209,7 @@ function endLive(live: LiveCli): Promise<void> {
   live.proc?.kill();
   live.proc = null;
   live.term.note(`── ${cliLabel(live.cli)} session ended ──`);
+  if (live.box) return gone; // its session folder in the Box goes with its tmux; Codex's threads there aren't ours to archive
   fs.rm(live.dir, { recursive: true, force: true, maxRetries: 5 }, () => undefined);
   if (live.cli === 'codex' && live.resumeId) void codexThread('archive', live.resumeId, gone);
   return gone;
@@ -239,7 +249,7 @@ function wire(l: LiveCli, office?: OfficeTools) {
 /** The task is done but the CLI stays at its prompt for the manager (or a follow-up), for a while. */
 function waitAtPrompt(l: LiveCli) {
   clearTimeout(l.idleTimer);
-  l.idleTimer = setTimeout(() => endLive(l), IDLE_MS);
+  l.idleTimer = setTimeout(() => endLive(l), l.box ? BOX_IDLE_MS : IDLE_MS);
   l.term.releaseIdle = () => endLive(l);
   remember(l);
 }
@@ -279,7 +289,125 @@ export async function reconnectClis(terminalFor: (agentId: string) => AgentTermi
   return back;
 }
 
-export { hooksReady };
+/** A cloud agent's CLI the office was following when it closed, to pick up again (reconnectBoxClis). */
+export interface KeptBoxCli {
+  agentId: string;
+  rec: BoxCliRecord;
+  api: BoxApi;
+  /** Its record changed (null: the CLI is gone). */
+  record(rec: BoxCliRecord | null): void;
+  /** The office's connection to it dropped (false) or is back (true). */
+  connection?(up: boolean): void;
+}
+
+/**
+ * The office started: pick up cloud agents' CLIs in their Boxes, as reconnectClis does the keeper's. One still running
+ * is attached again and its events since the office last looked are replayed once the office follows its session; one
+ * that ended while the office was away comes back too when it finished a turn first (its events replayed, then its
+ * exit), so its task finishes as it would have. A Box Upstash can't be reached about is attached optimistically: it
+ * keeps trying, and a CLI that turns out to be gone ends then. Ones whose agent or terminal is gone are stopped.
+ */
+export async function reconnectBoxClis(kept: KeptBoxCli[], terminalFor: (agentId: string) => AgentTerminal | null): Promise<ReconnectedCli[]> {
+  const back: ReconnectedCli[] = [];
+  await Promise.all(
+    kept.map(async (k) => {
+      const term = terminalFor(k.agentId);
+      if (!term || lives.has(term)) {
+        k.record(null);
+        await k.api.run(k.rec.boxId, tmuxKill(k.rec.token)).catch(() => undefined);
+        return;
+      }
+      const look = await Promise.race([lookAtBoxCli(k.api, k.rec), new Promise<null>((r) => setTimeout(() => r(null), 45_000))]).catch(() => null);
+      if (look && !look.alive && !finishedTurn(look.events)) {
+        k.record(null); // gone without finishing: the office resumes or requeues its task
+        return;
+      }
+      const l: LiveCli = { agentId: k.agentId, cli: k.rec.cli, term, proc: null, token: k.rec.token, dir: k.rec.dir, resumeId: k.rec.resumeId, statusLine: '🏢 cubefarm', shots: new Set(), session: null, box: { api: k.api, boxId: k.rec.boxId } };
+      const p = boxPty(l, { api: k.api, boxId: k.rec.boxId, record: (r) => k.record(r), connection: k.connection }, term.cols, term.rows, readFrom(k.rec));
+      l.proc = p;
+      wire(l);
+      waitAtPrompt(l);
+      if (look && !look.alive) p.replay(look.events, look);
+      else await p.open('attach');
+      back.push({ agentId: l.agentId, cli: l.cli, resumeId: l.resumeId, busy: k.rec.busy });
+    }),
+  );
+  return back;
+}
+
+/** A Box CLI's terminal, saving its record as its events are handled. */
+function boxPty(
+  l: LiveCli,
+  box: { api: BoxApi; boxId: string; record(rec: BoxCliRecord | null): void; connection?(up: boolean): void },
+  cols: number,
+  rows: number,
+  offset: number,
+  env?: Record<string, string>,
+): BoxPty {
+  const save = (off: number, turnAt: number, meta: unknown) => {
+    const m = (meta ?? {}) as Partial<CliMeta>;
+    box.record({ boxId: box.boxId, token: l.token, cli: l.cli, dir: l.dir, offset: off, turnAt, resumeId: m.resumeId ?? l.resumeId, busy: m.busy ?? !!l.session });
+  };
+  return new BoxPty(
+    { api: box.api, boxId: box.boxId, token: l.token, cols, rows, env, offset, event: (b) => handleHook(l.token, b), save, gone: () => box.record(null), connection: (up) => box.connection?.(up) },
+    l.dir,
+  );
+}
+
+/** A cloud agent's CLI signing in in their terminal (startBoxSignIn). */
+export interface BoxSignIn {
+  /** Close it (it's no longer needed, or the agent left). */
+  stop(): void;
+}
+
+/**
+ * Sign a cloud agent's CLI in with its own login, in their terminal (docs/cloud.md): Claude Code prints a link and
+ * asks for the code the page gives back, Codex prints a link and a one-time code. The manager finishes Anthropic's or
+ * OpenAI's flow there. The office only relays the terminal's keys and screen, as for any CLI: it never reads the link,
+ * the code or the login, which stays in the Box user's home. It runs with no credentials, and no record is kept (an
+ * office restart sweeps it away and starts a new one). `exited` hears its exit code; stop() doesn't call it.
+ */
+export function startBoxSignIn(o: { api: BoxApi; boxId: string; cli: 'claude' | 'codex'; term: AgentTerminal; agentId: string }, exited: (code: number) => void): BoxSignIn {
+  const prev = lives.get(o.term);
+  if (prev) void endLive(prev);
+  const token = crypto.randomUUID();
+  const dir = boxSessionDir(token);
+  const l: LiveCli = { agentId: o.agentId, cli: o.cli, term: o.term, proc: null, token, dir, resumeId: null, statusLine: '', shots: new Set(), session: null, box: { api: o.api, boxId: o.boxId } };
+  let over = false;
+  const end = (code: number) => {
+    if (over) return;
+    over = true;
+    void endLive(l);
+    exited(code);
+  };
+  l.session = { hook: () => ({}), exited: end };
+  o.term.note(`── Signing ${cliLabel(o.cli)} in · ☁ cloud machine ──`);
+  void (async () => {
+    try {
+      await o.api.write(o.boxId, `${dir}/launch.json`, JSON.stringify({ ...signInCommand(o.cli), cwd: BOX_HOME, events: `${dir}/events.jsonl` }));
+      if (over) return;
+      const pty = boxPty(l, { api: o.api, boxId: o.boxId, record: () => undefined }, o.term.cols, o.term.rows, 0, {});
+      l.proc = pty;
+      wire(l);
+      await pty.open('new');
+    } catch (err) {
+      o.term.note(`Couldn't start signing in: ${(err as Error).message}`);
+      end(-1);
+    }
+  })();
+  return {
+    stop: () => {
+      over = true;
+      void endLive(l);
+    },
+  };
+}
+
+/** The office follows its sessions again after starting: hooks and Box events that waited for it come in. */
+export function hooksReady() {
+  keeperHooksReady();
+  boxHooksReady();
+}
 
 /**
  * What a desk clean-up (releaseDesk) must leave alone: the keeper, every CLI in a terminal, and the office's session
@@ -295,8 +423,20 @@ export function officeProcesses(): { pids: number[]; markers: string[] } {
  * until it's back; when it quits for good they stop with it (once they're gone, their Codex threads are archived).
  */
 export async function releaseClis(restart: boolean): Promise<void> {
+  // Cloud agents' CLIs carry on in their Boxes either way: the office only lets go of them.
+  for (const l of [...lives.values()].filter((x) => x.box)) {
+    lives.delete(l.term);
+    routes.delete(l.token);
+    clearTimeout(l.idleTimer);
+    (l.proc as BoxPty | null)?.detach();
+  }
   if (!restart) await Promise.all([...lives.values()].map(endLive)); // their exits come through the keeper
   leaveKeeper();
+}
+
+/** Stop reading cloud agents' events (before the office writes its state for the last time), keeping their CLIs. */
+export function detachBoxClis() {
+  for (const l of lives.values()) if (l.box) (l.proc as BoxPty | null)?.detach();
 }
 
 /** A CLI waiting at its prompt: what the manager types there becomes a follow-up. */
@@ -337,15 +477,19 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
   // while it worked (reattach); anything else replaces it.
   const prev = lives.get(term);
   const waiting = !!prev?.proc && !prev.session;
-  const adopt = waiting && (!!opts.reattach || (prev!.cli === (opts.cli ?? 'claude') && !!opts.resumeSessionId && prev!.resumeId === opts.resumeSessionId));
+  // A CLI is only picked up where the session is to run: on this computer, or in that same Box.
+  const sameHost = (prev?.box?.boxId ?? null) === (opts.box?.boxId ?? null);
+  const adopt = waiting && (!!opts.reattach || (sameHost && prev!.cli === (opts.cli ?? 'claude') && !!opts.resumeSessionId && prev!.resumeId === opts.resumeSessionId));
   if (prev && !adopt) endLive(prev);
   let live: LiveCli | null = adopt ? prev! : null;
   const cli = live?.cli ?? opts.cli ?? 'claude';
   const label = cliLabel(cli);
+  const box = adopt ? null : (opts.box ?? null);
+  const inBox = !!(box ?? live?.box);
 
   const token = crypto.randomUUID();
   const sessionId = opts.resumeSessionId ?? crypto.randomUUID();
-  const dir = path.join(SESSIONS_DIR, token);
+  const dir = box ? boxSessionDir(token) : path.join(SESSIONS_DIR, token);
   const started = Date.now();
   const statusLine = `🏢 cubefarm${opts.label ? ` · ${opts.label}` : ''}`;
   const toolNames = new Map<string, string>();
@@ -375,7 +519,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
   /** Codex and OpenCode don't report tool results: pass on the screenshots their browser saved instead. all: the last look. */
   const collectShots = (all = false) => {
     const l = live;
-    if (!l || cli === 'claude' || !opts.browserTesting) return;
+    if (!l || l.box || cli === 'claude' || !opts.browserTesting) return;
     for (const shot of newScreenshots(path.join(l.dir, 'browser'), l.shots, all ? Infinity : Date.now())) {
       l.shots.add(shot.name);
       try {
@@ -386,23 +530,50 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     }
   };
 
+  /** The same in a Box, read from its browser folder there, all at once: the session's last look, before it closes. */
+  const collectBoxShots = async () => {
+    const l = live;
+    if (!l?.box || cli === 'claude' || !opts.browserTesting) return;
+    const folder = `${l.dir}/browser`;
+    for (const f of (await l.box.api.files(l.box.boxId, folder)).sort((a, b) => a.name.localeCompare(b.name))) {
+      const mime = /\.png$/i.test(f.name) ? 'image/png' : /\.jpe?g$/i.test(f.name) ? 'image/jpeg' : null;
+      if (!mime || l.shots.has(f.name)) continue;
+      const data = await l.box.api.read(l.box.boxId, `${folder}/${f.name}`, { base64: true }).catch(() => null);
+      if (!data) continue;
+      l.shots.add(f.name);
+      cb.screenshot(Buffer.from(data, 'base64'), mime);
+    }
+  };
+
   /** The session is over. A CLI kept alive (keepAlive) that ended its turn normally stays at its prompt (keep); others close. */
-  const finish = (r: Omit<SessionResult, 'costUsd' | 'turns'>, keep = false) => {
+  const finish = (result: Omit<SessionResult, 'costUsd' | 'turns'>, keep = false) => {
     if (done) return;
     done = true;
+    let r = result;
+    // A cloud agent's CLI that failed (or said nothing) because its login expired: the task waits for a new sign-in.
+    const cut = r.interrupted || r.signedOut || r.errors[0] === 'Stopped by manager';
+    if (inBox && !cut && (!r.ok || !r.text) && (signedOutScreen(term.screen()) || r.errors.some((e) => /authentication failed/i.test(e)))) {
+      r = { ...r, ok: false, signedOut: true, errors: [`${label}'s sign-in in their cloud machine expired or was turned away.`] };
+      keep = false;
+    }
     for (const t of [finishTimer, bootTimer]) clearTimeout(t);
     clearInterval(screenTimer);
     clearInterval(shotTimer);
     collectShots(true);
     if (term.onInput === watchKeys) term.onInput = null;
     const l = live;
-    if (l && lives.get(term) === l) {
-      l.session = null;
-      if (keep && opts.keepAlive && l.proc) waitAtPrompt(l);
-      else endLive(l);
-    }
-    cb.tool(null);
-    cb.finished({ ...r, costUsd, turns });
+    const close = () => {
+      if (l && lives.get(term) === l) {
+        l.session = null;
+        if (keep && opts.keepAlive && l.proc) waitAtPrompt(l);
+        else endLive(l);
+      }
+      cb.tool(null);
+      cb.finished({ ...r, costUsd, turns });
+    };
+    // A Box's screenshots are fetched before its CLI (and its session folder) can go.
+    if (l?.box && cli !== 'claude' && opts.browserTesting) void collectBoxShots().catch(() => undefined).finally(close);
+    else close();
   };
 
   /** A turn ended: finished, unless the CLI picks up another prompt within the grace period. */
@@ -434,6 +605,16 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
   };
   term.onInput = watchKeys;
 
+  /** screenshotFile for a Box: the saved screenshot read from the agent's worktree there. */
+  const boxScreenshotFile = async (text: string) => {
+    const m = text.match(/\]\(([^)\s]+\.(png|jpe?g))\)/i);
+    const b = live?.box;
+    if (!m || !b) return;
+    const file = m[1].startsWith('/') ? m[1] : path.posix.join(opts.cwd, m[1]);
+    const data = await b.api.read(b.boxId, file, { base64: true }).catch(() => null);
+    if (data) cb.screenshot(Buffer.from(data, 'base64'), /png$/i.test(m[2]) ? 'image/png' : 'image/jpeg');
+  };
+
   const assistantLines = (text: string): LogEntry[] => {
     const lines = text.split('\n');
     const out: LogEntry[] = lines.slice(0, 30).map((l, i) => ({ kind: 'text', text: `${i === 0 ? '● ' : '  '}${l}` }));
@@ -462,7 +643,8 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     const event = String(b.hook_event_name ?? '');
     const sub = typeof b.agent_id === 'string' && b.agent_id !== ''; // a subagent's call: kept off the log
     if (cli === 'claude' && !sub && b.session_id !== kept) {
-      const id = resumableSession(b, fs.existsSync);
+      // In a Box, its hook script looked for the transcript there.
+      const id = resumableSession(b, inBox ? () => b.transcript_exists === true : fs.existsSync);
       if (id) {
         kept = id;
         cb.sessionId(id);
@@ -489,8 +671,10 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
         const out = toolOutput(b.tool_response);
         // Codex's unnamed screenshots are collected from the browser's folder (its hooks may not be trusted yet).
         if (cli === 'claude') for (const img of out.images) cb.screenshot(Buffer.from(img.data, 'base64'), img.mime);
-        const saved = name === 'mcp__playwright__browser_take_screenshot' && !out.images.length ? screenshotFile(opts.cwd, out.text) : null;
+        const shot = name === 'mcp__playwright__browser_take_screenshot' && !out.images.length;
+        const saved = shot && !inBox ? screenshotFile(opts.cwd, out.text) : null;
         if (saved) cb.screenshot(saved.data, saved.mime);
+        if (shot && inBox) void boxScreenshotFile(out.text);
         if (name.startsWith('mcp__playwright__')) {
           const url = out.text.match(/Page URL:\s*(\S+)/);
           if (url) cb.browserUrl(url[1]);
@@ -618,42 +802,59 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
 
   // ---------- a new CLI: files for this session, and the command line ----------
 
-  const cmd = commandFor(cli);
-  if (!terminalsAvailable || !cmd) {
+  // In a Box the CLI is the office's own pinned copy there, by its full path; here, the one found on this computer.
+  const cmd = box ? { file: `${BOX_CLI_BIN}/${CLIS.find((c) => c.id === cli)!.command}`, args: [] as string[] } : commandFor(cli);
+  if (box && cli === 'opencode') {
+    setTimeout(() => finish({ ok: false, text: '', errors: [`${label} can't run in a cloud machine yet: give this agent Claude Code or Codex.`] }), 0);
+    return handle;
+  }
+  if (!box && (!terminalsAvailable || !cmd)) {
     const why = !terminalsAvailable ? 'the terminal module could not be loaded on this machine' : `${label} isn't installed (no "${cli}" on PATH)`;
     setTimeout(() => finish({ ok: false, text: '', errors: [`Could not start ${label}: ${why}.`] }), 0);
     return handle;
   }
 
-  // Through the keeper, a hook waits while the office restarts instead of failing: the CLIs allow it longer.
-  const keeper = keeperHookUrl();
-  const hookUrl = `${keeper ?? officeUrl}/api/hooks/${token}`;
-  // The browser for a session. Its snapshots and unnamed screenshots go to the session's folder, not the worktree.
-  const browser = opts.browserTesting ? playwrightMcp(path.join(dir, 'browser')) : null;
-  const browserIssue = opts.browserTesting ? browserProblem(browser) : null;
+  // Through the keeper, a hook waits while the office restarts instead of failing: the CLIs allow it longer. A Box's
+  // CLI can't reach the office at all: its hooks write to the session's events file, which the office reads.
+  const keeper = box ? null : keeperHookUrl();
+  const events = `${dir}/events.jsonl`;
+  const hookUrl = box ? events : `${keeper ?? officeUrl}/api/hooks/${token}`;
+  const p = box ? path.posix : path;
+  // The browser for a session. Its snapshots and unnamed screenshots go to the session's folder, not the worktree. In a
+  // Box, Playwright attaches to the Box's own Chromium.
+  const browser = !opts.browserTesting ? null : box ? (box.browser ? { command: `${BOX_CLI_BIN}/playwright-mcp`, args: ['--cdp-endpoint', BOX_CDP, '--output-dir', `${dir}/browser`] } : null) : playwrightMcp(path.join(dir, 'browser'));
+  const browserIssue = !opts.browserTesting ? null : box ? (box.browser ? null : "⚠ This cloud machine has no browser, so this session can't test in one.") : browserProblem(browser);
   if (browserIssue) log([{ kind: 'error', text: browserIssue }]);
   let prompt = opts.prompt;
   if (opts.outputSchema) {
     prompt += `\n\nWhen you are done, end your final message with your report as one JSON object in a \`\`\`json block, matching this JSON schema:\n${JSON.stringify(opts.outputSchema)}`;
   }
   let files: { settings: string; mcp: string | null; system: string };
+  const boxFiles: [string, string][] = []; // written into the Box when the CLI starts
+  const put = (file: string, text: string) => (box ? boxFiles.push([file, text]) : fs.writeFileSync(file, text));
   try {
-    writeHelpers();
-    fs.mkdirSync(dir, { recursive: true });
+    if (!box) {
+      writeHelpers();
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const boxHook = `node ${BOX_BIN}/hook.cjs ${events}`;
     const settings = {
-      hooks: Object.fromEntries(HOOK_EVENTS.map((e) => [e, [{ hooks: [{ type: 'http', url: hookUrl, timeout: keeper ? 120 : 30 }] }]])),
-      statusLine: { type: 'command', command: `${shellArg(process.execPath)} ${shellArg(path.join(BIN_DIR, 'statusline.cjs'))} ${shellArg(hookUrl)}`, padding: 0 },
+      hooks: Object.fromEntries(HOOK_EVENTS.map((e) => [e, [{ hooks: [box ? { type: 'command', command: boxHook, timeout: 30 } : { type: 'http', url: hookUrl, timeout: keeper ? 120 : 30 }] }]])),
+      statusLine: box
+        ? { type: 'command', command: `node ${BOX_BIN}/statusline.cjs ${events}`, padding: 0 }
+        : { type: 'command', command: `${shellArg(process.execPath)} ${shellArg(path.join(BIN_DIR, 'statusline.cjs'))} ${shellArg(hookUrl)}`, padding: 0 },
+      ...(box?.apiKeyHelper ? { apiKeyHelper: box.apiKeyHelper } : {}),
     };
     const servers: Record<string, unknown> = {};
     if (browser) servers.playwright = browser;
-    if (opts.office) servers.office = { type: 'http', url: `${officeUrl}/api/mcp/${token}` };
-    files = { settings: path.join(dir, 'settings.json'), mcp: Object.keys(servers).length ? path.join(dir, 'mcp.json') : null, system: path.join(dir, 'instructions.md') };
-    fs.writeFileSync(files.settings, JSON.stringify(settings, null, 2));
-    if (files.mcp) fs.writeFileSync(files.mcp, JSON.stringify({ mcpServers: servers }, null, 2));
-    fs.writeFileSync(files.system, opts.systemAppend);
+    if (opts.office && !box) servers.office = { type: 'http', url: `${officeUrl}/api/mcp/${token}` };
+    files = { settings: p.join(dir, 'settings.json'), mcp: Object.keys(servers).length ? p.join(dir, 'mcp.json') : null, system: p.join(dir, 'instructions.md') };
+    put(files.settings, JSON.stringify(settings, null, 2));
+    if (files.mcp) put(files.mcp, JSON.stringify({ mcpServers: servers }, null, 2));
+    put(files.system, opts.systemAppend);
     if (prompt.length > INLINE_PROMPT_MAX) {
-      const file = path.join(dir, 'task.md');
-      fs.writeFileSync(file, prompt);
+      const file = p.join(dir, 'task.md');
+      put(file, prompt);
       prompt = `Your task is in ${file}. Read all of it first, then do what it says.`;
     }
   } catch (err) {
@@ -674,43 +875,37 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
     role: opts.role,
     additionalDirectories: opts.additionalDirectories,
     files,
-    notify: { script: path.join(BIN_DIR, 'notify.cjs'), url: hookUrl },
-    codexHook: path.join(BIN_DIR, 'codex-hook.cjs'),
-    plugin: pathToFileURL(path.join(BIN_DIR, 'opencode-plugin.mjs')).href,
+    notify: box ? { script: `${BOX_BIN}/notify.cjs`, url: events } : { script: path.join(BIN_DIR, 'notify.cjs'), url: hookUrl },
+    codexHook: box ? `${BOX_BIN}/codex-hook.cjs` : path.join(BIN_DIR, 'codex-hook.cjs'),
+    plugin: box ? '' : pathToFileURL(path.join(BIN_DIR, 'opencode-plugin.mjs')).href,
     browser,
+    ...(box ? { node: 'node', posix: true } : {}),
   });
 
   // Each agent must be a clean instance on the account its CLI is logged into: no API keys (they would switch Claude
   // Code's billing to the API) and nothing inherited from a Claude Code session the office itself was started from.
+  // In a Box nothing of the office's own environment goes along (a Windows PATH, the manager's other secrets): only
+  // what a Box needs and the credentials this CLI signs in with.
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v === undefined) continue;
-    if (/^(ANTHROPIC_|CLAUDE)/i.test(k) && k !== 'CLAUDE_CONFIG_DIR') continue;
-    if (/^(NO_COLOR|FORCE_COLOR|TERM_PROGRAM|TERM_PROGRAM_VERSION|CODEX_THREAD_ID|OPENCODE_CONFIG_CONTENT)$/i.test(k)) continue;
-    env[k] = v;
+  if (box) Object.assign(env, BOX_ENV, box.env, launch.env, { CUBEFARM_STATUS: statusLine });
+  else {
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v === undefined) continue;
+      if (/^(ANTHROPIC_|CLAUDE)/i.test(k) && k !== 'CLAUDE_CONFIG_DIR') continue;
+      if (/^(NO_COLOR|FORCE_COLOR|TERM_PROGRAM|TERM_PROGRAM_VERSION|CODEX_THREAD_ID|OPENCODE_CONFIG_CONTENT)$/i.test(k)) continue;
+      env[k] = v;
+    }
+    Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, opts.env, launch.env);
   }
-  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, opts.env, launch.env);
 
   if (cli === 'claude' && opts.resumeSessionId) cb.sessionId(sessionId);
-  term.note(`── ${label}${opts.label ? ` · ${opts.label}` : ''} ──`);
+  term.note(`── ${label}${opts.label ? ` · ${opts.label}` : ''}${box ? ' · ☁ cloud machine' : ''} ──`);
   const resumeId = cli === 'claude' ? sessionId : (opts.resumeSessionId ?? null);
-  const l: LiveCli = { agentId: opts.agentId ?? '', cli, term, proc: null, token, dir, resumeId, statusLine, shots: new Set(), session: { hook, exited } };
-  const begin = () => {
-    if (done) return; // stopped while its thread was being unarchived
-    let p: Pty;
-    try {
-      p = spawnPty(cmd.file, [...cmd.args, ...launch.args], { cols: term.cols, rows: term.rows, cwd: opts.cwd, env }, metaOf(l));
-    } catch (err) {
-      setTimeout(() => finish({ ok: false, text: '', errors: [`Could not start ${label}: ${(err as Error).message}`] }), 0);
-      return;
-    }
-    l.proc = p;
-    live = l;
-    wire(l, opts.office);
-    shotTimer = setInterval(collectShots, 2000);
+  const l: LiveCli = { agentId: opts.agentId ?? '', cli, term, proc: null, token, dir, resumeId, statusLine, shots: new Set(), session: { hook, exited }, ...(box ? { box: { api: box.api, boxId: box.boxId } } : {}) };
 
-    // Starting up: answer the folder-trust question for the office's own worktrees (the answer that trusts it), and
-    // say so when a CLI is waiting on something only the manager can do (signing in).
+  // Starting up: answer the folder-trust question for the office's own worktrees (the answer that trusts it), and say
+  // so when a CLI is waiting on something only the manager can do (signing in).
+  const watchBoot = (pty: Pty) => {
     screenTimer = setInterval(() => {
       if (done || Date.now() - started > BOOT_MS * 2) return clearInterval(screenTimer);
       const screen = term.screen();
@@ -718,7 +913,7 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
       const key = trustKeys < 12 && Date.now() - trustedAt > 3000 ? (trustKey(screen) ?? review) : null;
       if (key === 'down') {
         trustKeys += 1;
-        quietly(() => p.write(term.appCursor ? '\x1bOB' : '\x1b[B'));
+        quietly(() => pty.write(term.appCursor ? '\x1bOB' : '\x1b[B'));
       } else if (key === 'enter') {
         trustKeys += 1;
         trustedAt = Date.now(); // the question takes a moment to go: don't answer it twice
@@ -727,10 +922,12 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
           hooksHinted = true;
           log([{ kind: 'system', text: `ℹ To see ${label}'s steps here, trust the office's hooks once: in this terminal, type /hooks and press t. Until then the office shows its task.` }]);
         }
-        quietly(() => p.write('\r'));
+        quietly(() => pty.write('\r'));
       }
       if (!nudged.has('login') && /Not logged in|run \/login|Select login method|Sign in with ChatGPT|Please login|Invalid API key/i.test(screen)) {
         nudged.add('login');
+        // A cloud agent's CLI is signed in through the office's own sign-in, which then starts the task again.
+        if (box) return finish({ ok: false, text: '', errors: [`${label} isn't signed in in their cloud machine.`], signedOut: true });
         log([{ kind: 'error', text: `⚠ ${label} needs you to sign in: open the terminal and sign in there, or run "${cli}" in a terminal of your own.` }]);
       } else if (!nudged.has('setup') && !trustKey(screen) && Date.now() - trustedAt > 5000 && /Choose the text style|Press Enter to continue|Bypass Permissions mode|Settings Error/i.test(screen)) {
         // First-run screens only the manager should answer: the CLI waits for them in the terminal.
@@ -742,8 +939,44 @@ export function startCliSession(opts: SessionOptions, callbacks: SessionCallback
       if (!done && !begun && cli === 'claude') log([{ kind: 'error', text: `⚠ ${label} hasn't started on the task yet. Open the terminal to see what it's waiting for.` }]);
     }, BOOT_MS);
   };
+
+  const begin = () => {
+    if (done) return; // stopped while its thread was being unarchived
+    let pty: Pty;
+    try {
+      pty = spawnPty(cmd!.file, [...cmd!.args, ...launch.args], { cols: term.cols, rows: term.rows, cwd: opts.cwd, env }, metaOf(l));
+    } catch (err) {
+      setTimeout(() => finish({ ok: false, text: '', errors: [`Could not start ${label}: ${(err as Error).message}`] }), 0);
+      return;
+    }
+    l.proc = pty;
+    live = l;
+    wire(l, opts.office);
+    shotTimer = setInterval(collectShots, 2000);
+    watchBoot(pty);
+  };
+
+  /** The same in the agent's Box: the session's files go there first, then the CLI starts under tmux. */
+  const beginInBox = async (b: NonNullable<typeof box>) => {
+    try {
+      boxFiles.push([`${dir}/launch.json`, JSON.stringify({ file: cmd!.file, args: [...cmd!.args, ...launch.args], cwd: opts.cwd, events })]);
+      for (const [file, text] of boxFiles) await b.api.write(b.boxId, file, text);
+      if (done) return;
+      const pty = boxPty(l, b, term.cols, term.rows, 0, env);
+      l.proc = pty;
+      live = l;
+      wire(l);
+      await pty.open('new');
+      remember(l);
+      watchBoot(pty);
+    } catch (err) {
+      finish({ ok: false, text: '', errors: [`Could not start ${label} in the cloud machine: ${(err as Error).message}`] });
+    }
+  };
+
+  if (box) void beginInBox(box);
   // Codex won't resume a thread the office archived (see codexThread): it's unarchived first.
-  if (cli === 'codex' && opts.resumeSessionId) void codexThread('unarchive', opts.resumeSessionId).then(begin);
+  else if (cli === 'codex' && opts.resumeSessionId) void codexThread('unarchive', opts.resumeSessionId).then(begin);
   else begin();
 
   return handle;

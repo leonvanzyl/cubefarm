@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CliView } from '../../../shared/types';
 import type { Agent } from '../store';
-import { agentLabel, doingText, floorRows } from './floorRows';
+import { agentLabel, doingText, floorRows, signInFor } from './floorRows';
 
 const agent = (p: Partial<Agent>): Agent =>
   ({ id: 'a', name: 'Ada', role: 'agent', cli: '', status: 'idle', task: null, issueNumber: null, issueTitle: null, prNumber: null, desk: 0, ...p }) as Agent;
@@ -26,6 +26,22 @@ describe('agentLabel', () => {
     expect(agentLabel(agent({ cli: 'opencode' }), terminals, clis)).toBe('OpenCode');
     expect(agentLabel(agent({ cli: 'codex' }), { runtime: 'sdk', defaultCli: 'codex' }, clis)).toBe('Claude Code'); // the Agent SDK is Claude Code
     expect(agentLabel(agent({ role: 'ceo', cli: 'codex' }), terminals, clis)).toBe('CEO');
+  });
+});
+
+describe('signInFor', () => {
+  it('names the coding agent a cloud agent waits to have signed in, whatever the runtime', () => {
+    expect(signInFor(agent({ host: 'box', needsSignIn: true }), { defaultCli: 'claude' })).toBe('Claude Code');
+    expect(signInFor(agent({ host: 'box', needsSignIn: true, cli: 'codex' }), { defaultCli: 'claude' })).toBe('Codex');
+    expect(signInFor(agent({ host: 'box', needsSignIn: false }), { defaultCli: 'claude' })).toBeNull();
+    expect(signInFor(agent({ host: 'local', needsSignIn: true }), { defaultCli: 'claude' })).toBeNull(); // a stale flag from before a move
+  });
+
+  it('lists someone waiting to be signed in as needing the manager', () => {
+    const [row] = floorRows([agent({ host: 'box', needsSignIn: true, status: 'preparing', task: 'issue', issueNumber: 7, issueTitle: 'Dark mode' })], terminals, []);
+    expect(row.status).toBe('Needs you to sign in');
+    expect(row.kind).toBe('attention');
+    expect(row.doing).toBe('Waiting for Claude Code to be signed in · Issue #7: Dark mode');
   });
 });
 

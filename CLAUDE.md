@@ -86,7 +86,17 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
   triage), `scalePlan` (team-size arithmetic), `ceoSystemPrompt`, `ceoJobPrompt`.
 - `backend.ts`: the `Backend` interface (everything touching GitHub, git, disk and sessions) and `realBackend`.
 - `machines.ts`: agents' machines, `MachineProvider`: each agent's own clone, worktree and temp folder (the local
-  provider is folders under `<SWARM_HOME>/machines/<machine>/`, in `workspace.ts`; containers and cloud VMs come later).
+  provider is folders under `<SWARM_HOME>/machines/<machine>/`, in `workspace.ts`; cloud agents' are Upstash Boxes).
+- Cloud agents (docs/cloud.md, opt-in; `PersistedAgent.host === 'box'`): `cloud.ts` is the account (the Upstash key and
+  pasted keys in `secrets.json`, `CUBEFARM_CLAUDE_TOKEN` read from the environment and never saved, credential
+  resolution, `CloudView`); `box.ts` the only importer of `@upstash/box` (`BoxApi`, which the demo fakes);
+  `boxMachines.ts` the Box `MachineProvider` (create, set up, prepare, pause, leftovers); `boxScripts.ts` the shell
+  scripts run in a Box (pure, tested); `boxHelpers.ts` the programs put in a Box (launcher, hooks writing to the
+  session's `events.jsonl`); `boxCli.ts` `BoxPty` (the CLI under tmux, its events read from a byte offset, reattached
+  after drops and restarts). Credentials only ever travel as one Box command's environment. Without a key for its CLI,
+  a cloud agent's CLI uses its own login in the Box: `Swarm`'s sign-in checks it before each task (`needsSignIn`
+  holds the task) and runs the CLI's own login in their terminal (`cliRunner.ts` `startBoxSignIn`); the office never
+  reads that login.
 - `demo.ts`: `createDemoBackend()`: fake GitHub, fake sessions (drawn into the agent's terminal in the terminal runtime), fake previews and machines for `--demo`;
   `--floors N --agents N` (or `SWARM_DEMO_FLOORS` / `SWARM_DEMO_AGENTS`) makes it a big company for scale tests.
 - `github.ts`: all GitHub access through the `gh` CLI.

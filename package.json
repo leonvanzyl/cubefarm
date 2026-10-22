@@ -1,6 +1,6 @@
 {
   "name": "cubefarm",
-  "version": "0.3.19",
+  "version": "0.3.20",
   "description": "A cartoon 3D office where a team of AI coding agents works through your GitHub issues.",
   "keywords": [
     "claude-code",
@@ -51,6 +51,7 @@
     "@lydell/node-pty": "1.2.0-beta.15",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "@playwright/mcp": "0.0.83",
+    "@upstash/box": "^0.7.9",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "express": "^5.2.1",

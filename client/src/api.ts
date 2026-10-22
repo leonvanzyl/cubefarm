@@ -1,7 +1,7 @@
 import { useStore } from './store';
 import type { PongResult } from '../../shared/pong';
 import type { AgentStyle } from '../../shared/looks';
-import type { AgentCli, AgentPromptView, AgentView, DoctorFinding, DoctorFix, EffortLevel, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, PrPreviewView, RepoView, SwarmSettings, UsageView, VoiceCacheView, VoiceOption } from '../../shared/types';
+import type { AgentCli, AgentPromptView, AgentView, CloudView, DoctorFinding, DoctorFix, EffortLevel, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, PrPreviewView, RepoView, SwarmSettings, UsageView, VoiceCacheView, VoiceOption, MachineHost } from '../../shared/types';
 import type { JournalChunk, JournalDayView } from '../../shared/journal';
 import type { DecorItem, ProgressView } from '../../shared/progress';
 
@@ -39,11 +39,12 @@ async function clip(url: string): Promise<Blob> {
 
 const r = (repoId: string) => `/api/repos/${encodeURIComponent(repoId)}`;
 
-/** An agent's coding agent, model and effort ('' = the office default). */
+/** An agent's coding agent, model and effort ('' = the office default), and where they work (docs/cloud.md). */
 export interface AgentSetupPatch {
   cli?: AgentCli | '';
   model?: string;
   effort?: EffortLevel | '';
+  host?: MachineHost | '';
 }
 
 /** Choices made when a project moves in: a brief for the CEO, and whether work starts on its own. */
@@ -106,6 +107,8 @@ export const api = {
   stop: (id: string) => call('POST', `/api/agents/${id}/stop`),
   reset: (id: string) => call('POST', `/api/agents/${id}/reset`),
   message: (id: string, text: string) => call('POST', `/api/agents/${id}/message`, { text }),
+  /** Start a cloud agent's sign-in again in their terminal (docs/cloud.md). */
+  signIn: (id: string) => call('POST', `/api/agents/${id}/sign-in`),
   agentPrompt: (id: string) => call<AgentPromptView>('GET', `/api/agents/${id}/prompt`),
   updateSettings: (patch: Partial<SwarmSettings>) => call('PATCH', '/api/settings', patch),
   updateOffice: async (action: 'now' | 'later') => {
@@ -143,6 +146,13 @@ export const api = {
   /** Saves (or with empty fields removes) a chat app's webhook. No toast: the settings show why it was refused. */
   setWebhook: (channel: NotifyWebhook, body: Record<string, string>) => call<NotifyChannelsView>('PUT', `/api/notify/webhooks/${channel}`, body, false),
   testNotify: (channel: NotifyChannel) => call<{ ok: true; sent: number }>('POST', '/api/notify/test', { channel }, false),
+  // Settings → Cloud agents (docs/cloud.md). No toasts on keys: the settings show why one was refused.
+  setCloudKey: (key: string) => call<CloudView>('PUT', '/api/cloud/key', { key }, false),
+  setCloudToken: (kind: 'github' | 'anthropic' | 'openai', value: string) => call<CloudView>('PUT', '/api/cloud/token', { kind, value }, false),
+  testCloud: () => call<CloudView>('POST', '/api/cloud/test', undefined, false),
+  deleteCloudOrphans: () => call<{ deleted: number }>('POST', '/api/cloud/orphans'),
+  /** The demo only: every cloud agent's sign-in expires. */
+  expireSignIns: () => call('POST', '/api/cloud/demo-expire'),
   pushKey: () => call<{ publicKey: string }>('GET', '/api/notify/push/key'),
   pushSubscribe: (subscription: PushSubscriptionJSON) => call<NotifyChannelsView>('POST', '/api/notify/push/devices', { subscription }),
   pushUnsubscribe: (endpoint: string) => call<NotifyChannelsView>('DELETE', '/api/notify/push/devices', { endpoint }),

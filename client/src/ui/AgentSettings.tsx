@@ -1,12 +1,13 @@
 import { Fragment, useEffect, useId, useMemo, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 import { isBusy, useStore, type Agent } from '../store';
-import type { AgentCli, AgentPromptView, CliView, EffortLevel } from '../../../shared/types';
+import type { AgentCli, AgentPromptView, CliView, CloudMachineState, EffortLevel, MachineHost } from '../../../shared/types';
 import { ACCENT_COLORS, BUILDS, FACIAL_HAIR, GLASSES, HAIR_COLORS, HAIR_STYLES, HEADWEAR, OUTFITS, SKIN_TONES, type AgentStyle, type HairStyle, type Outfit } from '../../../shared/looks';
 import { CLAUDE_MODELS, effectiveModel, modelSuggestions } from '../../../shared/models';
 import { TALL_HAIR, appearanceFor, randomStyle } from '../world/appearance';
 import { LookPreview } from '../world/LookPreview';
 import { workerCli } from './floorRows';
+import { confirmDialog } from './Confirm';
 
 // One agent's setup (name, look, coding agent, model, effort), edited in place: the Team tab's row cells and the
 // ⚙️ Setup section of their panel share these. Every change is a PATCH; the `agent` event updates all views.
@@ -68,6 +69,42 @@ export function CliSelect({ agent, id, style }: FieldProps) {
     <select id={id} value={agent.cli} title="Their coding agent" aria-label={id ? undefined : 'Coding agent'} style={style} onChange={(e) => void save(agent.id, { cli: e.target.value as AgentCli | '' })}>
       <option value="">{cliName(clis, settings.defaultCli)} (default)</option>
       <CliOptions clis={clis} />
+    </select>
+  );
+}
+
+/** A cloud agent's Box, in words. */
+export const CLOUD_STATE: Record<CloudMachineState, string> = {
+  none: 'no Box yet',
+  creating: 'creating their Box…',
+  'setting-up': 'setting up their Box…',
+  ready: 'Box ready',
+  paused: 'Box paused (wakes for their next task)',
+  disconnected: 'reconnecting to their Box…',
+  error: "their Box couldn't be set up",
+};
+
+/** Where they work: this computer or an Upstash Box of their own (docs/cloud.md). A move waits until they have no task. */
+export function HostSelect({ agent, id, style }: FieldProps) {
+  const settings = useStore((s) => s.settings);
+  const keySet = useStore((s) => s.cloud.keySet);
+  const box = agent.host === 'box';
+  const opencode = workerCli(agent, settings) === 'opencode';
+  const busy = !!agent.task || isBusy(agent);
+  const move = async (to: MachineHost) => {
+    const ok = await confirmDialog({
+      title: to === 'box' ? `Move ${agent.name} to the cloud?` : `Move ${agent.name} back to this computer?`,
+      body: `Their machine ${to === 'box' ? 'here' : 'in the cloud'} is removed (work that isn't on GitHub is saved to leftovers first), and their next session starts fresh${to === 'box' ? ' in an Upstash Box of their own' : ''}.`,
+      confirm: 'Move',
+    });
+    if (ok) await save(agent.id, { host: to });
+  };
+  return (
+    <select id={id} value={box ? 'box' : 'local'} disabled={busy} style={style} title={busy ? 'Move them once their task is done' : 'Where they work'} aria-label={id ? undefined : 'Works on'} onChange={(e) => void move(e.target.value as MachineHost)}>
+      <option value="local">🖥️ This computer</option>
+      <option value="box" disabled={!box && (!keySet || opencode)}>
+        ☁️ Upstash Box{!box && !keySet ? ' (connect Upstash in Settings first)' : !box && opencode ? " (OpenCode can't run there)" : ''}
+      </option>
     </select>
   );
 }
@@ -307,10 +344,18 @@ export function AgentSetup({ agent }: { agent: Agent }) {
             <LookSelect agent={agent} id={`${id}-look`} />
           </label>
         )}
-        {!ceo && terminal && (
+        {!ceo && (terminal || agent.host === 'box') && (
           <label className="field" htmlFor={`${id}-cli`}>
             <span>Coding agent</span>
             <CliSelect agent={agent} id={`${id}-cli`} />
+          </label>
+        )}
+        {!ceo && (
+          <label className="field" htmlFor={`${id}-host`}>
+            <span>
+              Works on{agent.host === 'box' && agent.cloud && <span className="muted"> · {CLOUD_STATE[agent.cloud]}</span>}
+            </span>
+            <HostSelect agent={agent} id={`${id}-host`} />
           </label>
         )}
         <label className="field" htmlFor={`${id}-model`}>

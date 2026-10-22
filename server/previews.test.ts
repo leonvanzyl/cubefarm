@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Backend } from './backend.ts';
 import { PR_PREVIEW_IDLE_MS, PREVIEW_PORT } from './config.ts';
 import type { PreviewCallbacks, PreviewJob } from './previewRunner.ts';
-import { Previews, type PreviewFloor } from './previews.ts';
+import { parsePreviewPatch, Previews, type PreviewFloor } from './previews.ts';
+import { PREVIEW_ENV_MAX_CHARS } from '../shared/previewEnv.ts';
 import type { PrPreviewView, PullInfo } from '../shared/types.ts';
 
 // The PR theatre's previews against a fake backend: which worktree, branch and port each one gets, what makes room
@@ -167,5 +168,25 @@ describe('a PR preview stops', () => {
     await previews.clearOrphans([floor(1)]);
     await settle();
     expect(calls).toEqual(expect.arrayContaining(['release acme/app1 preview', 'release acme/app1 preview-pr-1', 'release acme/app1 preview-pr-2', 'remove acme/app1 preview-pr-1', 'remove acme/app1 preview-pr-2']));
+  });
+});
+
+describe('parsePreviewPatch', () => {
+  const vars = (n: number, value: string) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`VAR_${i}`, value]));
+
+  it("takes a real project's .env of well over 50 variables", () => {
+    const env = vars(120, 'https://api.example.com/v1/some-endpoint');
+    expect(parsePreviewPatch(undefined, env).env).toEqual(env);
+  });
+
+  it('refuses an env over the character budget, saying how big it is and the ceiling', () => {
+    const env = vars(10, 'x'.repeat(PREVIEW_ENV_MAX_CHARS / 10));
+    expect(() => parsePreviewPatch(undefined, env)).toThrow(/16,0\d\d characters \(10 variables.*over the 16,000/);
+  });
+
+  it('still refuses bad names and Claude credentials', () => {
+    expect(() => parsePreviewPatch(undefined, { '1BAD': 'x' })).toThrow(/not a valid environment variable name/);
+    expect(() => parsePreviewPatch(undefined, { ANTHROPIC_API_KEY: 'x' })).toThrow(/never reach/);
+    expect(() => parsePreviewPatch(undefined, { A: 1 })).toThrow(/must be a string/);
   });
 });

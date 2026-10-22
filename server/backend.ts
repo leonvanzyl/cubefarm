@@ -2,7 +2,9 @@ import { existsSync } from 'node:fs';
 import * as github from './github.ts';
 import * as workspace from './workspace.ts';
 import { startSession, type SessionCallbacks, type SessionHandle, type SessionOptions } from './agentRunner.ts';
-import { hooksReady, officeProcesses, reconnectClis, releaseClis, startCliSession, terminalsAvailable, type ReconnectedCli } from './cliRunner.ts';
+import { detachBoxClis, hooksReady, officeProcesses, reconnectBoxClis, reconnectClis, releaseClis, startBoxSignIn, startCliSession, terminalsAvailable, type BoxSignIn, type KeptBoxCli, type ReconnectedCli } from './cliRunner.ts';
+import { upstashBoxes, type BoxApi } from './box.ts';
+import { run } from './exec.ts';
 import { localMachines, type MachineProvider } from './machines.ts';
 import { detectClis } from './clis.ts';
 import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
@@ -94,6 +96,8 @@ export interface Backend {
   weather: WeatherApi;
   /** Notifications to the chat apps and push services (docs/pocket.md). */
   notify: NotifyTransport;
+  /** Cloud agents (docs/cloud.md): Upstash's Box API (the demo's is fake), and picking their CLIs up after a restart. */
+  cloud: CloudBackend;
   /** The demo only: a made-up past week for mission control, so a fresh demo office has numbers from the start. */
   seedOps?(repos: string[], now: number): OpsHistory;
   /** The demo only: how many agents a fresh demo office hires on floor `floor`. */
@@ -103,6 +107,40 @@ export interface Backend {
   /** The demo only: the office doctor's scenarios (a restart with desks gone and work finished, a stuck session). */
   demoDoctor?: DemoDoctor;
 }
+
+export interface CloudBackend {
+  /** The Box API behind an Upstash Box API key. */
+  boxes(key: string): BoxApi;
+  /** The environment cloud credentials are read from (CUBEFARM_CLAUDE_TOKEN): the office's own, or the demo's. */
+  env(): Record<string, string | undefined>;
+  /** The manager's gh login token ('' when gh isn't signed in), for cloud agents' GitHub when no token is saved. */
+  ghToken(): Promise<string>;
+  /** Who cloud agents' commits are by: the manager's git identity, else their GitHub login. */
+  gitIdentity(login: string | null): Promise<{ name: string; email: string }>;
+  /** The office started: cloud agents' CLIs that kept working in their Boxes, back in their terminals. */
+  reconnect(kept: KeptBoxCli[], terminalFor: (agentId: string) => AgentTerminal | null): Promise<ReconnectedCli[]>;
+  /** The office is stopping: stop following cloud agents' CLIs, which carry on. */
+  detach(): void;
+  /** A cloud agent's CLI signing in with its own login, in their terminal (docs/cloud.md). */
+  signIn(o: { api: BoxApi; boxId: string; cli: 'claude' | 'codex'; term: AgentTerminal; agentId: string }, exited: (code: number) => void): BoxSignIn;
+  /** The demo only: every Box's sign-in expires, as a login Anthropic or OpenAI turned away would. */
+  expireSignIns?(): void;
+}
+
+/** The real cloud: Upstash, the manager's gh and git. */
+export const realCloud: CloudBackend = {
+  boxes: upstashBoxes,
+  env: () => process.env,
+  ghToken: () => run('gh', ['auth', 'token'], { timeoutMs: 15_000 }).then((t) => t.trim()),
+  gitIdentity: async (login) => {
+    const get = (key: string) => run('git', ['config', '--global', key], { timeoutMs: 10_000 }).then((v) => v.trim(), () => '');
+    const [name, email] = await Promise.all([get('user.name'), get('user.email')]);
+    return { name: name || login || 'cubefarm', email: email || (login ? `${login}@users.noreply.github.com` : '') };
+  },
+  reconnect: reconnectBoxClis,
+  detach: detachBoxClis,
+  signIn: startBoxSignIn,
+};
 
 /** The demo's fakes for trying the office doctor (#262). */
 export interface DemoDoctor {
@@ -165,4 +203,5 @@ export const realBackend: Backend = {
   voice: elevenLabs,
   weather: openMeteo,
   notify: httpTransport,
+  cloud: realCloud,
 };

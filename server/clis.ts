@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { run } from './exec.ts';
 import type { AgentCli, CliView, EffortLevel } from '../shared/types.ts';
+import type { BoxVersions } from './boxScripts.ts';
 
 // The coding-agent CLIs an agent can run in its terminal, how to find them on this machine, and how to start one on
 // a task. Claude Code is fully wired in: its hooks report every tool call to the office.
@@ -149,6 +150,40 @@ export interface LaunchContext {
   plugin: string; // file URL of the OpenCode plugin
   /** The Playwright MCP server, when the floor tests in a browser. Claude Code gets it through its MCP config file. */
   browser: { command: string; args: string[] } | null;
+  /** The node that runs the office's helper scripts where the CLI runs (default: the office's own). */
+  node?: string;
+  /** The CLI runs on Linux (a cloud agent's Box), whatever this computer is. */
+  posix?: boolean;
+}
+
+/** Pinned for cloud agents' Boxes (docs/cloud.md); Claude Code and Playwright's MCP follow the office's own (boxVersions). */
+export const BOX_CODEX_VERSION = '0.163.0';
+
+/** A field of an installed package's package.json, found from its entry file (its exports may not offer package.json). */
+function packageField(pkg: string, field: string): string | null {
+  try {
+    let dir = path.dirname(createRequire(import.meta.url).resolve(pkg));
+    for (let i = 0; i < 6; i++) {
+      const file = path.join(dir, 'package.json');
+      if (fs.existsSync(file)) {
+        const json = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+        if (json.name === pkg) return typeof json[field] === 'string' ? (json[field] as string) : null;
+      }
+      dir = path.dirname(dir);
+    }
+  } catch {
+    // not installed
+  }
+  return null;
+}
+
+/** The CLI versions a cloud agent's Box runs: Claude Code as the Agent SDK bundles it, Playwright's MCP as the office pins it. */
+export function boxVersions(): BoxVersions {
+  return {
+    claude: packageField('@anthropic-ai/claude-agent-sdk', 'claudeCodeVersion') ?? 'latest',
+    playwrightMcp: packageField('@playwright/mcp', 'version') ?? 'latest',
+    codex: BOX_CODEX_VERSION,
+  };
 }
 
 export interface Launch {
@@ -209,13 +244,13 @@ export function launchArgs(id: AgentCli, ctx: LaunchContext): Launch {
       const args = [
         '--no-alt-screen',
         '-c',
-        `notify=[${[process.execPath, ctx.notify.script, ctx.notify.url].map(toml).join(',')}]`,
+        `notify=[${[ctx.node ?? process.execPath, ctx.notify.script, ctx.notify.url].map(toml).join(',')}]`,
         '-c',
         `developer_instructions=${toml(ctx.systemAppend)}`,
         ...(ctx.model ? ['-m', ctx.model] : []),
         ...(ctx.effort ? ['-c', `model_reasoning_effort=${toml(EFFORT_CODEX[ctx.effort])}`] : []),
         ...(ctx.browser ? ['-c', `mcp_servers.playwright={command=${toml(ctx.browser.command)},args=[${ctx.browser.args.map(toml).join(',')}]}`] : []),
-        ...CODEX_HOOK_EVENTS.flatMap((e) => ['-c', `hooks.${e}=[{hooks=[{type="command",command=${toml(codexHookCommand(process.execPath, ctx.codexHook))},timeout=10}]}]`]),
+        ...CODEX_HOOK_EVENTS.flatMap((e) => ['-c', `hooks.${e}=[{hooks=[{type="command",command=${toml(codexHookCommand(ctx.node ?? process.execPath, ctx.codexHook, ctx.posix ? false : WIN))},timeout=10}]}]`]),
         // Like the manager's own Codex, but it can't stop to ask: no approvals and no sandbox (its sandbox can't reach
         // the credential store, so git and gh fail in it).
         '--dangerously-bypass-approvals-and-sandbox',
@@ -309,6 +344,17 @@ export function hookReviewKey(screen: string): 'enter' | 'down' | null {
  */
 export function interruptions(screen: string): number {
   return screen.split('\n').filter((l) => /\binterrupted\b/i.test(l)).length;
+}
+
+/**
+ * A CLI saying its login is gone or was turned away, in its own words: Claude Code's "· Please run /login" family
+ * ("Login expired", "OAuth token revoked", "Failed to authenticate"), Codex's "access token could not be refreshed…
+ * sign in again" and its sign-in screen. Only read at the end of a session that failed or said nothing.
+ */
+export function signedOutScreen(screen: string): boolean {
+  return /Please run \/login|Sign in again to continue|Login expired|OAuth (?:access )?token (?:has )?(?:expired|been revoked|revoked)|Failed to authenticate|access token could not be refreshed|log out and sign in again|Sign in with ChatGPT|run '?`?codex login/i.test(
+    screen,
+  );
 }
 
 // ---------- helper scripts the CLIs run ----------

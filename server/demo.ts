@@ -15,6 +15,10 @@ import type { UsageWarning } from './pacing.ts';
 import { VoiceApiError, type VoiceApi } from './voice.ts';
 import type { WeatherApi } from './weather.ts';
 import type { NotifyTransport } from './notifier.ts';
+import { CloudError, type BoxApi, type BoxInfo } from './box.ts';
+import type { CloudBackend } from './backend.ts';
+import type { BoxSignIn } from './cliRunner.ts';
+import type { AgentTerminal } from './terminal.ts';
 
 // `npm run demo`: a fake GitHub and fake Claude Code sessions, so the office (including the
 // build → QA → fix loop) can be explored without spending any usage or touching real repos.
@@ -39,6 +43,7 @@ const bareRepos = new Set<string>();
 const mergedSinceSync = new Map<string, number>(); // merges the fake project folder hasn't pulled yet
 const closedIssues = new Set<string>(); // `${fullName}#${n}`: issues closed by a merge
 const stalls = new Map<string, () => void>(); // agent id -> silences their running fake session (the office doctor's demo)
+const signOuts = new Map<string, { boxId: string; end: () => void }>(); // agent id -> ends their cloud session as an expired sign-in would
 
 const fakeSha = () => crypto.randomBytes(20).toString('hex');
 
@@ -304,6 +309,12 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
       timers.forEach(clearTimeout);
     });
   }
+  // A cloud agent's session ends the way an expired login ends a real one when the fake account expires sign-ins.
+  const signOut = opts.box && opts.agentId ? { boxId: opts.box.boxId, end: () => expired() } : null;
+  if (signOut) signOuts.set(opts.agentId!, signOut);
+  const forgetSignOut = () => {
+    if (signOut && signOuts.get(opts.agentId!) === signOut) signOuts.delete(opts.agentId!);
+  };
   const nudged = /^You pushed nothing/.test(opts.prompt); // the office's nudge after a fix that pushed nothing
   const resumedFix = opts.resumeSessionId?.startsWith('demo-fix-') ?? false;
   // The task picks the script; a session started without one (a follow-up) is read from its prompt.
@@ -327,7 +338,19 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
   const body = kind === 'qa' ? qaScript(cb, number, title, round, checks) : kind === 'fix' ? fixScript(number, pushes, nudged) : issueScript(opts, cb, number, title);
   const script = [header, ...body];
 
+  const expired = () => {
+    if (stopped) return;
+    stopped = true;
+    forgetSignOut();
+    timers.forEach(clearTimeout);
+    cb.tool(null);
+    cb.log([{ kind: 'error', text: 'API Error: 401 · Login expired · Please run /login (demo)' }]);
+    const name = CLIS.find((c) => c.id === (opts.cli ?? 'claude'))?.label ?? 'Claude Code';
+    cb.finished({ ok: false, text: '', costUsd: 0.1, turns: i, errors: [`${name} stopped: authentication failed`], signedOut: true });
+  };
+
   const finish = () => {
+    forgetSignOut();
     const costUsd = 0.3 + Math.random();
     const turns = 15 + Math.floor(Math.random() * 20);
     cb.tool(null);
@@ -441,6 +464,7 @@ function fakeSession(opts: SessionOptions, cb: SessionCallbacks, fullName: strin
     },
     stop() {
       stopped = true;
+      forgetSignOut();
       if (opts.agentId) stalls.delete(opts.agentId);
       timers.forEach(clearTimeout);
       cb.finished({ ok: false, text: '', costUsd: 0.1, turns: i, errors: ['Stopped by manager'] });
@@ -792,6 +816,8 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
       sweep: async () => 0,
       remove: async () => ({ removed: true, patches: [] }),
       list: async () => [],
+      exists: async () => true,
+      installDeps: async () => 'none',
     },
     installDeps: async (dir, cb) => {
       if (installedDesks.has(dir)) {
@@ -812,7 +838,7 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     startSession: (opts, cb) => {
       // The big company is for measuring the office at full speed, so it never paces.
       if (++sessionsStarted === USAGE_WARNING_AT && !scale) fakeUsageWarning(cb);
-      return inTerminal(opts, cb, (c) => (opts.role === 'ceo' ? ceoSession(opts, c) : fakeSession(opts, c, deskRepo.get(opts.cwd) ?? [...repos.keys()][0])));
+      return inTerminal(opts, cb, (c) => (opts.role === 'ceo' ? ceoSession(opts, c) : fakeSession(opts, c, deskRepo.get(opts.cwd) ?? boxDeskRepo(opts.cwd) ?? [...repos.keys()][0])));
     },
     terminals: true,
     reconnectClis: async () => [], // fake sessions end with the office
@@ -825,6 +851,7 @@ export function createDemoBackend(scale: DemoScale | null = null): Backend {
     voice: demoVoice,
     weather: demoWeather,
     notify: demoNotify,
+    cloud: demoCloud(),
     seedOps: (ids, at) => demoPastWeek(ids, at),
     demoTeam: (floor) => demoTeam(scale, floor),
     simulateUsage: demoUsage,
@@ -1453,3 +1480,166 @@ const demoWeather: WeatherApi = {
     return { code: DEMO_ROTATION[slot % DEMO_ROTATION.length], wind: 10 };
   },
 };
+
+// ---------- cloud agents ----------
+
+/** The repo a cloud agent's desk in its Box is for (/workspace/home/work/<owner>__<repo>). */
+function boxDeskRepo(cwd: string): string | null {
+  const m = cwd.match(/\/work\/([\w.-]+)__([\w.-]+)$/);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/**
+ * A fake Upstash account (docs/cloud.md): any key opens it, and its Boxes are created, set up, paused and deleted
+ * with a little delay, so a demo office shows cloud agents' Boxes coming up. Their sessions are the demo's fake ones.
+ * A new Box's coding agents aren't signed in (`logins`: Box id -> the CLIs signed in there) until the fake sign-in.
+ */
+function demoBoxes(logins: Map<string, Set<string>>): BoxApi {
+  const boxes = new Map<string, BoxInfo>();
+  const installed = new Set<string>();
+  let seq = 0;
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const box = (id: string) => {
+    const b = boxes.get(id);
+    if (!b) throw new CloudError('That Box is gone.', 'gone');
+    return b;
+  };
+  return {
+    list: async () => [...boxes.values()].map((b) => ({ ...b })),
+    create: async (o) => {
+      await wait(2500);
+      const b: BoxInfo = { id: `demo-box-${++seq}`, name: o.name, labels: o.labels, status: 'running' };
+      boxes.set(b.id, b);
+      return { ...b };
+    },
+    get: async (id) => (boxes.has(id) ? { ...boxes.get(id)! } : null),
+    resume: async (id) => {
+      await wait(800);
+      box(id).status = 'running';
+    },
+    pause: async (id) => {
+      box(id).status = 'paused';
+    },
+    remove: async (id) => {
+      boxes.delete(id);
+      logins.delete(id);
+    },
+    run: async (id, script) => {
+      box(id).status = 'running';
+      const cli = /claude'? auth /.test(script) ? 'claude' : 'codex';
+      if (script.includes('CUBEFARM_SIGNED_IN')) return { code: 0, output: logins.get(id)?.has(cli) ? 'CUBEFARM_SIGNED_IN' : 'CUBEFARM_SIGNED_OUT' };
+      if (/auth logout|' logout/.test(script)) {
+        logins.get(id)?.delete(cli);
+        return { code: 0, output: '' };
+      }
+      if (script.includes('CUBEFARM_SETUP_OK')) {
+        await wait(3500);
+        return { code: 0, output: 'CUBEFARM_SETUP_OK' };
+      }
+      if (script.includes('git worktree add')) {
+        await wait(900);
+        return { code: 0, output: '' };
+      }
+      if (script.includes('DEPS_')) {
+        if (installed.has(id)) return { code: 0, output: 'DEPS_SKIPPED' };
+        if (!script.includes('npm ci')) return { code: 0, output: 'DEPS_STALE' };
+        await wait(1500);
+        installed.add(id);
+        return { code: 0, output: 'DEPS_INSTALLED' };
+      }
+      return { code: 0, output: script.includes('leftovers.patch') ? 'NONE' : '' };
+    },
+    read: async () => null,
+    write: async () => undefined,
+    files: async () => [],
+    session: async () => {
+      throw new CloudError("The demo's Boxes have no terminals: its sessions are fake.", 'other');
+    },
+    browser: async () => true,
+  };
+}
+
+/**
+ * The demo's cloud: one fake account and gh login, nothing to pick up after a restart. No Claude token or keys, so
+ * each cloud agent signs in in their terminal (demoSignIn), and expireSignIns signs every Box out again.
+ */
+function demoCloud(): CloudBackend {
+  const logins = new Map<string, Set<string>>();
+  const account = demoBoxes(logins);
+  return {
+    boxes: () => account,
+    env: () => ({}),
+    ghToken: async () => 'demo-github-token-0000',
+    gitIdentity: async (login) => ({ name: login ?? 'Demo Manager', email: 'demo@example.com' }),
+    reconnect: async () => [], // fake sessions end with the office
+    detach: () => undefined,
+    signIn: (o, exited) => demoSignIn(o, logins, exited),
+    expireSignIns: () => {
+      const ours = new Set(logins.keys());
+      logins.clear();
+      for (const s of [...signOuts.values()]) if (ours.has(s.boxId)) s.end();
+    },
+  };
+}
+
+/** Where the demo's sign-ins send the manager: nowhere real. */
+const DEMO_SIGN_IN = { claude: 'https://example.com/cubefarm-demo/claude-sign-in', codex: 'https://example.com/cubefarm-demo/codex-device' };
+
+/**
+ * The demo's sign-in in a cloud agent's terminal, drawn as each CLI's own one looks, with a made-up link: Enter (after
+ * pasting anything, for Claude Code) finishes it, and the fake account remembers the Box as signed in.
+ */
+function demoSignIn(o: { boxId: string; cli: 'claude' | 'codex'; term: AgentTerminal }, logins: Map<string, Set<string>>, exited: (code: number) => void): BoxSignIn {
+  const { term } = o;
+  const claude = o.cli === 'claude';
+  term.note(`── Signing ${claude ? 'Claude Code' : 'Codex'} in · ☁ cloud machine (demo) ──`);
+  term.write(
+    (claude
+      ? ['Opening browser to sign in…', `If the browser didn't open, visit: ${DEMO_SIGN_IN.claude}`, '', '\x1b[2m(demo) Paste anything and press Enter.\x1b[0m', 'Paste code here if prompted > ']
+      : [
+          'Welcome to Codex (demo)',
+          '',
+          'Follow these steps to sign in with ChatGPT using device code authorization:',
+          '',
+          '1. Open this link in your browser and sign in to your account',
+          `   ${DEMO_SIGN_IN.codex}`,
+          '',
+          '2. Enter this one-time code (expires in 15 minutes)',
+          '   DEMO-0000',
+          '',
+          '\x1b[2m(demo) Press Enter here once you have.\x1b[0m',
+        ]
+    ).join('\r\n'),
+  );
+  let line = '';
+  let over = false;
+  const close = () => {
+    over = true;
+    term.bind(null);
+  };
+  term.bind({
+    write: (data) => {
+      for (const ch of data.replace(/\x1b\[[0-9;?]*[A-Za-z~]|\x1b./g, '')) {
+        if (over) return;
+        if (ch === '\r') {
+          if (claude && !line.trim()) continue;
+          term.write(`\r\n\x1b[32m${claude ? 'Login successful.' : 'Successfully logged in'}\x1b[0m\r\n`);
+          const set = logins.get(o.boxId) ?? new Set<string>();
+          set.add(o.cli);
+          logins.set(o.boxId, set);
+          close();
+          exited(0);
+        } else if (ch === '\x7f' || ch === '\b') line = line.slice(0, -1);
+        else if (ch >= ' ') line += ch; // never echoed, as the real prompt doesn't
+      }
+    },
+    resize: () => undefined,
+  });
+  return {
+    stop: () => {
+      if (over) return;
+      close();
+      term.note('── sign-in closed ──');
+    },
+  };
+}

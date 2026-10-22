@@ -21,6 +21,7 @@ import { StatusPill } from './TerminalView';
 import { ThemeSettings } from './ThemeSettings';
 import { TimeLapseTab } from './TimeLapse';
 import { VoiceSettings } from './VoiceSettings';
+import { CloudSettings } from './CloudSettings';
 import { AccessibilitySettings } from './AccessibilitySettings';
 import { OutsideSettings } from './OutsideSettings';
 
@@ -459,6 +460,11 @@ function TeamTab() {
                     </td>
                     <td>
                       <NameInput agent={a} />
+                      {a.host === 'box' && (
+                        <span className="cloud-badge" title="Works in an Upstash Box: carries on when the office is closed">
+                          ☁
+                        </span>
+                      )}
                     </td>
                     <td>
                       <button className="btn btn-small btn-ghost" aria-expanded={openLook === a.id} title={`${a.name}'s look`} onClick={() => setOpenLook(openLook === a.id ? null : a.id)}>
@@ -481,6 +487,13 @@ function TeamTab() {
                       <EffortSelect agent={a} style={{ width: 124 }} />
                     </td>
                     <td className="nowrap">
+                      {a.host === 'box' && a.needsSignIn && (
+                        <>
+                          <button className="btn btn-small btn-good" title={`${a.name}'s cloud machine needs you to sign their coding agent in`} onClick={() => openOverlay({ kind: 'terminal', agentId: a.id })}>
+                            🔑 Sign in
+                          </button>{' '}
+                        </>
+                      )}
                       <button className="btn btn-small" onClick={() => openOverlay({ kind: 'terminal', agentId: a.id })}>
                         Terminal
                       </button>{' '}
@@ -782,6 +795,7 @@ function SettingsTab() {
         </div>
       </div>
       <ProfileSettings />
+      <CloudSettings />
       <VoiceSettings />
       <OutsideSettings />
       <NotifySettings />

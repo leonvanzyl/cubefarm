@@ -21,6 +21,7 @@ import { shade, toon } from './materials';
 import { deskMug, subscribeMugs } from './people';
 import { MUG_SIZE, MugLook, mugColor } from './toys/mugLook';
 import { useKeyName } from '../ui/controls';
+import { signInFor } from '../ui/floorRows';
 
 const SCREEN = { w: 1.0, h: 0.6, px: 896, py: 538 };
 const WOOD = '#f1d19b';
@@ -141,6 +142,86 @@ function Monitor({ accent, children }: { accent: string; children: React.ReactNo
         <Part look={LED} color="#7CFFB2" position={[SCREEN.w / 2 - 0.02, -SCREEN.h / 2 - 0.018, 0.026]} />
       </group>
     </group>
+  );
+}
+
+/** A little cloud on a cloud agent's monitor (docs/cloud.md): their machine is an Upstash Box, not this desk's. */
+function CloudPuff() {
+  const x = SCREEN.w / 2 - 0.08;
+  const y = MONITOR.y + SCREEN.h / 2 + 0.07;
+  return (
+    <group position={[x, y, MONITOR.z]}>
+      <Ball r={0.045} position={[-0.045, 0, 0]} color="#ffffff" outline />
+      <Ball r={0.06} position={[0.01, 0.025, 0]} color="#ffffff" outline />
+      <Ball r={0.042} position={[0.065, -0.003, 0]} color="#eaf3ff" outline />
+    </group>
+  );
+}
+
+/**
+ * A cloud agent whose coding agent waits to be signed in (docs/cloud.md): a sticky note on their monitor's corner, and a
+ * 🔑 bobbing over it so it's seen from across the floor. E on the desk opens their terminal, where the sign-in is.
+ */
+function SignInNote({ what }: { what: string }) {
+  const marker = useRef<THREE.Group>(null);
+  const note = useCanvasTexture(
+    256,
+    256,
+    (ctx) => {
+      ctx.fillStyle = '#ffe066';
+      ctx.fillRect(0, 0, 256, 256);
+      ctx.fillStyle = '#f5c400';
+      ctx.fillRect(0, 0, 256, 34); // the sticky strip
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '84px sans-serif';
+      ctx.fillText('🔑', 128, 104);
+      ctx.fillStyle = '#1f1d2b';
+      ctx.font = 'bold 34px "Segoe UI", system-ui, sans-serif';
+      ctx.fillText('Sign me in!', 128, 184);
+      ctx.font = '22px "Segoe UI", system-ui, sans-serif';
+      ctx.fillText(what, 128, 222);
+    },
+    [what],
+  );
+  const key = useCanvasTexture(
+    128,
+    128,
+    (ctx) => {
+      ctx.beginPath();
+      ctx.arc(64, 64, 56, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff3bf';
+      ctx.fill();
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = '#f0b429';
+      ctx.stroke();
+      ctx.font = '64px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🔑', 64, 70);
+    },
+    [],
+  );
+  useFrame(({ clock }) => {
+    if (marker.current) marker.current.position.y = MONITOR.y + SCREEN.h / 2 + 0.24 + Math.sin(clock.elapsedTime * 2.4) * 0.04;
+  });
+  return (
+    <>
+      <group position={[0, MONITOR.y, MONITOR.z]} rotation={[MONITOR.tilt, 0, 0]}>
+        <mesh position={[SCREEN.w / 2 - 0.14, SCREEN.h / 2 - 0.12, 0.034]} rotation={[0, 0, -0.1]}>
+          <planeGeometry args={[0.22, 0.22]} />
+          <meshBasicMaterial map={note} toneMapped={false} />
+        </mesh>
+      </group>
+      <group ref={marker} position={[-0.25, MONITOR.y + SCREEN.h / 2 + 0.24, MONITOR.z]}>
+        <Billboard userData={BILLBOARD}>
+          <mesh>
+            <planeGeometry args={[0.26, 0.26]} />
+            <meshBasicMaterial map={key} transparent toneMapped={false} depthWrite={false} />
+          </mesh>
+        </Billboard>
+      </group>
+    </>
   );
 }
 
@@ -322,13 +403,20 @@ export const Desk = memo(function Desk({
 }) {
   // Aiming at the person themselves, while they've nothing to do, says hi instead (Chatter.tsx).
   const agentId = agent?.id;
+  const defaultCli = useStore((s) => s.settings.defaultCli);
+  const signIn = agent ? signInFor(agent, { defaultCli }) : null;
   const desk = agent?.role === 'ceo' ? 'to open it' : 'for their terminal';
   const greeting = useMemo(() => (agentId ? greetPick(agentId, desk) : undefined), [agentId, desk]);
   const ref = useInteractable<THREE.Group>(
     agent
       ? {
           id: `agent-${agent.id}`,
-          label: agent.role === 'ceo' ? `Open ${agent.name}'s desk (CEO) · P texts them from anywhere` : `View ${agent.name}'s terminal · ⚙️ Setup inside`,
+          label:
+            agent.role === 'ceo'
+              ? `Open ${agent.name}'s desk (CEO) · P texts them from anywhere`
+              : signIn
+                ? `🔑 Sign ${agent.name}'s ${signIn} in, in their terminal`
+                : `View ${agent.name}'s terminal · ⚙️ Setup inside`,
           action: { kind: 'terminal', agentId: agent.id },
         }
       : full || spare
@@ -361,6 +449,8 @@ export const Desk = memo(function Desk({
       {agent ? (
         <>
           <LiveMonitor agent={agent} accent={accent} />
+          {agent.host === 'box' && <CloudPuff />}
+          {signIn && <SignInNote what={signIn} />}
           <Keyboard />
           {/* the mug: its owner picks it up for a sip now and then */}
           <group ref={mugRef} position={[0.76, 0.82, 0.02]}>

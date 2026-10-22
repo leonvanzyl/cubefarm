@@ -4258,6 +4258,65 @@ input.inline:focus {
   font-weight: 600;
 }
 
+/* ui/CloudSettings.tsx */
+.cloud-steps {
+  margin: 2px 0 8px;
+  padding-left: 20px;
+}
+.cloud-steps li {
+  margin: 4px 0;
+}
+.cloud-cmd {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0;
+}
+.cloud-cmd code {
+  overflow-wrap: anywhere;
+}
+/* a cloud agent, on their card and in the lobby */
+.cloud-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(77, 150, 255, 0.16);
+  color: #2563c9;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* A cloud agent waiting for the manager to sign their coding agent in: a sticky-note yellow, like the note on their monitor. */
+.sign-in-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff3bf;
+  border: 2px solid #f0b429;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 0.88rem;
+  color: #1f1d2b;
+}
+.sign-in-chip {
+  background: #fff3bf;
+  border-color: #f0b429;
+  color: #1f1d2b;
+}
+.ac-sign-in,
+.pk-sign-in {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: #fff3bf;
+  color: #1f1d2b;
+}
+.pk-sign-in {
+  margin-top: 6px;
+}
+
 /* ---------- presence: the visitors list, the emote wheel ---------- */
 
 /* like a who's-working row (.wk-row), but not a button: its Follow is */

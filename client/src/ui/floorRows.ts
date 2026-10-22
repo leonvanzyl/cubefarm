@@ -14,6 +14,8 @@ export interface FloorRow {
   kind: StatusKind;
   icon: string;
   doing: string;
+  /** A cloud agent waiting to be signed in: the coding agent to sign in (signInFor), else null. */
+  signIn: string | null;
 }
 
 const STATUS_WORDS: Record<AgentStatus, string> = {
@@ -41,6 +43,14 @@ export function agentLabel(a: Pick<Agent, 'cli' | 'role'>, settings: Runtime, cl
   return clis.find((c) => c.id === id)?.label ?? CLI_NAMES[id];
 }
 
+/**
+ * A cloud agent waiting for the manager to sign their coding agent in (docs/cloud.md): its name ("Claude Code"),
+ * else null. A cloud agent's coding agent always runs in a terminal, whatever the office's runtime.
+ */
+export function signInFor(a: Pick<Agent, 'cli' | 'role' | 'host' | 'needsSignIn'>, settings: Pick<SwarmSettings, 'defaultCli'>): string | null {
+  return a.role !== 'ceo' && a.host === 'box' && a.needsSignIn ? CLI_NAMES[a.cli || settings.defaultCli] : null;
+}
+
 /** What someone is on, in words. */
 export function doingText(a: Pick<Agent, 'role' | 'status' | 'task' | 'issueNumber' | 'issueTitle' | 'prNumber'>): string {
   if (a.role === 'ceo') return a.status === 'working' ? (a.issueTitle ?? 'Working') : 'Free for a chat';
@@ -54,15 +64,17 @@ export function doingText(a: Pick<Agent, 'role' | 'status' | 'task' | 'issueNumb
 /** One row per person, in the order given (agentsOnRepo: by desk). */
 export function floorRows(agents: Agent[], settings: Runtime, clis: CliView[]): FloorRow[] {
   return agents.map((a) => {
-    const kind = STATUS_KIND[a.status];
+    const signIn = signInFor(a, settings);
+    const kind = signIn ? 'attention' : STATUS_KIND[a.status];
     return {
       id: a.id,
       name: a.name,
       agent: agentLabel(a, settings, clis),
-      status: STATUS_WORDS[a.status],
+      status: signIn ? 'Needs you to sign in' : STATUS_WORDS[a.status],
       kind,
       icon: KIND_ICON[kind],
-      doing: doingText(a),
+      doing: signIn ? `Waiting for ${signIn} to be signed in${a.status === 'idle' ? '' : ` · ${doingText(a)}`}` : doingText(a),
+      signIn,
     };
   });
 }

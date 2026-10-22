@@ -1,9 +1,10 @@
 // Agents' machines (docs/agents.md): every agent works on a machine of its own, with its own clone of its floor's
-// repository, its worktree of that clone (where its branches are checked out) and its temp folder. Today a machine is
-// a folder on this computer (the local provider, server/workspace.ts); a container or a cloud VM is another
-// MachineProvider behind the same calls. A machine is named after its agent (machineName), so a rename moves nothing.
+// repository, its worktree of that clone (where its branches are checked out) and its temp folder. A machine is a
+// folder on this computer (the local provider, server/workspace.ts) or an Upstash Box in the cloud (server/boxMachines.ts,
+// docs/cloud.md), behind the same calls. A machine is named after its agent (machineName), so a rename moves nothing.
 
 import fs from 'node:fs';
+import { installDesk, type DepsCallbacks, type DepsOutcome } from './deps.ts';
 import * as workspace from './workspace.ts';
 import type { DeskBase, DeskTrim, OfficeProcesses } from './workspace.ts';
 
@@ -24,6 +25,10 @@ export interface MachineProvider {
   remove(machine: string): Promise<{ removed: boolean; patches: string[] }>;
   /** The machines that exist. */
   list(): Promise<string[]>;
+  /** The agent's worktree is there (a session started in a missing one fails). */
+  exists(machine: string, fullName: string): Promise<boolean>;
+  /** npm ci in the agent's prepared worktree unless nothing changed since the last one; never throws. */
+  installDeps(machine: string, fullName: string, cb: DepsCallbacks): Promise<DepsOutcome>;
 }
 
 /** An agent's machine: the start of their id, which never changes (a short name keeps Windows paths short). */
@@ -44,5 +49,7 @@ export function localMachines(keep: () => OfficeProcesses): MachineProvider {
     sweep: (machine, fullName, keepBranches) => workspace.sweepMachine(machine, fullName, keepBranches),
     remove: (machine) => workspace.removeMachine(machine),
     list: () => workspace.listMachines(),
+    exists: async (machine, fullName) => fs.existsSync(workspace.machineDesk(machine, fullName)),
+    installDeps: (machine, fullName, cb) => installDesk(workspace.machineDesk(machine, fullName), cb),
   };
 }

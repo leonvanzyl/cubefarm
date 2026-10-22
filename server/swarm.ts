@@ -4,6 +4,12 @@ import crypto from 'node:crypto';
 import type { WebSocket } from 'ws';
 import type { Backend } from './backend.ts';
 import type { LogEntry, SessionHandle, SessionResult } from './agentRunner.ts';
+import { BoxMachines } from './boxMachines.ts';
+import type { BoxCliRecord, BoxTarget } from './boxCli.ts';
+import type { BoxSignIn, ReconnectedCli } from './cliRunner.ts';
+import { boxLinkedDir } from './boxScripts.ts';
+import { CloudError } from './box.ts';
+import { Cloud, officeId, redact } from './cloud.ts';
 import type { PrDetails } from './github.ts';
 import { defaultProjectsDir, DESK_SWEEP_INTERVAL_MS, HOME_DIR, LOG_BUFFER, SCHEDULER_INTERVAL_MS, STATE_FILE, SYNC_INTERVAL_MS, VERSION } from './config.ts';
 import { askedFor, ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, NOT_ASKED, planDependencies, plannedSize, scalePlan, type CeoJob, type OfficeTools, type TeamNow } from './ceo.ts';
@@ -34,8 +40,8 @@ import { drainDecision, lastUpdateMessage, POSTPONE_MS, type DrainInput, type La
 import { clampPacingSessions, DEFAULT_PACING_SESSIONS, mayStart, PACING_MS, pacingMessage, resumeRefusal, usageLabel, usageView, waived, warningView, type UsageWarning, type Waiver, type WorkKind } from './pacing.ts';
 import { emptyHistory, loadHistory, opsView, recordChecks, recordCost, recordMerges, recordQa, type OpsFloorState, type OpsHistory } from './metrics.ts';
 import { clampTrimIdleMin, DEFAULT_TRIM_IDLE_MIN, desksToTrim, formatBytes, freedMessage, idleSince, TRIM_SWEEP_MS } from './deskTrim.ts';
-import { cliLabel, isCli } from './clis.ts';
-import { machineName } from './machines.ts';
+import { boxVersions, cliLabel, isCli } from './clis.ts';
+import { machineName, type MachineProvider } from './machines.ts';
 import { MACHINES_DIR, type DeskTrim } from './workspace.ts';
 import { envSecrets, Journal } from './journal.ts';
 import { sampleDay, seeded } from './journalSample.ts';
@@ -47,6 +53,7 @@ import { DEFAULT_LISTEN, DEFAULT_VOICE, listenSettings, speaks, Voice, voiceSett
 import { Notifier } from './notifier.ts';
 import { clip, plainText, stuckAgents } from './notify.ts';
 import { DEFAULT_NOTIFY, notifySettings, officeUrl } from '../shared/notify.ts';
+import { cloudSettings, DEFAULT_CLOUD } from '../shared/cloud.ts';
 import { agentActivity, lineActivity, sameActivity, type SeenActivity } from '../shared/activity.ts';
 import { WeatherService } from './weather.ts';
 import { blockers, holdUps, waitsMessage } from '../shared/issues.ts';
@@ -70,12 +77,14 @@ import type {
   CeoInfo,
   CliView,
   ClientEvent,
+  CloudSettings,
   DoctorFinding,
   DoctorFix,
   EffortLevel,
   HireRequestView,
   IssueInfo,
   LogLine,
+  MachineHost,
   OfficeUpdateView,
   OpsView,
   PhoneMessage,
@@ -133,6 +142,9 @@ interface PersistedAgent {
   effort: EffortLevel | '';
   cli: AgentCli | ''; // '' = the office's default CLI
   machine: string | null; // their machine (machines.ts); null for an agent from before machines, until their next task
+  host?: MachineHost; // 'box': their machine is an Upstash Box (docs/cloud.md); absent: a folder on this computer
+  boxCli?: BoxCliRecord | null; // a cloud agent's live CLI in their Box, to pick up again after a restart
+  needsSignIn?: boolean; // a cloud agent whose CLI waits for the manager to sign it in, in their terminal (docs/cloud.md)
   status: AgentStatus;
   issueNumber: number | null;
   issueTitle: string | null;
@@ -211,6 +223,7 @@ interface Persisted {
   held: HeldIssue[];
   progress: LedgerState; // coins, decorations, achievements and careers (ledger.ts)
   pong: Record<string, PongRow[]>; // each floor's ping-pong leaderboard, by repo id
+  officeId: string; // this office on a shared Upstash account: its Boxes carry it (docs/cloud.md)
 }
 
 interface Shot {
@@ -333,6 +346,30 @@ const OPS_TICK_MS = 30_000;
 // How often the watchdog looks for stuck work (watchdog.ts).
 const WATCHDOG_MS = 60_000;
 const oneLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split(/\r?\n/)[0].slice(0, 200);
+// While a cloud agent signs in, the office looks whether it's done this often (someone watching their terminal), else less.
+const SIGN_IN_POLL_MS = 8_000;
+const SIGN_IN_IDLE_POLL_MS = 60_000;
+// What a session that lost its sign-in mid-task is told when it carries on.
+const SIGNED_IN_AGAIN = 'You were signed out in the middle of your task and are signed in again. Carry on where you left off.';
+
+/** A cloud agent's CLI that runs in a Box and can sign in there (OpenCode can't run in one). */
+type BoxCliId = 'claude' | 'codex';
+
+/** A cloud agent's CLI isn't signed in in their Box: their task waits for the manager to sign it in (docs/cloud.md). */
+class SignInNeeded extends Error {
+  constructor(readonly cli: BoxCliId) {
+    super(`${cliLabel(cli)} isn't signed in in their cloud machine.`);
+  }
+}
+
+/** A cloud agent signing in: the task it holds (started once they're signed in) and the sign-in in their terminal. */
+interface SignIn {
+  cli: BoxCliId;
+  held: (() => void) | null;
+  run: BoxSignIn | null;
+  starting: boolean;
+  poll: NodeJS.Timeout | null;
+}
 
 // The latest browser screenshot per agent is kept on disk so monitors survive a server restart.
 const SCREENS_DIR = path.join(HOME_DIR, 'screens');
@@ -476,6 +513,7 @@ export class Swarm {
       worldEvents: { ...DEFAULT_WORLD_EVENTS },
       listen: { ...DEFAULT_LISTEN },
       notify: notifySettings(DEFAULT_NOTIFY, {}),
+      cloud: { ...DEFAULT_CLOUD },
     },
     repos: [],
     agents: [],
@@ -489,6 +527,7 @@ export class Swarm {
     held: [],
     progress: emptyLedger(),
     pong: {},
+    officeId: officeId(),
   };
   /**
    * The CEO's office tools. Every session gets its own server: one can only be connected to one session at a time, so
@@ -561,6 +600,12 @@ export class Swarm {
   private readonly envSecrets = envSecrets(process.env);
   /** Notifications to the manager's devices and chat apps (docs/pocket.md). The demo's only log what they'd send. */
   readonly notifier: Notifier;
+  /** Settings → Cloud agents: the Upstash account and what cloud agents sign in with (docs/cloud.md). The demo's is fake. */
+  readonly cloud: Cloud;
+  /** Cloud agents' machines: an Upstash Box each. */
+  private boxMachines: BoxMachines;
+  /** Cloud agents waiting for a sign-in in their terminal (holdForSignIn), by agent id. */
+  private signIns = new Map<string, SignIn>();
   private toldStuck = new Set<string>(); // `${agentId}:${endedAt}`: agents in an error the manager was notified about
 
   constructor(private backend: Backend) {
@@ -597,6 +642,28 @@ export class Swarm {
       channelsChanged: (notifyChannels) => this.broadcast({ type: 'notifyChannels', notifyChannels }),
       log: (line) => console.warn(line),
     });
+    this.cloud = new Cloud({
+      // The demo's fake cloud keeps a file of its own: its tests run beside the notifier's, which share demo-secrets.json.
+      secretsFile: path.join(HOME_DIR, backend.demo ? 'demo-cloud-secrets.json' : 'secrets.json'),
+      env: backend.cloud.env(),
+      boxes: (key) => backend.cloud.boxes(key),
+      ghToken: () => backend.cloud.ghToken(),
+      office: () => this.state.officeId,
+      machines: () => new Set(this.state.agents.filter((a) => a.host === 'box' && a.machine).map((a) => a.machine!)),
+      changed: (cloud) => this.broadcast({ type: 'cloud', cloud }),
+      log: (line) => console.warn(line),
+    });
+    this.boxMachines = new BoxMachines({
+      api: () => this.cloud.boxApi(),
+      office: () => this.state.officeId,
+      size: () => this.state.settings.cloud.boxSize,
+      versions: boxVersions(),
+      git: () => backend.cloud.gitIdentity(this.user),
+      githubEnv: () => this.cloud.githubEnv(),
+      state: (machine) => this.boxState(machine),
+      secrets: () => this.secrets(),
+      log: (line) => console.warn(line),
+    });
     this.previews = new Previews(backend, {
       emit: (id) => {
         const r = this.state.repos.find((x) => x.id === id);
@@ -631,6 +698,7 @@ export class Swarm {
         agents: (loaded.agents ?? []).map((raw) => legacyAgent<PersistedAgent>(raw)).map((a) => ({
           ...a,
           machine: a.machine ?? null,
+          boxCli: a.host === 'box' ? (a.boxCli ?? null) : null,
           effort: a.effort ?? '',
           look: a.look ?? lookFor(a.name),
           style: cleanStyle(a.style),
@@ -667,6 +735,7 @@ export class Swarm {
         held: loaded.held ?? [],
         progress: loadLedger(loaded.progress),
         pong: loaded.pong && typeof loaded.pong === 'object' ? loaded.pong : {},
+        officeId: typeof loaded.officeId === 'string' && /^[a-z0-9]{6}$/.test(loaded.officeId) ? loaded.officeId : this.state.officeId,
       };
       for (const m of this.state.messages) this.messageSeq = Math.max(this.messageSeq, m.id + 1);
       if (!EFFORTS.includes(this.state.settings.defaultEffort)) this.state.settings.defaultEffort = 'medium';
@@ -699,6 +768,7 @@ export class Swarm {
       this.state.settings.worldEvents = worldEventSettings(DEFAULT_WORLD_EVENTS, loaded.settings?.worldEvents);
       this.state.settings.listen = listenSettings(DEFAULT_LISTEN, loaded.settings?.listen);
       this.state.settings.notify = notifySettings(DEFAULT_NOTIFY, loaded.settings?.notify);
+      this.state.settings.cloud = cloudSettings(DEFAULT_CLOUD, loaded.settings?.cloud);
       // Offices that were set up before the setup wizard existed skip it.
       if (loaded.settings && loaded.settings.setupDone === undefined && this.state.repos.length > 0) {
         Object.assign(this.state.settings, { setupDone: true, tutorialStep: -1 });
@@ -709,6 +779,8 @@ export class Swarm {
     await this.voice.init();
     await this.weather.init();
     await this.notifier.init();
+    await this.cloud.init();
+    if (this.state.settings.cloud.machineKind === 'box' && !this.cloud.boxApi()) this.state.settings.cloud.machineKind = 'local';
     for (const r of this.state.repos) if (r.localPath) this.backend.setLocalPath(r.fullName, r.localPath);
     const interrupted: PersistedAgent[] = [];
     for (const a of this.state.agents) {
@@ -718,21 +790,43 @@ export class Swarm {
     }
     // CLIs the terminal keeper kept running through the restart go back into their terminals, and busy ones carry on.
     // (The CEO's session is resumed instead: its office tools live in this process.)
-    const back = await this.backend
-      .reconnectClis((id) => {
-        const a = this.state.agents.find((x) => x.id === id);
-        return a && a.role !== 'ceo' ? this.terminalFor(a) : null;
-      })
-      .catch((err) => {
-        console.warn('could not reconnect to the terminal keeper', err);
-        return [];
-      });
+    const terminalOf = (id: string) => {
+      const a = this.state.agents.find((x) => x.id === id);
+      return a && a.role !== 'ceo' ? this.terminalFor(a) : null;
+    };
+    const back: ReconnectedCli[] = await this.backend.reconnectClis(terminalOf).catch((err) => {
+      console.warn('could not reconnect to the terminal keeper', err);
+      return [];
+    });
+    // Cloud agents' CLIs kept working in their Boxes while the office was closed: picked up the same way (docs/cloud.md).
+    const boxApi = this.cloud.boxApi();
+    const boxKept = this.state.agents.filter((a) => a.host === 'box' && a.boxCli);
+    if (!boxApi) for (const a of boxKept) a.boxCli = null;
+    else {
+      const kept = boxKept.map((a) => ({
+        agentId: a.id,
+        rec: a.boxCli!,
+        api: boxApi,
+        record: (rec: BoxCliRecord | null) => this.boxCliRecord(a.id, rec),
+        connection: (up: boolean) => this.boxMachines.connection(a.machine ?? machineName(a.id), up),
+      }));
+      back.push(
+        ...(await this.backend.cloud.reconnect(kept, terminalOf).catch((err) => {
+          console.warn("could not pick up cloud agents' CLIs", err);
+          return [];
+        })),
+      );
+      // A CLI started just before a crash, that no record names, would work the same desk as the one the office starts.
+      await Promise.all(this.state.agents.filter((a) => a.host === 'box' && a.machine).map((a) => this.boxMachines.sweepStrays(a.machine!, a.boxCli ? [a.boxCli.token] : []).catch(() => 0)));
+    }
     for (const r of this.state.repos) this.repoRt.set(r.id, { issues: [], pulls: [], lastSync: null, syncing: false, cloneStatus: 'pending', lastMergedAt: null, folderSync: null, merging: false, closedIssues: new Map(), closedPulls: new Map(), openAt: new Map() });
     const restart = await this.reconcileRestart((a) => followKeptCli(a, back.find((c) => c.agentId === a.id)));
     interrupted.push(...restart.interrupted);
     for (const c of back) if (c.busy && !restart.carryOn.some((a) => a.id === c.agentId)) this.agentRt.get(c.agentId)?.terminal?.releaseIdle?.();
     for (const a of restart.carryOn) this.reattachSession(a);
     this.backend.hooksReady();
+    // Cloud agents who waited for a sign-in: still signed out (a new sign-in starts in their terminal), or signed in now.
+    for (const a of this.state.agents) if (a.host === 'box' && a.needsSignIn) void this.checkSignIn(a);
 
     try {
       this.user = await this.backend.user();
@@ -852,7 +946,8 @@ export class Swarm {
             status: a.status,
             task: a.task,
             work: workState(issue, pr?.state ?? null),
-            deskExists: this.backend.deskExists(this.deskOf(a, repo)),
+            // A cloud agent's desk is in their Box: taken to be there (Upstash may be unreachable, and looking wakes it).
+            deskExists: a.host === 'box' || this.backend.deskExists(this.deskOf(a, repo)),
             cliAlive: alive(a),
             resumable: resumesAfterRestart(a, a.status === 'preparing', this.backend.demo),
           }),
@@ -974,6 +1069,8 @@ export class Swarm {
       model: a.model,
       effort: a.effort,
       cli: a.cli,
+      host: a.host === 'box' ? 'box' : 'local',
+      ...(a.host === 'box' ? { cloud: this.boxMachines.stateOf(a.machine ?? machineName(a.id)), needsSignIn: !!a.needsSignIn } : {}),
       terminal: !!rt.terminal,
       status: a.status,
       issueNumber: a.issueNumber,
@@ -1048,6 +1145,7 @@ export class Swarm {
       weather: this.weather.current(),
       ticker: this.ticker.recent(),
       notifyChannels: this.notifier.channelsView(),
+      cloud: this.cloud.view(),
       version: VERSION,
       officeCommit: this.officeHead?.slice(0, 7) ?? null,
       officeUpdate: this.officeHead ? this.officeUpdateView() : undefined,
@@ -1108,7 +1206,7 @@ export class Swarm {
   /** Values the journal must never write: the ElevenLabs key and secret-looking environment variables. */
   private secrets(): string[] {
     const key = this.voice.secret();
-    return key ? [...this.envSecrets, key] : this.envSecrets;
+    return [...this.envSecrets, ...(key ? [key] : []), ...this.cloud.secretValues()];
   }
 
   /** POST /api/journal/sample (demo only): writes a made-up working day as yesterday's journal, to replay. */
@@ -1220,6 +1318,11 @@ export class Swarm {
     return this.state.agents.filter((a) => BUSY.includes(a.status)).length;
   }
 
+  /** Cloud agents working on a task in their Box, which an office restart doesn't stop. */
+  private inBoxes() {
+    return this.state.agents.filter((a) => a.host === 'box' && a.status === 'working' && !!a.boxCli);
+  }
+
   /** True when the manager has set a session limit and every slot is taken. */
   private slotsFull() {
     const limit = this.state.settings.sessionLimit;
@@ -1230,14 +1333,19 @@ export class Swarm {
     return `${slugify(a.name)}-${a.id.slice(0, 4)}`;
   }
 
+  /** The machines an agent's machine is one of: folders on this computer, or Upstash Boxes (docs/cloud.md). */
+  private machinesFor(a: Pick<PersistedAgent, 'host'>): MachineProvider {
+    return a.host === 'box' ? this.boxMachines : this.backend.machines;
+  }
+
   /** Where an agent works: their machine's worktree, or (from before machines, until their next task) their floor desk. */
   private deskOf(a: PersistedAgent, repo: PersistedRepo) {
-    return a.machine ? this.backend.machines.deskDir(a.machine, repo.fullName) : this.backend.deskDir(repo.fullName, this.agentSlug(a));
+    return a.machine ? this.machinesFor(a).deskDir(a.machine, repo.fullName) : this.backend.deskDir(repo.fullName, this.agentSlug(a));
   }
 
   /** Stop what an agent left running at their desk: on their port, or started there. */
   private releaseDesk(a: PersistedAgent, repo: PersistedRepo) {
-    return a.machine ? this.backend.machines.release(a.machine, repo.fullName, this.port(a)) : this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a));
+    return a.machine ? this.machinesFor(a).release(a.machine, repo.fullName, this.port(a)) : this.backend.releaseDesk(repo.fullName, this.agentSlug(a), this.port(a));
   }
 
   /**
@@ -1258,7 +1366,7 @@ export class Swarm {
   /** The environment of an agent's sessions on their machine; nothing extra for one not on a machine yet. */
   private machineEnv(a: PersistedAgent): Record<string, string> | undefined {
     try {
-      return a.machine ? this.backend.machines.env(a.machine) : undefined;
+      return a.machine ? this.machinesFor(a).env(a.machine) : undefined;
     } catch (err) {
       console.warn(`could not set up ${a.name}'s machine environment: ${oneLine(err)}`);
       return undefined;
@@ -1266,15 +1374,18 @@ export class Swarm {
   }
 
   /** Remove a machine, saying where its unpushed work went; one still in use is tried again by sweepMachines. */
-  private async removeMachine(machine: string, name: string | null) {
-    const r = await this.backend.machines.remove(machine).catch(() => ({ removed: false, patches: [] as string[] }));
+  private async removeMachine(machine: string, name: string | null, host: MachineHost = 'local') {
+    const r = await this.machinesFor({ host }).remove(machine).catch(() => ({ removed: false, patches: [] as string[] }));
     if (r.patches.length) this.postMessage('office', `🧳 ${name ?? 'A former agent'} left work that was on no GitHub branch: saved in ${path.dirname(r.patches[0])}.`);
+    if (host === 'box' && r.removed) void this.cloud.count().catch(() => undefined);
   }
 
-  /** Machines whose agents are gone: removed while still in use, or left by an office that stopped half-way. */
+  /** Machines whose agents are gone (on this computer, or Boxes of this office): removed while still in use, or left by an office that stopped half-way. */
   private async sweepMachines() {
-    const anyones = (m: string) => this.state.agents.some((a) => a.role !== 'ceo' && (a.machine ?? machineName(a.id)) === m);
-    for (const m of await this.backend.machines.list().catch(() => [])) if (!anyones(m)) await this.removeMachine(m, null);
+    for (const host of ['local', 'box'] as const) {
+      const anyones = (m: string) => this.state.agents.some((a) => a.role !== 'ceo' && (a.host ?? 'local') === host && (a.machine ?? machineName(a.id)) === m);
+      for (const m of await this.machinesFor({ host }).list().catch(() => [])) if (!anyones(m)) await this.removeMachine(m, null, host);
+    }
   }
 
   private clearTask(a: PersistedAgent) {
@@ -1627,7 +1738,7 @@ export class Swarm {
         branches: [...agents.flatMap((a) => (a.branch ? [a.branch] : [])), ...pulls.filter((p) => p.state === 'OPEN').map((p) => p.headRefName)],
       };
       const r = await this.backend.sweepDesks(repo.fullName, keep);
-      for (const a of agents) if (a.machine) r.branches += await this.backend.machines.sweep(a.machine, repo.fullName, keep.branches).catch(() => 0);
+      for (const a of agents) if (a.machine) r.branches += await this.machinesFor(a).sweep(a.machine, repo.fullName, keep.branches).catch(() => 0);
       const desks = r.desks + r.folders;
       const saved = r.patches.length ? ` (${r.patches.length} patch${r.patches.length === 1 ? '' : 'es'} saved to ${path.dirname(r.patches[0])})` : '';
       console.log(`desk sweep ${repo.fullName}: ${desks} desks, ${r.branches} branches removed${saved}${r.skipped.length ? `, ${r.skipped.length} still in use` : ''}`);
@@ -1687,6 +1798,7 @@ export class Swarm {
    * through a restart (the terminal keeper holds them for the next start) and stop when the office quits.
    */
   async shutdown(restart = false): Promise<void> {
+    this.backend.cloud.detach(); // cloud agents' CLIs carry on in their Boxes: their records are final from here
     await this.writeState().catch((err) => console.warn('could not save the state', err));
     await this.journal.close().catch((err) => console.warn('could not write the journal', err));
     await this.backend.releaseClis(restart); // before the terminals are saved: whatever they print next waits in the keeper
@@ -1925,6 +2037,12 @@ export class Swarm {
     this.appendLog(a, [{ kind: 'system', text: `■ Stopped: ${why}.` }]);
     this.emitAgent(a);
     this.agentRt.get(a.id)?.session?.stop(); // no session yet (preparing): prepare() gives up and clears it
+    const sign = this.signIns.get(a.id);
+    if (sign?.held) {
+      // Waiting for their sign-in: there's nothing to give up, so the desk is cleared now.
+      sign.held = null;
+      this.abandoned(a);
+    }
   }
 
   /** Clear the desk of an agent whose work closed, as ↺ Clear desk does. */
@@ -2006,6 +2124,10 @@ export class Swarm {
       effort?: string;
       look?: string;
       cli?: string;
+      /** Where they work: 'local', 'box', or '' / absent for the office default (Settings → Cloud agents). */
+      host?: string;
+      /** Refuse rather than fall back to this computer when they can't be a cloud agent (the manager chose). */
+      strict?: boolean;
       appearance?: { color: string; hair: string; skin: string };
       /** Their id, when it's known before they're hired (a team change's): their look is seeded from it. */
       id?: string;
@@ -2021,7 +2143,9 @@ export class Swarm {
     if (desk >= FLOOR_SEATS) throw new HttpError(409, `Floor ${repo.floor} has no free desk (${FLOOR_SEATS} desks)`);
     const name = opts.name?.trim().slice(0, 24) || this.freeName();
     const cli = isCli(opts.cli) ? opts.cli : '';
-    if (cli && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
+    const host = this.hostFor(opts.host, cli || this.state.settings.defaultCli, !!opts.strict);
+    // A cloud agent's CLI is the one the office installs in their Box, not this computer's.
+    if (cli && host === 'local' && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
     const id = opts.id && !this.state.agents.some((a) => a.id === opts.id) ? opts.id : crypto.randomUUID();
     const agent: PersistedAgent = {
       id,
@@ -2039,6 +2163,7 @@ export class Swarm {
       effort: EFFORTS.includes(opts.effort as EffortLevel) ? (opts.effort as EffortLevel) : '',
       cli,
       machine: machineName(id),
+      ...(host === 'box' ? { host } : {}),
       status: 'idle',
       issueNumber: null,
       issueTitle: null,
@@ -2057,11 +2182,317 @@ export class Swarm {
     this.state.agents.push(agent);
     applyLedger(this.state.progress, { kind: 'hired', agentId: agent.id, at: Date.now() });
     this.agentRt.set(agent.id, { log: [], session: null, currentTool: null, browserUrl: null, screenshot: null, shots: [], terminal: null });
-    this.appendLog(agent, [{ kind: 'system', text: `👋 ${name} joined floor ${repo.floor} (${repo.fullName}).` }]);
+    this.appendLog(agent, [{ kind: 'system', text: `👋 ${name} joined floor ${repo.floor} (${repo.fullName})${host === 'box' ? ', working in the cloud' : ''}.` }]);
     this.save();
     this.broadcast({ type: 'agent', agent: this.agentView(agent, false) });
+    if (host === 'box') this.bringUpBox(agent);
     setTimeout(() => this.schedule(), 200);
     return this.agentView(agent, true);
+  }
+
+  // ---------- cloud agents (docs/cloud.md) ----------
+
+  /**
+   * Where a new (or moving) agent works: what was asked, else the office default. A cloud agent needs the Upstash key,
+   * room under the plan's Box limit and a CLI a Box can run (Claude Code or Codex). `strict`: the manager asked for the
+   * cloud, so say why not; otherwise (a floor's first agent, the demo) they work on this computer instead.
+   */
+  private hostFor(asked: string | undefined, cli: AgentCli, strict: boolean, moving?: PersistedAgent): MachineHost {
+    const want: MachineHost = asked === 'box' || asked === 'local' ? asked : this.state.settings.cloud.machineKind;
+    if (want === 'local') return 'local';
+    const why = !this.cloud.boxApi()
+      ? 'Cloud agents need your Upstash Box API key first: Settings → Cloud agents.'
+      : cli === 'opencode'
+        ? "OpenCode can't run in a cloud machine yet: give this agent Claude Code or Codex."
+        : !this.boxRoom(moving)
+          ? `Your Upstash plan's Box limit (${this.state.settings.cloud.boxLimit}) is reached. Raise it in Settings → Cloud agents if your plan allows more, or delete Boxes you don't need.`
+          : null;
+    if (!why) return 'box';
+    if (strict || asked === 'box') throw new HttpError(409, why);
+    return 'local';
+  }
+
+  /** There's room for one more Box under the plan's limit (Boxes on the account, or cloud agents, whichever is more). */
+  private boxRoom(moving?: PersistedAgent) {
+    const agents = this.state.agents.filter((a) => a.host === 'box' && a !== moving).length;
+    return Math.max(this.cloud.view().boxes?.total ?? 0, agents) < this.state.settings.cloud.boxLimit;
+  }
+
+  /** Create and set up a new cloud agent's Box in the background, so their first task doesn't wait for it. */
+  private bringUpBox(a: PersistedAgent) {
+    const machine = this.machineOf(a);
+    const note = (text: string) => this.appendLog(a, [{ kind: 'system', text: `☁ ${text}` }]);
+    void this.boxMachines
+      .ensure(machine, note)
+      .then(() => {
+        note('Their cloud machine is ready.');
+        void this.cloud.count().catch(() => undefined);
+        void this.checkSignIn(a);
+      })
+      .catch((err) => {
+        const why = redact(oneLine(err), this.secrets());
+        this.appendLog(a, [{ kind: 'error', text: `✗ Their cloud machine couldn't be set up: ${why}` }]);
+        this.postMessage('office', `⚠️ ${a.name}'s cloud machine couldn't be set up: ${why.slice(0, 240)}`);
+      });
+  }
+
+  /**
+   * Move an agent between this computer and the cloud, while they have no task. Their old machine goes (unpushed work
+   * saved to leftovers); sessions can't move between machines, so their next one starts fresh.
+   */
+  private moveAgent(a: PersistedAgent, to: MachineHost) {
+    if ((a.host ?? 'local') === to) return;
+    if (a.task || BUSY.includes(a.status)) throw new HttpError(409, `${a.name} is on a task: move them once it's done.`);
+    const host = this.hostFor(to, a.cli || this.state.settings.defaultCli, true, a);
+    const from = a.host ?? 'local';
+    this.agentRt.get(a.id)?.terminal?.releaseIdle?.(); // a CLI still waiting at its prompt stays where it was
+    if (a.machine) void this.removeMachine(a.machine, a.name, from);
+    if (host === 'box') a.host = 'box';
+    else delete a.host;
+    a.boxCli = null;
+    this.dropSignIn(a.id);
+    delete a.needsSignIn;
+    a.sessionId = null;
+    a.sessionCli = null;
+    for (const q of this.state.qa) if (q.devAgentId === a.id) q.devSessionId = null;
+    this.appendLog(a, [{ kind: 'system', text: host === 'box' ? '☁ Moving to the cloud: an Upstash Box of their own.' : '🖥️ Moving back to this computer.' }]);
+    if (host === 'box') this.bringUpBox(a);
+  }
+
+  /**
+   * What a cloud agent's session runs with: their Box, set up and awake, and the credentials their CLI signs in with.
+   * Without a key from the office, their CLI uses its own login in the Box: it's checked first (a signed-out one throws
+   * SignInNeeded), except for a prompt the manager already typed into the CLI.
+   */
+  private async boxTarget(a: PersistedAgent, cli: AgentCli, browserTesting: boolean, check = true): Promise<BoxTarget> {
+    const api = this.cloud.boxApi();
+    if (!api) throw new Error('Cloud agents need your Upstash Box API key: Settings → Cloud agents.');
+    const machine = this.machineOf(a);
+    const boxId = await this.boxMachines.ensure(machine, (text) => this.appendLog(a, [{ kind: 'system', text: `☁ ${text}` }]));
+    const creds = await this.cloud.credentials(cli);
+    if (creds.missing.length) throw new Error(`Cloud agents can't sign in yet. Missing: ${creds.missing.join('; ')}.`);
+    if (check && creds.ownLogin && cli !== 'opencode' && (await this.boxMachines.signedIn(machine, cli).catch(() => null)) === false) throw new SignInNeeded(cli);
+    // The Box's own Chromium starts with a first tab; Playwright attaches to it.
+    const browser = browserTesting ? await api.browser(boxId).catch(() => false) : false;
+    return { api, boxId, env: creds.env, apiKeyHelper: creds.apiKeyHelper, browser, record: (rec) => this.boxCliRecord(a.id, rec), connection: (up) => this.boxMachines.connection(machine, up) };
+  }
+
+  /** A cloud agent's live CLI record changed: kept with them, so a restart picks the CLI up. Gone with no task: the Box can pause. */
+  private boxCliRecord(agentId: string, rec: BoxCliRecord | null) {
+    const a = this.state.agents.find((x) => x.id === agentId);
+    if (!a) return;
+    const was = a.boxCli;
+    a.boxCli = rec;
+    if (rec && was && was.token === rec.token && was.offset === rec.offset && was.busy === rec.busy && was.resumeId === rec.resumeId) return;
+    this.save();
+    if (!rec && was && !a.task && a.machine && a.host === 'box') void this.boxMachines.pause(a.machine).catch(() => undefined);
+  }
+
+  /** A machine's Box changed state: its agent's card shows it. */
+  private boxState(machine: string) {
+    const a = this.state.agents.find((x) => x.host === 'box' && x.machine === machine);
+    if (a) this.emitAgent(a);
+  }
+
+  // Settings → Cloud agents (REST)
+
+  setCloudKey(key: string) {
+    return this.cloud.setKey(key).then((view) => {
+      if (!view.keySet && this.state.settings.cloud.machineKind === 'box') {
+        // No key, no cloud: new agents work on this computer until it's back.
+        this.state.settings.cloud = { ...this.state.settings.cloud, machineKind: 'local' };
+        this.broadcast({ type: 'settings', settings: this.state.settings });
+        this.save();
+      }
+      return view;
+    });
+  }
+
+  setCloudToken(kind: string, value: string) {
+    if (kind !== 'github' && kind !== 'anthropic' && kind !== 'openai') throw new HttpError(400, 'kind must be github, anthropic or openai');
+    return this.cloud.setToken(kind, value).then((view) => {
+      // A key for their CLI now: agents waiting to sign in don't need to any more.
+      for (const a of this.state.agents) if (a.host === 'box' && a.needsSignIn) void this.checkSignIn(a);
+      return view;
+    });
+  }
+
+  // ---------- signing cloud agents in (docs/cloud.md) ----------
+
+  /**
+   * A cloud agent's CLI has no login in their Box (a new Box, or one that expired): they're marked as needing a sign-in
+   * and take no work, the task they were starting (if any) waits, and the CLI's own sign-in starts in their terminal.
+   */
+  private holdForSignIn(a: PersistedAgent, cli: BoxCliId, task: (() => void) | null, expired = false) {
+    if (!this.state.agents.includes(a) || a.host !== 'box') return;
+    const s = this.signInOf(a, cli);
+    const label = cliLabel(cli);
+    if (task) {
+      a.status = 'preparing';
+      s.held = () => {
+        if (a.status === 'preparing') task();
+        else this.abandoned(a); // stopped meanwhile
+      };
+      this.appendLog(a, [{ kind: 'system', text: `⏸ Their task waits until ${label} is signed in.` }]);
+    }
+    if (!a.needsSignIn) {
+      a.needsSignIn = true;
+      this.appendLog(a, [
+        {
+          kind: 'error',
+          text: `🔑 ${expired ? `${label}'s sign-in in their cloud machine expired.` : `${label} isn't signed in in their cloud machine yet.`} Sign it in in their terminal (at their desk, or 🔑 Sign in): open the link there and finish signing in.`,
+        },
+      ]);
+      this.postMessage('office', `🔑 ${a.name} needs you to sign ${label} in${expired ? ' again' : ''}: walk to their desk or tap 🔑 Sign in on their card, then follow the link in their terminal. Their cloud machine keeps the sign-in.`);
+    }
+    this.emitAgent(a);
+    this.save();
+    void this.startSignIn(a);
+  }
+
+  /** Their sign-in's state, made (or switched to another CLI, keeping the held task) when needed. */
+  private signInOf(a: PersistedAgent, cli: BoxCliId): SignIn {
+    let s = this.signIns.get(a.id);
+    if (!s) {
+      s = { cli, held: null, run: null, starting: false, poll: null };
+      this.signIns.set(a.id, s);
+    } else if (s.cli !== cli) {
+      s.run?.stop();
+      s.run = null;
+      s.cli = cli;
+    }
+    return s;
+  }
+
+  /** Their sign-in goes (they left, moved to this computer): its CLI closes and a held task is dropped with it. */
+  private dropSignIn(agentId: string) {
+    const s = this.signIns.get(agentId);
+    if (!s) return;
+    this.signIns.delete(agentId);
+    if (s.poll) clearTimeout(s.poll);
+    s.run?.stop();
+  }
+
+  /** Start the CLI's own sign-in in their terminal, unless it's running already. */
+  private async startSignIn(a: PersistedAgent) {
+    const cli = a.cli || this.state.settings.defaultCli;
+    const api = this.cloud.boxApi();
+    if (!a.needsSignIn || a.host !== 'box' || cli === 'opencode' || !api) return;
+    const s = this.signInOf(a, cli);
+    if (s.run || s.starting) return;
+    s.starting = true;
+    try {
+      const boxId = await this.boxMachines.ensure(this.machineOf(a), (text) => this.appendLog(a, [{ kind: 'system', text: `☁ ${text}` }]));
+      if (!a.needsSignIn || this.signIns.get(a.id) !== s || s.cli !== cli || !this.state.agents.includes(a)) return;
+      s.run = this.backend.cloud.signIn({ api, boxId, cli, term: this.terminalFor(a), agentId: a.id }, (code) => void this.signInEnded(a, s, code));
+      this.emitAgent(a); // their terminal is there to open now
+      this.pollSignIn(a, s);
+    } catch (err) {
+      this.appendLog(a, [{ kind: 'error', text: `✗ Couldn't start signing in: ${redact(oneLine(err), this.secrets())}` }]);
+    } finally {
+      s.starting = false;
+    }
+  }
+
+  /** While the sign-in runs, look now and then whether it's done (often while someone watches their terminal). */
+  private pollSignIn(a: PersistedAgent, s: SignIn) {
+    if (s.poll) clearTimeout(s.poll);
+    const wait = this.agentRt.get(a.id)?.terminal?.watched ? SIGN_IN_POLL_MS : SIGN_IN_IDLE_POLL_MS;
+    s.poll = setTimeout(() => {
+      s.poll = null;
+      if (this.signIns.get(a.id) !== s || !s.run) return;
+      void this.boxMachines
+        .signedIn(this.machineOf(a), s.cli)
+        .catch(() => null)
+        .then((ok) => {
+          if (this.signIns.get(a.id) !== s) return;
+          if (ok) this.signedIn(a);
+          else if (s.run) this.pollSignIn(a, s);
+        });
+    }, wait);
+  }
+
+  /** The sign-in's CLI exited: signed in, or the manager can start it again from their terminal. */
+  private async signInEnded(a: PersistedAgent, s: SignIn, code: number) {
+    if (this.signIns.get(a.id) !== s) return;
+    s.run = null;
+    if (s.poll) clearTimeout(s.poll);
+    const ok = await this.boxMachines.signedIn(this.machineOf(a), s.cli).catch(() => null);
+    if (this.signIns.get(a.id) !== s || s.run) return;
+    if (ok) return this.signedIn(a);
+    this.agentRt.get(a.id)?.terminal?.note(`Not signed in yet. 🔑 Sign in starts it again.`);
+    this.appendLog(a, [{ kind: 'error', text: `🔑 ${cliLabel(s.cli)} didn't finish signing in${code > 0 ? ` (it exited with code ${code})` : ''}. 🔑 Sign in in their terminal starts it again.` }]);
+  }
+
+  /** Their CLI is signed in: the flag goes and the task it held starts (a sign-in still on screen gets a moment to finish). */
+  private signedIn(a: PersistedAgent) {
+    const s = this.signIns.get(a.id);
+    this.signIns.delete(a.id);
+    if (s?.poll) clearTimeout(s.poll);
+    const run = s?.run;
+    if (run) setTimeout(() => run.stop(), 3000);
+    if (!a.needsSignIn) return;
+    a.needsSignIn = false;
+    this.appendLog(a, [{ kind: 'done', text: `✔ ${cliLabel(s?.cli ?? 'claude')} is signed in in their cloud machine.${s?.held ? ' Back to the task.' : ''}` }]);
+    this.emitAgent(a);
+    this.save();
+    const held = s?.held;
+    if (held) setTimeout(held, run ? 3000 : 0);
+    else setTimeout(() => this.schedule(), 200);
+  }
+
+  /**
+   * Is a cloud agent's CLI signed in? Looked at when their Box is set up, after a restart and when keys or their CLI
+   * change. `fresh`: their CLI changed, so a sign-in for the old one stops.
+   */
+  private async checkSignIn(a: PersistedAgent, fresh = false) {
+    const cli = a.cli || this.state.settings.defaultCli;
+    if (a.host !== 'box' || a.role === 'ceo' || !this.cloud.boxApi()) return;
+    if (fresh) {
+      const s = this.signIns.get(a.id);
+      s?.run?.stop();
+      if (s) s.run = null;
+    }
+    if (cli === 'opencode') return this.signedIn(a);
+    const creds = await this.cloud.credentials(cli).catch(() => null);
+    const ok = !creds ? null : creds.ownLogin ? await this.boxMachines.signedIn(this.machineOf(a), cli).catch(() => null) : true;
+    if (!this.state.agents.includes(a) || a.host !== 'box') return;
+    if (ok === true) this.signedIn(a);
+    else if (ok === false) this.holdForSignIn(a, cli, null);
+  }
+
+  /** POST /api/agents/:id/sign-in: start a cloud agent's sign-in (over) in their terminal: it ended, went stale or never started. */
+  signIn(id: string) {
+    const a = this.agent(id);
+    if (a.host !== 'box') throw new HttpError(409, `${a.name} works on this computer: their coding agent signs in there.`);
+    if (!a.needsSignIn) throw new HttpError(409, `${a.name}'s coding agent is signed in already.`);
+    const s = this.signIns.get(a.id);
+    if (s?.run) {
+      // Start over: a link that went stale (Codex's code lasts 15 minutes) or a sign-in that went wrong.
+      if (s.poll) clearTimeout(s.poll);
+      s.run.stop();
+      s.run = null;
+    }
+    this.terminalFor(a);
+    void this.startSignIn(a);
+    return this.agentView(a, false);
+  }
+
+  /** The demo's stand-in for a login that expired (POST /api/cloud/demo-expire): every cloud agent's Box is signed out. */
+  expireSignIns() {
+    const expire = this.backend.cloud.expireSignIns;
+    if (!expire) throw new HttpError(404, 'Sign-ins can only be expired in the demo office.');
+    expire();
+    // Idle ones notice at once, as their next task's check would; working ones when their session fails.
+    for (const a of this.state.agents) if (a.host === 'box' && !a.task) void this.checkSignIn(a);
+  }
+
+  testCloud() {
+    return this.cloud.test();
+  }
+
+  deleteCloudOrphans() {
+    return this.cloud.deleteOrphans();
   }
 
   /** Every floor has at least one agent. */
@@ -2081,12 +2512,17 @@ export class Swarm {
     return !this.clis.length || this.clis.some((c) => c.id === cli && c.installed);
   }
 
-  updateAgent(id: string, patch: { name?: string; model?: string; effort?: string; cli?: string; look?: string; color?: string; hair?: string; style?: unknown }) {
+  updateAgent(id: string, patch: { name?: string; model?: string; effort?: string; cli?: string; host?: string; look?: string; color?: string; hair?: string; style?: unknown }) {
     const a = this.agent(id);
+    if (patch.host !== undefined && a.role !== 'ceo' && (patch.host === 'box' || patch.host === 'local')) this.moveAgent(a, patch.host);
     if (patch.cli !== undefined && a.role !== 'ceo') {
       const cli = isCli(patch.cli) ? patch.cli : '';
-      if (cli && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
+      if (a.host === 'box' && (cli || this.state.settings.defaultCli) === 'opencode') throw new HttpError(400, `${a.name} works in the cloud, where OpenCode can't run yet: move them to this computer first.`);
+      if (cli && a.host !== 'box' && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
+      const changed = cli !== a.cli;
       a.cli = cli;
+      // Another coding agent in their Box has a login of its own (or needs one).
+      if (changed && a.host === 'box') void this.checkSignIn(a, true);
     }
     if (patch.name?.trim() && patch.name.trim() !== a.name) {
       a.name = patch.name.trim().slice(0, 24);
@@ -2114,6 +2550,7 @@ export class Swarm {
 
     // A desk being set up for them notices and gives up (prepare() checks the status), rather than start a session.
     if (BUSY.includes(a.status)) a.status = 'stopped';
+    this.dropSignIn(id);
     this.agentRt.get(id)?.session?.stop();
     this.agentRt.get(id)?.terminal?.releaseIdle?.();
     this.agentRt.get(id)?.terminal?.dispose();
@@ -2129,7 +2566,7 @@ export class Swarm {
       const slug = this.agentSlug(a);
       const main = this.backend.mainDir(repo.fullName); // now: a disconnect points the floor elsewhere before this runs
       void this.releaseDesk(a, repo)
-        .then(() => (a.machine ? this.removeMachine(a.machine, a.name) : this.backend.removeDesk(repo.fullName, slug, main)))
+        .then(() => (a.machine ? this.removeMachine(a.machine, a.name, a.host ?? 'local') : this.backend.removeDesk(repo.fullName, slug, main)))
         .catch(() => undefined)
         .then(() => this.sweepFloor(repo.id));
     }
@@ -2148,6 +2585,8 @@ export class Swarm {
     a.status = 'stopped';
     a.lastError = 'Stopped by manager';
     this.appendLog(a, [{ kind: 'manager', text: '■ Manager stopped this session.' }]);
+    const sign = this.signIns.get(id);
+    if (sign) sign.held = null; // the task waiting for their sign-in stays stopped
     this.agentRt.get(id)?.session?.stop();
     this.emitAgent(a);
     this.save();
@@ -2233,7 +2672,8 @@ export class Swarm {
    * SDK. A session can only be resumed by the CLI that made it, so a follow-up stays with that CLI.
    */
   private sessionRuntime(a: PersistedAgent, resume?: string): { terminal?: AgentTerminal; cli?: AgentCli; label?: string; resumeSessionId?: string } {
-    const inTerminal = this.state.settings.runtime === 'terminal' && this.backend.terminals;
+    // A cloud agent's CLI always runs in a terminal: their Box's, which needs nothing from this computer.
+    const inTerminal = a.host === 'box' || (this.state.settings.runtime === 'terminal' && this.backend.terminals);
     let cli: AgentCli = a.role === 'ceo' ? 'claude' : a.cli || this.state.settings.defaultCli;
     if (resume && a.sessionCli && a.sessionCli !== cli) {
       if (inTerminal) cli = a.sessionCli;
@@ -2283,17 +2723,24 @@ export class Swarm {
 
   /** A browser opened an agent's terminal (/ws/term?agent=<id>). */
   attachTerminal(agentId: string, ws: WebSocket) {
+    const a = this.state.agents.find((x) => x.id === agentId);
+    // Opening the terminal of a cloud agent who waits for a sign-in (at their desk, or 🔑 Sign in) starts one if none runs.
+    if (a?.needsSignIn && a.host === 'box') {
+      this.terminalFor(a);
+      void this.startSignIn(a);
+    }
     const t = this.agentRt.get(agentId)?.terminal;
     if (!t) return ws.close(4404, 'That agent has no terminal');
     t.attach(ws);
   }
 
   private buildSystemAppend(a: PersistedAgent, repo: PersistedRepo, cwd: string, branch: string, fixing?: { pr: number; headRef: string }, deps?: DepsOutcome) {
-    return devSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, linked: this.linkedDirs(repo), fixing, depsLine: depsPromptLine(deps) });
+    return devSystemPrompt({ agent: a, repo, port: this.port(a), cwd, branch, linked: this.linkedDirs(repo, a), fixing, depsLine: depsPromptLine(deps) });
   }
 
-  private linkedDirs(repo: PersistedRepo) {
-    return this.linkedRepos(repo).map((r) => ({ fullName: r.fullName, dir: this.backend.mainDir(r.fullName) }));
+  /** The floor's linked repos where the agent reads them: the floor checkouts here, or their copies in a cloud agent's Box. */
+  private linkedDirs(repo: PersistedRepo, a?: PersistedAgent) {
+    return this.linkedRepos(repo).map((r) => ({ fullName: r.fullName, dir: a?.host === 'box' ? boxLinkedDir(r.fullName) : this.backend.mainDir(r.fullName) }));
   }
 
   /** What an agent is told on a task, previewed with placeholders for the task's details. */
@@ -2301,7 +2748,7 @@ export class Swarm {
     const a = this.agent(id);
     if (a.role === 'ceo') return ceoPromptPreview(ceoSystemPrompt(this.ceoPromptInput(a)));
     const repo = this.repo(a.repoId);
-    return agentPromptPreview({ agent: a, repo, port: this.port(a), slug: slugify(a.name), linked: this.linkedDirs(repo) });
+    return agentPromptPreview({ agent: a, repo, port: this.port(a), slug: slugify(a.name), linked: this.linkedDirs(repo, a) });
   }
 
   private beginTask(a: PersistedAgent, patch: Partial<PersistedAgent>, banner: string, preparing: string) {
@@ -2336,19 +2783,25 @@ export class Swarm {
       const note = (text: string) => this.appendLog(a, [{ kind: 'system', text }]);
       const cwd = await setUpDesk(this.agentRt.get(a.id)?.terminal, {
         release: () => this.releaseDesk(a, repo),
-        prepare: () => this.backend.machines.prepareDesk(this.machineOf(a), repo.fullName, { defaultBranch: repo.defaultBranch, pr: base.pr }, branch, note),
+        prepare: () => this.machinesFor(a).prepareDesk(this.machineOf(a), repo.fullName, { defaultBranch: repo.defaultBranch, pr: base.pr }, branch, note),
       });
       this.deskAlerts.delete(a.id);
       if (job) this.prepStrikes.delete(prepKey(repo.id, job.rec.prNumber, job.task));
       if (a.status !== 'preparing') return this.abandoned(a); // stopped or fired while preparing, or its issue or PR closed
       // Outside the repo's git lock, so other desks keep checking out meanwhile. A failed install never fails the task.
-      const deps = await this.installDeps(a, cwd);
+      const deps = await this.installDeps(a, cwd, repo);
       return a.status === 'preparing' ? { cwd, deps } : this.abandoned(a);
     } catch (err) {
       if (a.status !== 'preparing') return this.abandoned(a);
-      if (job) {
+      // Upstash refusing or unreachable is the cloud's trouble, not the PR's: it goes back in line without a strike.
+      const cloud = err instanceof CloudError;
+      if (job && !cloud) {
         this.jobDeskFailed(a, repo, job, (err as Error).message);
         return null;
+      }
+      if (job) {
+        if (this.state.qa.includes(job.rec)) this.setQa(job.rec, job.task === 'fix' ? { status: 'failed', devAgentId: job.author } : { status: 'queued', qaAgentId: null });
+        this.clearTask(a);
       }
       a.status = 'error';
       a.endedAt = Date.now();
@@ -2403,17 +2856,19 @@ export class Swarm {
   }
 
   /** The desk's dependencies, shown on the agent's card ("Installing dependencies") while npm runs. */
-  private async installDeps(a: PersistedAgent, cwd: string): Promise<DepsOutcome> {
+  private async installDeps(a: PersistedAgent, cwd: string, repo: PersistedRepo): Promise<DepsOutcome> {
     const rt = this.agentRt.get(a.id);
+    const cb = {
+      log: (lines: string[]) => this.appendLog(a, lines.map((text) => ({ kind: text.startsWith('⚠') ? 'error' : 'system', text }) as LogEntry)),
+      installing: () => {
+        if (!rt) return;
+        rt.currentTool = INSTALL_STEP;
+        this.emitAgent(a);
+      },
+    };
     try {
-      return await this.backend.installDeps(cwd, {
-        log: (lines) => this.appendLog(a, lines.map((text) => ({ kind: text.startsWith('⚠') ? 'error' : 'system', text }))),
-        installing: () => {
-          if (!rt) return;
-          rt.currentTool = INSTALL_STEP;
-          this.emitAgent(a);
-        },
-      });
+      // A cloud agent's dependencies are installed in their Box, outside this computer's install limit.
+      return await (a.host === 'box' ? this.boxMachines.installDeps(this.machineOf(a), repo.fullName, cb) : this.backend.installDeps(cwd, cb));
     } finally {
       if (rt?.currentTool === INSTALL_STEP) {
         rt.currentTool = null;
@@ -2471,8 +2926,44 @@ export class Swarm {
   ) {
     const rt = this.agentRt.get(a.id);
     if (!rt || !this.state.agents.includes(a)) return; // let go meanwhile
-    // A session started in a folder that's gone dies at once (Windows exit 267): set the desk up again first.
-    if (sessionStart(this.backend.deskExists(cwd), mode) === 'prepare') {
+    // A cloud agent's session runs in their Box: it's awake and set up, their linked repos fetched there, and their
+    // credentials resolved first. (Following a CLI that kept working there needs none of that.)
+    if (a.host === 'box' && mode !== 'reattach') {
+      const cli = this.sessionRuntime(a, resumeSessionId).cli ?? 'claude';
+      const note = (text: string) => this.appendLog(a, [{ kind: 'system', text }]);
+      void this.boxTarget(a, cli, repo.browserTesting, mode !== 'typed')
+        .then(async (box) => {
+          const linked = await this.boxMachines.linkRepos(this.machineOf(a), this.linkedRepos(repo).map((r) => r.fullName), note).catch(() => []);
+          this.launchSession(a, repo, cwd, prompt, systemAppend, resumeSessionId, outputSchema, mode, box, linked);
+        })
+        .catch((err) => {
+          if (err instanceof SignInNeeded) return this.holdForSignIn(a, err.cli, () => this.startAgentSession(a, repo, cwd, prompt, systemAppend, resumeSessionId, outputSchema, mode));
+          const why = redact(oneLine(err), this.secrets());
+          this.appendLog(a, [{ kind: 'error', text: `✗ ${why}` }]);
+          void this.onFinished(a, repo, { ok: false, text: '', costUsd: 0, turns: 0, errors: [why] });
+        });
+      return;
+    }
+    this.launchSession(a, repo, cwd, prompt, systemAppend, resumeSessionId, outputSchema, mode);
+  }
+
+  private launchSession(
+    a: PersistedAgent,
+    repo: PersistedRepo,
+    cwd: string,
+    prompt: string,
+    systemAppend: string,
+    resumeSessionId: string | undefined,
+    outputSchema: Record<string, unknown> | undefined,
+    mode: 'typed' | 'reattach' | null,
+    box?: BoxTarget,
+    linked?: string[],
+  ) {
+    const rt = this.agentRt.get(a.id);
+    if (!rt || !this.state.agents.includes(a)) return; // let go meanwhile
+    // A session started in a folder that's gone dies at once (Windows exit 267): set the desk up again first. (A Box's
+    // desk is taken to be there: looking would wake it.)
+    if (a.host !== 'box' && sessionStart(this.backend.deskExists(cwd), mode) === 'prepare') {
       const machine = a.machine;
       // An agent who moved to their machine meanwhile can't resume a session from their old desk (machineOf).
       void this.restoreDesk(a, repo).then((dir) => dir && this.startAgentSession(a, repo, dir, prompt, systemAppend, a.machine === machine ? resumeSessionId : undefined, outputSchema, mode));
@@ -2493,11 +2984,12 @@ export class Swarm {
         model: this.modelFor(a, how.cli),
         effort: a.effort || this.state.settings.defaultEffort,
         browserTesting: repo.browserTesting,
-        additionalDirectories: this.linkedRepos(repo).map((r) => this.backend.mainDir(r.fullName)),
+        additionalDirectories: linked ?? (a.host === 'box' ? [] : this.linkedRepos(repo).map((r) => this.backend.mainDir(r.fullName))),
         role: a.role,
         task: a.task,
         env: this.machineEnv(a),
         outputSchema,
+        ...(box ? { box } : {}),
         // An agent's CLI stays at its prompt after building or fixing, for the manager and for follow-ups; after QA it
         // closes, so the next QA run of that PR is a fresh session.
         keepAlive: a.task !== 'qa',
@@ -2538,15 +3030,41 @@ export class Swarm {
         },
         limited: (at) => this.pauseForLimit(at),
         usageWarning: (info) => this.paceForWarning(info),
-        finished: (result) => void this.onFinished(a, repo, result),
+        finished: (result) => {
+          // A cloud agent's CLI whose login expired: the task carries on (the same conversation) once it's signed in again.
+          const again = () => this.startAgentSession(a, repo, cwd, a.sessionId ? SIGNED_IN_AGAIN : prompt, systemAppend, a.sessionId ?? undefined, outputSchema, null);
+          if (a.host === 'box' && result.signedOut) void this.signedOutMidTask(a, repo, result, how.cli ?? 'claude', again);
+          else void this.onFinished(a, repo, result);
+        },
       },
     );
+  }
+
+  /** A cloud agent's session that ended because their CLI's login is gone (cliRunner's signedOut). */
+  private async signedOutMidTask(a: PersistedAgent, repo: PersistedRepo, result: SessionResult, cli: AgentCli, again: () => void) {
+    const rt = this.agentRt.get(a.id);
+    if (!rt || !this.state.agents.includes(a)) return;
+    const creds = cli === 'opencode' ? null : await this.cloud.credentials(cli).catch(() => null);
+    if (cli === 'opencode' || !creds?.ownLogin || a.status === 'stopped' || this.dropping.has(a.id) || a.host !== 'box') {
+      // A key from Settings that was turned away has nothing to sign in here: the session failed like any other.
+      const errors = creds && !creds.ownLogin ? [`${cliLabel(cli)} turned the key it was given away: check it in Settings → Cloud agents.`] : result.errors;
+      return this.onFinished(a, repo, { ...result, errors });
+    }
+    if (this.silenced.delete(a.id)) return; // the demo's pretend restart cut it off: reconciled like after a real one
+    rt.session = null;
+    rt.currentTool = null;
+    a.costUsd += result.costUsd;
+    a.turns += result.turns;
+    recordCost(this.state.ops, repo.id, result.costUsd, Date.now());
+    // The login its servers turned away is forgotten, so the Box reads as signed out until the manager signs it in again.
+    await this.boxMachines.signOut(this.machineOf(a), cli).catch(() => undefined);
+    this.holdForSignIn(a, cli, again, true);
   }
 
   private async onFinished(a: PersistedAgent, repo: PersistedRepo, result: SessionResult) {
     const rt = this.agentRt.get(a.id);
     if (!rt || !this.state.agents.includes(a)) return; // fired
-    if (this.officeUpdate.handedOver) return; // stopped for the office's update: recovered like after a restart
+    if (this.officeUpdate.handedOver && a.host !== 'box') return; // stopped for the office's update: recovered like after a restart
     if (this.silenced.delete(a.id)) return; // the demo's pretend restart cut it off: reconciled like after a real one
     rt.session = null;
     rt.currentTool = null;
@@ -3224,6 +3742,11 @@ export class Swarm {
       if (url !== undefined && officeUrl(url) === null) throw new HttpError(400, 'The office URL must be an http(s) address, e.g. https://office.your-tailnet.ts.net');
       s.notify = notifySettings(s.notify, patch.notify);
     }
+    if (patch.cloud !== undefined) {
+      const next: CloudSettings = cloudSettings(s.cloud, patch.cloud);
+      if (next.machineKind === 'box' && !this.cloud.boxApi()) throw new HttpError(400, 'Save your Upstash Box API key first: cloud agents run in your Upstash account.');
+      s.cloud = next;
+    }
     this.save();
     this.broadcast({ type: 'settings', settings: s });
     this.emitCeo();
@@ -3251,6 +3774,7 @@ export class Swarm {
    * else instead of waiting for the manager to reset them.
    */
   private isFree(a: PersistedAgent) {
+    if (a.needsSignIn) return false; // a cloud agent waiting to be signed in takes no work (docs/cloud.md)
     return FREE.includes(a.status) || (a.status === 'error' && Date.now() - (a.endedAt ?? 0) >= ERROR_COOLDOWN_MS);
   }
 
@@ -3538,7 +4062,7 @@ export class Swarm {
       failedBehind: u.failedBehind,
       drainingSince: u.drainingSince,
       sent: u.sent,
-      running: this.running(),
+      running: this.running() - this.inBoxes().length, // cloud agents carry on in their Boxes through the restart
     };
   }
 
@@ -3595,7 +4119,8 @@ export class Swarm {
     const u = this.officeUpdate;
     const from = this.officeHead!;
     u.sent = true;
-    const busy = this.state.agents.filter((a) => BUSY.includes(a.status));
+    // Cloud agents working in their Boxes carry on through the restart: the restarted office picks them up.
+    const busy = this.state.agents.filter((a) => BUSY.includes(a.status) && !this.inBoxes().includes(a));
     if (timedOut) this.postMessage('office', `⏱ ${busy.length} session${busy.length === 1 ? ' was' : 's were'} still running after 20 minutes. Stopped; the work goes back to the queue after the update.`);
     this.emitOfficeUpdate();
     u.handedOver = true;
@@ -3613,7 +4138,7 @@ export class Swarm {
   private async afterUpdate(result: LastUpdate) {
     const u = this.officeUpdate;
     Object.assign(u, { sent: false, handedOver: false, requested: false, drainingSince: null });
-    const interrupted = this.state.agents.filter((a) => BUSY.includes(a.status));
+    const interrupted = this.state.agents.filter((a) => BUSY.includes(a.status) && !this.inBoxes().includes(a));
     const preparing = new Set(interrupted.filter((a) => a.status === 'preparing'));
     for (const a of interrupted) {
       Object.assign(a, { status: 'stopped', lastError: 'The office updated itself while this agent was working.' });
@@ -4117,7 +4642,7 @@ export class Swarm {
         const repo = this.state.repos.find((r) => r.id === a.repoId);
         if (!repo) continue;
         const name = `${a.name}'s desk on ${repo.fullName}`;
-        const trim = a.machine ? (idle: () => boolean) => this.backend.machines.trimDesk(a.machine!, repo.fullName, idle) : (idle: () => boolean) => this.backend.trimDesk(repo.fullName, this.agentSlug(a), idle);
+        const trim = a.machine ? (idle: () => boolean) => this.machinesFor(a).trimDesk(a.machine!, repo.fullName, idle) : (idle: () => boolean) => this.backend.trimDesk(repo.fullName, this.agentSlug(a), idle);
         desks.push({ key: a.id, name, endedAt: a.endedAt, busy: () => this.deskBusy(a), trim });
       }
       for (const repo of this.state.repos) {
@@ -4198,7 +4723,9 @@ export class Swarm {
   private watchdogTick(heal = true) {
     const now = Date.now();
     forget(this.watch, now);
-    const agents: WatchAgent[] = this.state.agents.map((a) => ({
+    // A cloud agent whose Box is being set up, that the office can't reach right now or that waits to be signed in isn't stuck: left be.
+    const away = (a: PersistedAgent) => a.host === 'box' && (!!a.needsSignIn || ['creating', 'setting-up', 'disconnected'].includes(this.boxMachines.stateOf(a.machine ?? machineName(a.id))));
+    const agents: WatchAgent[] = this.state.agents.filter((a) => !away(a)).map((a) => ({
       id: a.id,
       name: a.name,
       repoId: a.repoId,
@@ -4583,12 +5110,12 @@ export class Swarm {
   }
 
   /** "Codex · gpt-6 · high": what an agent runs, where it isn't the office default ('' when it all is). */
-  private setupLabel(x: { cli: AgentCli | ''; model: string; effort: EffortLevel | '' }) {
-    return [x.cli ? cliLabel(x.cli) : '', x.model, x.effort ? `${x.effort} effort` : ''].filter(Boolean).join(' · ');
+  private setupLabel(x: { cli: AgentCli | ''; model: string; effort: EffortLevel | ''; host?: MachineHost | '' }) {
+    return [x.cli ? cliLabel(x.cli) : '', x.model, x.effort ? `${x.effort} effort` : '', x.host === 'box' ? 'in the cloud' : ''].filter(Boolean).join(' · ');
   }
 
   /** A team change goes through: the new agent joins as set up here (the manager's changes win), or an agent leaves. */
-  approveRequest(id: string, overrides: { name?: string; cli?: string; model?: string; effort?: string; note?: string } = {}, by: 'manager' | 'auto' = 'manager') {
+  approveRequest(id: string, overrides: { name?: string; cli?: string; model?: string; effort?: string; host?: string; note?: string } = {}, by: 'manager' | 'auto' = 'manager') {
     const req = this.state.requests.find((r) => r.id === id);
     if (!req) throw new HttpError(404, 'That team change no longer exists');
     if (req.status !== 'pending') throw new HttpError(409, `That team change was already ${req.status}`);
@@ -4601,6 +5128,8 @@ export class Swarm {
       const agent = this.hireAgent(repo.id, {
         name,
         cli: overrides.cli ?? req.cli,
+        host: overrides.host ?? req.host ?? '',
+        strict: true,
         model: overrides.model ?? req.model,
         effort: overrides.effort ?? req.effort,
         look: name === req.name ? req.look : undefined,
@@ -4608,7 +5137,7 @@ export class Swarm {
         // the request's id: the candidate waiting in the lobby was drawn from it, so they look the same at their desk
         id: req.id,
       });
-      Object.assign(req, { agentId: agent.id, name: agent.name, cli: agent.cli, model: agent.model, effort: agent.effort });
+      Object.assign(req, { agentId: agent.id, name: agent.name, cli: agent.cli, host: agent.host ?? 'local', model: agent.model, effort: agent.effort });
       this.decide(req, { status: 'approved', note, decidedBy: by });
       const setup = this.setupLabel(req);
       this.postMessage('office', by === 'auto' ? `🤖 ${agent.name} joined floor ${repo.floor}${setup ? ` (${setup})` : ''}.` : `✅ You hired ${agent.name} for floor ${repo.floor}${setup ? ` (${setup})` : ''}.${quoted}`, req.id);

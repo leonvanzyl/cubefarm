@@ -36,8 +36,8 @@ function People({ rows, caption }: { rows: FloorRow[]; caption: string }) {
             </td>
             <td>{r.doing}</td>
             <td>
-              <button className="btn btn-small" onClick={() => openOverlay({ kind: 'terminal', agentId: r.id })} aria-label={`Open ${r.name}'s terminal`}>
-                Terminal
+              <button className="btn btn-small" onClick={() => openOverlay({ kind: 'terminal', agentId: r.id })} aria-label={r.signIn ? `Sign ${r.name}'s ${r.signIn} in, in their terminal` : `Open ${r.name}'s terminal`}>
+                {r.signIn ? '🔑 Sign in' : 'Terminal'}
               </button>
             </td>
           </tr>
