@@ -59,7 +59,7 @@ browser with the Playwright tools, and put screenshots in the PR. `.github/workf
 
 Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bundles it into `dist-server/` for npm):
 - `index.ts`: entry; picks the real or demo backend, REST routes under `/api`, the `/ws` and `/ws/term` websockets, serves `dist/`, shutdown.
-- `config.ts`: `SWARM_PORT` (default 4317), `SWARM_HOME` (default `~/.cubefarm`), `--demo`, state file, intervals,
+- `config.ts`: `SWARM_PORT` (default 4317), `SWARM_HOST` (default 127.0.0.1; `npx cubefarm --host`), `SWARM_HOME` (default `~/.cubefarm`), `--demo`, state file, intervals,
   the default projects folder.
 - `swarm.ts`: the orchestrator. Floors, agents, scheduling/auto-assign, build → QA → fix → merge loop, team changes
   (the CEO's `scale_team`, lobby approvals), CEO job queue, phone messages, persistence (`state.json` / `demo-state.json`), websocket fan-out (through

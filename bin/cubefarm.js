@@ -23,6 +23,9 @@ const HELP = `
 
   Options
     --port <n>   port for the office (default 4317)
+    --host <address>
+                 address to listen on (default 127.0.0.1, this machine only). 0.0.0.0 opens the office to your
+                 network with no sign-in: anyone who reaches it can run your agents. Only on a network you trust
     --demo       fake GitHub and fake agents: look around without spending any usage
     --floors <n> --agents <n>
                  with --demo: a bigger company, n floors with n people each (up to 20 and 15)
@@ -51,6 +54,8 @@ try {
     allowPositionals: true,
     options: {
       port: { type: 'string', short: 'p' },
+      host: { type: 'string' },
+      bind: { type: 'string' },
       demo: { type: 'boolean' },
       floors: { type: 'string' },
       agents: { type: 'string' },
@@ -165,9 +170,13 @@ const printCheck = (c) => console.log(`  ${c.ok ? green('✓') : red('✗')} ${c
 
 // ---------- helpers ----------
 
-function portOpen(port) {
+// Where this machine reaches an office listening on `host`: loopback for the any-address, else that address (as
+// server/config.ts's localAddress, which also brackets IPv6 for URLs).
+const localHost = (host) => (['0.0.0.0', '::', ''].includes(host) ? '127.0.0.1' : host);
+
+function portOpen(port, host) {
   return new Promise((resolve) => {
-    const socket = net.connect({ port, host: '127.0.0.1' });
+    const socket = net.connect({ port, host });
     const done = (open) => {
       socket.destroy();
       resolve(open);
@@ -247,12 +256,16 @@ if (command !== 'start') fail(`Unknown command "${command}". Run npx cubefarm --
 
 const port = Number(values.port ?? process.env.SWARM_PORT ?? 4317);
 if (!Number.isInteger(port) || port < 0 || port > 65535) fail(`"${values.port ?? process.env.SWARM_PORT}" isn't a port number.`);
-const url = `http://localhost:${port}`;
+const host = (values.host ?? values.bind ?? process.env.SWARM_HOST ?? '').trim().replace(/^\[|\]$/g, '') || '127.0.0.1';
+if (/[\s/]/.test(host)) fail(`"${host}" isn't an address to listen on. Try 0.0.0.0 (every network) or one of this machine's IPs.`);
+const local = localHost(host);
+const hostUrl = local.includes(':') ? `[${local}]` : local;
+const url = `http://${local === '127.0.0.1' ? 'localhost' : hostUrl}:${port}`;
 const demo = values.demo || process.env.SWARM_DEMO === '1' || process.env.SWARM_DEMO === 'true';
 
 // A second office on the same state would resume every agent's session a second time.
-if (port !== 0 && (await portOpen(port))) {
-  if (!(await isOffice(`http://127.0.0.1:${port}`))) fail(`Something else is using port ${port}. Start cubefarm on another one: npx cubefarm --port 4400`);
+if (port !== 0 && (await portOpen(port, local))) {
+  if (!(await isOffice(`http://${hostUrl}:${port}`))) fail(`Something else is using port ${port}. Start cubefarm on another one: npx cubefarm --port 4400`);
   console.log(`\n  cubefarm is already running: ${url}\n`);
   if (!values['no-open']) openBrowser(url);
   process.exit(0);
@@ -272,6 +285,7 @@ const entry = path.join(root, 'dist-server', 'index.js');
 if (!fs.existsSync(entry)) fail(`${path.relative(process.cwd(), entry) || entry} is missing. In a checkout of the repo, run npm run build first.`);
 
 process.env.SWARM_PORT = String(port);
+process.env.SWARM_HOST = host;
 if (demo) process.env.SWARM_DEMO = '1';
 if (values.floors) process.env.SWARM_DEMO_FLOORS = values.floors;
 if (values.agents) process.env.SWARM_DEMO_AGENTS = values.agents;
@@ -280,7 +294,7 @@ process.setSourceMapsEnabled(true);
 await import(pathToFileURL(entry).href);
 
 if (!values['no-open'] && port !== 0) {
-  for (let i = 0; i < 100 && !(await portOpen(port)); i++) await new Promise((r) => setTimeout(r, 200));
+  for (let i = 0; i < 100 && !(await portOpen(port, local)); i++) await new Promise((r) => setTimeout(r, 200));
   openBrowser(url);
 }
 void checkForUpdate();

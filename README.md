@@ -49,6 +49,7 @@ Every agent, the CEO included, is the actual coding-agent CLI in a terminal on y
 | Status | the default; the CEO runs it | experimental | experimental |
 
 - **One for everyone, or one each.** The manager's console → Settings sets the default coding agent, its model and the reasoning effort (out of the box: Claude Code with Claude Opus 5.5 at medium effort). An agent's ⚙️ Setup, the Team tab, or a new agent's chair in the lobby changes them for one agent. One subscription is all you need; mixing them (say, Codex agents testing what Claude Code agents wrote) is up to you.
+- **Local models.** Codex and OpenCode agents can run a model on your own computer instead of a subscription: give them a model named after its server, `ollama/qwen3-coder`, `lmstudio/<model>`, `llamacpp/<model>` or `omlx/<model>` (see [Local models](docs/agents.md#local-models)).
 - **Codex's hooks.** The first time, Codex asks you to review the office's hooks: type `/hooks` in a Codex agent's terminal and press `t` to trust them. Until then the office shows a Codex agent's task rather than each step.
 - **Usage.** Agents on the same coding agent share its usage limits. When Claude warns that usage is getting high, the office slows down new work until the window resets. To cap how many agents run at once, set a session limit in the manager's console.
 - **Restarts.** Agents keep working while the office restarts (an update, a crash): their terminals live in a small process of their own and reconnect when the office is back.
@@ -75,7 +76,7 @@ More in [How it works](docs/how-it-works.md#agents-terminals).
 - **Rituals**: when the CEO files a burst of issues, the free agents gather at the whiteboard and the CEO comes up in the elevator to put up the new stickies (and says so out loud if the CEO's voice is on). The CEO walks the floors now and then (press `E` on them to text them), people eat lunch from noon to one, pizza arrives on Friday afternoons, and in the evening the desk lamps come on, idle agents head home and come back in the morning with a coffee. They follow the sky's clock (in help: a 30-minute day, your own clock, or always afternoon).
 - **Careers and coins**: every agent has a career card with a rank, badges, stats and their last merged pull requests. Merges, first-time QA passes and green checks earn the floor coins to spend on decorations at the lobby's kiosk, and the office's achievements stand on its trophy shelf.
 - **The roof**: the elevator's top stop. A garden, deck chairs to sit back in, a barbecue for a sausage, a telescope for the billboards by day and the moon and constellations by night, string lights at dusk and a helipad. Idle agents come up for a break now and then.
-- **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, a jukebox on every floor, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`.
+- **Toys**: balls to throw, a basketball hoop (aim at the painted square and charge about halfway), foam blasters, a roomba, a jukebox on every floor, and coffee: take a mug from the dispenser, brew it at the machine and sip it with `E`. The kitchenette fridge opens with `E` (the light comes on); grab a cold drink or a snack, then `E` drinks or eats it. Agents raid it on their breaks, and the dog begs when you hold food.
 - **The office dog**: one dog for the whole building (Biscuit, renameable in Settings). Pet it with `E` and it follows you, throw a ball and it fetches it, and it naps, keeps struggling agents company, celebrates merges and rides the elevator between floors.
 - **Ping-pong**: `E` at either end of the table picks up a paddle and someone free comes to play you; the mouse moves the paddle and your swing sets the pace and spin. Games go to 11 and feed the floor's leaderboard on the wall.
 - **Outside**: a city around the building, a sky that follows the office's clock, and weather: a calm cycle, or your own local weather (Settings).
@@ -100,6 +101,7 @@ More in [How it works](docs/how-it-works.md#agents-terminals).
 | mouse | look around (click the view first) |
 | `E` / left click | use what you're looking at: a desk, the whiteboard, the elevator, the manager's computer, a ball, a mug, the coffee machine, the jukebox; say hi to someone with nothing to do |
 | `E` with coffee | take a sip (three to a mug, the last a big gulp) |
+| `E` at the fridge | open or shut it; with the door open, grab a snack or a cold drink (then `E` eats or drinks it, `G` gets rid of it) |
 | `E` on the roof | sit back in a deck chair, grill (and eat) a sausage, look through the telescope (mouse wheel zooms) |
 | `F` / left click, holding something | throw a ball (hold to charge) or fire a blaster |
 | mouse / left click, playing ping-pong | move the paddle (swing it for pace and spin) / toss and serve |
@@ -130,6 +132,7 @@ A gamepad works too (left stick walks, right stick looks, A uses, B goes back, X
 | `npx cubefarm --demo` | fake GitHub and fake agents |
 | `npx cubefarm --demo --floors 10 --agents 15` | a big demo company: 10 floors of 15 people, to see the office at scale |
 | `npx cubefarm --port 4400` | use another port (the default is 4317) |
+| `npx cubefarm --host 0.0.0.0` | listen on your network too, not just this computer (no sign-in: see below) |
 | `npx cubefarm --no-open` | don't open the browser |
 
 ## Updating
@@ -149,7 +152,7 @@ Running it from a clone of this repo (`npm start`)? Then the office updates itse
 - **It runs on your own subscriptions.** Each agent uses the login of the coding agent it runs, and agents on the same coding agent share its usage limits.
 - **Agents work like the coding agents you run yourself**: unsandboxed, with your skills, MCP servers and settings, each in its own copy of the repo. Nobody has to be there to approve a tool call, so the office approves them all: run it where you'd run your own coding agents. The office's rules are in the agents' instructions: push your own branch and open a pull request, never push to your main branch or merge. The office merges, after QA.
 - **Your office lives in `~/.cubefarm`**: settings, clones of your repos and one machine (a clone and a worktree) per agent. Set `SWARM_HOME` to use another folder. Machines and desks nobody uses any more are swept away every 30 minutes, and any unpushed work on them is kept as a patch in `~/.cubefarm/leftovers`.
-- **It's only open to your own computer.** The office listens on `127.0.0.1`. To reach it from your phone, put something that signs you in in front of it, like Tailscale Serve: see [Reach the office from your phone](docs/pocket.md#reach-the-office-from-your-phone).
+- **It's only open to your own computer.** The office listens on `127.0.0.1`. To reach it from your phone, put something that signs you in in front of it, like Tailscale Serve: see [Reach the office from your phone](docs/pocket.md#reach-the-office-from-your-phone). `--host 0.0.0.0` (or `SWARM_HOST`) opens it to your network as it is, say to run it on a Mac mini and watch from your laptop: the office has no sign-in, so anyone who can reach it can run your agents. Only do that on a network you trust.
 
 ## Learn more
 

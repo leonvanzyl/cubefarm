@@ -100,6 +100,13 @@ function officeSpots(): Spot[] {
     { id: 'coffee-line-1', x: HALF_W - 3.25, z: 5.9, facing: EAST },
     { id: 'coffee-sip-0', x: HALF_W - 1.45, z: 7.9, facing: WEST },
     { id: 'coffee-sip-1', x: HALF_W - 2.5, z: 7.9, facing: EAST },
+    // the fridge at the counter's south end (KitchenFridge.tsx): in front of it, clear of its door's swing, looking in; two
+    // places to wait a turn, and two to stand and eat, face to face
+    { id: 'fridge', x: HALF_W - 1.35, z: 8.6, facing: Math.PI / 4 },
+    { id: 'fridge-line', x: HALF_W - 2.25, z: 8.75, facing: EAST },
+    { id: 'fridge-line-1', x: HALF_W - 3.15, z: 8.6, facing: EAST },
+    { id: 'snack-0', x: HALF_W - 2.1, z: 9.6, facing: WEST },
+    { id: 'snack-1', x: HALF_W - 2.95, z: 9.45, facing: EAST },
     { id: 'cooler', x: HALF_W - 1.5, z: -9.5, facing: EAST },
     { id: 'gong', ...GONG_SPOT, facing: NORTH },
     // the couch's seat faces east; you walk up past the south end of the coffee table

@@ -2,7 +2,8 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { boxVersions, CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, oneAtATime, signedOutScreen, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
+import { boxVersions, CODEX_HOOK_EVENTS, codexHookCommand, CROSS_TURN_TOOLS, hookReviewKey, interruptions, launchArgs, localUrl, oneAtATime, signedOutScreen, trustKey, unwrapCmdShim, type LaunchContext } from './clis.ts';
+import { LOCAL_PROVIDERS } from '../shared/models.ts';
 import { describeOfficeTool, describeTool, newScreenshots, screenshotFile, summariseResult } from './agentRunner.ts';
 
 const dir = path.join(os.tmpdir(), 'npm-global');
@@ -159,6 +160,35 @@ describe('launchArgs', () => {
     const config = (patch: Partial<LaunchContext>) => JSON.parse(launchArgs('opencode', ctx(patch)).env.OPENCODE_CONFIG_CONTENT);
     for (const role of ['agent'] as const) expect(config({ role }).permission).toEqual({ edit: 'allow', bash: 'allow', webfetch: 'allow' });
     expect(config({}).autoupdate).toBe(false);
+  });
+
+  it('runs Codex on a local model through its own --oss, or a provider of the office\'s', () => {
+    const args = (model: string) => launchArgs('codex', ctx({ model })).args;
+    expect(args('gpt-5.5').join(' ')).toContain('-m gpt-5.5');
+    expect(args('gpt-5.5')).not.toContain('--oss');
+    expect(args('ollama/gpt-oss:20b').join(' ')).toContain('--oss --local-provider ollama -m gpt-oss:20b');
+    const llama = args('llamacpp/default');
+    expect(llama).not.toContain('--oss');
+    expect(llama).toContain('model_providers.cubefarm-llamacpp={name="llama.cpp",base_url="http://127.0.0.1:8080/v1",wire_api="responses"}');
+    expect(llama).toContain('model_provider="cubefarm-llamacpp"');
+    expect(llama.slice(llama.indexOf('-m'), llama.indexOf('-m') + 2)).toEqual(['-m', 'default']);
+  });
+
+  it('gives OpenCode the local server a model runs on', () => {
+    const launch = launchArgs('opencode', ctx({ model: 'llama.cpp/qwen/coder' }));
+    expect(launch.args.slice(launch.args.indexOf('--model'), launch.args.indexOf('--model') + 2)).toEqual(['--model', 'llamacpp/qwen/coder']);
+    expect(JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).provider).toEqual({
+      llamacpp: { npm: '@ai-sdk/openai-compatible', name: 'llama.cpp', options: { baseURL: 'http://127.0.0.1:8080/v1' }, models: { 'qwen/coder': { name: 'qwen/coder' } } },
+    });
+    expect(JSON.parse(launchArgs('opencode', ctx({ model: 'anthropic/claude-opus-5-5' })).env.OPENCODE_CONFIG_CONTENT).provider).toBeUndefined();
+  });
+});
+
+describe('localUrl', () => {
+  it('takes a local server\'s address from the environment when set', () => {
+    const ollama = LOCAL_PROVIDERS[0];
+    expect(localUrl(ollama, {})).toBe('http://127.0.0.1:11434/v1');
+    expect(localUrl(ollama, { CUBEFARM_OLLAMA_URL: ' http://gpu-box:11434/v1 ' })).toBe('http://gpu-box:11434/v1');
   });
 });
 

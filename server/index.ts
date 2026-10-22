@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { CLIP_MAX_BYTES, CLIP_TOO_BIG } from '../shared/clipLimits.ts';
 import { DAY_PARTS } from '../shared/speech.ts';
-import { DEMO, DEMO_SCALE, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT } from './config.ts';
+import { DEMO, DEMO_SCALE, HOST, PORT, STATE_FILE, VERSION, WORKSPACE_ROOT, isLoopback, localAddress, networkUrls } from './config.ts';
 import { MACHINES_DIR } from './workspace.ts';
 import { realBackend } from './backend.ts';
 import { handleHook, handleMcp, setOfficeUrl } from './cliRunner.ts';
@@ -24,7 +24,7 @@ const swarm = new Swarm(DEMO ? createDemoBackend(DEMO_SCALE) : realBackend);
 // Who else is in the 3D office (shared presence): relayed between tabs over /ws, never saved. The demo adds fake visitors.
 const presence = new PresenceHub({ demo: DEMO });
 // Sessions the office picks back up while it starts need the address their CLIs call back on before it listens.
-if (PORT) setOfficeUrl(`http://127.0.0.1:${PORT}`);
+if (PORT) setOfficeUrl(`http://${localAddress(HOST)}:${PORT}`);
 await swarm.init();
 
 const app = express();
@@ -345,10 +345,16 @@ server.on('upgrade', (req, socket, head) => {
   target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  setOfficeUrl(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+server.listen(PORT, HOST, () => {
+  const port = (server.address() as AddressInfo).port;
+  setOfficeUrl(`http://${localAddress(HOST)}:${port}`);
   const scale = DEMO_SCALE ? `, ${DEMO_SCALE.floors} floors × ${DEMO_SCALE.agents} people` : '';
-  console.log(`\n  🏢 cubefarm ${VERSION} on http://localhost:${PORT}${DEMO ? `  (DEMO MODE: fake GitHub + fake agents${scale})` : ''}`);
+  const shown = localAddress(HOST) === '127.0.0.1' ? 'localhost' : localAddress(HOST);
+  console.log(`\n  🏢 cubefarm ${VERSION} on http://${shown}:${PORT}${DEMO ? `  (DEMO MODE: fake GitHub + fake agents${scale})` : ''}`);
+  if (!isLoopback(HOST)) {
+    for (const url of networkUrls(HOST, port)) console.log(`     on your network: ${url}`);
+    console.log(`     ⚠ listening on ${HOST}: anyone who can reach this machine can use the office and its agents, with no sign-in`);
+  }
   console.log(`     state: ${STATE_FILE}`);
   console.log(`     workspaces: ${WORKSPACE_ROOT}`);
   console.log(`     agents' machines: ${DEMO ? '(pretend ones, in the demo)' : MACHINES_DIR}\n`);

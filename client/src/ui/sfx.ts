@@ -671,6 +671,98 @@ export function alarm() {
   }
 }
 
+// ---------- the kitchenette fridge (world/KitchenFridge.tsx) ----------
+
+/** The fridge door coming open: the seal letting go (a soft suck and pop), then the bottles in the door clinking. */
+export function fridgeOpen(pos: Vec3) {
+  const o = { name: 'fridge:open', group: 'toys', pos } as const;
+  noise({ ...o, dur: 0.12, peak: 0.06, filter: 'lowpass', freq: 700, to: 2200, attack: 0.01 });
+  tone({ ...o, freq: 170, to: 330, dur: 0.07, peak: 0.05, attack: 0.004 });
+  tone({ ...o, freq: 3100, type: 'triangle', at: 0.13, dur: 0.05, peak: 0.012, attack: 0.002 });
+  tone({ ...o, freq: 3500, type: 'triangle', at: 0.19, dur: 0.05, peak: 0.009, attack: 0.002 });
+}
+
+/** The fridge door shutting: a soft, padded thunk. */
+export function fridgeClose(pos: Vec3) {
+  const o = { name: 'fridge:close', group: 'toys', pos } as const;
+  tone({ ...o, freq: 95, to: 58, dur: 0.16, peak: 0.08, attack: 0.004 });
+  noise({ ...o, dur: 0.1, peak: 0.05, filter: 'lowpass', freq: 420, attack: 0.003 });
+  tone({ ...o, freq: 2600, type: 'triangle', at: 0.05, dur: 0.04, peak: 0.008, attack: 0.002 });
+}
+
+/** The fridge left open: its three thin "close me" beeps. */
+export function fridgeBeep(pos: Vec3) {
+  for (const at of [0, 0.17, 0.34]) tone({ name: 'fridge:beep', group: 'toys', pos, freq: 2093, type: 'triangle', at, dur: 0.09, peak: 0.035, attack: 0.005 });
+}
+
+/** The fridge's hum, quiet: a long-lived loop the fridge fades in and out (`level`, 0-1) and moves; `stop` ends it. */
+export interface FridgeHum {
+  level(v: number): void;
+  stop(): void;
+}
+
+const HUM_PEAK = 0.012;
+
+/** The compressor: a low 50 Hz buzz with its overtones through a lowpass, from a panner at `pos`. Null without audio. */
+export function fridgeHum(pos: Vec3): FridgeHum | null {
+  const a = audio();
+  const out = groupOutput('toys');
+  if (!a || !out) return null;
+  try {
+    const c = a.ctx;
+    const env = c.createGain();
+    env.gain.value = 0;
+    const panner = createPanner(c, pos);
+    env.connect(panner);
+    const buzz = c.createOscillator();
+    buzz.type = 'sawtooth';
+    buzz.frequency.value = 50;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 240;
+    lp.Q.value = 0.8;
+    buzz.connect(lp).connect(env);
+    const hum = c.createOscillator();
+    hum.frequency.value = 100;
+    const humG = c.createGain();
+    humG.gain.value = 0.4;
+    hum.connect(humG).connect(env);
+    buzz.start();
+    hum.start();
+    let hooked = false;
+    let level = 0;
+    recordSfx('fridge:hum', { group: 'toys', pos, peak: HUM_PEAK, played: true });
+    return {
+      level(v) {
+        if (Math.abs(v - level) < 0.02) return;
+        level = v;
+        if (v > 0 && !hooked) {
+          panner.connect(out);
+          hooked = true;
+        }
+        env.gain.setTargetAtTime(HUM_PEAK * v, c.currentTime, 0.25);
+      },
+      stop() {
+        const t = c.currentTime;
+        env.gain.cancelScheduledValues(t);
+        env.gain.setTargetAtTime(0, t, 0.05);
+        buzz.stop(t + 0.3);
+        hum.stop(t + 0.3);
+        buzz.onended = () => {
+          try {
+            panner.disconnect();
+            env.disconnect();
+          } catch {
+            // already disconnected
+          }
+        };
+      },
+    };
+  } catch {
+    return null; // audio is optional
+  }
+}
+
 // ---------- event cues ----------
 
 export type Cue = 'error' | 'qaFailed' | 'ready' | 'merged' | 'welcome';

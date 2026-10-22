@@ -9,6 +9,7 @@ import { WALK_SPEED, type Gesture } from './body';
 import { chatSay } from './Chatter';
 import { playerAt } from './camera/rig';
 import './coffeeErrand';
+import './fridgeErrand';
 import {
   HURRY_SPEED,
   admit,

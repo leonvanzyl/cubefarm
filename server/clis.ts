@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { run } from './exec.ts';
+import { localModel, type LocalProvider } from '../shared/models.ts';
 import type { AgentCli, CliView, EffortLevel } from '../shared/types.ts';
 import type { BoxVersions } from './boxScripts.ts';
 
@@ -191,6 +192,33 @@ export interface Launch {
   env: Record<string, string>;
 }
 
+/** A local model server's address: `CUBEFARM_<ID>_URL` (e.g. CUBEFARM_OLLAMA_URL) when set, else its usual one. */
+export function localUrl(p: LocalProvider, env: NodeJS.ProcessEnv = process.env): string {
+  return env[`CUBEFARM_${p.id.toUpperCase()}_URL`]?.trim() || p.url;
+}
+
+/** Codex on a local model: its own --oss for Ollama and LM Studio at their usual address, else a provider of the office's. */
+function codexLocal(model: string, toml: (s: string) => string): string[] {
+  const local = localModel(model);
+  if (!local) return model ? ['-m', model] : [];
+  const { provider } = local;
+  const url = localUrl(provider);
+  if (provider.codexOss && url === provider.url) return ['--oss', '--local-provider', provider.id, '-m', local.model];
+  const id = `cubefarm-${provider.id}`;
+  return ['-c', `model_providers.${id}={name=${toml(provider.label)},base_url=${toml(url)},wire_api="responses"}`, '-c', `model_provider=${toml(id)}`, '-m', local.model];
+}
+
+/** OpenCode's provider entry for a local model, through the server's OpenAI-compatible API. */
+function opencodeLocal(local: ReturnType<typeof localModel>): Record<string, unknown> {
+  if (!local) return {};
+  const { provider } = local;
+  return {
+    provider: {
+      [provider.id]: { npm: '@ai-sdk/openai-compatible', name: provider.label, options: { baseURL: localUrl(provider) }, models: { [local.model]: { name: local.model } } },
+    },
+  };
+}
+
 const EFFORT_CODEX: Record<EffortLevel, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' };
 
 /** Codex hooks the office listens to: its steps, and Esc interrupting a turn. Turn endings come from notify. */
@@ -247,7 +275,7 @@ export function launchArgs(id: AgentCli, ctx: LaunchContext): Launch {
         `notify=[${[ctx.node ?? process.execPath, ctx.notify.script, ctx.notify.url].map(toml).join(',')}]`,
         '-c',
         `developer_instructions=${toml(ctx.systemAppend)}`,
-        ...(ctx.model ? ['-m', ctx.model] : []),
+        ...codexLocal(ctx.model, toml),
         ...(ctx.effort ? ['-c', `model_reasoning_effort=${toml(EFFORT_CODEX[ctx.effort])}`] : []),
         ...(ctx.browser ? ['-c', `mcp_servers.playwright={command=${toml(ctx.browser.command)},args=[${ctx.browser.args.map(toml).join(',')}]}`] : []),
         ...CODEX_HOOK_EVENTS.flatMap((e) => ['-c', `hooks.${e}=[{hooks=[{type="command",command=${toml(codexHookCommand(ctx.node ?? process.execPath, ctx.codexHook, ctx.posix ? false : WIN))},timeout=10}]}]`]),
@@ -258,18 +286,20 @@ export function launchArgs(id: AgentCli, ctx: LaunchContext): Launch {
       return { args: ctx.resumeId ? ['resume', ...args, ctx.resumeId, ctx.prompt] : [...args, '--', ctx.prompt], env: { CUBEFARM_HOOK_URL: ctx.notify.url } };
     }
     case 'opencode': {
+      const local = localModel(ctx.model);
       const config = {
         plugin: [ctx.plugin],
         instructions: [ctx.files.system],
         autoupdate: false, // several agents starting at once must not each reinstall it
         permission: { edit: 'allow', bash: 'allow', webfetch: 'allow' }, // it can't stop to ask either
+        ...opencodeLocal(local),
         ...(ctx.browser ? { mcp: { playwright: { type: 'local', command: [ctx.browser.command, ...ctx.browser.args], enabled: true } } } : {}),
       };
       // No project argument: it starts in its terminal's folder, and a desk path in its command line would make the
       // desk clean-up take it for a leftover.
       const args = [
         '--auto',
-        ...(ctx.model ? ['--model', ctx.model] : []),
+        ...(ctx.model ? ['--model', local ? `${local.provider.id}/${local.model}` : ctx.model] : []),
         ...(ctx.resumeId ? ['--session', ctx.resumeId] : []),
         '--prompt',
         ctx.prompt,

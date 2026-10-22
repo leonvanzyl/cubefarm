@@ -24,6 +24,7 @@ import { CoinBurst } from './decor/CoinBurst';
 import { Decorations } from './decor/Decorations';
 import { DeskStory, MvpSign } from './desk/DeskStory';
 import { CoffeeTable, Couch, Kitchenette, Plant, Rug, WallClock, WaterCooler } from './Props';
+import { HeldSnack } from './HeldSnack';
 import { OfficeRituals } from './Rituals';
 import { PongTable } from './PongTable';
 import { Shell } from './Shell';
@@ -71,6 +72,8 @@ export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView 
   const { alarm, ref: signRef } = useFloorAlarm(repo.id);
   const name = repo.fullName.split('/')[1] ?? repo.fullName;
   const rugColor = shade(repo.color, 0.24);
+  // whose lunch the tupperware in the fridge might be
+  const lunchNames = agents.filter((a) => a.role !== 'ceo').map((a) => a.name).join('\n');
 
   return (
     <group>
@@ -165,7 +168,8 @@ export const OfficeFloor = memo(function OfficeFloor({ repo }: { repo: RepoView 
       <Plant position={[HALF_W - 0.7, 0, HALF_D - 0.7]} scale={0.9} pot="#8338ec" />
       <Couch position={[-HALF_W + 0.9, 0, 6.5]} rotationY={-Math.PI / 2} color={shade(repo.color, -0.05)} />
       <CoffeeTable position={[-HALF_W + 2.6, 0, 6.5]} rotationY={Math.PI / 2} />
-      <Kitchenette position={[HALF_W - 0.45, 0, 7]} />
+      <Kitchenette position={[HALF_W - 0.45, 0, 7]} floor={repo.floor} who={lunchNames} />
+      <HeldSnack />
       <WaterCooler position={[HALF_W - 0.5, 0, -9.5]} />
       <Jukebox x={JUKEBOX.officeX} floor={repo.floor} />
       <WallClock position={[-10, 2.75, -HALF_D + 0.05]} />

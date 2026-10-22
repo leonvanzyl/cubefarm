@@ -18,6 +18,19 @@ An agent has a name and a look, for personality, and three settings: its **provi
 
 Most people have one subscription, so the default is every agent on the same provider. Mixing providers (Codex reviewing what Claude wrote, say) is an option for those who have more than one, never a requirement.
 
+## Local models
+
+Codex and OpenCode agents can run on a model server on your computer instead of a subscription. Start the server, load a coding model, and give the agent (or the office default) a model named `<server>/<model>`:
+
+| Server | Model name | Address (override) | Codex | OpenCode |
+| --- | --- | --- | --- | --- |
+| [Ollama](https://ollama.com) | `ollama/qwen3-coder` | `http://127.0.0.1:11434/v1` (`CUBEFARM_OLLAMA_URL`) | its own `--oss` | ✓ |
+| [LM Studio](https://lmstudio.ai) | `lmstudio/qwen/qwen3-coder-30b` | `http://127.0.0.1:1234/v1` (`CUBEFARM_LMSTUDIO_URL`) | its own `--oss` | ✓ |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) (`llama-server`) | `llamacpp/<model>` | `http://127.0.0.1:8080/v1` (`CUBEFARM_LLAMACPP_URL`) | Responses API | ✓ |
+| oMLX | `omlx/<model>` | `http://127.0.0.1:8000/v1` (`CUBEFARM_OMLX_URL`) | Responses API | ✓ |
+
+Everything after the first `/` is the server's own name for the model. OpenCode gets the server as an OpenAI-compatible provider; Codex uses its built-in Ollama and LM Studio support, or, for the others (or an address you changed), a provider pointed at the server's Responses API. Set the `CUBEFARM_*_URL` variables in the office's environment before starting it. Claude Code and the CEO stay on Claude, and cloud agents can't reach a server on your computer. Agents need a model that's good at tool calls and a long context (Ollama's default context is too short for agent work: raise `num_ctx` / `OLLAMA_CONTEXT_LENGTH`).
+
 ## A floor's team
 
 Each floor (one repository) has its own team, up to **10 agents** by default (Settings → *Most agents per floor*, at most 15: the room has 15 desks). Agents stay on their floor and take that board's work.

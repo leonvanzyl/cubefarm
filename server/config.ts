@@ -4,6 +4,9 @@ import path from 'node:path';
 import { FLOOR_SEATS } from '../shared/types.ts';
 
 export const PORT = Number(process.env.SWARM_PORT ?? 4317);
+// The office can start agents that run commands on this machine, so it listens on loopback unless the manager asks for
+// another address (`npx cubefarm --host 0.0.0.0`, or SWARM_HOST): reachable from the network, with no sign-in.
+export const HOST = process.env.SWARM_HOST?.trim().replace(/^\[|\]$/g, '') || '127.0.0.1';
 // package.json sits one folder up both from server/ and from the published dist-server/.
 export const VERSION: string = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8')).version;
 
@@ -48,6 +51,31 @@ export const STATE_FILE = path.join(HOME_DIR, DEMO ? (DEMO_SCALE ? `demo-${DEMO_
 export function envPort(value: string | undefined, fallback: number): number {
   const n = Number(value);
   return value && Number.isInteger(n) && n >= 1024 && n <= 65_000 ? n : fallback;
+}
+
+/** Whether a listen address only takes connections from this machine. */
+export function isLoopback(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return h === 'localhost' || h === '::1' || /^127\.\d+\.\d+\.\d+$/.test(h);
+}
+
+/**
+ * The address this machine reaches an office listening on `host` at: loopback for the any-address (0.0.0.0, ::),
+ * else the host itself (an office bound to one LAN address isn't on 127.0.0.1). IPv6 comes in brackets, for URLs.
+ */
+export function localAddress(host: string): string {
+  const h = host.replace(/^\[|\]$/g, '');
+  if (h === '0.0.0.0' || h === '::' || h === '') return '127.0.0.1';
+  return h.includes(':') ? `[${h}]` : h;
+}
+
+/** The addresses other machines open an office listening on the any-address at (its IPv4 ones); none for one address. */
+export function networkUrls(host: string, port: number, ifaces = os.networkInterfaces()): string[] {
+  if (localAddress(host) !== '127.0.0.1' || isLoopback(host)) return [];
+  return Object.values(ifaces)
+    .flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal)
+    .map((i) => `http://${i!.address}:${port}`);
 }
 
 /** Minutes from the environment (fractions allowed, so a test can make them seconds), or the fallback. */

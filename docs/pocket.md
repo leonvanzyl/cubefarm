@@ -87,8 +87,9 @@ agents. **Remove** deletes them. A demo office keeps its own `demo-secrets.json`
 ## Reach the office from your phone
 
 The office listens on `127.0.0.1` only, on purpose: it can start agents that run commands on your PC, so it must
-never be open to your network or the internet as it is. It never changes that or opens ports itself. To use it from
-your phone, put something that authenticates you in front of it:
+never be open to your network or the internet as it is. It never changes that or opens ports itself unless you start
+it with `--host <address>` (or `SWARM_HOST`), which has no sign-in: only for a network you trust. To use it from your
+phone, put something that authenticates you in front of it:
 
 - **Tailscale Serve (recommended).** Install [Tailscale](https://tailscale.com) on the office's PC and your phone,
   signed in to the same tailnet. On the PC run:
@@ -105,4 +106,4 @@ your phone, put something that authenticates you in front of it:
   office, also works. A tunnel without its own sign-in is not safe.
 
 Over plain `http://` on your LAN (say `http://192.168.1.20:4317`, which needs the office to listen there, which it
-doesn't) browsers refuse service workers and push, so there's no install and no push: another reason to use HTTPS.
+doesn't without `--host`) browsers refuse service workers and push, so there's no install and no push: another reason to use HTTPS.

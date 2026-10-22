@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveModel, isClaudeModel, modelSuggestions } from './models.ts';
+import { effectiveModel, isClaudeModel, localModel, modelSuggestions } from './models.ts';
 
 const claudeOffice = { defaultCli: 'claude' as const, defaultModel: 'claude-sonnet-5' };
 const codexOffice = { defaultCli: 'codex' as const, defaultModel: 'gpt-5.5-codex' };
@@ -36,5 +36,18 @@ describe('modelSuggestions', () => {
       expect(modelSuggestions(cli).length).toBeGreaterThan(0);
       expect(modelSuggestions(cli).some(isClaudeModel)).toBe(false);
     }
+  });
+});
+
+describe('localModel', () => {
+  it('finds the local server in a model name, keeping the rest as the server names it', () => {
+    expect(localModel('ollama/qwen3-coder:30b')).toMatchObject({ provider: { id: 'ollama' }, model: 'qwen3-coder:30b' });
+    expect(localModel(' lmstudio/qwen/qwen3-coder-30b ')).toMatchObject({ provider: { id: 'lmstudio' }, model: 'qwen/qwen3-coder-30b' });
+    expect(localModel('llama.cpp/default')?.provider.id).toBe('llamacpp');
+    expect(localModel('omlx/Qwen3-8B')?.provider.id).toBe('omlx');
+  });
+
+  it('leaves hosted models alone', () => {
+    for (const m of ['', 'gpt-5.5', 'anthropic/claude-opus-5-5', 'openai/gpt-5.5', 'ollama/']) expect(localModel(m)).toBeNull();
   });
 });

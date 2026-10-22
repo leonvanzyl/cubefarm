@@ -26,6 +26,7 @@ import { ballHolder, npcBalls, npcGrips, npcHolding, npcLetGo, npcLost, npcPickU
 import { onPoke } from './poke';
 import { clear } from './roombaBrain';
 import { CHARGE, holdPoint, type View } from './throwing';
+import { isFood } from '../fridge';
 
 // The office dog on the floor you're on (one for the whole building: dogState.ts says which floor it's on). Its brain
 // (dogBrain.ts) runs every physics step and steers a kinematic body the balls bounce off; it carries a fetched ball
@@ -427,6 +428,7 @@ function DogBody({ floor, level, groups }: { floor: ToyFloor; level: number; gro
     p.fx = -Math.sin(playerAt.yaw);
     p.fz = -Math.cos(playerAt.yaw);
     p.holding = held;
+    p.food = isFood(store.held);
     s.walking = 0;
     liveBodies().forEach(s.walker);
     s.walkers.length = s.walking;

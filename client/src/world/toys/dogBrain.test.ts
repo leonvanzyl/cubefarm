@@ -437,3 +437,23 @@ describe('the elevator', () => {
     expect(d.state).toBe('follow');
   }, 60_000);
 });
+
+describe('begging', () => {
+  it('comes over and begs for food in your hands, not for a drink, and wanders off once it is gone', () => {
+    const p: DogPlayer = { x: 2, z: 7, fx: 0, fz: -1, holding: null, food: true };
+    const e = env('office', { player: p });
+    const d = at(4, 6);
+    run(d, e, 4);
+    expect(d.state).toBe('eager');
+    expect(d.pose).toBe('beg');
+    expect(dogStatus(d)).toBe('begging for a bite');
+    expect(Math.hypot(d.x - p.x, d.z - p.z)).toBeLessThan(DOG.beg + 0.6);
+    p.food = false;
+    run(d, e, 1);
+    expect(d.state).not.toBe('eager');
+
+    const thirsty = at(4, 6);
+    run(thirsty, env('office', { player: { x: 2, z: 7, fx: 0, fz: -1, holding: null, food: false } }), 4);
+    expect(thirsty.pose).not.toBe('beg');
+  });
+});

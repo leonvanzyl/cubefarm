@@ -20,6 +20,7 @@ import { isBlasterId } from './toys/darts';
 import { reloadHeld, takeBlaster } from './toys/gun';
 import { isMugId, takeMug } from './toys/mugs';
 import { coffeeAction } from './CoffeeMachine';
+import { fridgeAction } from './fridgeState';
 import { jukeboxAction } from './Jukebox';
 import { themeAction } from './themes/active';
 import { tuneChannel } from '../ui/theatre';
@@ -97,6 +98,10 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
     coffeeAction(focus.action.op);
     return;
   }
+  if (focus.action.kind === 'fridge') {
+    fridgeAction(focus.action.op, focus.action.snack);
+    return;
+  }
   if (focus.action.kind === 'jukebox') {
     jukeboxAction(focus.action.op);
     return;
@@ -167,7 +172,7 @@ function interact() {
   const s = useStore.getState();
   const act = eAction(s.held, s.focus?.action.kind ?? null);
   if (act === 'sip') sipCoffee();
-  else if (act === 'empty') s.pushToast('info', "☕ It's empty: refill it at the machine");
+  else if (act === 'empty') s.pushToast('info', s.held?.kind === 'mug' ? "☕ It's empty: refill it at the machine" : 'All gone');
   else if (s.focus) runFocusAction(s.focus);
 }
 
@@ -281,8 +286,8 @@ export function Player({ colliders, floor }: { colliders: Rect[]; floor: number 
       if (document.pointerLockElement !== gl.domElement) return requestLook();
       const s = useStore.getState();
       if (!s.started || s.overlay || s.travel || isConfirmOpen()) return;
-      // The coffee machine takes a click with your hands full (that's how the mug goes in), and a decoration goes where you click.
-      if (s.held && s.focus?.action.kind !== 'coffee' && s.held.kind !== 'decor') startCharge();
+      // The coffee machine takes a click with your hands full (that's how the mug goes in), so does the fridge, and a decoration goes where you click.
+      if (s.held && s.focus?.action.kind !== 'coffee' && s.focus?.action.kind !== 'fridge' && s.held.kind !== 'decor') startCharge();
       else if (s.focus && !pressBoard(s.focus)) runFocusAction(s.focus, 'click'); // on a sticky, holding peels it off
     };
     const onMouseUp = (e: MouseEvent) => {

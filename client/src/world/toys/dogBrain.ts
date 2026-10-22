@@ -23,6 +23,8 @@ export const DOG = {
   eagerRange: 7,
   /** In front of the player, where it waits for the throw. */
   beg: 1.7,
+  /** The player with food in hand (not a drink) this close (m): it comes and begs for a bite. */
+  foodRange: 3.5,
   /** A ball let go of that gets this far from the player within `watchFor` s was thrown: fetch it. */
   fetchMin: 2.4,
   watchFor: 4,
@@ -199,11 +201,12 @@ export interface Dog {
   events: number;
 }
 
-/** The player as the dog sees them: where, which way they face (unit vector) and the ball in their hands. */
+/** The player as the dog sees them: where, which way they face (unit vector), the ball in their hands, and food (fridge.ts isFood). */
 export interface DogPlayer extends Pt {
   fx: number;
   fz: number;
   holding: string | null;
+  food?: boolean;
 }
 
 /** Someone up and about: where, which way they're going (unit vector) and how fast. */
@@ -418,7 +421,7 @@ export function dogStatus(d: Dog): string {
     case 'follow':
       return 'following you';
     case 'eager':
-      return 'watching the ball';
+      return d.target.kind === 'food' ? 'begging for a bite' : 'watching the ball';
     case 'fetch':
     case 'bring':
       return 'fetching';
@@ -588,6 +591,11 @@ function decide(d: Dog, env: DogEnv) {
   if (s === 'party') d.partyUntil = 0;
   if (s === 'fetch' || s === 'bring') return;
   if (p?.holding && (s === 'eager' || Math.hypot(p.x - d.x, p.z - d.z) < (s === 'nap' || s === 'visit' ? 4 : DOG.eagerRange) || d.clock < d.followUntil)) {
+    if (s !== 'eager') setState(d, 'eager');
+    return;
+  }
+  // food in your hands: it comes over and begs (not from a nap or a visit, unless you bring it right up)
+  if (p?.food && (s === 'eager' || Math.hypot(p.x - d.x, p.z - d.z) < (s === 'nap' || s === 'visit' ? 1.5 : DOG.foodRange))) {
     if (s !== 'eager') setState(d, 'eager');
     return;
   }
@@ -961,7 +969,8 @@ function act(d: Dog, env: DogEnv, dt: number) {
         break;
       }
       const ball = findBall(env, p.holding);
-      if (!ball && d.clock >= d.eagerUntil) {
+      const food = !ball && !!p.food;
+      if (!ball && !food && d.clock >= d.eagerUntil) {
         setState(d, 'wander');
         break;
       }
@@ -976,14 +985,14 @@ function act(d: Dog, env: DogEnv, dt: number) {
           d.hasBeg = true;
         }
       }
-      setTarget(d, ball ? 'ball' : 'player', ball?.id ?? null, ball?.x ?? p.x, ball?.z ?? p.z);
+      setTarget(d, ball ? 'ball' : food ? 'food' : 'player', ball?.id ?? null, ball?.x ?? p.x, ball?.z ?? p.z);
       if (d.hasBeg && Math.hypot(d.begAt.x - d.x, d.begAt.z - d.z) > 0.4 && !go(d, env, d.begAt.x, d.begAt.z, DOG.trot, dt, 0.3)) {
         d.pose = 'stand';
         break;
       }
       d.hasGoal = false;
       turnTo(d, Math.atan2(p.z - d.z, p.x - d.x), dt);
-      d.pose = ball ? 'beg' : 'sit';
+      d.pose = ball || food ? 'beg' : 'sit';
       if (ball) {
         d.look.on = true;
         d.look.x = ball.x;

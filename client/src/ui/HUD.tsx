@@ -8,6 +8,7 @@ import { CoinChip } from './CoinChip';
 import './progressProbe';
 import './doctorProbe';
 import { eAction } from '../world/toys/sip';
+import { SNACKS } from '../world/fridge';
 import { stickyDrop } from '../world/boardHands';
 import { WorkersPanel } from './WorkersPanel';
 import { PresenceHud } from './PresenceHud';
@@ -112,6 +113,13 @@ function VoiceIndicator() {
   );
 }
 
+/** What E does with what's in your hands: a sip of coffee, a bite of a sausage, or a sip or bite of a snack. */
+function sipLabel(held: ReturnType<typeof useStore.getState>['held']) {
+  if (held?.kind === 'sausage') return 'Take a bite';
+  if (held?.kind === 'snack') return SNACKS[held.snack].kind === 'drink' ? `Sip the ${SNACKS[held.snack].short}` : `Bite the ${SNACKS[held.snack].short}`;
+  return 'Sip coffee';
+}
+
 export function HUD() {
   const floor = useStore((s) => s.floor);
   const repos = useStore((s) => s.repos);
@@ -197,7 +205,7 @@ export function HUD() {
       {started && !overlay && onFoot && (focus || sip) && (
         <div className="hud-hint">
           <Key action="interact" /> {!held && <>/ <kbd>Click</kbd> </>}
-          {sip ? (held?.kind === 'sausage' ? 'Take a bite' : 'Sip coffee') : (dropLabel ?? focus?.label)}
+          {sip ? sipLabel(held) : (dropLabel ?? focus?.label)}
           {!held && focus?.action.kind === 'card' && focus.action.peel && (
             <>
               {' '}

@@ -6,6 +6,7 @@
 import type { Appearance } from './appearance';
 import { WALK_SPEED, type BodyMode, type BodyState, type BodyTarget, type Gesture } from './body';
 import { EXPRESSIONS, type Expression } from './face';
+import type { SnackId } from './fridge';
 import type { Food } from './ritualSchedule';
 
 const targets = new Map<string, BodyTarget>();
@@ -205,6 +206,27 @@ export function setHandFood(id: string, f: Food | null) {
 
 export const handFood = (id: string) => food.get(id) ?? null;
 
+/** A snack from the fridge in someone's hand (snackBreak.ts), and the sips or bites left of it. */
+export interface HandSnack {
+  snack: SnackId;
+  left: number;
+}
+
+const snacks = new Map<string, HandSnack>();
+
+/** Puts a snack in someone's hand (null: none). Redraws like the mugs. */
+export function setHandSnack(id: string, s: HandSnack | null) {
+  if (!s && !snacks.has(id)) return;
+  if (s) snacks.set(id, s);
+  else snacks.delete(id);
+  changed();
+}
+
+export const handSnack = (id: string) => snacks.get(id) ?? null;
+
+/** Everyone with a snack in hand. */
+export const snackHolders = () => [...snacks.keys()];
+
 /** Someone gone home for the night, the CEO off round the floors, or up on the roof: Character.tsx doesn't draw them. */
 export function setHidden(id: string, on: boolean) {
   if (on) hidden.add(id);
@@ -262,6 +284,7 @@ const probe = {
       lid: round(faces.get(id)?.lid ?? 0),
       look: faces.get(id)?.look ?? null,
       food: food.get(id) ?? null,
+      snack: snacks.get(id) ?? null,
       hidden: hidden.has(id),
     }));
   },

@@ -5,6 +5,7 @@ import { glass, shade, toon } from './materials';
 import { Ball, Box, Cyl } from './Toon';
 import { MugDispenser } from './toys/mugLook';
 import { CoffeeMachine } from './CoffeeMachine';
+import { Fridge } from './KitchenFridge';
 import { officeNow } from '../officeTime';
 
 type P = [number, number, number];
@@ -56,7 +57,8 @@ export function CoffeeTable({ position, rotationY = 0 }: { position: P; rotation
   );
 }
 
-export function Kitchenette({ position }: { position: P }) {
+/** The kitchenette counter, its coffee machine and its fridge. `floor` and `who` are the fridge's (KitchenFridge.tsx). */
+export function Kitchenette({ position, floor, who }: { position: P; floor: number; who: string }) {
   return (
     <group position={position}>
       {/* counter runs along z */}
@@ -71,9 +73,7 @@ export function Kitchenette({ position }: { position: P }) {
       <Ball r={0.07} position={[-0.06, 1.1, 0.66]} color="#ffd166" />
       <Ball r={0.07} position={[0.07, 1.1, 0.7]} color="#80ed99" />
       <Cyl r={0.1} rTop={0.07} h={0.25} position={[0, 1.08, 1.4]} color="#ced4da" outline />
-      {/* fridge */}
-      <Box size={[0.8, 2, 0.8]} position={[0, 1, 2.45]} color="#f1f3f5" outline />
-      <Box size={[0.04, 0.5, 0.05]} position={[-0.42, 1.3, 2.2]} color="#adb5bd" />
+      <Fridge position={[0, 0, 2.45]} floor={floor} who={who} />
     </group>
   );
 }
