@@ -287,6 +287,10 @@ export function createPipeline(gl: THREE.WebGLRenderer, scene: THREE.Scene, came
 
   return {
     render(delta) {
+      // Set on every frame, not only when built: a kept pipeline drawing again after Low (Effects.tsx) finds the
+      // renderer as R3F left it, clearing and counting per render, which wipes the passes' work.
+      gl.autoClear = false;
+      gl.info.autoReset = false;
       // Counted across every pass, so ?stats shows what a frame really costs.
       gl.info.reset();
       const now = performance.now();

@@ -182,7 +182,8 @@ export function startHitchRecorder() {
   if (supported.includes('resource')) {
     new PerformanceObserver((list) => {
       for (const e of list.getEntries() as PerformanceResourceTiming[]) {
-        if (/\.(m?js|wasm)(\?|$)/.test(e.name)) pushRing(notes, { at: e.responseEnd, kind: 'chunk', detail: `${fileOf(e.name)}, ${Math.round(e.duration)} ms` });
+        // A chunk served from the memory cache can report no responseEnd, and so a negative duration.
+        if (/\.(m?js|wasm)(\?|$)/.test(e.name)) pushRing(notes, { at: e.responseEnd || e.startTime, kind: 'chunk', detail: `${fileOf(e.name)}, ${Math.max(0, Math.round(e.duration))} ms` });
       }
     }).observe({ type: 'resource' });
   }
