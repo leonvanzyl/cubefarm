@@ -31,7 +31,7 @@ export function agentActions(a: Pick<Agent, 'task' | 'status' | 'branch'>) {
     stop: working,
     assign: !working,
     clear: !working && a.status !== 'idle',
-    message: working || (a.task !== 'qa' && !!a.branch && a.status !== 'idle'),
+    message: working || (!!a.branch && a.status !== 'idle'),
   };
 }
 
