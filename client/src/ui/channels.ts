@@ -68,6 +68,19 @@ export function comparePath(input: string): string {
 /** Load `path` from a preview's address (its url ends with "/"). */
 export const atPath = (url: string, path: string) => `${url.replace(/\/+$/, '')}${comparePath(path)}`;
 
+/** The office is open on its own computer, where a preview's http://localhost:<port>/ is the app. */
+export const onOfficeComputer = (at: Pick<Location, 'hostname'>) => /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(at.hostname);
+
+/**
+ * A preview's address as this browser can open it: as it is on the office's computer; from anywhere else (a tablet
+ * over Tailscale) through the office's own address at /preview/<port>/ (server/previewGateway.ts).
+ */
+export function reachable(url: string, at: Pick<Location, 'hostname' | 'origin'>): string {
+  if (onOfficeComputer(at)) return url;
+  const m = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)(\/.*)?$/i);
+  return m ? `${at.origin}/preview/${m[1]}${m[2] || '/'}` : url;
+}
+
 // ---------- the big screen's channel strip ----------
 
 /** The PRs that get a chip on the big screen: all of them up to `max`, else the newest, the one on screen always kept. */

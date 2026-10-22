@@ -6,18 +6,19 @@ import type { AddressInfo } from 'node:net';
 // viewer shows each side through a pass-through proxy in front of the running preview, on a port of its own (the app
 // keeps its root paths), that adds a small script to its HTML pages. The script tells the viewer where the page is
 // scrolled and which path it's on, and follows the viewer's word, all through postMessage. Plain web apps scroll the
-// page itself, so they sync; an app that scrolls an inner panel still shows, just unsynced.
+// page itself, so they sync; an app that scrolls an inner panel still shows, just unsynced. Shown through the office's
+// preview gateway (/preview/<port>/, server/previewGateway.ts), the script reports and follows paths without that prefix.
 
 /** Reports scroll and path changes to the viewer; mirrors the other side's. Ignores itself outside a frame. */
 export const SYNC_SCRIPT = `<script data-cubefarm-sync>(function(){
 if(window.parent===window||window.__cubefarmSync)return;window.__cubefarmSync=1;
-var hold=0;
-function where(){return location.pathname+location.search+location.hash}
+var hold=0,M=(location.pathname.match(/^\\/preview\\/\\d{1,5}(?=\\/)/)||[''])[0];
+function where(){var p=location.pathname;return(M&&p.indexOf(M)===0?p.slice(M.length):p)+location.search+location.hash}
 function send(kind){try{parent.postMessage({cubefarmSync:kind,x:scrollX,y:scrollY,path:where()},'*')}catch(e){}}
 addEventListener('scroll',function(){if(Date.now()>hold)send('scroll')},{passive:true});
 addEventListener('message',function(e){var d=e.data;if(e.source!==parent||!d||!d.cubefarmSyncTo)return;
 if(d.cubefarmSyncTo==='scroll'){hold=Date.now()+200;scrollTo(d.x,d.y)}
-else if(d.cubefarmSyncTo==='path'&&typeof d.path==='string'&&d.path.charAt(0)==='/'&&d.path.charCodeAt(1)!==47&&d.path.charCodeAt(1)!==92&&d.path!==where())location.assign(d.path)});
+else if(d.cubefarmSyncTo==='path'&&typeof d.path==='string'&&d.path.charAt(0)==='/'&&d.path.charCodeAt(1)!==47&&d.path.charCodeAt(1)!==92&&d.path!==where())location.assign(M+d.path)});
 ['pushState','replaceState'].forEach(function(k){var f=history[k];history[k]=function(){var r=f.apply(this,arguments);send('path');return r}});
 addEventListener('popstate',function(){send('path')});addEventListener('hashchange',function(){send('path')});
 if(document.readyState==='loading')addEventListener('DOMContentLoaded',function(){send('path')});else send('path');
@@ -53,22 +54,42 @@ export function syncedHeaders(headers: http.OutgoingHttpHeaders, length: number)
 const HOP = /^(connection|keep-alive|transfer-encoding|proxy-connection|upgrade)$/i;
 
 /** Response headers passed through, minus the hop-by-hop ones (Node frames the body again itself). */
-function passHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
+export function passHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
   const out: http.OutgoingHttpHeaders = {};
   for (const [k, v] of Object.entries(headers)) if (v !== undefined && !HOP.test(k)) out[k] = v;
   return out;
 }
 
-/** Send a request on to the app, on IPv4 loopback and then IPv6 (dev servers bind either). */
-function upstream(target: number, req: http.IncomingMessage, body: Buffer, onResponse: (res: http.IncomingMessage) => void, onError: (err: Error) => void) {
+/** Send a request on to the app (at `path`, the request's own by default), on IPv4 loopback and then IPv6 (dev servers bind either). */
+export function upstream(target: number, req: http.IncomingMessage, body: Buffer, onResponse: (res: http.IncomingMessage) => void, onError: (err: Error) => void, path = req.url) {
   const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `localhost:${target}`, 'accept-encoding': 'identity' };
   for (const k of Object.keys(headers)) if (HOP.test(k)) delete headers[k];
   const send = (host: string, retry: boolean) => {
-    const up = http.request({ host, port: target, method: req.method, path: req.url, headers }, onResponse);
+    const up = http.request({ host, port: target, method: req.method, path, headers }, onResponse);
     up.once('error', (err: NodeJS.ErrnoException) => (retry && err.code === 'ECONNREFUSED' ? send('::1', false) : onError(err)));
     up.end(body);
   };
   send('127.0.0.1', true);
+}
+
+/** A WebSocket (a dev server's hot reload, an app's live updates) passed straight through to the app, at `path`. */
+export function tunnel(target: number, req: http.IncomingMessage, socket: net.Socket, head: Buffer, path = req.url) {
+  const lines = [`${req.method} ${path} HTTP/${req.httpVersion}`];
+  for (let i = 0; i < req.rawHeaders.length; i += 2) {
+    const name = req.rawHeaders[i];
+    lines.push(`${name}: ${/^host$/i.test(name) ? `localhost:${target}` : req.rawHeaders[i + 1]}`);
+  }
+  const connect = (host: string, retry: boolean) => {
+    const up = net.connect(target, host, () => {
+      up.write(`${lines.join('\r\n')}\r\n\r\n`);
+      if (head.length) up.write(head);
+      socket.pipe(up).pipe(socket);
+    });
+    up.once('error', (err: NodeJS.ErrnoException) => (retry && err.code === 'ECONNREFUSED' ? connect('::1', false) : socket.destroy()));
+    socket.once('error', () => up.destroy());
+    socket.once('close', () => up.destroy());
+  };
+  connect('127.0.0.1', true);
 }
 
 class SyncProxy {
@@ -81,7 +102,7 @@ class SyncProxy {
       this.sockets.add(s);
       s.once('close', () => this.sockets.delete(s));
     });
-    this.server.on('upgrade', (req, socket, head) => this.tunnel(req, socket as net.Socket, head));
+    this.server.on('upgrade', (req, socket, head) => tunnel(this.target, req, socket as net.Socket, head));
   }
 
   get port() {
@@ -123,26 +144,6 @@ class SyncProxy {
     });
   }
 
-  /** WebSockets (a dev server's hot reload, an app's live updates) pass straight through. */
-  private tunnel(req: http.IncomingMessage, socket: net.Socket, head: Buffer) {
-    const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
-    for (let i = 0; i < req.rawHeaders.length; i += 2) {
-      const name = req.rawHeaders[i];
-      lines.push(`${name}: ${/^host$/i.test(name) ? `localhost:${this.target}` : req.rawHeaders[i + 1]}`);
-    }
-    const connect = (host: string, retry: boolean) => {
-      const up = net.connect(this.target, host, () => {
-        up.write(`${lines.join('\r\n')}\r\n\r\n`);
-        if (head.length) up.write(head);
-        socket.pipe(up).pipe(socket);
-      });
-      up.once('error', (err: NodeJS.ErrnoException) => (retry && err.code === 'ECONNREFUSED' ? connect('::1', false) : socket.destroy()));
-      socket.once('error', () => up.destroy());
-      socket.once('close', () => up.destroy());
-    };
-    connect('127.0.0.1', true);
-  }
-
   async close() {
     for (const s of this.sockets) s.destroy();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -152,6 +153,7 @@ class SyncProxy {
 /** The sync proxies, one per preview port, opened when a viewer asks and closed when that preview stops. */
 export class SyncProxies {
   private proxies = new Map<number, Promise<SyncProxy>>();
+  private listening = new Map<number, number>(); // target -> its proxy's port, once it listens
 
   /** The proxy's port for the app on `target` (on loopback, a port the OS picks). */
   async open(target: number): Promise<number> {
@@ -160,7 +162,10 @@ export class SyncProxies {
       const proxy = new SyncProxy(target);
       p = new Promise<SyncProxy>((resolve, reject) => {
         proxy.server.once('error', reject);
-        proxy.server.listen(0, '127.0.0.1', () => resolve(proxy));
+        proxy.server.listen(0, '127.0.0.1', () => {
+          if (this.proxies.get(target) === p) this.listening.set(target, proxy.port);
+          resolve(proxy);
+        });
       });
       this.proxies.set(target, p);
       p.catch(() => this.proxies.delete(target));
@@ -168,10 +173,16 @@ export class SyncProxies {
     return (await p).port;
   }
 
+  /** Whether `port` is an open proxy's own port. */
+  has(port: number): boolean {
+    return [...this.listening.values()].includes(port);
+  }
+
   async close(target: number) {
     const p = this.proxies.get(target);
     if (!p) return;
     this.proxies.delete(target);
+    this.listening.delete(target);
     await p.then((proxy) => proxy.close()).catch(() => undefined);
   }
 

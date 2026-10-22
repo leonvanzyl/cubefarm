@@ -345,6 +345,11 @@ export class Previews {
     return `http://localhost:${await this.sync.open(r.port)}`;
   }
 
+  /** A running preview's port or a sync proxy's: the only ports the office's preview gateway passes requests on to. */
+  proxied(port: number): boolean {
+    return this.sync.has(port) || [...this.runs.values(), ...this.prRuns.values()].some((r) => r.port === port && ACTIVE.includes(r.status));
+  }
+
   private prView(r: PrRun): PrPreviewView {
     const port = r.port ?? prPortCandidates(PREVIEW_PORT, r.slot)[0];
     return {

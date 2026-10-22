@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PrPreviewView, PullInfo } from '../../../shared/types';
-import { atPath, channelLabel, channelLed, channelPulls, chipRects, comparePath, currentChannel, newPathSync, prAsPreview, qaBadge, qaShotUrl, relayPath, stripPulls } from './channels';
+import { atPath, channelLabel, channelLed, channelPulls, chipRects, comparePath, currentChannel, newPathSync, onOfficeComputer, prAsPreview, qaBadge, qaShotUrl, reachable, relayPath, stripPulls } from './channels';
 
 const pull = (number: number, state: PullInfo['state'] = 'OPEN', title = `Change ${number}`) => ({ number, state, title }) as PullInfo;
 
@@ -48,6 +48,21 @@ describe('compare paths and QA screenshots', () => {
     expect(comparePath('')).toBe('/');
     expect(atPath('http://localhost:6301/', '/about')).toBe('http://localhost:6301/about');
     expect(atPath('http://localhost:51234', 'x')).toBe('http://localhost:51234/x');
+  });
+
+  it("opens a preview as it is on the office's computer, and through the office anywhere else", () => {
+    const home = { hostname: 'localhost', origin: 'http://localhost:4317' };
+    const tablet = { hostname: 'office-pc.tailnet.ts.net', origin: 'https://office-pc.tailnet.ts.net' };
+    expect(onOfficeComputer(home)).toBe(true);
+    expect(onOfficeComputer({ hostname: '127.0.0.1' })).toBe(true);
+    expect(onOfficeComputer({ hostname: '[::1]' })).toBe(true);
+    expect(onOfficeComputer(tablet)).toBe(false);
+    expect(onOfficeComputer({ hostname: '192.168.1.20' })).toBe(false);
+    expect(reachable('http://localhost:6301/', home)).toBe('http://localhost:6301/');
+    expect(reachable('http://localhost:6301/', tablet)).toBe('https://office-pc.tailnet.ts.net/preview/6301/');
+    expect(reachable('http://localhost:51234', tablet)).toBe('https://office-pc.tailnet.ts.net/preview/51234/');
+    expect(atPath(reachable('http://localhost:51234', tablet), '/about')).toBe('https://office-pc.tailnet.ts.net/preview/51234/about');
+    expect(reachable('https://example.com/app', tablet)).toBe('https://example.com/app');
   });
 
   it("serves a screenshot by the PR's repo, number and index", () => {

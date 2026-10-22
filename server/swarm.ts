@@ -1785,6 +1785,11 @@ export class Swarm {
     return { url: await this.previews.syncUrl(this.repo(id), pr) };
   }
 
+  /** Whether the preview gateway may pass requests on to `port` (a preview's or a sync proxy's). */
+  previewProxied(port: number): boolean {
+    return this.previews.proxied(port);
+  }
+
   /** One of QA's screenshots from a PR's latest round. */
   async qaShot(repoId: string, pr: number, index: number): Promise<{ data: Buffer; mime: string } | null> {
     const shot = this.state.qa.find((q) => q.repoId === repoId && q.prNumber === pr)?.shots?.[index];

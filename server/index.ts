@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import type { AddressInfo } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { CLIP_MAX_BYTES, CLIP_TOO_BIG } from '../shared/clipLimits.ts';
@@ -17,6 +17,7 @@ import { underLauncher } from './officeUpdate.ts';
 import { serviceWorkerSource, swVersion } from './pwa.ts';
 import { screenStatus } from './screenReply.ts';
 import { parseSendBackNote } from './sendBack.ts';
+import { handleGateway, upgradeGateway } from './previewGateway.ts';
 import { PresenceHub } from './presence.ts';
 import { HttpError, Swarm } from './swarm.ts';
 
@@ -28,6 +29,10 @@ if (PORT) setOfficeUrl(`http://${localAddress(HOST)}:${PORT}`);
 await swarm.init();
 
 const app = express();
+// Previews through the office's own address, for browsers on other devices (server/previewGateway.ts). First: their
+// request bodies pass on untouched.
+const proxied = (port: number) => swarm.previewProxied(port);
+app.use((req, res, next) => void (handleGateway(req, res, proxied) || next()));
 // Agent CLIs calling back: hooks (a tool result can be a large screenshot, hence the limit) and the CEO's office tools.
 // The token in the path is the session's; unknown tokens get an empty answer.
 app.post('/api/hooks/:token', express.json({ limit: '64mb' }), (req, res) => void res.json(handleHook(String(req.params.token), req.body)));
@@ -341,6 +346,7 @@ terms.on('connection', (ws, req) => swarm.attachTerminal(new URL(req.url ?? '', 
 server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url ?? '', 'http://localhost');
   const target = pathname === '/ws' ? wss : pathname === '/ws/term' ? terms : null;
+  if (!target && upgradeGateway(req, socket as Socket, head, proxied)) return;
   if (!target) return void socket.destroy();
   target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
 });

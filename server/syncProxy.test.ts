@@ -55,6 +55,8 @@ describe('a sync proxy in front of an app (loopback only)', () => {
     const target = (app.address() as AddressInfo).port;
     const port = await proxies.open(target);
     expect(await proxies.open(target)).toBe(port);
+    expect(proxies.has(port)).toBe(true);
+    expect(proxies.has(target)).toBe(false);
 
     const page = await fetch(`http://127.0.0.1:${port}/about`);
     expect(page.headers.get('x-frame-options')).toBeNull();
@@ -67,13 +69,44 @@ describe('a sync proxy in front of an app (loopback only)', () => {
     expect(away.headers.get('location')).toBe(`http://localhost:${port}/home`);
 
     await proxies.close(target);
+    expect(proxies.has(port)).toBe(false);
     await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
   });
 });
 
 describe('the sync script itself', () => {
+  const body = SYNC_SCRIPT.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '');
+
   it('is valid JavaScript', () => {
-    const body = SYNC_SCRIPT.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '');
     expect(() => new Function(body)).not.toThrow();
+  });
+
+  /** Runs the script in a frame at `pathname`; what it tells the viewer, and how it follows a path from the other side. */
+  function frameAt(pathname: string) {
+    const sent: unknown[] = [];
+    const assigned: string[] = [];
+    const handlers: Record<string, (e: unknown) => void> = {};
+    const parent = { postMessage: (m: unknown) => sent.push(m) };
+    const win: Record<string, unknown> = { parent };
+    const location = { pathname, search: '', hash: '', assign: (p: string) => assigned.push(p) };
+    const history = { pushState() {}, replaceState() {} };
+    const run = new Function('window', 'parent', 'location', 'history', 'document', 'addEventListener', 'scrollX', 'scrollY', 'scrollTo', body);
+    run(win, parent, location, history, { readyState: 'complete' }, (k: string, f: (e: unknown) => void) => (handlers[k] = f), 0, 0, () => {});
+    const follow = (path: string) => handlers.message({ source: parent, data: { cubefarmSyncTo: 'path', path } });
+    return { sent, assigned, follow };
+  }
+
+  it("reports and follows the app's own paths", () => {
+    const f = frameAt('/todos');
+    expect(f.sent).toEqual([{ cubefarmSync: 'path', x: 0, y: 0, path: '/todos' }]);
+    f.follow('/about');
+    expect(f.assigned).toEqual(['/about']);
+  });
+
+  it("leaves out the office's /preview/<port> prefix when shown through the gateway", () => {
+    const f = frameAt('/preview/51234/todos');
+    expect(f.sent).toEqual([{ cubefarmSync: 'path', x: 0, y: 0, path: '/todos' }]);
+    f.follow('/about');
+    expect(f.assigned).toEqual(['/preview/51234/about']);
   });
 });

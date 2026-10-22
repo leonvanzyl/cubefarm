@@ -106,6 +106,8 @@ Server (`server/`, Node + Express 5 + ws, run by tsx in development; esbuild bun
 - `exec.ts`: `run` / `git` / `gh`: `execFile` without a shell, prompts disabled, `CommandError` with stderr.
 - `previews.ts`: one preview per floor: ports (6300 + floor), statuses, config validation; and the PR theatre's PR
   previews (`prTheatre.ts`: their slots, ports, eviction and idle stop, pure; `syncProxy.ts`: compare mode's synced scrolling).
+  `previewGateway.ts`: previews through the office's own address at `/preview/<port>/` for other devices, with a
+  service worker keeping the apps' root paths under it.
 - `qaShots.ts`: QA's screenshots of each PR's latest round, kept for the app viewer's QA panel.
 - `previewRunner.ts`: checks out, installs and runs a floor's app in its preview worktree; kills the process tree.
 - `httpError.ts`: `HttpError(status, message)`.
