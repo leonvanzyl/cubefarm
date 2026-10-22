@@ -140,8 +140,9 @@ export function HitchProbe({ paused, camera, events }: { paused: boolean; camera
  * Lives inside the Canvas. Compiles the shaders of everything in the scene, not just what's in view, soon after it
  * appears: entering a floor, a world event, a theme, a graphics tier's extras. Otherwise each compiles the first time
  * it comes into view (turning round to the kitchenette, looking out of a window), stalling that frame. With
- * KHR_parallel_shader_compile the browser compiles them off the main thread. Checks twice a second-ish whether the
- * scene gained objects, never per frame.
+ * KHR_parallel_shader_compile the browser compiles them off the main thread. Checks about once a second whether the
+ * scene holds more meshes than it ever has since the last floor change (speech bubbles coming and going don't count
+ * twice), never per frame.
  */
 export function ScenePrecompile({ paused, watch }: { paused: boolean; watch: string }) {
   const gl = useThree((s) => s.gl);
@@ -158,7 +159,7 @@ export function ScenePrecompile({ paused, watch }: { paused: boolean; watch: str
       if (busy.current) return;
       let n = 0;
       scene.traverseVisible((o) => void ((o as THREE.Mesh).isMesh && n++));
-      if (n === last.current) return;
+      if (n <= last.current) return;
       last.current = n;
       busy.current = true;
       const from = glCounts.compiles;
