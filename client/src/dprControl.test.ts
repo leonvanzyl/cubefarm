@@ -70,13 +70,23 @@ describe('the adaptive resolution', () => {
     expect(s.slowMs).toBe(0);
   });
 
+  it('holds still while it may not step down (Auto drops its effects first)', () => {
+    const s = newDpr(1.75);
+    s.settle = 0;
+    for (let t = 0; t < 10_000; t += 500) expect(dprSample(s, 20, 500, DPR, false)).toBeNull();
+    expect(feed(s, 20, 3)).toEqual([1.5]);
+  });
+
   it('judges against the display rate', () => {
     expect(displayHz(59)).toBe(60);
     expect(displayHz(118)).toBe(120);
     expect(displayHz(170)).toBe(144);
     const s = newDpr(1.75);
     s.settle = 0;
-    feed(s, 120, 1); // a 120 Hz screen
-    expect(feed(s, 60, 3.5)).toEqual([1.5]); // 60 fps is slow there
+    feed(s, 120, 0.5); // one fast burst isn't a 120 Hz screen...
+    expect(s.hz).toBe(60);
+    feed(s, 120, 2.5); // ...a run of them is
+    expect(s.hz).toBe(120);
+    expect(feed(s, 60, 3.5)).toEqual([1.5]); // and 60 fps is slow there
   });
 });

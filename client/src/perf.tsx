@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import { coversView, useStore } from './store';
-import { gfxLabel, gfxPaused, useGfx } from './world/gfx/useGraphics';
+import { effectiveTier, gfxLabel, gfxPaused, useGfx } from './world/gfx/useGraphics';
 import { DPR, dprSample, dprSettle, newDpr } from './dprControl';
 import { glCounts, hitchFrame, hitchNote, hitchResume, hitchSummary, setHitchContext, startHitchRecorder, watchGl } from './hitches';
 import { statsLine } from './hitchLog';
@@ -64,7 +64,8 @@ export const currentDpr = () => Math.min(dprState.dpr, dprCap());
  * Lives inside the Canvas. Steps the pixel ratio down toward 1 after sustained slow frames and back up toward
  * MAX_DPR after sustained headroom, waiting longer after every step up that didn't hold (dprControl.ts): walking
  * between busy and quiet parts of a floor never bounces it, and it never gives up and stays low all day. It holds
- * still while the graphics tier changes, and the tier's governor ignores the frames right after a step.
+ * still while the graphics tier changes, and on Auto it only steps down once the effects are off (Low); the tier's
+ * governor ignores the frames right after a step.
  */
 export function AdaptiveResolution({ paused }: { paused: boolean }) {
   const setDpr = useThree((s) => s.setDpr);
@@ -72,7 +73,8 @@ export function AdaptiveResolution({ paused }: { paused: boolean }) {
   const onSample = useCallback(
     (fps: number, ms: number) => {
       const from = dprState.dpr;
-      const next = dprSample(dprState, fps, ms, { ...DPR, max: dprCap() });
+      const g = useGfx.getState();
+      const next = dprSample(dprState, fps, ms, { ...DPR, max: dprCap() }, g.preset !== 'auto' || effectiveTier(g) === 'low');
       if (next === null || next === from) return;
       hitchNote('dpr', `${from} → ${next} at ${Math.round(fps)} fps`);
       gfxPaused();
@@ -136,6 +138,8 @@ export function HitchProbe({ paused, camera, events }: { paused: boolean; camera
   return null;
 }
 
+const PRECOMPILE_GAP_MS = 8000;
+
 /**
  * Lives inside the Canvas. Compiles the shaders of everything in the scene, not just what's in view, soon after it
  * appears: entering a floor, a world event, a theme, a graphics tier's extras. Otherwise each compiles the first time
@@ -149,9 +153,11 @@ export function ScenePrecompile({ paused, watch }: { paused: boolean; watch: str
   const scene = useThree((s) => s.scene);
   const camera = useThree((s) => s.camera);
   const last = useRef(-1);
+  const lastAt = useRef(0);
   const busy = useRef(false);
   useEffect(() => {
     last.current = -1;
+    lastAt.current = 0;
   }, [watch]);
   useEffect(() => {
     if (paused) return;
@@ -159,8 +165,10 @@ export function ScenePrecompile({ paused, watch }: { paused: boolean; watch: str
       if (busy.current) return;
       let n = 0;
       scene.traverseVisible((o) => void ((o as THREE.Mesh).isMesh && n++));
-      if (n <= last.current) return;
+      // Compiling walks every material in the scene: at most every PRECOMPILE_GAP_MS, except on a new floor.
+      if (n <= last.current || performance.now() - lastAt.current < PRECOMPILE_GAP_MS) return;
       last.current = n;
+      lastAt.current = performance.now();
       busy.current = true;
       const from = glCounts.compiles;
       const t0 = performance.now();

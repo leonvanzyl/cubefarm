@@ -43,17 +43,20 @@ export interface DprState {
   upAfterMs: number;
   /** Time since the last step up, while it may still turn out to have failed; null otherwise. */
   sinceUpMs: number | null;
-  /** The highest frame rate measured, snapped to a display rate (60, 120, 144). */
+  /** The display's refresh rate as measured (60, 120, 144), and how many samples in a row have run faster than it. */
   hz: number;
+  fasterRun: number;
 }
 
-export const newDpr = (start: number, cfg: DprConfig = DPR): DprState => ({ dpr: Math.min(cfg.max, Math.max(cfg.min, start)), settle: cfg.settleMs, slowMs: 0, fastMs: 0, upAfterMs: cfg.upAfterMs, sinceUpMs: null, hz: 60 });
+export const newDpr = (start: number, cfg: DprConfig = DPR): DprState => ({ dpr: Math.min(cfg.max, Math.max(cfg.min, start)), settle: cfg.settleMs, slowMs: 0, fastMs: 0, upAfterMs: cfg.upAfterMs, sinceUpMs: null, hz: 60, fasterRun: 0 });
 
 /**
- * The display's refresh rate from the highest frame rate seen. A burst of catch-up frames can overshoot it (and then
- * nothing would ever count as headroom), so it snaps to a common display rate.
+ * The display's refresh rate from the frame rates seen, snapped to a common display rate. A burst of catch-up frames
+ * can overshoot it (and then nothing would ever count as headroom, and an ordinary frame rate as slow), so it only
+ * goes up after HZ_RUN samples in a row say so.
  */
 export const displayHz = (measured: number) => (measured > 130 ? 144 : measured > 100 ? 120 : 60);
+export const HZ_RUN = 4;
 
 /** Ignore the next samples and start the runs again: after a pause or a graphics tier change. */
 export function dprSettle(s: DprState, cfg: DprConfig = DPR) {
@@ -62,10 +65,18 @@ export function dprSettle(s: DprState, cfg: DprConfig = DPR) {
   s.fastMs = 0;
 }
 
-/** One sample: the average `fps` over `ms` of drawing. Returns the new pixel ratio when it steps, else null. */
-export function dprSample(s: DprState, fps: number, ms: number, cfg: DprConfig = DPR): number | null {
+/**
+ * One sample: the average `fps` over `ms` of drawing. Returns the new pixel ratio when it steps, else null.
+ * `mayDrop` false holds it from stepping down (Auto graphics drops its effects first, and they cost more).
+ */
+export function dprSample(s: DprState, fps: number, ms: number, cfg: DprConfig = DPR, mayDrop = true): number | null {
   if (!Number.isFinite(fps) || !Number.isFinite(ms) || ms <= 0) return null;
-  s.hz = Math.max(s.hz, displayHz(fps));
+  if (displayHz(fps) > s.hz) {
+    if (++s.fasterRun >= HZ_RUN) {
+      s.hz = displayHz(fps);
+      s.fasterRun = 0;
+    }
+  } else s.fasterRun = 0;
   if (s.sinceUpMs !== null) {
     s.sinceUpMs += ms;
     if (s.sinceUpMs > cfg.failWindowMs) {
@@ -78,7 +89,7 @@ export function dprSample(s: DprState, fps: number, ms: number, cfg: DprConfig =
     return null;
   }
   if (fps < s.hz * cfg.downShare) {
-    s.slowMs += ms;
+    s.slowMs = mayDrop ? s.slowMs + ms : 0;
     s.fastMs = 0;
   } else if (fps >= s.hz * cfg.upShare) {
     s.fastMs += ms;
