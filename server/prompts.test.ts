@@ -128,7 +128,7 @@ ${ONE_TURN}`);
       devSystemPrompt({ ...dev, agent: agent(), repo: repo() }),
       devSystemPrompt({ ...dev, agent: agent(), repo: repo(), fixing: { pr: 42, headRef: 'swarm/issue-7-margaret' } }),
       qaSystemPrompt({ ...qa, agent: agent(), repo: repo() }),
-      ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: '/notes.md', sessionLimit: 4, maxAgents: 10, scaling: 'approve' }),
+      ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: '/notes.md', sessionLimit: 4, maxAgents: 10, scaling: 'approve', tools: 'mcp__office__' }),
     ];
     for (const p of prompts) expect(p.split(ONE_TURN)).toHaveLength(2);
   });

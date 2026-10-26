@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { blockers, holdUps, setDependsOn } from '../shared/issues.ts';
@@ -7,7 +9,7 @@ import { HttpError } from './httpError.ts';
 import { ONE_TURN } from './prompts.ts';
 import { MAX_TRIAGES, type TriagePr } from './triage.ts';
 
-// The CEO: a Claude Code session in the lobby that runs the company instead of writing code.
+// The CEO: a coding-agent session in the lobby that runs the company instead of writing code.
 // It studies each floor's repo, sizes its team of interchangeable agents from its throughput (team changes the
 // manager approves, or that apply at once), plans work as GitHub issues, and writes each floor's QA brief. Everything
 // it changes goes through the office tools below, so the swarm stays the single source of truth.
@@ -29,6 +31,9 @@ export const askedFor = (job: Pick<CeoJob, 'kind'>) => job.kind === 'plan' || jo
 
 export interface OfficeHandlers {
   companyStatus(): string;
+  listDirectory(a: { path: string }): Promise<string>;
+  readFile(a: { path: string }): Promise<string>;
+  saveNotes(a: { content: string }): Promise<string>;
   agentDetail(a: { agent_id: string }): string;
   setFloorProfile(a: { floor: number; summary?: string; qa_brief?: string; preview_command?: string; preview_env?: Record<string, string> }): string;
   scaleTeam(a: { floor: number; size: number; reason: string; cli?: AgentCli; model?: string; effort?: string }): string;
@@ -54,6 +59,38 @@ export interface OfficeTools {
 const EFFORT = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const CLI = z.enum(['claude', 'codex', 'opencode']);
 
+/** Read-only file access for a CEO without a shell. Resolve symlinks before checking the allowed roots. */
+export function officeReader(roots: string[]) {
+  const allowed = async (requested: string) => {
+    const target = await fs.realpath(requested);
+    for (const root of roots) {
+      const base = await fs.realpath(root).catch(() => null);
+      if (!base) continue;
+      const relative = path.relative(base, target);
+      if (relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) return target;
+    }
+    throw new Error('That path is outside the CEO office and its repository clones.');
+  };
+  return {
+    async listDirectory({ path: dir }: { path: string }) {
+      const entries = await fs.readdir(await allowed(dir), { withFileTypes: true });
+      return JSON.stringify(entries.slice(0, 200).map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'link' }))) +
+        (entries.length > 200 ? `\n${entries.length - 200} more entries omitted.` : '');
+    },
+    async readFile({ path: filePath }: { path: string }) {
+      const file = await fs.open(await allowed(filePath), 'r');
+      try {
+        const buffer = Buffer.alloc(64 * 1024);
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+        const truncated = (await file.stat()).size > bytesRead;
+        return buffer.toString('utf8', 0, bytesRead) + (truncated ? '\n[File truncated after 64 KiB]' : '');
+      } finally {
+        await file.close();
+      }
+    },
+  };
+}
+
 export function createOfficeTools(h: OfficeHandlers): OfficeTools {
   const run = async (fn: () => string | Promise<string>) => {
     try {
@@ -63,6 +100,24 @@ export function createOfficeTools(h: OfficeHandlers): OfficeTools {
     }
   };
   const defs = [
+    tool(
+      'list_directory',
+      'List the files and subdirectories in the CEO office or a repository clone. Read-only; paths outside those locations are refused.',
+      { path: z.string().min(1) },
+      (a) => run(() => h.listDirectory(a)),
+    ),
+    tool(
+      'read_file',
+      'Read up to 64 KiB of a text file in the CEO office or a repository clone. Read-only; paths outside those locations are refused.',
+      { path: z.string().min(1) },
+      (a) => run(() => h.readFile(a)),
+    ),
+    tool(
+      'save_notes',
+      "Replace the CEO office's NOTES.md with your updated durable notes. This cannot write to repository clones.",
+      { content: z.string().max(64 * 1024) },
+      (a) => run(() => h.saveNotes(a)),
+    ),
     tool(
       'company_status',
       'Everything about the company right now: settings, every floor (repo, clone path, brief, profile, QA brief), its team and throughput, backlog, pull requests and QA, team changes waiting for the manager and their recent decisions. Call this first.',
@@ -247,6 +302,12 @@ export function scalePlan(t: TeamNow, size: number, max: number): ScalePlan {
 
 // ---------- prompts ----------
 
+/**
+ * How the running CLI names an office tool. Claude Code and Codex both namespace MCP tools as
+ * mcp__<server>__<tool>; OpenCode joins them with a single underscore.
+ */
+export const officeToolPrefix = (cli: AgentCli) => (cli === 'opencode' ? 'office_' : 'mcp__office__');
+
 export function ceoSystemPrompt(o: {
   name: string;
   company: string;
@@ -255,6 +316,9 @@ export function ceoSystemPrompt(o: {
   sessionLimit: number;
   maxAgents: number;
   scaling: 'approve' | 'auto';
+  tools: string;
+  readViaOffice?: boolean;
+  saveNotesViaOffice?: boolean;
 }) {
   const manager = o.manager ? `the manager, ${o.manager}` : 'the human manager';
   return [
@@ -269,10 +333,14 @@ export function ceoSystemPrompt(o: {
     "- Write each floor's QA brief: what every QA pass must check for this kind of project (for a 3D game: the canvas renders, controls respond, frame rate is smooth; for a website: links, phone layout, accessibility; for an API: status codes, validation, error cases).",
     '',
     'How you work:',
-    '- Call mcp__office__company_status first. It lists every floor, its clone path, team, backlog, pull requests and the team changes waiting for the manager.',
-    '- Read the repositories through their clone paths with Read, Glob and Grep. They are read-only to you. You cannot run shell commands.',
-    `- Keep durable notes about the company in ${o.notesFile}: read it at the start, and update it at the end with decisions and anything worth remembering next time.`,
-    '- Change things only through the mcp__office__ tools.',
+    `- Call ${o.tools}company_status first. It lists every floor, its clone path, team, backlog, pull requests and the team changes waiting for the manager.`,
+    o.readViaOffice
+      ? `- Read the repositories through their clone paths with ${o.tools}list_directory and ${o.tools}read_file. They are read-only to you. You cannot run shell commands.`
+      : '- Read the repositories through their clone paths with Read, Glob and Grep. They are read-only to you. You cannot run shell commands.',
+    o.saveNotesViaOffice
+      ? `- Keep durable notes about the company in ${o.notesFile}: read it with ${o.tools}read_file at the start and update it with ${o.tools}save_notes at the end.`
+      : `- Keep durable notes about the company in ${o.notesFile}: read it at the start, and update it at the end with decisions and anything worth remembering next time.`,
+    `- Change things only through the ${o.tools} tools.`,
     `- ${ONE_TURN}`,
     '',
     'Rules:',

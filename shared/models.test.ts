@@ -21,6 +21,14 @@ describe('effectiveModel', () => {
     expect(effectiveModel('claude-opus-5-5', 'codex', claudeOffice, 'claude-opus-5-5')).toBe('');
     expect(effectiveModel('gpt-5.5', 'claude', claudeOffice, 'claude-opus-5-5')).toBe('claude-sonnet-5');
     expect(effectiveModel('', 'codex', { defaultCli: 'codex', defaultModel: 'claude-opus-5-5' }, 'claude-opus-5-5')).toBe('');
+    expect(effectiveModel('gpt-5.5-codex', 'opencode', claudeOffice, 'claude-opus-5-5')).toBe('gpt-5.5-codex');
+    expect(effectiveModel('anthropic/claude-opus-5-5', 'codex', claudeOffice, 'claude-opus-5-5')).toBe('');
+    expect(effectiveModel('anthropic/claude-opus-5-5', 'opencode', claudeOffice, 'claude-opus-5-5')).toBe('anthropic/claude-opus-5-5');
+  });
+
+  it("reads a bare model name for OpenCode as its provider's, and never a Claude name", () => {
+    expect(effectiveModel('glm-5.3-flash-free', 'opencode', claudeOffice, 'claude-opus-5-5')).toBe('glm-5.3-flash-free');
+    expect(effectiveModel('claude-sonnet-5', 'opencode', claudeOffice, 'claude-opus-5-5')).toBe('');
   });
 
   it("knows Claude Code's names and aliases", () => {

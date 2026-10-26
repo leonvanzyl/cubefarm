@@ -1,10 +1,13 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
 import { EAST_DESKS, MAX_DESKS } from '../client/src/world/layout.ts';
 import { FLOOR_SEATS, type QaStatus } from '../shared/types.ts';
 import type { HttpError } from './httpError.ts';
-import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, planDependencies, plannedSize, scalePlan, type CeoJob, type DependsRequest, type TeamNow } from './ceo.ts';
+import { ceoJobPrompt, ceoSystemPrompt, checkCloseIssue, createOfficeTools, floorCapacity, IssueCap, jobLabel, officeReader, officeToolPrefix, planDependencies, plannedSize, scalePlan, type CeoJob, type DependsRequest, type TeamNow } from './ceo.ts';
 
 describe('seats', () => {
   it('match the desks the client draws', () => {
@@ -96,6 +99,9 @@ describe('office tools', () => {
     const floors: unknown[] = [];
     const office = createOfficeTools({
       companyStatus: () => '{}',
+      listDirectory: async () => '[]',
+      readFile: async () => '',
+      saveNotes: async () => 'saved',
       agentDetail: () => '{}',
       setFloorProfile: (a) => (floors.push(a), 'saved'),
       scaleTeam: () => '',
@@ -127,8 +133,11 @@ describe('office tools', () => {
       'configure_agent',
       'escalate',
       'file_issue',
+      'list_directory',
+      'read_file',
       'rerun_checks',
       'retry_qa',
+      'save_notes',
       'scale_team',
       'send_back',
       'set_dependencies',
@@ -141,6 +150,25 @@ describe('office tools', () => {
     await client.callTool({ name: 'set_floor_profile', arguments: { floor: 1, preview_env: { VITE_API: 'http://localhost:{port}' } } });
     expect(floors).toEqual([{ floor: 1, preview_env: { VITE_API: 'http://localhost:{port}' } }]);
   });
+});
+
+it('keeps the CEO file tools inside allowed roots, including through symlinks', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cubefarm-ceo-read-'));
+  const allowed = path.join(root, 'clone');
+  const outside = path.join(root, 'outside.txt');
+  try {
+    await fs.mkdir(allowed);
+    await fs.writeFile(path.join(allowed, 'README.md'), 'project notes');
+    await fs.writeFile(outside, 'private');
+    await fs.symlink(outside, path.join(allowed, 'escape'));
+    const reader = officeReader([allowed]);
+    expect(await reader.readFile({ path: path.join(allowed, 'README.md') })).toBe('project notes');
+    expect(await reader.listDirectory({ path: allowed })).toContain('README.md');
+    await expect(reader.readFile({ path: outside })).rejects.toThrow('outside');
+    await expect(reader.readFile({ path: path.join(allowed, 'escape') })).rejects.toThrow('outside');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 describe('checkCloseIssue (close_issue)', () => {
@@ -229,7 +257,7 @@ describe('planDependencies (set_dependencies)', () => {
 });
 
 describe('planning guidance', () => {
-  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve', tools: 'mcp__office__' });
   const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: 'Add voice messages', backlog: 0 };
   const plan = ceoJobPrompt({ kind: 'plan', repoId: 'r1', at: 0 }, floor);
   const review = ceoJobPrompt({ kind: 'review', at: 0 }, null);
@@ -263,7 +291,7 @@ describe('planning guidance', () => {
 });
 
 describe('team guidance', () => {
-  const prompt = (scaling: 'approve' | 'auto') => ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 8, scaling });
+  const prompt = (scaling: 'approve' | 'auto') => ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 8, scaling, tools: 'mcp__office__' });
 
   it('sizes teams from throughput, within the floor max, and keeps one agent', () => {
     expect(prompt('approve')).toContain("Size each floor's team from its throughput");
@@ -285,7 +313,7 @@ describe('team guidance', () => {
 });
 
 describe('triage', () => {
-  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve' });
+  const system = ceoSystemPrompt({ name: 'Luna', company: 'Acme', manager: 'Sam', notesFile: 'notes.md', sessionLimit: 0, maxAgents: 10, scaling: 'approve', tools: 'mcp__office__' });
   const floor = { floor: 2, fullName: 'acme/app', clone: '/clones/app', mission: '', backlog: 3 };
   const job: CeoJob = { kind: 'triage', repoId: 'r1', prNumber: 108, at: 0 };
   const pr = {
@@ -380,5 +408,42 @@ describe('IssueCap', () => {
     cap.record('a/b');
     expect(cap.total).toBe(3);
     expect([...cap.repos]).toEqual(['a/b', 'c/d']);
+  });
+});
+
+describe('the CEO prompt names its tools the way the running CLI does', () => {
+  const prompt = (cli: 'claude' | 'codex' | 'opencode') =>
+    ceoSystemPrompt({
+      name: 'Ada',
+      company: 'Acme',
+      manager: 'Grace',
+      notesFile: 'NOTES.md',
+      sessionLimit: 0,
+      maxAgents: 4,
+      scaling: 'approve',
+      tools: officeToolPrefix(cli),
+      readViaOffice: cli === 'codex',
+      saveNotesViaOffice: cli !== 'claude',
+    });
+
+  it('matches each CLI\'s MCP namespace', () => {
+    expect(officeToolPrefix('claude')).toBe('mcp__office__');
+    expect(officeToolPrefix('codex')).toBe('mcp__office__'); // Codex namespaces MCP tools the same way
+    expect(officeToolPrefix('opencode')).toBe('office_');
+  });
+
+  it('never leaves a tool name the CEO cannot call', () => {
+    expect(prompt('claude')).toContain('Call mcp__office__company_status first');
+    expect(prompt('opencode')).toContain('Call office_company_status first');
+    expect(prompt('codex')).toContain('mcp__office__list_directory and mcp__office__read_file');
+    expect(prompt('codex')).toContain('update it with mcp__office__save_notes');
+    expect(prompt('opencode')).toContain('update it with office_save_notes');
+    for (const cli of ['claude', 'opencode'] as const) {
+      const p = prompt(cli);
+      const named = [...p.matchAll(/(?:mcp__office__|office_)([a-z_]+)/g)].map((m) => m[0]);
+      expect(named.length).toBeGreaterThan(0);
+      const wrong = cli === 'opencode' ? 'mcp__office__' : 'office_';
+      expect(p.includes(`through the ${wrong}`)).toBe(false);
+    }
   });
 });
