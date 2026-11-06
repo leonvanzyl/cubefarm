@@ -82,7 +82,6 @@ export function Interview({ requestId, design = false }: { requestId: string; de
         seed={req}
         repoId={req.repoId}
         initial={{ ...setup, look: req.look, color: req.color, style: req.style ?? null }}
-        title={`Design ${name}`}
         onHire={(d) => decide(true, d)}
         onClose={design ? closeOverlay : () => setDesigning(false)}
       >

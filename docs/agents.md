@@ -14,7 +14,7 @@ What makes QA independent is a **fresh session**, not a different kind of agent:
 
 Fixes go back to the pull request's author while they're around (they have the session and the worktree), and to any free agent otherwise.
 
-An agent has a name and a look, for personality, and three settings: its **provider** (Claude Code, Codex or OpenCode), its **model** and its **reasoning effort**. Each falls back to the office default (Settings) when left empty. The CEO or the manager can change them; changes apply from the agent's next task.
+An agent has a name and a look, for personality, and three settings: its **provider** (Claude Code, Codex or OpenCode), its **model** and its **reasoning effort**. Each falls back to the office default (Settings) when left empty. The CEO or the manager can change them; changes apply from the agent's next task. New agents can be designed before they're hired: the **agent designer** (the lobby card's **🎨 Design them**, the phone's **🎨 Design**, the console's **+ Agent**, or `E` on an empty desk) has a big live preview and every pick of the look (drawn as, hair, facial hair, glasses, headwear, headphones, outfit, build, shirt, hair and skin colours, accent) next to the name and setup; nobody is created until **Hire**, and the hired agent looks exactly as designed. Hired agents keep the same picks in their ⚙️ Setup.
 
 Most people have one subscription, so the default is every agent on the same provider. Mixing providers (Codex reviewing what Claude wrote, say) is an option for those who have more than one, never a requirement.
 

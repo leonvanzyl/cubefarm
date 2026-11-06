@@ -48,7 +48,8 @@ export function AgentDesigner({
   seed: { id: string; hair: string; skin: string };
   repoId: string;
   initial: Design;
-  title: string;
+  /** Default: "Design <their name>". */
+  title?: string;
   focusHire?: boolean;
   onHire: (d: Design) => Promise<boolean>;
   onClose: () => void;
@@ -98,7 +99,7 @@ export function AgentDesigner({
       <div ref={box} className="panel designer" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} style={{ ['--accent' as string]: '#06d6a0' }}>
         <div className="panel-head">
           <h2 className="panel-title" id={titleId}>
-            🎨 {title}
+            🎨 {title ?? `Design ${name}`}
           </h2>
           <button className="panel-x" onClick={onClose} aria-label="Close">
             ✕
