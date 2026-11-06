@@ -2752,6 +2752,62 @@ input.inline:focus {
   width: 20px;
   height: 20px;
 }
+/* the look editor's headphones: a checkbox among the selects */
+.check-field .row {
+  min-height: 34px;
+  gap: 6px;
+  font-weight: 500;
+}
+
+/* ---------- the agent designer: a new agent's look and setup before they're hired (ui/AgentDesigner.tsx) ---------- */
+.designer-overlay {
+  z-index: 40; /* over the console when "+ Agent" opens it */
+}
+.designer {
+  width: min(900px, 100%);
+}
+.designer-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+.designer-preview {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0 auto;
+}
+.designer-summary {
+  margin: 0;
+  max-width: 250px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.designer-fields {
+  flex: 1;
+  min-width: 0;
+  flex-basis: 300px;
+}
+.designer-fields .look-fields {
+  min-width: 0;
+}
+.designer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 3px solid var(--ink);
+}
+@media (max-width: 520px) {
+  .designer-overlay {
+    padding: 6px;
+  }
+}
+
 .prompt-preview {
   margin: 8px 0 4px;
 }

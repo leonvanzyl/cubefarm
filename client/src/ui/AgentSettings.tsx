@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useId, useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { api } from '../api';
 import { isBusy, useStore, type Agent } from '../store';
-import type { AgentCli, AgentPromptView, CliView, CloudMachineState, EffortLevel, MachineHost } from '../../../shared/types';
-import { ACCENT_COLORS, BUILDS, FACIAL_HAIR, GLASSES, HAIR_COLORS, HAIR_STYLES, HEADWEAR, OUTFITS, SKIN_TONES, type AgentStyle, type HairStyle, type Outfit } from '../../../shared/looks';
+import type { AgentCli, AgentLook, AgentPromptView, AgentRole, CliView, CloudMachineState, EffortLevel, MachineHost } from '../../../shared/types';
+import { ACCENT_COLORS, BUILDS, FACIAL_HAIR, GLASSES, HAIR_COLORS, HAIR_STYLES, HEADWEAR, OUTFITS, SHIRT_COLORS, SKIN_TONES, type AgentStyle, type HairStyle, type Outfit } from '../../../shared/looks';
 import { CLAUDE_MODELS, effectiveModel, modelSuggestions } from '../../../shared/models';
-import { TALL_HAIR, appearanceFor, randomStyle } from '../world/appearance';
+import { NO_PHONES_HAIR, TALL_HAIR, appearanceFor, randomStyle } from '../world/appearance';
 import { LookPreview } from '../world/LookPreview';
 import { workerCli } from './floorRows';
 import { confirmDialog } from './Confirm';
@@ -177,14 +177,37 @@ const HAIR_LABEL: Record<HairStyle, string> = {
 const OUTFIT_LABEL: Record<Outfit, string> = { tee: 'T-shirt', hoodie: 'Hoodie', stripe: 'Striped tee', sweater: 'Sweater', cardigan: 'Cardigan', turtleneck: 'Turtleneck' };
 const capital = (s: string) => s[0].toUpperCase() + s.slice(1);
 
+/** A row of colours as a radio group: Tab reaches the picked one, the arrow keys (and Home / End) pick. */
 function Swatches({ label, colors, value, onPick }: { label: string; colors: readonly string[]; value: string; onPick: (c: string) => void }) {
   const all = colors.includes(value) ? colors : [value, ...colors];
+  const group = useRef<HTMLDivElement>(null);
+  const at = Math.max(0, all.indexOf(value));
+  const onKey = (e: KeyboardEvent) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : step !== undefined ? (at + step + all.length) % all.length : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onPick(all[to]);
+    group.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[to]?.focus();
+  };
   return (
     <div className="field">
       <span>{label}</span>
-      <div className="swatches" role="radiogroup" aria-label={label}>
-        {all.map((c) => (
-          <button key={c} type="button" role="radio" aria-checked={c === value} aria-label={c} title={c} className={`swatch ${c === value ? 'swatch-on' : ''}`} style={{ background: c }} onClick={() => onPick(c)} />
+      <div ref={group} className="swatches" role="radiogroup" aria-label={label} onKeyDown={onKey}>
+        {all.map((c, i) => (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={c === value}
+            tabIndex={i === at ? 0 : -1}
+            aria-label={`${label} ${i + 1} of ${all.length} (${c})`}
+            title={c}
+            className={`swatch ${c === value ? 'swatch-on' : ''}`}
+            style={{ background: c }}
+            onClick={() => onPick(c)}
+          />
         ))}
       </div>
     </div>
@@ -207,20 +230,50 @@ function PickSelect<T extends string>({ label, value, options, labels, onPick, d
   );
 }
 
+/** How someone is drawn, edited as a value: the hired agent's (saved at once) or a design kept until Hire. */
+export interface LookValue {
+  look: AgentLook;
+  color: string;
+  style: AgentStyle | null;
+}
+
+/** Whose look it is: their id seeds everything not picked. */
+export interface LookSubject {
+  id: string;
+  name: string;
+  role: AgentRole;
+  hair: string;
+  skin: string;
+}
+
 /**
- * How they're drawn: a live 3D preview and the picks, each saved straight onto the agent (agent.style), over the
- * look seeded from their id. Their character in the office follows at once.
+ * How they're drawn: the picks over the look seeded from their id, and (unless `preview` is false, when the caller
+ * shows its own) a live 3D preview. Every pick is an onChange with the whole new value of what changed.
  */
-export function LookEditor({ agent }: { agent: Agent }) {
-  const look = useMemo(() => appearanceFor(agent), [agent]);
-  const pick = (patch: AgentStyle) => void save(agent.id, { style: { ...agent.style, ...patch } });
+export function LookEditor({ who, value, onChange, preview = true, seededLabel = '↺ Back to their seeded look' }: { who: LookSubject; value: LookValue; onChange: (patch: Partial<LookValue>) => void; preview?: boolean; seededLabel?: string }) {
+  const subject = { ...who, ...value };
+  const look = useMemo(() => appearanceFor(subject), [JSON.stringify(subject)]);
+  const pick = (patch: AgentStyle) => onChange({ style: { ...value.style, ...patch } });
   const tall = TALL_HAIR.includes(look.hair);
+  const noPhones = NO_PHONES_HAIR.includes(look.hair);
+  const ceo = who.role === 'ceo';
+  const lookId = useId();
+  const phonesId = useId();
   return (
     <fieldset className="look-editor">
       <legend>Look</legend>
       <div className="look-body">
-        <LookPreview id={agent.id} label={`${agent.name} as they'll look`} />
+        {preview && <LookPreview who={subject} label={`${who.name} as they'll look`} />}
         <div className="look-fields">
+          {!ceo && (
+            <label className="field" htmlFor={lookId}>
+              <span>Drawn as</span>
+              <select id={lookId} value={value.look} onChange={(e) => onChange({ look: e.target.value as AgentLook })}>
+                <option value="feminine">👩 She</option>
+                <option value="masculine">👨 He</option>
+              </select>
+            </label>
+          )}
           <PickSelect label="Hair" value={look.hair} options={HAIR_STYLES} labels={HAIR_LABEL} onPick={(hair) => pick({ hair })} />
           <PickSelect label="Facial hair" value={look.facialHair} options={FACIAL_HAIR} onPick={(facialHair) => pick({ facialHair })} />
           <PickSelect label="Glasses" value={look.glasses} options={GLASSES} onPick={(glasses) => pick({ glasses })} />
@@ -230,9 +283,16 @@ export function LookEditor({ agent }: { agent: Agent }) {
             options={HEADWEAR}
             disabled={tall}
             title={tall ? `A hat doesn't fit over ${HAIR_LABEL[look.hair].toLowerCase()} hair` : undefined}
-            onPick={(headwear) => pick({ headwear })}
+            onPick={(headwear) => pick(headwear === 'none' ? { headwear } : { headwear, headphones: false })}
           />
-          {agent.role === 'ceo' ? (
+          <label className="field check-field" htmlFor={phonesId} title={noPhones ? `Headphones don't fit over ${HAIR_LABEL[look.hair].toLowerCase()} hair` : 'Headphones take a hat off'}>
+            <span>Headphones</span>
+            <span className="row">
+              <input id={phonesId} type="checkbox" checked={look.headphones} disabled={noPhones} onChange={(e) => pick(e.target.checked ? { headphones: true, headwear: 'none' } : { headphones: false })} />
+              🎧 {look.headphones ? 'On' : 'Off'}
+            </span>
+          </label>
+          {ceo ? (
             <div className="field">
               <span>Outfit</span>
               <span className="muted small">Blazer and lanyard (uniform)</span>
@@ -241,22 +301,28 @@ export function LookEditor({ agent }: { agent: Agent }) {
             <PickSelect label="Outfit" value={look.outfit} options={OUTFITS} labels={OUTFIT_LABEL} onPick={(outfit) => pick({ outfit })} />
           )}
           <PickSelect label="Build" value={look.build} options={BUILDS} onPick={(build) => pick({ build })} />
+          {!ceo && <Swatches label="Shirt colour" colors={SHIRT_COLORS} value={value.color} onPick={(color) => onChange({ color })} />}
           <Swatches label="Hair colour" colors={HAIR_COLORS} value={look.hairColor} onPick={(hairColor) => pick({ hairColor })} />
           <Swatches label="Skin tone" colors={SKIN_TONES} value={look.skin} onPick={(skin) => pick({ skin })} />
           <Swatches label="Accent colour" colors={ACCENT_COLORS} value={ACCENT_COLORS[look.accent]} onPick={(c) => pick({ accent: ACCENT_COLORS.indexOf(c as (typeof ACCENT_COLORS)[number]) })} />
         </div>
       </div>
       <div className="row wrap">
-        <button type="button" className="btn btn-small" onClick={() => void save(agent.id, { style: randomStyle(agent) })}>
+        <button type="button" className="btn btn-small" onClick={() => onChange({ style: randomStyle(subject) })}>
           🎲 Shuffle
         </button>
-        <button type="button" className="btn btn-small btn-ghost" disabled={!agent.style} onClick={() => void save(agent.id, { style: null })}>
-          ↺ Back to their seeded look
+        <button type="button" className="btn btn-small btn-ghost" disabled={!value.style} onClick={() => onChange({ style: null })}>
+          {seededLabel}
         </button>
         <span className="muted small">Accent: glasses frames, hats and the stripe.</span>
       </div>
     </fieldset>
   );
+}
+
+/** A hired agent's look editor: each pick saved onto them at once; their character in the office follows. */
+export function AgentLookEditor({ agent }: { agent: Agent }) {
+  return <LookEditor who={agent} value={{ look: agent.look, color: agent.color, style: agent.style }} onChange={(patch) => void save(agent.id, patch)} />;
 }
 
 /**
@@ -338,12 +404,6 @@ export function AgentSetup({ agent }: { agent: Agent }) {
             <NameInput agent={agent} id={`${id}-name`} className="" />
           </label>
         )}
-        {!ceo && (
-          <label className="field" htmlFor={`${id}-look`}>
-            <span>Drawn as</span>
-            <LookSelect agent={agent} id={`${id}-look`} />
-          </label>
-        )}
         {!ceo && (terminal || agent.host === 'box') && (
           <label className="field" htmlFor={`${id}-cli`}>
             <span>Coding agent</span>
@@ -367,7 +427,7 @@ export function AgentSetup({ agent }: { agent: Agent }) {
           <EffortSelect agent={agent} id={`${id}-effort`} />
         </label>
       </div>
-      <LookEditor agent={agent} />
+      <AgentLookEditor agent={agent} />
       <PromptPreview agent={agent} />
       <p className="muted small">Name and model save when you leave them; the rest, and looks, as you pick them. Running sessions aren't restarted.</p>
     </section>

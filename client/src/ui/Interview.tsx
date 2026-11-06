@@ -5,14 +5,16 @@ import { CEO_ID } from '../../../shared/types';
 import { Markdown } from './Markdown';
 import { closeOverlay } from './Panel';
 import { HireSetupFields, cliLabel, hireCli, hireOverrides, setupOf, type HireSetup } from './Phone';
+import { AgentDesigner, designedLook, type Design } from './AgentDesigner';
 import { CLAUDE_MODELS, effectiveModel } from '../../../shared/models';
 
 // A team change face to face (#227), as an office document: a new agent waiting in the lobby (E on them, world/
-// Candidates.tsx), set up here before they're created (name, coding agent, model, effort), or the CEO's let-go note in
+// Candidates.tsx), set up here before they're created (name, coding agent, model, effort; "Design them" opens the agent
+// designer for their look too, AgentDesigner.tsx), or the CEO's let-go note in
 // the envelope on someone's desk. Hire / Decline (Let go / Keep) are the same decisions as the phone's and the
 // console's, with a note the CEO reads. Deciding closes it, so the person's reaction plays out in front of you.
 
-export function Interview({ requestId }: { requestId: string }) {
+export function Interview({ requestId, design = false }: { requestId: string; design?: boolean }) {
   const req = useStore((s) => s.requests.find((r) => r.id === requestId));
   const repo = useStore((s) => (req ? s.repos.find((r) => r.id === req.repoId) : undefined));
   const settings = useStore((s) => s.settings);
@@ -21,6 +23,7 @@ export function Interview({ requestId }: { requestId: string }) {
   const [edited, setSetup] = useState<HireSetup | null>(null); // null: the CEO's picks, untouched
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [designing, setDesigning] = useState(design);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,16 +63,35 @@ export function Interview({ requestId }: { requestId: string }) {
   const stamp = pending ? null : req.status === 'approved' ? (hire ? 'Hired' : 'Let go') : hire ? 'Declined' : 'Kept';
   const cli = hireCli(req.cli, settings);
 
-  const decide = async (yes: boolean) => {
+  const decide = async (yes: boolean, designed?: Design) => {
     setBusy(true);
     try {
-      if (yes) await api.approveRequest(req.id, { ...(hire ? hireOverrides(req, setup) : {}), note: note.trim() });
+      if (yes) await api.approveRequest(req.id, { ...(hire ? hireOverrides(req, designed ?? setup) : {}), ...(designed ? designedLook(designed, req) : {}), note: note.trim() });
       else await api.rejectRequest(req.id, note.trim());
       closeOverlay();
+      return true;
     } catch {
       setBusy(false); // api() already toasted why
+      return false;
     }
   };
+
+  if (designing && hire && pending) {
+    return (
+      <AgentDesigner
+        seed={req}
+        repoId={req.repoId}
+        initial={{ ...setup, look: req.look, color: req.color, style: req.style ?? null }}
+        onHire={(d) => decide(true, d)}
+        onClose={design ? closeOverlay : () => setDesigning(false)}
+      >
+        <label className="field">
+          <span>Your note for {ceo}</span>
+          <textarea className="doc-note" rows={2} maxLength={400} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional: why, or what they should start with." />
+        </label>
+      </AgentDesigner>
+    );
+  }
 
   return (
     <div className="overlay interview-overlay" onMouseDown={(e) => e.target === e.currentTarget && closeOverlay()}>
@@ -98,6 +120,12 @@ export function Interview({ requestId }: { requestId: string }) {
         {hire && pending && (
           <>
             <HireSetupFields value={setup} onChange={setSetup} disabled={busy} />
+            <div className="row wrap">
+              <button className="btn btn-small" disabled={busy} onClick={() => setDesigning(true)}>
+                🎨 Design them
+              </button>
+              <span className="muted small">Their look, from hair to shirt colour, with a live preview.</span>
+            </div>
             <p className="muted small doc-tip">Hiring creates {name} and their own machine. You can change these later in their ⚙️ Setup.</p>
           </>
         )}

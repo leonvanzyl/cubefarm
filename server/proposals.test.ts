@@ -44,6 +44,38 @@ describe('team changes waiting for the manager', () => {
     expect(after.messages.some((m) => m.from === 'office' && m.text.includes('Start with the keyboard shortcuts'))).toBe(true);
   });
 
+  it('a designed hire keeps the look as designed, on the agent and on the request, dropping junk', async () => {
+    const { swarm } = await office();
+    swarm.demoPropose('hire');
+    const req = swarm.snapshot().requests.find((r) => r.kind === 'hire')!;
+    expect(req.style ?? null).toBeNull(); // no design: the seeded look
+    swarm.approveRequest(req.id, { name: 'Grace', look: 'feminine', color: '#3A86FF', style: { hair: 'bob', headphones: true, headwear: 'none', build: 'huge', extra: 1 } });
+    const after = swarm.snapshot();
+    const hired = after.requests.find((r) => r.id === req.id)!;
+    const agent = after.agents.find((a) => a.id === req.id)!;
+    expect(agent).toMatchObject({ name: 'Grace', look: 'feminine', color: '#3a86ff', style: { hair: 'bob', headphones: true, headwear: 'none' } });
+    expect(hired).toMatchObject({ look: agent.look, color: agent.color, style: agent.style, hair: agent.hair, skin: agent.skin });
+  });
+
+  it('an approval with junk design values hires with the look the CEO picked', async () => {
+    const { swarm } = await office();
+    swarm.demoPropose('hire');
+    const req = swarm.snapshot().requests.find((r) => r.kind === 'hire')!;
+    swarm.approveRequest(req.id, { look: 'robot', color: 'red', style: 'bob' });
+    expect(swarm.snapshot().agents.find((a) => a.id === req.id)).toMatchObject({ look: req.look, color: req.color, style: null });
+  });
+
+  it('hires a designed agent straight onto a floor, with the id they were previewed with', async () => {
+    const { swarm, repo } = await office();
+    const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    const a = swarm.hireAgent(repo.id, { id, name: 'Hedy', look: 'masculine', color: '#06D6A0', style: { hairColor: '#5b3cc4', skin: '#8d5524', glasses: 'round' } });
+    expect(a).toMatchObject({ id, look: 'masculine', color: '#06d6a0', hair: '#5b3cc4', skin: '#8d5524', style: { hairColor: '#5b3cc4', skin: '#8d5524', glasses: 'round' } });
+    const junk = swarm.hireAgent(repo.id, { look: 'tall', color: '#12345', style: [1] });
+    expect(['feminine', 'masculine']).toContain(junk.look);
+    expect(junk.color).toMatch(/^#[0-9a-f]{6}$/);
+    expect(junk.style).toBeNull();
+  });
+
   it('a smaller team is a let-go of an idle agent, decided by the manager', async () => {
     const { swarm, team } = await office();
     swarm.demoPropose('let-go');

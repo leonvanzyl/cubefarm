@@ -15,7 +15,7 @@ import { bindCamera, bindCanvas, cameraMode, cutKind, dragView, rigFlying, setHo
 // turns the mouse into the views' controls: drag to pan, the wheel to zoom, a click (or the pad's A, at the middle of
 // the screen) to open whatever is under it. Draws the chips, the building's slices and the dollhouse's base.
 
-/** Opens what a view's click (or the pad's A, like E) landed on, as in first person: hiring by click asks first. */
+/** Opens what a view's click (or the pad's A, like E) landed on, as in first person. */
 function act(p: Pick, via: 'key' | 'click') {
   if (p.kind === 'floor') return visitFloor(p.floor);
   if (p.kind === 'agent') return runFocusAction({ id: `agent-${p.agentId}`, label: p.label, action: { kind: 'terminal', agentId: p.agentId } }, via);

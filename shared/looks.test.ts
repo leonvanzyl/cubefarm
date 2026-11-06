@@ -13,6 +13,13 @@ describe('cleanStyle', () => {
     expect(cleanStyle({ accent: 0 })).toEqual({ accent: 0 });
   });
 
+  it('keeps a headphones pick, on or off, and drops one that is not a yes or no', () => {
+    expect(cleanStyle({ headphones: true })).toEqual({ headphones: true });
+    expect(cleanStyle({ headphones: false, hair: 'crop' })).toEqual({ headphones: false, hair: 'crop' });
+    expect(cleanStyle({ headphones: 'yes' })).toBeNull();
+    expect(cleanStyle({ headphones: 1 })).toBeNull();
+  });
+
   it('treats anything that is not a plain object as no picks', () => {
     for (const raw of [null, undefined, 'bob', 3, [], ['hair']]) expect(cleanStyle(raw)).toBeNull();
     expect(cleanStyle({})).toBeNull();

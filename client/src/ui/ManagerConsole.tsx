@@ -4,8 +4,8 @@ import { api } from '../api';
 import { PreviewPill, PreviewSettings } from './AppViewer';
 import { agentsOnRepo, pendingRequests, useStore, type ManagerTab } from '../store';
 import { CEO_ID, DEFAULT_MAX_AGENTS, FLOOR_SEATS, type AgentCli, type EffortLevel, type OfficeUpdateView, type RepoView } from '../../../shared/types';
-import { CLAUDE_MODELS, modelSuggestions } from '../../../shared/models';
-import { CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, LookEditor, LookSelect, ModelInput, NameInput, PromptPreview } from './AgentSettings';
+import { CLAUDE_MODELS } from '../../../shared/models';
+import { CliOptions, CliSelect, cliName, EFFORTS, EffortSelect, AgentLookEditor, LookSelect, ModelInput, NameInput, PromptPreview } from './AgentSettings';
 import { canPostpone, canUpdateNow, drainDeadline, officeUpdateText } from '../officeUpdate';
 import { confirmDialog } from './Confirm';
 import { IssueForm } from './KanbanView';
@@ -16,6 +16,7 @@ import { NotifySettings } from './NotifySettings';
 import { ProfileSettings } from './ProfileSettings';
 import { Panel } from './Overlays';
 import { Resume } from './Phone';
+import { NewAgentDesigner } from './AgentDesigner';
 import { ProjectPicker } from './ProjectPicker';
 import { StatusPill } from './TerminalView';
 import { ThemeSettings } from './ThemeSettings';
@@ -346,7 +347,7 @@ function CeoTab() {
         <h3 className="section">📄 Team changes {pending.length > 0 && <span className="badge">{pending.length}</span>}</h3>
         {pending.length === 0 && <p className="muted small">None waiting. The CEO grows or shrinks a floor's team when its work calls for it (Settings → Team changes from the CEO).</p>}
         {pending.map((r) => (
-          <Resume key={r.id} req={r} />
+          <Resume key={r.id} req={r} design />
         ))}
         {decided.length > 0 && (
           <details className="small" style={{ marginBottom: 12 }}>
@@ -368,60 +369,19 @@ function CeoTab() {
 
 // ---------- team ----------
 
-interface NewAgent {
-  name: string;
-  cli: AgentCli | '';
-  model: string;
-  effort: EffortLevel | '';
-}
-
-const NO_SETUP: NewAgent = { name: '', cli: '', model: '', effort: '' };
-
-/** A floor's "+ Agent": an optional name and their coding agent, model and effort ('' = the office's defaults). */
+/** A floor's "+ Agent": opens the agent designer for that floor (a free name, a random look). */
 function AddAgent({ repo, size }: { repo: RepoView; size: number }) {
-  const settings = useStore((s) => s.settings);
-  const clis = useStore((s) => s.clis);
-  const [draft, setDraft] = useState<NewAgent>(NO_SETUP);
-  const [busy, setBusy] = useState(false);
-  const terminal = settings.runtime === 'terminal';
-  const cli = terminal ? draft.cli || settings.defaultCli : 'claude';
-  const full = size >= settings.maxAgents;
-  const edit = (p: Partial<NewAgent>) => setDraft({ ...draft, ...p });
-  const add = () => {
-    setBusy(true);
-    const { name, ...setup } = draft;
-    void attempt(() => api.hireAgent(repo.id, { ...setup, name: name.trim() || undefined }))
-      .then((a) => a && setDraft(NO_SETUP))
-      .finally(() => setBusy(false));
-  };
+  const maxAgents = useStore((s) => s.settings.maxAgents);
+  const [designing, setDesigning] = useState(false);
+  const full = size >= maxAgents;
   return (
     <div className="row wrap">
-      <input value={draft.name} onChange={(e) => edit({ name: e.target.value })} placeholder="Name (optional)" maxLength={24} aria-label={`New agent's name on floor ${repo.floor}`} style={{ maxWidth: 150 }} />
-      {terminal && (
-        <select value={draft.cli} onChange={(e) => edit({ cli: e.target.value as AgentCli | '' })} aria-label="New agent's coding agent" style={{ width: 'auto' }}>
-          <option value="">{cliName(clis, settings.defaultCli)} (default)</option>
-          <CliOptions clis={clis} />
-        </select>
-      )}
-      <input value={draft.model} onChange={(e) => edit({ model: e.target.value })} list={`new-agent-models-${repo.floor}`} placeholder="default model" aria-label="New agent's model" style={{ maxWidth: 150 }} />
-      <datalist id={`new-agent-models-${repo.floor}`}>
-        {modelSuggestions(cli).map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
-      <select value={draft.effort} onChange={(e) => edit({ effort: e.target.value as EffortLevel | '' })} aria-label="New agent's effort" style={{ width: 'auto' }}>
-        <option value="">default effort ({settings.defaultEffort})</option>
-        {EFFORTS.map((x) => (
-          <option key={x} value={x}>
-            {x}
-          </option>
-        ))}
-      </select>
-      <span title={full ? `Floor ${repo.floor} has its most agents (${settings.maxAgents}): change it in Settings → Most agents per floor` : undefined}>
-        <button className="btn btn-small btn-good" disabled={busy || full} onClick={add}>
+      <span title={full ? `Floor ${repo.floor} has its most agents (${maxAgents}): change it in Settings → Most agents per floor` : undefined}>
+        <button className="btn btn-small btn-good" disabled={full} onClick={() => setDesigning(true)} aria-label={`Add an agent to floor ${repo.floor}`}>
           + Agent
         </button>
       </span>
+      {designing && <NewAgentDesigner repoId={repo.id} onClose={() => setDesigning(false)} />}
     </div>
   );
 }
@@ -517,7 +477,7 @@ function TeamTab() {
                           <span>Drawn as</span>
                           <LookSelect agent={a} />
                         </label>
-                        <LookEditor agent={a} />
+                        <AgentLookEditor agent={a} />
                       </td>
                     </tr>
                   )}

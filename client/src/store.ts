@@ -35,7 +35,9 @@ export type Overlay =
   | { kind: 'manager'; tab?: ManagerTab; repoId?: string; card?: string } // card: an OpsAlarm id, or 'usage', to open at
   | { kind: 'phone'; tab?: PhoneTab; requestId?: string }
   /** A team change face to face: a new agent waiting in the lobby, or the CEO's let-go note on a desk. */
-  | { kind: 'interview'; requestId: string }
+  | { kind: 'interview'; requestId: string; design?: boolean } // design: straight into the agent designer
+  /** The agent designer for a new agent on a floor (E on an empty desk), Hire focused. */
+  | { kind: 'designer'; repoId: string }
   | { kind: 'help'; tab?: HelpTab }
   | { kind: 'catalogue'; repoId?: string } // the lobby kiosk (#210)
   | { kind: 'decor-box'; repoId: string } // a floor's decor box

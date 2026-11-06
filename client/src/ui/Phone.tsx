@@ -149,9 +149,10 @@ export function HireSetupFields({ value, onChange, disabled }: { value: HireSetu
 
 /**
  * One team change as a card (the phone, the console, pocket mode): a new agent, with what they'll run and a way to
- * change it before hiring them, or an agent the CEO would let go. The CEO's reason either way.
+ * change it before hiring them, or an agent the CEO would let go. The CEO's reason either way. `design`: offer the
+ * agent designer (3D, so never in pocket mode).
  */
-export function Resume({ req, highlight }: { req: HireRequestView; highlight?: boolean }) {
+export function Resume({ req, highlight, design }: { req: HireRequestView; highlight?: boolean; design?: boolean }) {
   const repo = useStore((s) => s.repos.find((r) => r.id === req.repoId));
   const settings = useStore((s) => s.settings);
   const clis = useStore((s) => s.clis);
@@ -196,6 +197,11 @@ export function Resume({ req, highlight }: { req: HireRequestView; highlight?: b
           {pending && (
             <button className="linkish small" aria-expanded={editing} onClick={() => setEditing(!editing)}>
               {editing ? 'Done' : 'Change'}
+            </button>
+          )}
+          {pending && design && (
+            <button className="linkish small" onClick={() => useStore.getState().openOverlay({ kind: 'interview', requestId: req.id, design: true })}>
+              🎨 Design
             </button>
           )}
         </div>
@@ -262,7 +268,7 @@ function TeamChanges({ focusId }: { focusId?: string }) {
       <h3 className="phone-h">👥 Waiting on you {pending.length > 0 && <span className="badge">{pending.length}</span>}</h3>
       {pending.length === 0 && <p className="muted small phone-empty">Nothing waiting. When the CEO wants a floor's team to grow or shrink, the change shows up here for your OK.</p>}
       {pending.map((r) => (
-        <Resume key={r.id} req={r} highlight={r.id === focusId} />
+        <Resume key={r.id} req={r} highlight={r.id === focusId} design />
       ))}
       {demo && (
         <div className="row wrap">

@@ -9,9 +9,10 @@ import { ElevatorPanel } from './ElevatorPanel';
 import { FloorList } from './FloorList';
 import { Key, MoveKeys } from './Key';
 import { Interview } from './Interview';
+import { NewAgentDesigner } from './AgentDesigner';
 import { KanbanView } from './KanbanView';
 import { ManagerConsole } from './ManagerConsole';
-import { Panel } from './Panel';
+import { Panel, closeOverlay } from './Panel';
 import { Phone } from './Phone';
 import { TerminalView } from './TerminalView';
 import { getAudioPrefs, setAudioPrefs, subscribeAudio } from './sfx';
@@ -442,7 +443,9 @@ export function Overlays() {
     case 'manager':
       return <ManagerConsole initialTab={overlay.tab} initialRepo={overlay.repoId} card={overlay.card} />;
     case 'interview':
-      return <Interview requestId={overlay.requestId} />;
+      return <Interview requestId={overlay.requestId} design={overlay.design} />;
+    case 'designer':
+      return <NewAgentDesigner repoId={overlay.repoId} onClose={closeOverlay} focusHire />;
     case 'help':
       return <Help tab={overlay.tab} />;
     case 'catalogue':

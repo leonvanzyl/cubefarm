@@ -55,6 +55,7 @@ const num = (v: unknown) => {
   return n;
 };
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Repo ids contain a slash ("owner/name"), so they travel URL-encoded as a single segment.
 const repoId = (req: Request) => decodeURIComponent(String(req.params.repo));
 
@@ -173,6 +174,10 @@ app.post(
       model: str(req.body.model),
       effort: str(req.body.effort),
       look: str(req.body.look),
+      color: str(req.body.color),
+      style: req.body?.style,
+      // the designer's id, so they look as previewed (their look is seeded from it)
+      id: UUID.test(str(req.body.id)) ? str(req.body.id).toLowerCase() : undefined,
     }),
   ),
 );
@@ -297,6 +302,9 @@ app.post(
       effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
       host: typeof req.body?.host === 'string' ? req.body.host : undefined,
       note: str(req.body?.note),
+      look: str(req.body?.look) || undefined,
+      color: str(req.body?.color) || undefined,
+      style: req.body?.style,
     }),
   ),
 );
