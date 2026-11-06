@@ -65,7 +65,15 @@ try {
     },
   });
 } catch (err) {
-  fail(`${err.message}\n    Run npx cubefarm --help for the options.`);
+  // Usually an option from newer docs than this copy (npx keeps running the version it cached): say so.
+  const option = err.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' && /'([^']+)'/.exec(err.message)?.[1];
+  if (!option) fail(`${err.message}\n    Run npx cubefarm --help for the options.`);
+  const latest = await latestVersion();
+  const update =
+    latest && newer(latest, pkg.version)
+      ? `\n    cubefarm ${latest} is out and may have it: ${green(`npx cubefarm@latest ${process.argv.slice(2).join(' ')}`)}`
+      : '';
+  fail(`cubefarm ${pkg.version} has no option ${option}.${update}\n    Run npx cubefarm --help for the options.`);
 }
 const { values, positionals } = args;
 const command = positionals[0] ?? 'start';
@@ -213,23 +221,30 @@ function openBrowser(url) {
   }
 }
 
-const newer = (a, b) => {
+function newer(a, b) {
   const [x, y] = [a, b].map((v) => v.split('-')[0].split('.').map(Number));
   for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
   return false;
-};
+}
 
-async function checkForUpdate() {
-  // A checkout's `npm start` runs this under scripts/office.mjs, which updates the office from its origin instead.
-  if (process.env.CI || process.env.SWARM_LAUNCHER === '1') return;
+/** The latest version on npm, or null when offline, slow or in CI. */
+async function latestVersion() {
+  if (process.env.CI) return null;
   try {
     const res = await fetch(`https://registry.npmjs.org/${pkg.name}/latest`, { signal: AbortSignal.timeout(4000) });
     const { version } = await res.json();
-    if (typeof version === 'string' && newer(version, pkg.version)) {
-      console.log(`\n  cubefarm ${version} is out (this is ${pkg.version}). Start it with ${green('npx cubefarm@latest')} to update.\n`);
-    }
+    return typeof version === 'string' ? version : null;
   } catch {
-    // offline, or the registry is slow: try again next time
+    return null; // offline, or the registry is slow: try again next time
+  }
+}
+
+async function checkForUpdate() {
+  // A checkout's `npm start` runs this under scripts/office.mjs, which updates the office from its origin instead.
+  if (process.env.SWARM_LAUNCHER === '1') return;
+  const version = await latestVersion();
+  if (version && newer(version, pkg.version)) {
+    console.log(`\n  cubefarm ${version} is out (this is ${pkg.version}). Start it with ${green('npx cubefarm@latest')} to update.\n`);
   }
 }
 

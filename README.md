@@ -132,7 +132,7 @@ A gamepad works too (left stick walks, right stick looks, A uses, B goes back, X
 | `npx cubefarm --demo` | fake GitHub and fake agents |
 | `npx cubefarm --demo --floors 10 --agents 15` | a big demo company: 10 floors of 15 people, to see the office at scale |
 | `npx cubefarm --port 4400` | use another port (the default is 4317) |
-| `npx cubefarm --host 0.0.0.0` | listen on your network too, not just this computer (no sign-in: see below) |
+| `npx cubefarm --host 0.0.0.0` | listen on your network too, not just this computer (no sign-in: see below; cubefarm 0.3.21 and later) |
 | `npx cubefarm --no-open` | don't open the browser |
 
 ## Updating
