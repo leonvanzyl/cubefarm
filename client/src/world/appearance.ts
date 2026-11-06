@@ -53,6 +53,8 @@ export const BUILD_SHAPE: Record<Build, { width: number; depth: number }> = {
 
 /** Styles that sit on top of or bulge out from the head and would poke through a beanie or cap. */
 export const TALL_HAIR: readonly HairStyle[] = ['quiff', 'afro', 'bun', 'curls', 'mohawk'];
+/** Styles headphones would clip through. */
+export const NO_PHONES_HAIR: readonly HairStyle[] = ['afro', 'mohawk'];
 
 type Weighted<T> = [T, number][];
 
@@ -151,7 +153,7 @@ export function seededAppearance(agent: Who): Appearance {
     ['square', 2],
   ]);
   // Headphones and hats both sit on the head, so a person gets at most one of them.
-  const headphones = staff && hair !== 'afro' && hair !== 'mohawk' && rPhones < 0.3;
+  const headphones = staff && !NO_PHONES_HAIR.includes(hair) && rPhones < 0.3;
   const headwear =
     staff && !headphones && !TALL_HAIR.includes(hair)
       ? pick<Headwear>(rHat, [
@@ -198,7 +200,7 @@ export function seededAppearance(agent: Who): Appearance {
 export function randomStyle(agent: { look: AgentLook; role: AgentRole }, rand: () => number = Math.random): AgentStyle {
   const one = <T>(list: readonly T[]) => list[Math.floor(rand() * list.length)];
   const hair = one(HAIR_STYLES);
-  return {
+  const style: AgentStyle = {
     hair,
     hairColor: one(HAIR_COLORS),
     skin: one(SKIN_TONES),
@@ -209,6 +211,8 @@ export function randomStyle(agent: { look: AgentLook; role: AgentRole }, rand: (
     accent: Math.floor(rand() * ACCENTS.length),
     build: one(BUILDS),
   };
+  // drawn last, so the picks above stay as they were
+  return { ...style, headphones: style.headwear === 'none' && !NO_PHONES_HAIR.includes(hair) && rand() < 0.25 };
 }
 
 /**
@@ -221,13 +225,16 @@ export function appearanceFor(agent: Who): Appearance {
   const s = agent.style;
   if (!s) return seeded;
   const hair = s.hair ?? seeded.hair;
-  const headwear = TALL_HAIR.includes(hair) ? 'none' : (s.headwear ?? seeded.headwear);
+  // Picked headphones win over a seeded hat; a picked hat takes off seeded headphones.
+  const wantsHat = !!s.headwear && s.headwear !== 'none';
+  const headphones = (s.headphones ?? (wantsHat ? false : seeded.headphones)) && !NO_PHONES_HAIR.includes(hair);
+  const headwear = TALL_HAIR.includes(hair) || headphones ? 'none' : (s.headwear ?? seeded.headwear);
   return {
     ...seeded,
     hair,
     facialHair: s.facialHair ?? seeded.facialHair,
     glasses: s.glasses ?? seeded.glasses,
-    headphones: seeded.headphones && headwear === 'none' && hair !== 'afro' && hair !== 'mohawk',
+    headphones,
     headwear,
     outfit: agent.role !== 'ceo' ? (s.outfit ?? seeded.outfit) : 'tee',
     build: s.build ?? seeded.build,

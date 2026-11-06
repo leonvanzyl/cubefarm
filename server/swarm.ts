@@ -58,7 +58,7 @@ import { agentActivity, lineActivity, sameActivity, type SeenActivity } from '..
 import { WeatherService } from './weather.ts';
 import { blockers, holdUps, waitsMessage } from '../shared/issues.ts';
 import { dayKey, journalFrame, legacyAgent, legacyRequest } from '../shared/journal.ts';
-import { cleanStyle, HAIR_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
+import { cleanStyle, freeName, HAIR_COLORS, HEX, lookFor, LOOKS as SHARED_LOOKS, SHIRT_COLORS, SKIN_TONES, type AgentStyle } from '../shared/looks.ts';
 import { achievementDef, type ProgressView } from '../shared/progress.ts';
 import { parsePongResult, PONG_PLAYER, recordGame } from '../shared/pong.ts';
 import { effectiveModel } from '../shared/models.ts';
@@ -282,30 +282,10 @@ interface QaReport {
 // ---------- flavour ----------
 
 const FLOOR_COLORS = ['#ff8a5b', '#4fb3e8', '#8fd14f', '#c77dff', '#ffc93c', '#ff6fb5', '#2ec4b6', '#f25f5c'];
-const SHIRTS = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#f15bb5', '#00bbf9', '#06d6a0', '#ffbe0b', '#8338ec', '#fb5607', '#3a86ff'];
+const SHIRTS = SHIRT_COLORS;
 const HAIR = HAIR_COLORS;
 const SKIN = SKIN_TONES;
-// New agents are named after computing pioneers, then fictional detectives.
-const NAMES = [
-  'Ada', 'Linus', 'Grace', 'Alan', 'Margaret', 'Dennis', 'Barbara', 'Ken', 'Radia', 'Guido', 'Hedy', 'Tim', 'Katherine',
-  'Bjarne', 'Frances', 'Edsger', 'Anita', 'Donald', 'Sophie', 'Yukihiro', 'Jean', 'Niklaus', 'Karen', 'Brendan',
-  'Sherlock', 'Marple', 'Poirot', 'Nancy', 'Columbo', 'Fletcher', 'Watson', 'Morse', 'Holmes', 'Maigret',
-];
-
-// Names that get the feminine character look: everyone in the name pool above, plus common first names
-// for agents the manager names themselves. The manager can always change an agent's look in the console.
-const FEMININE_NAMES = new Set(
-  (
-    'ada grace margaret barbara radia hedy katherine frances anita sophie jean karen marple nancy fletcher ' +
-    'alice amanda amelia amy ana anna anne aisha astrid ava bella beth carla caroline charlotte chloe claire clara ' +
-    'diana elena elizabeth ella ellie emily emma eva fatima fiona freya georgia hannah harper helen holly ingrid iris ' +
-    'isabella ivy jane jasmine jessica julia kate laura leah leila lena lily linda lisa lucy maria marie mary maya mei ' +
-    'mia mila monica naomi natalie nina nora olivia paula priya rachel rose ruby sandra sara sarah scarlett sofia ' +
-    'stella susan tess tessa tina vera victoria yuki zara zoe'
-  ).split(' '),
-);
-const lookFor = (name: string): AgentLook => (FEMININE_NAMES.has(name.trim().split(/\s+/)[0].toLowerCase()) ? 'feminine' : 'masculine');
-const LOOKS: AgentLook[] = ['feminine', 'masculine'];
+const LOOKS: readonly AgentLook[] = SHARED_LOOKS;
 // Every agent runs Claude Opus 5.5 at medium effort unless the manager overrides it.
 const DEFAULT_MODEL = 'claude-opus-5-5';
 const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -2134,7 +2114,10 @@ export class Swarm {
       /** Refuse rather than fall back to this computer when they can't be a cloud agent (the manager chose). */
       strict?: boolean;
       appearance?: { color: string; hair: string; skin: string };
-      /** Their id, when it's known before they're hired (a team change's): their look is seeded from it. */
+      /** The designer's shirt colour and look picks (shared/looks.ts); bad values are dropped. */
+      color?: string;
+      style?: unknown;
+      /** Their id, when it's known before they're hired (a team change's, or the designer's): their look is seeded from it. */
       id?: string;
     },
   ) {
@@ -2152,6 +2135,7 @@ export class Swarm {
     // A cloud agent's CLI is the one the office installs in their Box, not this computer's.
     if (cli && host === 'local' && !this.cliReady(cli)) throw new HttpError(400, `${cliLabel(cli)} isn't installed on this computer.`);
     const id = opts.id && !this.state.agents.some((a) => a.id === opts.id) ? opts.id : crypto.randomUUID();
+    const style = cleanStyle(opts.style);
     const agent: PersistedAgent = {
       id,
       name,
@@ -2160,10 +2144,10 @@ export class Swarm {
       look: LOOKS.includes(opts.look as AgentLook) ? (opts.look as AgentLook) : lookFor(name),
       task: null,
       desk,
-      color: opts.appearance?.color ?? pick(SHIRTS),
-      hair: opts.appearance?.hair ?? pick(HAIR),
-      skin: opts.appearance?.skin ?? pick(SKIN),
-      style: null,
+      color: (opts.color && HEX.test(opts.color) ? opts.color.toLowerCase() : undefined) ?? opts.appearance?.color ?? pick(SHIRTS),
+      hair: opts.appearance?.hair ?? style?.hairColor ?? pick(HAIR),
+      skin: opts.appearance?.skin ?? style?.skin ?? pick(SKIN),
+      style,
       model: opts.model ?? '',
       effort: EFFORTS.includes(opts.effort as EffortLevel) ? (opts.effort as EffortLevel) : '',
       cli,
@@ -2508,8 +2492,7 @@ export class Swarm {
 
   /** A name from the pool that no agent or waiting candidate has. */
   private freeName() {
-    const taken = new Set([...this.state.agents.map((a) => a.name), ...this.state.requests.filter((r) => r.status === 'pending').map((r) => r.name)]);
-    return NAMES.find((n) => !taken.has(n)) || `Agent ${this.state.agents.length + 1}`;
+    return freeName([...this.state.agents.map((a) => a.name), ...this.state.requests.filter((r) => r.status === 'pending').map((r) => r.name)], this.state.agents.length);
   }
 
   /** The coding agent is installed here (or the office hasn't looked yet: then the session says so if it isn't). */
@@ -5120,7 +5103,11 @@ export class Swarm {
   }
 
   /** A team change goes through: the new agent joins as set up here (the manager's changes win), or an agent leaves. */
-  approveRequest(id: string, overrides: { name?: string; cli?: string; model?: string; effort?: string; host?: string; note?: string } = {}, by: 'manager' | 'auto' = 'manager') {
+  approveRequest(
+    id: string,
+    overrides: { name?: string; cli?: string; model?: string; effort?: string; host?: string; note?: string; look?: string; color?: string; style?: unknown } = {},
+    by: 'manager' | 'auto' = 'manager',
+  ) {
     const req = this.state.requests.find((r) => r.id === id);
     if (!req) throw new HttpError(404, 'That team change no longer exists');
     if (req.status !== 'pending') throw new HttpError(409, `That team change was already ${req.status}`);
@@ -5137,12 +5124,15 @@ export class Swarm {
         strict: true,
         model: overrides.model ?? req.model,
         effort: overrides.effort ?? req.effort,
-        look: name === req.name ? req.look : undefined,
+        look: LOOKS.includes(overrides.look as AgentLook) ? overrides.look : name === req.name ? req.look : undefined,
+        color: overrides.color,
         appearance: { color: req.color, hair: req.hair, skin: req.skin },
+        style: overrides.style !== undefined ? overrides.style : req.style,
         // the request's id: the candidate waiting in the lobby was drawn from it, so they look the same at their desk
         id: req.id,
       });
-      Object.assign(req, { agentId: agent.id, name: agent.name, cli: agent.cli, host: agent.host ?? 'local', model: agent.model, effort: agent.effort });
+      // the design stays on the request too: the candidate walking to the elevator looks like the agent at the desk
+      Object.assign(req, { agentId: agent.id, name: agent.name, cli: agent.cli, host: agent.host ?? 'local', model: agent.model, effort: agent.effort, look: agent.look, color: agent.color, style: agent.style });
       this.decide(req, { status: 'approved', note, decidedBy: by });
       const setup = this.setupLabel(req);
       this.postMessage('office', by === 'auto' ? `🤖 ${agent.name} joined floor ${repo.floor}${setup ? ` (${setup})` : ''}.` : `✅ You hired ${agent.name} for floor ${repo.floor}${setup ? ` (${setup})` : ''}.${quoted}`, req.id);

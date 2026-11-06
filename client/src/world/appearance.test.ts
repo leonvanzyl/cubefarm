@@ -106,6 +106,20 @@ describe('the look editor over the seeded look', () => {
     }
   });
 
+  it('puts headphones on or takes them off as picked, never with a hat or over an afro or mohawk', () => {
+    for (const id of ids) {
+      const on = appearanceFor({ ...agent, id, style: { headphones: true, hair: 'crop' } });
+      expect(on).toMatchObject({ headphones: true, headwear: 'none' }); // a seeded hat comes off
+      expect(appearanceFor({ ...agent, id, style: { headphones: false } }).headphones).toBe(false);
+      // picked headphones win over a picked hat
+      expect(appearanceFor({ ...agent, id, style: { headphones: true, headwear: 'cap', hair: 'crop' } })).toMatchObject({ headphones: true, headwear: 'none' });
+      for (const hair of ['afro', 'mohawk'] as const) expect(appearanceFor({ ...agent, id, style: { headphones: true, hair } })).toMatchObject({ headphones: false, headwear: 'none' });
+      // tall hair takes neither a hat nor, for these, headphones; a quiff still fits headphones
+      expect(appearanceFor({ ...agent, id, style: { headphones: true, hair: 'quiff', headwear: 'beanie' } })).toMatchObject({ headphones: true, headwear: 'none' });
+      expect(appearanceFor({ ...agent, id, style: { headphones: false, hair: 'quiff', headwear: 'beanie' } })).toMatchObject({ headphones: false, headwear: 'none' });
+    }
+  });
+
   it('keeps the CEO in their blazer', () => {
     expect(appearanceFor({ ...agent, style: { glasses: 'square', outfit: 'hoodie' } })).toMatchObject({ glasses: 'square', outfit: 'hoodie' });
     expect(appearanceFor({ ...agent, role: 'ceo', style: { outfit: 'hoodie', glasses: 'round' } })).toMatchObject({ glasses: 'round', outfit: 'tee' });
@@ -125,6 +139,7 @@ describe('the look editor over the seeded look', () => {
         const s = randomStyle({ look: i % 2 ? 'feminine' : 'masculine', role }, rand);
         expect(cleanStyle(s)).toEqual(s);
         if (s.headwear !== 'none') expect(TALL_HAIR).not.toContain(s.hair);
+        if (s.headphones) expect(s.headwear).toBe('none');
         if (i % 2) expect(s.facialHair).toBe('none');
         if (role === 'ceo') expect(s.outfit).toBeUndefined();
       }

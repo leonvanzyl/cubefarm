@@ -1,7 +1,7 @@
 import { useStore } from './store';
 import type { PongResult } from '../../shared/pong';
 import type { AgentStyle } from '../../shared/looks';
-import type { AgentCli, AgentPromptView, AgentView, CloudView, DoctorFinding, DoctorFix, EffortLevel, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, PrPreviewView, RepoView, SwarmSettings, UsageView, VoiceCacheView, VoiceOption, MachineHost } from '../../shared/types';
+import type { AgentCli, AgentLook, AgentPromptView, AgentView, CloudView, DoctorFinding, DoctorFix, EffortLevel, GhRepoSummary, NotifyChannel, NotifyChannelsView, NotifyWebhook, OfficeUpdateView, PreviewView, ProjectFolderView, PrPreviewView, RepoView, SwarmSettings, UsageView, VoiceCacheView, VoiceOption, MachineHost } from '../../shared/types';
 import type { JournalChunk, JournalDayView } from '../../shared/journal';
 import type { DecorItem, ProgressView } from '../../shared/progress';
 
@@ -45,6 +45,13 @@ export interface AgentSetupPatch {
   model?: string;
   effort?: EffortLevel | '';
   host?: MachineHost | '';
+}
+
+/** How a new agent looks, from the designer (AgentDesigner.tsx); the server drops values that aren't options. */
+export interface AgentDesign {
+  look?: AgentLook;
+  color?: string;
+  style?: AgentStyle | null;
 }
 
 /** Choices made when a project moves in: a brief for the CEO, and whether work starts on its own. */
@@ -99,8 +106,9 @@ export const api = {
   sendToQa: (repoId: string, n: number, agentId?: string) => call('POST', `${r(repoId)}/pulls/${n}/qa`, agentId ? { agentId } : {}),
   sendBack: (repoId: string, n: number, note?: string) => call('POST', `${r(repoId)}/pulls/${n}/fix`, { note }),
   /** A new agent on the floor (refused past Settings → Most agents per floor). Empty settings use the office's defaults. */
-  hireAgent: (repoId: string, opts: AgentSetupPatch & { name?: string } = {}) => call<AgentView>('POST', `${r(repoId)}/agents`, opts),
-  updateAgent: (id: string, patch: AgentSetupPatch & { name?: string; look?: 'feminine' | 'masculine'; style?: AgentStyle | null }) => call('PATCH', `/api/agents/${id}`, patch),
+  /** id: the designer's, so they look as previewed (their look is seeded from it). */
+  hireAgent: (repoId: string, opts: AgentSetupPatch & AgentDesign & { name?: string; id?: string } = {}) => call<AgentView>('POST', `${r(repoId)}/agents`, opts),
+  updateAgent: (id: string, patch: AgentSetupPatch & AgentDesign & { name?: string }) => call('PATCH', `/api/agents/${id}`, patch),
   fireAgent: (id: string) => call('DELETE', `/api/agents/${id}`),
   /** waitForDeps: refuse an issue that still waits for open ones, as the whiteboard's stickies do. */
   assign: (id: string, issueNumber: number, note?: string, waitForDeps?: boolean) => call('POST', `/api/agents/${id}/assign`, { issueNumber, note, waitForDeps }),
@@ -131,7 +139,7 @@ export const api = {
   /** A finished ping-pong game on a floor, for its leaderboard (shared/pong.ts parsePongResult). */
   pongResult: (repoId: string, result: PongResult) => call('POST', `${r(repoId)}/pong`, result),
   /** Decides a team change: a hire with the manager's changes to the new agent, if any. */
-  approveRequest: (id: string, overrides: AgentSetupPatch & { name?: string; note?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
+  approveRequest: (id: string, overrides: AgentSetupPatch & AgentDesign & { name?: string; note?: string } = {}) => call('POST', `/api/requests/${id}/approve`, overrides),
   rejectRequest: (id: string, note?: string) => call('POST', `/api/requests/${id}/reject`, { note }),
   /** Demo office only: the CEO asks for a new agent (or for one to leave) on demand. */
   demoPropose: (kind: 'hire' | 'let-go', floor?: number) => call<{ text: string }>('POST', '/api/demo/proposals', { kind, floor }),

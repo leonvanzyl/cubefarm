@@ -559,6 +559,7 @@ export interface HireRequestView {
   color: string;
   hair: string;
   skin: string;
+  style?: AgentStyle | null; // the designer's picks, kept once hired (absent or null: the look seeded from the id)
   status: 'pending' | 'approved' | 'rejected';
   note: string; // the manager's reason when rejecting
   createdAt: number;

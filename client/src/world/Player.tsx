@@ -2,12 +2,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadView, pendingRequests, saveView, unreadMessages, useStore, type Focus } from '../store';
-import { api } from '../api';
 import { EYE_HEIGHT, ROOF, SPAWN, collide, surfaceAt, type Rect } from './layout';
 import { interactables } from './interact';
 import { shutDoorways } from './doors';
 import { LOOK_RADIANS_PER_PX, createLookFilter, filterLookDelta, resetLookFilter, useLookPrefs } from './look';
-import { confirmDialog, isConfirmOpen } from '../ui/Confirm';
+import { isConfirmOpen } from '../ui/Confirm';
 import { confirmResume } from '../ui/MissionConsole';
 import { photoActive, photoOwnsLock } from '../photo/gate';
 import { getAudioPrefs, toggleMute } from '../ui/sfx';
@@ -78,7 +77,7 @@ function lockPointer(el: HTMLCanvasElement, options?: PointerLockOptions): Promi
 const lookDiag = { dropped: 0, skipped: 0 };
 (window as unknown as Record<string, unknown>).__swarmLook = lookDiag;
 
-export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
+export function runFocusAction(focus: Focus, _via: 'key' | 'click' = 'key') {
   const s = useStore.getState();
   quietUntil = performance.now() + QUIET_MS;
   if (placeSticky(focus, false)) return; // a sticky in hand goes onto a desk or back on the board
@@ -139,28 +138,8 @@ export function runFocusAction(focus: Focus, via: 'key' | 'click' = 'key') {
     return;
   }
   if (focus.action.kind === 'hire') {
-    const { repoId } = focus.action;
-    const hire = () =>
-      api
-        .hireAgent(repoId, {})
-        .then((a) => {
-          const floor = useStore.getState().repos.find((r) => r.id === repoId)?.floor;
-          s.pushToast('success', floor != null ? `${a.name} joined floor ${floor}` : `${a.name} joined the team`);
-        })
-        .catch(() => undefined);
-    if (via === 'key') {
-      void hire();
-      return;
-    }
-    // A click is easier to make by accident than E, so adding an agent by click asks first.
-    if (document.pointerLockElement) document.exitPointerLock();
-    void confirmDialog({
-      icon: '🪑',
-      title: 'Add an agent at this desk?',
-      confirm: 'Add',
-    }).then((ok) => {
-      if (ok) void hire();
-    });
+    // the agent designer, Hire focused: E then Enter still hires quickly, and nobody is added by a stray click
+    s.openOverlay({ kind: 'designer', repoId: focus.action.repoId });
     return;
   }
   s.openOverlay(focus.action);
