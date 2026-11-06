@@ -87,7 +87,7 @@ export function Interview({ requestId, design = false }: { requestId: string; de
       >
         <label className="field">
           <span>Your note for {ceo}</span>
-          <textarea className="doc-note" rows={2} maxLength={400} value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Optional: why, or what ${name} should start with.`} />
+          <textarea className="doc-note" rows={2} maxLength={400} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional: why, or what they should start with." />
         </label>
       </AgentDesigner>
     );
