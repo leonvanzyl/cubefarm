@@ -3,14 +3,14 @@ import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import type { HireRequestView } from '../../../shared/types';
-import { useStore, type Agent } from '../store';
+import { useStore } from '../store';
 import { cliLabel, hireCli } from '../ui/Phone';
 import { WALK_SPEED } from './body';
 import { playerAt } from './camera/rig';
 import { Character } from './Character';
 import { drawCandidateTag, drawSign } from './draw';
 import { headingFor, nextWaypoint } from './errands';
-import { RISE_SECONDS, chairFront, declinedRoute, greetSpot, hiredRoute, leave, reactionFor, syncCandidates, type Lobby, type LobbyCandidate, type Reaction } from './hiring';
+import { RISE_SECONDS, candidateAgent, chairFront, declinedRoute, greetSpot, hiredRoute, leave, reactionFor, syncCandidates, type Lobby, type LobbyCandidate, type Reaction } from './hiring';
 import { doorWalkers, setLobby } from './hiringState';
 import { useCanvasTexture, useInteractable } from './interact';
 import { HALF_W, WAITING, WAITING_ROTATION, WAITING_TABLE } from './layout';
@@ -32,43 +32,6 @@ const SEAT = '#06d6a0';
 const WEST = Math.PI; // walkways.ts facing: into the lobby
 const STAND_FRONT = { x: 0, z: -0.6 }; // chair space: they stand up straight ahead, not beside the chair (the next one's there)
 const GIVE_UP = 60; // seconds of walking out before they just go
-
-/** A pending hire as a person: the look they'll have once hired. */
-function candidateAgent(r: HireRequestView): Agent {
-  return {
-    id: r.id,
-    name: r.name,
-    repoId: r.repoId,
-    role: 'agent',
-    look: r.look,
-    task: null,
-    desk: 0,
-    color: r.color,
-    hair: r.hair,
-    skin: r.skin,
-    style: null,
-    model: r.model,
-    effort: r.effort,
-    cli: r.cli,
-    terminal: false,
-    status: 'idle',
-    issueNumber: null,
-    issueTitle: null,
-    branch: null,
-    prNumber: null,
-    prUrl: null,
-    currentTool: null,
-    startedAt: null,
-    endedAt: null,
-    costUsd: 0,
-    turns: 0,
-    browserUrl: null,
-    hasScreenshot: false,
-    screenshotAt: null,
-    lastError: null,
-    career: null,
-  };
-}
 
 /** Their CV in a manila folder: in their hands on the way out (Character's torso frame, the 'hold' gesture)... */
 const CARRIED_CV = (

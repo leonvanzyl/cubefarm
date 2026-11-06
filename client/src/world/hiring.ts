@@ -12,6 +12,44 @@ import { findPath, spot, type Spot, type Walkways } from './walkways';
 
 // ---------- the waiting room ----------
 
+/** A team change's new agent as a person: the look they'll have once hired (the designer's, when there is one). */
+export function candidateAgent(r: HireRequestView): Omit<AgentView, 'log'> {
+  return {
+    id: r.id,
+    name: r.name,
+    repoId: r.repoId,
+    role: 'agent',
+    look: r.look,
+    task: null,
+    desk: 0,
+    color: r.color,
+    hair: r.hair,
+    skin: r.skin,
+    style: r.style ?? null,
+    model: r.model,
+    effort: r.effort,
+    cli: r.cli,
+    terminal: false,
+    status: 'idle',
+    issueNumber: null,
+    issueTitle: null,
+    branch: null,
+    prNumber: null,
+    prUrl: null,
+    currentTool: null,
+    startedAt: null,
+    endedAt: null,
+    costUsd: 0,
+    turns: 0,
+    browserUrl: null,
+    hasScreenshot: false,
+    screenshotAt: null,
+    lastError: null,
+    career: null,
+  };
+}
+
+
 /** waiting: in their chair · hired / declined: the manager has decided, and they're reacting or on their way out. */
 export type CandidatePhase = 'waiting' | 'hired' | 'declined';
 

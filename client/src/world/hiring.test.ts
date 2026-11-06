@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HireRequestView } from '../../../shared/types';
 import type { Act, Me } from './errands';
+import { appearanceFor } from './appearance';
 import {
   CLOSE_ENOUGH,
   DOOR_SIDESTEP,
@@ -9,6 +10,7 @@ import {
   SHAKE_GAP,
   STOP_PATIENCE,
   WAVE_BACK,
+  candidateAgent,
   chairFront,
   declinedRoute,
   greetSpot,
@@ -276,5 +278,27 @@ describe('the welcome tour', () => {
     ];
     expect(waverFor('ada', { x: 0.5, z: 0 }, seated)?.id).toBe('grace');
     expect(waverFor('ada', { x: 0, z: 0 }, [])).toBeNull();
+  });
+});
+
+describe('a candidate as a person', () => {
+  const req: HireRequestView = {
+    id: '0f8fad5b-d9cb-469f-a165-70867728950e', kind: 'hire', repoId: 'r1', agentId: null, name: 'Tess', reason: '', cli: '', model: '', effort: '',
+    look: 'feminine', color: '#9b5de5', hair: '#d94f30', skin: '#e0ac69', status: 'pending', note: '', createdAt: 0, decidedAt: null, decidedBy: null,
+  };
+
+  it('wears the designed look on the way to the elevator, the same as at their desk', () => {
+    const style = { hair: 'bob', glasses: 'round', outfit: 'cardigan', build: 'slim', headphones: false } as const;
+    const approved = { ...req, status: 'approved' as const, agentId: req.id, style };
+    const hired = { id: req.id, look: approved.look, role: 'agent' as const, hair: req.hair, skin: req.skin, style };
+    const look = appearanceFor(candidateAgent(approved));
+    expect(look).toEqual(appearanceFor(hired));
+    expect(look).toMatchObject({ hair: 'bob', glasses: 'round', outfit: 'cardigan', build: 'slim', headphones: false });
+    expect(candidateAgent(approved).color).toBe('#9b5de5');
+  });
+
+  it('keeps the seeded look for requests with no design (older state files)', () => {
+    expect(candidateAgent(req).style).toBeNull();
+    expect(candidateAgent({ ...req, style: null }).style).toBeNull();
   });
 });
