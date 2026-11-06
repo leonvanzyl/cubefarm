@@ -25,9 +25,34 @@ export interface Phrase {
   final: boolean;
 }
 
-/** The browser's results as one transcript, and whether it's still hearing words (an unsettled phrase). */
+/** A phrase's words for comparing: lower case, no punctuation. */
+function words(s: string): string[] {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').split(/\s+/).filter(Boolean);
+}
+
+/** Whether `a`'s words start with all of `b`'s. */
+function startsWithWords(a: readonly string[], b: readonly string[]): boolean {
+  return b.length <= a.length && b.every((w, i) => a[i] === w);
+}
+
+/**
+ * The browser's results as one transcript, and whether it's still hearing words (an unsettled phrase). Safari's
+ * continuous recognition overlaps its results (`["hello", "hello world"]`, or the same phrase twice), so a phrase
+ * that repeats the one before and adds to it replaces it, and one the previous already covers is dropped.
+ */
 export function phrasesText(phrases: readonly Phrase[]): { text: string; speaking: boolean } {
-  return { text: phrases.map((p) => p.transcript.trim()).filter(Boolean).join(' '), speaking: phrases.some((p) => !p.final && p.transcript.trim()) };
+  const kept: { phrase: Phrase; words: string[] }[] = [];
+  for (const phrase of phrases) {
+    const w = words(phrase.transcript);
+    if (!w.length) continue;
+    const prev = kept[kept.length - 1];
+    if (prev && startsWithWords(w, prev.words)) kept[kept.length - 1] = { phrase, words: w };
+    else if (!(prev && startsWithWords(prev.words, w))) kept.push({ phrase, words: w });
+  }
+  return {
+    text: kept.map((k) => k.phrase.transcript.trim()).join(' '),
+    speaking: kept.some((k) => !k.phrase.final),
+  };
 }
 
 /**

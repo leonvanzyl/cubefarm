@@ -44,6 +44,29 @@ describe('phrasesText', () => {
     expect(phrasesText([{ transcript: 'ok', final: true }])).toEqual({ text: 'ok', speaking: false });
     expect(phrasesText([])).toEqual({ text: '', speaking: false });
   });
+
+  it("collapses Safari's overlapping results", () => {
+    const f = (...t: string[]) => t.map((transcript) => ({ transcript, final: true }));
+    expect(phrasesText(f('hello', 'hello world')).text).toBe('hello world');
+    expect(phrasesText(f('start issue three', 'start issue three')).text).toBe('start issue three');
+    expect(phrasesText(f('Hello world.', 'hello')).text).toBe('Hello world.');
+    expect(phrasesText(f('hello', 'Hello, world')).text).toBe('Hello, world');
+  });
+
+  it('keeps distinct phrases, even ones sharing letters', () => {
+    const f = (...t: string[]) => t.map((transcript) => ({ transcript, final: true }));
+    expect(phrasesText(f('add a test', ' for mulch')).text).toBe('add a test for mulch');
+    expect(phrasesText(f('go', 'good morning')).text).toBe('go good morning');
+  });
+
+  it('is still speaking while the extending phrase is unsettled', () => {
+    expect(
+      phrasesText([
+        { transcript: 'hello', final: true },
+        { transcript: 'hello world', final: false },
+      ]),
+    ).toEqual({ text: 'hello world', speaking: true });
+  });
 });
 
 describe('micErrorLine', () => {
