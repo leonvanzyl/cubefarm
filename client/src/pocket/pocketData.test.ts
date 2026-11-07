@@ -51,6 +51,9 @@ describe("an agent's actions", () => {
     expect(doing({ status: 'working', task: 'issue', issueNumber: 12, issueTitle: 'Dark mode', prNumber: null })).toBe('#12 Dark mode');
     expect(doing({ status: 'working', task: 'qa', issueNumber: null, issueTitle: 'Dark mode', prNumber: 4 })).toBe('Testing PR #4: Dark mode');
     expect(doing({ status: 'error', task: 'fix', issueNumber: 12, issueTitle: null, prNumber: 4 })).toBe('Fixing PR #4');
+    const ceo = { role: 'ceo', task: null, issueNumber: null, prNumber: null } as const;
+    expect(doing({ ...ceo, status: 'working', issueTitle: 'Replying to you' })).toBe('Replying to you');
+    expect(doing({ ...ceo, status: 'done', issueTitle: 'Onboarding floor 3 · davekost' })).toBe('Free for a chat');
   });
 });
 

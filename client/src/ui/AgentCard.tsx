@@ -3,7 +3,7 @@ import { ACTIVITY_ICONS, ACTIVITY_LABELS, clipText, recentActions, redact } from
 import { isBusy, qaKey, useStore, type Agent } from '../store';
 import { reportCard } from '../world/activityProbe';
 import { useKeyName } from './controls';
-import { agentLabel, signInFor } from './floorRows';
+import { agentLabel, ceoJob, signInFor } from './floorRows';
 
 // The card at the left edge (clear of their monitor) when you keep someone in your sights for a moment: who they are,
 // what they're on and for how long, what they're doing now and their last few steps, turns and cost on this task, and
@@ -19,7 +19,7 @@ function elapsed(ms: number) {
 
 function onWhat(a: Agent): string | null {
   const title = a.issueTitle ? ` · ${a.issueTitle}` : '';
-  if (a.role === 'ceo') return a.issueTitle;
+  if (a.role === 'ceo') return ceoJob(a);
   if (a.task === 'qa' && a.prNumber) return `testing PR #${a.prNumber}${title}`;
   if (a.task === 'fix' && a.prNumber) return `fixing PR #${a.prNumber}${title}`;
   if (a.issueNumber) return `#${a.issueNumber}${a.issueTitle ? ` ${a.issueTitle}` : ''}${a.prNumber ? ` · PR #${a.prNumber}` : ''}`;

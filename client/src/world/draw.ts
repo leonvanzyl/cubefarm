@@ -4,6 +4,7 @@ import { testingLabel } from '../qaCard';
 import { officeNow } from '../officeTime';
 import { chipRects } from '../ui/channels';
 import { inkOn } from '../ui/colorMath';
+import { ceoJob } from '../ui/floorRows';
 import { KIND_ICON, kindStrong, STANDARD_LOOK, STATUS_KIND, TONE_KIND, toneFill, type StatusKind, type StatusLook } from '../ui/statusLook';
 import { statsChips, type BoardStats } from './boardStats';
 import type { Pair } from './whiteboard';
@@ -101,7 +102,7 @@ export function drawTerminal(
     agent.status === 'idle'
       ? 'idle'
       : agent.role === 'ceo'
-        ? (agent.issueTitle ?? 'running the company').toLowerCase()
+        ? (ceoJob(agent) ?? (agent.status === 'working' ? 'running the company' : 'free for a chat')).toLowerCase()
         : agent.task === 'qa'
           ? `testing PR #${agent.prNumber}`
           : agent.task === 'fix'

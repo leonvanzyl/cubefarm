@@ -4338,6 +4338,7 @@ export class Swarm {
     if (a.status !== 'working') {
       // stopped before the session started
       this.state.ceo.job = null;
+      a.issueTitle = null;
       if (job.kind === 'triage') this.endTriage(job);
       this.emitCeo();
       return;
@@ -4386,6 +4387,7 @@ export class Swarm {
     a.endedAt = Date.now();
     a.costUsd += result.costUsd;
     a.turns += result.turns;
+    a.issueTitle = null; // the job's label would outlive it on every view
     recordCost(this.state.ops, '', result.costUsd, a.endedAt);
     const job = this.state.ceo.job;
     this.state.ceo.job = null;
@@ -4422,6 +4424,9 @@ export class Swarm {
       this.appendLog(a, [{ kind: 'manager', text: `▶ Manager: ${t}` }]);
       this.ceoIssues.managerMessage(); // a new request: the issue cap counts from here
       this.ceoAsked = true;
+      // The CEO is answering now; state.ceo.job stays the original, so triage cleanup and the issue rules still follow it.
+      a.issueTitle = jobLabel({ kind: 'chat', at: Date.now() }, null);
+      this.emitAgent(a);
       rt.session.send(`Message from the manager (they read your reply on their phone, so keep it short):\n${t}`);
       return;
     }
