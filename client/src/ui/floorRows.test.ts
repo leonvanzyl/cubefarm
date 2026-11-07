@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CliView } from '../../../shared/types';
 import type { Agent } from '../store';
-import { agentLabel, doingText, floorRows, signInFor } from './floorRows';
+import { agentLabel, ceoJob, doingText, floorRows, signInFor } from './floorRows';
 
 const agent = (p: Partial<Agent>): Agent =>
   ({ id: 'a', name: 'Ada', role: 'agent', cli: '', status: 'idle', task: null, issueNumber: null, issueTitle: null, prNumber: null, desk: 0, ...p }) as Agent;
@@ -16,6 +16,14 @@ describe('doingText', () => {
     expect(doingText(agent({ status: 'working', task: 'qa', prNumber: 40, issueTitle: 'Dark mode' }))).toBe('Testing PR #40: Dark mode');
     expect(doingText(agent({ role: 'ceo', status: 'working', issueTitle: 'Reviewing the company' }))).toBe('Reviewing the company');
     expect(doingText(agent({ role: 'ceo' }))).toBe('Free for a chat');
+    expect(doingText(agent({ role: 'ceo', status: 'done', issueTitle: 'Onboarding floor 3 · davekost' }))).toBe('Free for a chat');
+  });
+});
+
+describe('ceoJob', () => {
+  it("shows the CEO's job only while its session runs", () => {
+    expect(ceoJob(agent({ role: 'ceo', status: 'working', issueTitle: 'Replying to you' }))).toBe('Replying to you');
+    for (const status of ['done', 'error', 'stopped', 'idle'] as const) expect(ceoJob(agent({ role: 'ceo', status, issueTitle: 'Onboarding floor 3 · davekost' }))).toBeNull();
   });
 });
 

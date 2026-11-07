@@ -5,6 +5,7 @@ import { VisitorsList } from './VisitorsList';
 import { dialogOpen } from './dialogFocus';
 import { isKey, useKeyName } from './controls';
 import { Key } from './Key';
+import { ceoJob } from './floorRows';
 
 // Who is busy with what, across the whole company: everyone working right now with their project and their latest
 // thought, reply or tool call. Idle workers are left out; the floor you're on comes first. Click someone to watch
@@ -24,7 +25,7 @@ function latest(l: LogLine | undefined): { text: string; kind: LogLine['kind']; 
 }
 
 function doing(a: Agent) {
-  if (a.role === 'ceo') return a.issueTitle;
+  if (a.role === 'ceo') return ceoJob(a);
   if (a.task === 'qa') return `QA · PR #${a.prNumber}`;
   if (a.task === 'fix') return `fixing PR #${a.prNumber}`;
   return a.issueNumber ? `#${a.issueNumber}` : null;

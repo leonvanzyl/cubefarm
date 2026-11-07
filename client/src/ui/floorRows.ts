@@ -51,9 +51,14 @@ export function signInFor(a: Pick<Agent, 'cli' | 'role' | 'host' | 'needsSignIn'
   return a.role !== 'ceo' && a.host === 'box' && a.needsSignIn ? CLI_NAMES[a.cli || settings.defaultCli] : null;
 }
 
+/** What the CEO is on, only while its session runs: a finished job's label isn't news. */
+export function ceoJob(a: Pick<Agent, 'status' | 'issueTitle'>): string | null {
+  return a.status === 'working' ? a.issueTitle : null;
+}
+
 /** What someone is on, in words. */
 export function doingText(a: Pick<Agent, 'role' | 'status' | 'task' | 'issueNumber' | 'issueTitle' | 'prNumber'>): string {
-  if (a.role === 'ceo') return a.status === 'working' ? (a.issueTitle ?? 'Working') : 'Free for a chat';
+  if (a.role === 'ceo') return a.status === 'working' ? (ceoJob(a) ?? 'Working') : 'Free for a chat';
   if (a.status === 'idle') return 'Nothing assigned';
   if (a.task === 'qa') return a.prNumber ? `Testing PR #${a.prNumber}${a.issueTitle ? `: ${a.issueTitle}` : ''}` : 'Testing';
   if (a.task === 'fix' && a.prNumber) return `Fixing PR #${a.prNumber}${a.issueTitle ? `: ${a.issueTitle}` : ''}`;

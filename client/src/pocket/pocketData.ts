@@ -3,6 +3,7 @@
 import type { HireRequestView, QaView, RepoView } from '../../../shared/types';
 import { needsManager } from '../qaCard';
 import type { Agent, KanbanColumns } from '../store';
+import { ceoJob } from '../ui/floorRows';
 
 export interface Pipeline {
   backlog: number;
@@ -54,7 +55,8 @@ export function assignChoices(cols: KanbanColumns | null): AssignChoice[] {
 }
 
 /** One short line on what they're doing. */
-export function doing(a: Pick<Agent, 'status' | 'task' | 'issueNumber' | 'issueTitle' | 'prNumber'>): string {
+export function doing(a: Pick<Agent, 'status' | 'task' | 'issueNumber' | 'issueTitle' | 'prNumber'> & { role?: Agent['role'] }): string {
+  if (a.role === 'ceo') return a.status === 'working' ? (ceoJob(a) ?? 'Working') : 'Free for a chat';
   if (a.status === 'idle') return 'Free';
   if (a.task === 'qa') return `Testing PR #${a.prNumber ?? '?'}${a.issueTitle ? `: ${a.issueTitle}` : ''}`;
   if (a.task === 'fix') return `Fixing PR #${a.prNumber ?? '?'}${a.issueTitle ? `: ${a.issueTitle}` : ''}`;
