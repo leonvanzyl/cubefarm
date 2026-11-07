@@ -551,6 +551,7 @@ export class Swarm {
     });
   }
   private ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB); // issues filed during the current CEO job
+  private ceoReplying = false; // the manager wrote into the current CEO job: its views say it's replying
   private ceoAsked = false; // the manager asked for work in the current CEO job (a plan, or a message): only then are issues filed
   private messageSeq = 1;
   private agentRt = new Map<string, AgentRuntime>();
@@ -4254,7 +4255,7 @@ export class Swarm {
     const min = this.state.settings.ceoHeartbeatMin;
     return {
       queue: c.queue.map(view),
-      job: c.job ? view(c.job) : null,
+      job: c.job ? view(this.ceoReplying ? { kind: 'chat', at: c.job.at } : c.job) : null,
       lastReviewAt: c.lastReviewAt,
       nextReviewAt: min > 0 && c.lastReviewAt ? c.lastReviewAt + min * 60_000 : null,
     };
@@ -4330,6 +4331,7 @@ export class Swarm {
     }
     this.ceoIssues = new IssueCap(MAX_ISSUES_PER_JOB);
     this.ceoAsked = askedFor(job);
+    this.ceoReplying = false;
     this.emitAgent(a);
     this.emitCeo();
     this.save();
@@ -4391,6 +4393,7 @@ export class Swarm {
     recordCost(this.state.ops, '', result.costUsd, a.endedAt);
     const job = this.state.ceo.job;
     this.state.ceo.job = null;
+    this.ceoReplying = false;
     if (job?.kind === 'triage') this.endTriage(job);
     if (result.interrupted) this.interrupted(a);
     if (a.status === 'stopped') {
@@ -4424,9 +4427,11 @@ export class Swarm {
       this.appendLog(a, [{ kind: 'manager', text: `▶ Manager: ${t}` }]);
       this.ceoIssues.managerMessage(); // a new request: the issue cap counts from here
       this.ceoAsked = true;
-      // The CEO is answering now; state.ceo.job stays the original, so triage cleanup and the issue rules still follow it.
+      // The CEO is answering now (its views say so); state.ceo.job stays the original, so triage cleanup and the issue rules still follow it.
       a.issueTitle = jobLabel({ kind: 'chat', at: Date.now() }, null);
+      this.ceoReplying = true;
       this.emitAgent(a);
+      this.emitCeo();
       rt.session.send(`Message from the manager (they read your reply on their phone, so keep it short):\n${t}`);
       return;
     }

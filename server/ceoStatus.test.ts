@@ -10,6 +10,7 @@ type Internals = {
   ensureCeo(interrupted: unknown[]): void;
   ceo(): { status: string; issueTitle: string | null };
   runCeoJob(a: unknown, job: CeoJob): Promise<void>;
+  ceoInfo(): { job: { kind: string; label: string } | null };
   state: { ceo: { job: CeoJob | null } };
 };
 
@@ -33,18 +34,22 @@ describe("the CEO's status", () => {
   it("switches to the reply when the manager writes mid-job, and keeps the job's own record", async () => {
     const { swarm, internals, ceo, sent } = await office();
     expect(ceo.issueTitle).toBe('Reviewing the company');
+    expect(internals.ceoInfo().job).toEqual({ kind: 'review', label: 'Reviewing the company' });
     await swarm.messageCeo('How is floor 1 doing?');
     expect(sent).toHaveLength(1);
     expect(ceo.issueTitle).toBe('Replying to you');
     expect(internals.state.ceo.job?.kind).toBe('review');
+    // what the phone, the pocket view, the lobby and the console read
+    expect(internals.ceoInfo().job).toEqual({ kind: 'chat', label: 'Replying to you' });
   });
 
   it('clears the job label when the session ends, done or failed', async () => {
     for (const ok of [true, false]) {
-      const { ceo, finish } = await office();
+      const { internals, ceo, finish } = await office();
       finish(ok);
       expect(ceo.status).toBe(ok ? 'done' : 'error');
       expect(ceo.issueTitle).toBeNull();
+      expect(internals.ceoInfo().job).toBeNull();
     }
   });
 });
